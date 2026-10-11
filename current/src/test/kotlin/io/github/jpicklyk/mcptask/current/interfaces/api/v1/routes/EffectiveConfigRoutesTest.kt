@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -106,7 +107,7 @@ private fun Application.configureEffectiveConfigTestApp(
     authConfig: ApiAuthConfig = makeTestAuthConfig(),
 ) {
     configureTestApp(authConfig) {
-        effectiveConfigRoutes(repositoryProvider, configResolver)
+        effectiveConfigRoutes(repositoryProvider, configResolver, ServerConfigSource { null })
     }
 }
 
@@ -118,8 +119,8 @@ private fun Application.configureEffectiveAndLegacyConfigTestApp(
     authConfig: ApiAuthConfig = makeTestAuthConfig(),
 ) {
     configureTestApp(authConfig) {
-        effectiveConfigRoutes(repositoryProvider, configResolver)
-        configRoutes(schemaService)
+        effectiveConfigRoutes(repositoryProvider, configResolver, ServerConfigSource { null })
+        configRoutesOver { schemaService }
     }
 }
 
@@ -957,7 +958,7 @@ class EffectiveConfigRoutesEdgeTest {
                     serverName = "s22-test",
                     serverVersion = "1.0.0",
                     actorAuthEnabled = false,
-                    noteSchemaService = schemaService,
+                    serverConfig = ServerConfigSource { null },
                     toolContext =
                         ToolExecutionContext(
                             repo,

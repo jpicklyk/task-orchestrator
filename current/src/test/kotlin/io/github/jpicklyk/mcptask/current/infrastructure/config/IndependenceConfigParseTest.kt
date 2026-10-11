@@ -173,6 +173,7 @@ class IndependenceConfigParseTest {
         return io.github.jpicklyk.mcptask.current.interfaces.mcp
             .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = ShutdownCoordinator())
             .build()
+            .also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(

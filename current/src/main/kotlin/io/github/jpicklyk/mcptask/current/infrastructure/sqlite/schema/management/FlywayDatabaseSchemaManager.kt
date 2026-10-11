@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupCompaction
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
@@ -50,7 +49,7 @@ import java.util.UUID
  */
 class FlywayDatabaseSchemaManager(
     private val jdbcUrl: String,
-    private val repair: Boolean = EnvBoolean.parse("FLYWAY_REPAIR", System.getenv("FLYWAY_REPAIR"), default = false),
+    private val repair: Boolean = false,
     private val busyTimeoutMs: Long = 5000L,
     private val schemaMode: SchemaMode = SchemaMode.MIGRATE,
     private val lockTimeoutMs: Long = LOCK_TIMEOUT_MS,

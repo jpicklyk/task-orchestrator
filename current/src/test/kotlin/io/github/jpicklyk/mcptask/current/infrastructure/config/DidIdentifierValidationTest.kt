@@ -110,7 +110,14 @@ class DidIdentifierValidationTest {
             coEvery { registry.resolve(did) } returns doc
 
             val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             val result = provider.getKeySetForIssuer(did)
             assertNotNull(result.keys)
@@ -128,7 +135,14 @@ class DidIdentifierValidationTest {
 
             val config =
                 VerifierConfig.Jwks(didPattern = "did:web:*.example.com%3A8443", cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             val result = provider.getKeySetForIssuer(did)
             assertNotNull(result.keys)
@@ -146,7 +160,14 @@ class DidIdentifierValidationTest {
             coEvery { registry.resolve(did) } returns doc
 
             val config = VerifierConfig.Jwks(didAllowlist = listOf(did), cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             val result = provider.getKeySetForIssuer(did)
             assertNotNull(result.keys)
@@ -169,7 +190,13 @@ class DidIdentifierValidationTest {
                 val registry = mockk<DidResolverRegistry>()
                 val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
                 val provider =
-                    DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+                    DefaultJwksKeySetProvider(
+                        config,
+                        java.nio.file.Path
+                            .of("."),
+                        clock = fixedClock(),
+                        didResolverRegistry = registry
+                    )
 
                 val ex =
                     assertThrows<DidSecurityViolationException> {
@@ -227,7 +254,13 @@ class DidIdentifierValidationTest {
 
             val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
             val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
-            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    didResolverRegistry = registry
+                )
             val verifier = JwksActorVerifier(config = config, keySetProvider = provider)
 
             val result =
@@ -277,7 +310,13 @@ class DidIdentifierValidationTest {
                 val registry = mockk<DidResolverRegistry>()
                 val config = VerifierConfig.Jwks(didPattern = "did:web:*", cacheTtlSeconds = 300)
                 val provider =
-                    DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+                    DefaultJwksKeySetProvider(
+                        config,
+                        java.nio.file.Path
+                            .of("."),
+                        clock = fixedClock(),
+                        didResolverRegistry = registry
+                    )
 
                 val ex =
                     assertThrows<DidSecurityViolationException> {
@@ -304,7 +343,13 @@ class DidIdentifierValidationTest {
                 val config =
                     VerifierConfig.Jwks(didPattern = "did:web:example.com:agents:*", cacheTtlSeconds = 300)
                 val provider =
-                    DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+                    DefaultJwksKeySetProvider(
+                        config,
+                        java.nio.file.Path
+                            .of("."),
+                        clock = fixedClock(),
+                        didResolverRegistry = registry
+                    )
 
                 val ex =
                     assertThrows<DidSecurityViolationException> {
@@ -324,7 +369,14 @@ class DidIdentifierValidationTest {
             val did = "did:web:agents.x%3A1"
             val registry = mockk<DidResolverRegistry>()
             val config = VerifierConfig.Jwks(didPattern = "did:web:agents.*", cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             assertThrows<IssuerNotTrustedException> {
                 provider.getKeySetForIssuer(did)
@@ -348,7 +400,14 @@ class DidIdentifierValidationTest {
             coEvery { registry.resolve(did) } returns doc
 
             val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             assertTrue(provider.matchesGlob(did, pattern))
 
@@ -367,7 +426,14 @@ class DidIdentifierValidationTest {
             val spaceDid = "did:web:example.com:agents:abc%20def"
             val registry = mockk<DidResolverRegistry>()
             val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
-            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    clock = fixedClock(),
+                    didResolverRegistry = registry
+                )
 
             assertTrue(!provider.matchesGlob(spaceDid, pattern))
             assertDoesNotThrow { validateDidWebIdentifier("example.com:agents:abc%20def") }
@@ -401,7 +467,13 @@ class DidIdentifierValidationTest {
                 val registry = DidResolverRegistry(listOf(DidWebResolver(providerEngine)))
                 val config = VerifierConfig.Jwks(didPattern = "did:web:h.example.com:*", cacheTtlSeconds = 300)
                 val provider =
-                    DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+                    DefaultJwksKeySetProvider(
+                        config,
+                        java.nio.file.Path
+                            .of("."),
+                        clock = fixedClock(),
+                        didResolverRegistry = registry
+                    )
 
                 val providerEx =
                     assertThrows<DidSecurityViolationException> {

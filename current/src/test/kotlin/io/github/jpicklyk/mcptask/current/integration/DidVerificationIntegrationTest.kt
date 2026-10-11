@@ -285,6 +285,9 @@ class DidVerificationIntegrationTest {
         val provider =
             DefaultJwksKeySetProvider(
                 config = config,
+                configBaseDir =
+                    java.nio.file.Path
+                        .of("."),
                 didResolverRegistry = registry,
                 didDocumentJwksExtractor = extractor
             )

@@ -137,7 +137,7 @@ work_item_schemas:
                 appConfig = appConfig,
                 databaseManager = buildDatabaseManager(),
                 shutdownCoordinator = ShutdownCoordinator()
-            ).build()
+            ).build().also { runBlocking { it.dataStepRunner.run() } }
         return composition.toolContext
     }
 

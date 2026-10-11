@@ -108,7 +108,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config returns 200 with snapshot`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -131,7 +131,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config schemas returns all schemas`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/schemas") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -147,7 +147,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config schemas has correct shape for feature-task`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/schemas") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -164,7 +164,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config schemas type returns single schema`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/schemas/feature-task") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -179,7 +179,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config schemas unknown type returns 404`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/schemas/nonexistent-type") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -194,7 +194,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config traits returns trait definitions`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/traits") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -212,7 +212,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config types returns type names`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/types") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -228,7 +228,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config status-graph returns structural graph`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/status-graph") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -245,7 +245,7 @@ class ConfigRoutesTest {
     @Test
     fun `status-graph feature-task work-start goes to review`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/status-graph") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -260,7 +260,7 @@ class ConfigRoutesTest {
     @Test
     fun `status-graph simple-task work-start goes to terminal`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/status-graph") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -274,7 +274,7 @@ class ConfigRoutesTest {
     @Test
     fun `status-graph blocked row has previousRole sentinel`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/status-graph") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -291,7 +291,7 @@ class ConfigRoutesTest {
     @Test
     fun `status-graph terminal row has only reopen-to-queue`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/status-graph") {
                     header("Authorization", "Bearer $TEST_TOKEN")
@@ -368,7 +368,7 @@ class ConfigRoutesTest {
     @Test
     fun `same config fingerprint produces identical ETag on two reads`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = "stable-fp")) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService(fingerprint = "stable-fp") } } }
             val r1 = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
             val r2 = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r1.status)
@@ -382,7 +382,7 @@ class ConfigRoutesTest {
     @Test
     fun `If-None-Match with current ETag returns 304`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val r1 = client.get("/api/v1/config/schemas") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r1.status)
             val etag = r1.headers[HttpHeaders.ETag] ?: error("ETag header missing from first response")
@@ -402,7 +402,7 @@ class ConfigRoutesTest {
         // it would pass even if the route ignored the fingerprint and returned a constant ETag.
         var etag1: String? = null
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = "fingerprint-A")) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService(fingerprint = "fingerprint-A") } } }
             etag1 =
                 client
                     .get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -410,7 +410,7 @@ class ConfigRoutesTest {
         }
         var etag2: String? = null
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = "fingerprint-B")) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService(fingerprint = "fingerprint-B") } } }
             etag2 =
                 client
                     .get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -424,7 +424,7 @@ class ConfigRoutesTest {
     @Test
     fun `null fingerprint produces stable no-config ETag`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = null)) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService(fingerprint = null) } } }
             val r1 = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
             val r2 = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r1.status)
@@ -439,7 +439,7 @@ class ConfigRoutesTest {
     @Test
     fun `GET config without auth token returns 401`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response = client.get("/api/v1/config")
             assertEquals(HttpStatusCode.Unauthorized, response.status)
         }
@@ -449,7 +449,7 @@ class ConfigRoutesTest {
     @Test
     fun `NoteSchemaEntryDto includes skill and guidance when present`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { FakeSchemaService() } } }
             val response =
                 client.get("/api/v1/config/traits") {
                     header("Authorization", "Bearer $TEST_TOKEN")

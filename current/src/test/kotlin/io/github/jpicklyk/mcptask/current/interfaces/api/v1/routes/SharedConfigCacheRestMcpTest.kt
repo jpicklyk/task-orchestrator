@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -71,7 +72,7 @@ class SharedConfigCacheRestMcpTest {
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
-            effectiveConfigRoutes(provider, ctx.configResolver)
+            effectiveConfigRoutes(provider, ctx.configResolver, ServerConfigSource { null })
         }
     }
 

@@ -89,7 +89,7 @@ class RestCallLogTest {
             serverName = "p10-rest-call-log",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
             callLog = writer
@@ -376,7 +376,7 @@ class RestCallLogTest {
                     serverName = "p10-http",
                     serverVersion = "test",
                     actorAuthEnabled = rig.composition.actorAuthEnabled,
-                    noteSchemaService = rig.composition.noteSchemaService,
+                    serverConfig = rig.composition.serverConfig,
                     toolContext = rig.composition.toolContext,
                     degradedModePolicy = rig.composition.degradedModePolicy,
                     callLog = writer

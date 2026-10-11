@@ -1,8 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.DocumentSchemaCatalog
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ConfigJsonSchema
@@ -20,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphB
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
@@ -34,7 +39,9 @@ private const val FINGERPRINT_ETAG_PREFIX = "\"cfg-"
  * Registers the read-only config/schema-discovery routes under `/api/v1/config*`.
  *
  * All endpoints require [ApiCapability.READ] and emit an ETag derived from the
- * config-file fingerprint (stable across reads; 304 when `If-None-Match` matches).
+ * stored server config head's fingerprint (stable across reads; 304 when `If-None-Match` matches). Each request reads
+ * the head through [serverConfig] (the database, never the file), so a version appended by another process is served
+ * on the next request; an unreadable head answers 503 `config_unavailable`, an unloadable one 422 `config_invalid`.
  *
  * Endpoints:
  * - `GET /config`            — [ConfigSnapshotDto] with all schemas, traits, types, status-graph
@@ -47,14 +54,21 @@ private const val FINGERPRINT_ETAG_PREFIX = "\"cfg-"
  *   `application/schema+json` with a strong ETag. Same auth as the other config routes; the body is the schema
  *   document itself, not an envelope.
  */
-fun Route.configRoutes(schemaService: WorkItemSchemaService) {
+fun Route.configRoutes(serverConfig: ServerConfigSource) = configRoutesOver { DocumentSchemaCatalog(serverConfig.layer()) }
+
+/**
+ * [configRoutes] over an arbitrary per-request [catalogProvider] (the routes call it once per request, inside the
+ * fault mapping). Internal seam: tests mount the routes over a hand-built catalog.
+ */
+internal fun Route.configRoutesOver(catalogProvider: suspend () -> WorkItemSchemaService) {
     val graphBuilder = StatusGraphBuilder()
 
     requireCapability(ApiCapability.READ) {
         route("/config") {
             // GET /config — full snapshot
             get {
-                val etag = fingerprintEtag(schemaService)
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
@@ -62,15 +76,15 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                 }
                 call.response.header(HttpHeaders.ETag, etag)
 
-                val allSchemas = schemaService.getAllSchemas()
-                val allTraits = schemaService.getAllTraits()
+                val allSchemas = catalog.getAllSchemas()
+                val allTraits = catalog.getAllTraits()
                 val graph = graphBuilder.buildStatusGraph(allSchemas)
 
                 call.respond(
                     HttpStatusCode.OK,
                     ConfigSnapshotDto(
                         schemas = allSchemas.values.map { it.toDto() },
-                        traits = allTraits.entries.map { (name, entries) -> buildTraitDto(name, entries, schemaService) },
+                        traits = allTraits.entries.map { (name, entries) -> buildTraitDto(name, entries, catalog) },
                         types = allSchemas.keys.toList().sorted(),
                         statusGraph = graph,
                         defaultSchema = allSchemas["default"]?.toDto(),
@@ -80,29 +94,31 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
 
             // GET /config/schemas — all schemas
             get("/schemas") {
-                val etag = fingerprintEtag(schemaService)
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                call.respond(HttpStatusCode.OK, schemaService.getAllSchemas().values.map { it.toDto() })
+                call.respond(HttpStatusCode.OK, catalog.getAllSchemas().values.map { it.toDto() })
             }
 
             // GET /config/schemas/{type} — single schema
             get("/schemas/{type}") {
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
                 val typeName =
                     call.parameters["type"] ?: run {
                         call.respondError(LegacyRestCode.BAD_REQUEST, "Missing type parameter")
                         return@get
                     }
-                val schema = schemaService.getAllSchemas()[typeName]
+                val schema = catalog.getAllSchemas()[typeName]
                 if (schema == null) {
                     call.respondError(LegacyRestCode.NOT_FOUND, "No schema registered for type '$typeName'")
                     return@get
                 }
-                val etag = fingerprintEtag(schemaService)
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
@@ -114,7 +130,8 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
 
             // GET /config/traits — all trait definitions
             get("/traits") {
-                val etag = fingerprintEtag(schemaService)
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
@@ -122,15 +139,16 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                 }
                 call.response.header(HttpHeaders.ETag, etag)
                 val traits =
-                    schemaService.getAllTraits().entries.map { (name, entries) ->
-                        buildTraitDto(name, entries, schemaService)
+                    catalog.getAllTraits().entries.map { (name, entries) ->
+                        buildTraitDto(name, entries, catalog)
                     }
                 call.respond(HttpStatusCode.OK, traits)
             }
 
             // GET /config/types — list of type names
             get("/types") {
-                val etag = fingerprintEtag(schemaService)
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
@@ -139,7 +157,7 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                 call.response.header(HttpHeaders.ETag, etag)
                 call.respond(
                     HttpStatusCode.OK,
-                    schemaService
+                    catalog
                         .getAllSchemas()
                         .keys
                         .toList()
@@ -160,18 +178,34 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
 
             // GET /config/status-graph — structural transition graph
             get("/status-graph") {
-                val etag = fingerprintEtag(schemaService)
+                val catalog = call.serverCatalog(catalogProvider) ?: return@get
+                val etag = fingerprintEtag(catalog)
                 if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                     call.response.header(HttpHeaders.ETag, etag)
                     call.respond(HttpStatusCode.NotModified)
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                call.respond(HttpStatusCode.OK, graphBuilder.buildStatusGraph(schemaService.getAllSchemas()))
+                call.respond(HttpStatusCode.OK, graphBuilder.buildStatusGraph(catalog.getAllSchemas()))
             }
         }
     }
 }
+
+/**
+ * Reads the server head for this request and views it as a catalog. A transient read fault answers 503
+ * `config_unavailable` and an unloadable head 422 `config_invalid` (never absence); null means a response was sent.
+ */
+private suspend fun ApplicationCall.serverCatalog(catalogProvider: suspend () -> WorkItemSchemaService): WorkItemSchemaService? =
+    try {
+        catalogProvider()
+    } catch (e: PerRootConfigUnavailableException) {
+        respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+        null
+    } catch (e: PerRootConfigInvalidException) {
+        respondError(LegacyRestCode.CONFIG_INVALID, e.message)
+        null
+    }
 
 /** Returns an ETag string derived from the config fingerprint, or a static sentinel when no config. */
 private fun fingerprintEtag(schemaService: WorkItemSchemaService): String {

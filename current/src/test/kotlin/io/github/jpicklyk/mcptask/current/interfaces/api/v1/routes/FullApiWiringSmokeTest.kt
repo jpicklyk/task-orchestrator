@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -91,7 +91,7 @@ abstract class FullApiWiringSmokeScenarios(
                 itemRoutes(decorated)
                 transitionRoutes(decorated)
                 // Phase 4 config
-                configRoutes(NoOpNoteSchemaService)
+                configRoutes(ServerConfigSource { null })
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
                 projectConfigRoutes(decorated, ConfigService(decorated, YamlConfigDocumentParser, db.unitOfWork()))
             }

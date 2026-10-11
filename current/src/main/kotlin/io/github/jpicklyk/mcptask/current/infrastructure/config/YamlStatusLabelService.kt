@@ -15,7 +15,7 @@ import java.nio.file.Path
  * Reads status label mappings from `.taskorchestrator/config.yaml` under the `status_labels` section.
  *
  * Two constructors:
- *  - `YamlStatusLabelService(configPath)` (or its default): the ORIGINAL lenient, independent
+ *  - `YamlStatusLabelService(configPath)`: the ORIGINAL lenient, independent
  *    loader — its own SafeConstructor-based `Yaml`/`FileReader` read, swallowing any error into NoOp defaults. Kept
  *    unchanged for backward compatibility (existing tests, and the `ItemWriteRoutes.kt` default
  *    parameter) — a typealias could not preserve this constructor, which is why this class was NOT
@@ -44,7 +44,7 @@ class YamlStatusLabelService private constructor(
     private val configPath: Path?,
     private val globalConfig: GlobalConfigFile?,
 ) : StatusLabelService {
-    constructor(configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()) : this(configPath, null)
+    constructor(configPath: Path) : this(configPath, null)
 
     constructor(globalConfig: GlobalConfigFile) : this(null, globalConfig)
 

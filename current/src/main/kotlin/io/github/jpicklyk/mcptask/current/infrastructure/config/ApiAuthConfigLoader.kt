@@ -34,11 +34,11 @@ private const val DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 86400L
  * [IllegalStateException] with a descriptive message.  The caller (main entrypoint) must
  * treat this as a fatal startup failure and exit non-zero.
  *
- * @param envResolver Injectable resolver for environment variables.  Defaults to
- *   [System::getenv].  Tests inject a fake to avoid mutating the JVM environment.
+ * @param envResolver Resolver for environment variables; defaults to "nothing set". The composition root passes the
+ *   resolver behind `AppConfig`, so this class never reads the process environment itself.
  */
 class ApiAuthConfigLoader(
-    private val envResolver: (String) -> String? = System::getenv,
+    private val envResolver: (String) -> String? = { null },
 ) {
     private val logger = LoggerFactory.getLogger(ApiAuthConfigLoader::class.java)
 

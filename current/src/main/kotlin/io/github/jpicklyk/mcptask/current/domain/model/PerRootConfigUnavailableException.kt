@@ -21,7 +21,8 @@ import java.util.UUID
  * to apply its own backoff, per the documented `ErrorKind` contract.
  */
 class PerRootConfigUnavailableException(
-    val rootId: UUID,
+    /** The project root whose read failed; null = the server-scope config. */
+    val rootId: UUID?,
     override val message: String,
     cause: Throwable? = null
 ) : RuntimeException(message, cause) {

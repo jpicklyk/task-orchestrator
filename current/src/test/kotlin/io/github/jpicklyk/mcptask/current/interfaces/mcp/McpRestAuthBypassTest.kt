@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -92,11 +92,11 @@ class McpRestAuthBypassTest {
                     serverName = "auth-bypass-test",
                     serverVersion = "1.0.0",
                     actorAuthEnabled = false,
-                    noteSchemaService = NoOpNoteSchemaService,
+                    serverConfig = ServerConfigSource { null },
                     toolContext =
                         ToolExecutionContext(
                             provider,
-                            statusLabelService = YamlStatusLabelService(),
+                            statusLabelService = NoOpStatusLabelService,
                             perRootConfigService = PerRootConfigService(provider.configStore()),
                             unitOfWork = db.unitOfWork()
                         ),

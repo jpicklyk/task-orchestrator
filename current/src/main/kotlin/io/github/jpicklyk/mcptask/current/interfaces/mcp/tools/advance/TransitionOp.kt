@@ -11,11 +11,13 @@ import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValid
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -103,6 +105,8 @@ private suspend fun WriteScope.runTransition(
             }
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))
+        } catch (e: PerRootConfigInvalidException) {
+            return Outcome.Err(e.toDomainError())
         }
 
     return when (outcome) {

@@ -198,7 +198,7 @@ class SeatlessResponseGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
+        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
         val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
     )
 
@@ -291,7 +291,7 @@ class SeatlessResponseGoldenTest {
         return Fixture(
             toolContext = composition.toolContext,
             repositoryProvider = repo,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             degradedModePolicy = composition.degradedModePolicy,
         )
     }
@@ -557,7 +557,7 @@ class SeatlessResponseGoldenTest {
                     serverName = "a1-t0-golden",
                     serverVersion = "test",
                     actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
+                    serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
                 )
@@ -584,7 +584,7 @@ class SeatlessResponseGoldenTest {
                     serverName = "a1-t0-golden",
                     serverVersion = "test",
                     actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
+                    serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
                 )
