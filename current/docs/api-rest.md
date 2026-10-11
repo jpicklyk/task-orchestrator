@@ -894,19 +894,17 @@ as `SchemaDto`/the MCP type-path): it reports each type's RESOLVED BASE schema o
   "configYaml": "work_item_schemas:\n  ...",
   "warning": "string|null",
   "relation": "current|superseded|unknown|null",
-  "ignoredSections": ["actor_authentication"],
-  "schemaWarnings": ["Schema 'feature-task' entry[2] (key='spec') has invalid role 'plan' (valid: queue, work, review); skipping"]
+  "schemaWarnings": ["Schema 'feature-task': required note 'spec' (role 'work') is not owned by any declared seat; listed under 'unowned' in missingBySeat"]
 }
 ```
 `configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
 root's `type` is not `"project"` (non-fatal — the push still succeeds). `relation` is populated on
-`GET` only, and only when `?fingerprint=` was supplied — see §18. `ignoredSections` is populated on
-`PUT` only, and only when the pushed document contains top-level keys the per-root resolution layer
-does not honor (e.g. `actor_authentication`, which stays global-only) — omitted entirely when empty.
-`schemaWarnings` is populated on `PUT` only, and only when `YamlSchemaParser` produced per-entry
-warnings while parsing the pushed document (e.g. an invalid note `role`) — omitted entirely when
-empty; the push still succeeds and the config is still stored regardless of `schemaWarnings`. See
-§18 for the full list of honored per-root keys.
+`GET` only, and only when `?fingerprint=` was supplied — see §18. `schemaWarnings` is populated on
+`PUT` only, and only for advisory findings (a resource key declared by three or more traits, a required
+note no declared seat owns) — omitted entirely when empty; the push still succeeds and the config is
+still stored regardless of `schemaWarnings`. The 3.x `ignoredSections` field was removed in 4.0: a key
+the per-root layer does not honor is now rejected, not ignored. See §18 and the
+[config reference](config-reference.md).
 
 **PlanDocumentResponseDto** (see §19):
 ```json
@@ -1799,6 +1797,14 @@ Sorted list of registered type name strings.
 
 **Response:** `200 OK` → `List<String>`
 
+### GET /config/schema
+
+The JSON Schema (draft 2020-12) every config document is validated against, byte for byte.
+
+**Response:** `200 OK`, `Content-Type: application/schema+json`, the schema document itself (not an
+envelope), with a strong `ETag` that changes exactly when the schema does; `If-None-Match` with that ETag
+returns `304`. Same capability as the other `/config*` reads. See the [config reference](config-reference.md).
+
 ### GET /config/status-graph
 
 Structural role-transition graph across all schema types, derived from the transition table the
@@ -1850,6 +1856,9 @@ compare-and-set precondition the caller supplied for this request is still enfor
 5. Unless `?force=true`: if the parsed document embeds a top-level `project.rootId` that parses as
    a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
    is not an error - the push proceeds as if it were absent)
+5a. The document is validated strictly (JSON Schema structure, the parser's former soft skips, and the
+   semantic rules; see the [config reference](config-reference.md)). Any error rejects the push as
+   `422 parse_error` with the errors in `details`. `?force=true` does not bypass this step.
 6. Unless `?force=true`: the incoming `configYaml`'s fingerprint is classified against `{rootId}`'s
    stored versions, and
 7. optional `If-Match` (see below) is compared against `{rootId}`'s head -
@@ -1869,25 +1878,28 @@ compare-and-set precondition the caller supplied for this request is still enfor
 **Identical re-push.** A body whose fingerprint equals the head's appends nothing: no new version, no event,
 `200 OK` with the head's own `version`, ETag and `"appended": false`.
 
-On success, the parsed document's top-level keys are checked against the honored allowlist -
-`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
-`independence` - and any other key present (e.g. `actor_authentication`, which stays global-only - see
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
-is reported in the response's `ignoredSections` array so a push is never silently partial.
-A per-root `resources:` registry is not honored (the resource registry is server-only) and is
-reported in `ignoredSections`, and so is the removed 3.x `schema_resolution` key; a document carrying
-`schema_resolution` also gets one `schemaWarnings` entry saying the key was removed.
+**Strict validation (4.0).** A pushed document may carry only the keys a per-root config owns:
+`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`, `independence` and
+`extensions` (an opaque mapping of namespaces for plugin and hook settings, for example
+`extensions.claude-code`). Anything else is an error, not an ignored key: the server-only `resources` and
+`actor_authentication`, the removed `schema_resolution`, the 3.x top-level plugin sections (`orchestration`,
+`retrospective`, `actor_attribution`; move them under `extensions.claude-code`), and every unknown key. A
+trait or resource the document references must exist in the document or in the server config. Documents
+already stored from 3.x keep loading; only a new push is strict. The rejection lists every problem as an
+RFC 6901 `path` plus a `reason`; see the [config reference](config-reference.md).
 
 **Responses:**
 - `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `version` is the head
-  version after the push and `appended` is `false` for an identical re-push; `ignoredSections`
-  and `schemaWarnings` present only when non-empty). `schemaWarnings` carries per-entry parse
-  warnings from `YamlSchemaParser` (e.g. an invalid note `role` value) - the push still succeeds
-  and the config is still stored even when warnings are present; only a hard parse/shape failure
-  (guards 1-6 above) short-circuits the push. `ETag: "cfg-v<version>"`
+  version after the push and `appended` is `false` for an identical re-push; `schemaWarnings`
+  present only when non-empty). `schemaWarnings` carries advisory findings only (resource fan-out, a
+  required note no seat owns) - the push still succeeds and the config is still stored when they are
+  present. `ETag: "cfg-v<version>"`
 - `404 not_found` - `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` - `{rootId}` is not depth-0
-- `422 parse_error` - `configYaml` failed SafeConstructor parse-validation
+- `422 parse_error` - `configYaml` failed SafeConstructor parse-validation, or failed strict
+  validation. For validation, `details` is `{"errors": [{"path": "/orchestration", "reason": "..."}],
+  "warnings": [...]}` (`warnings` only when non-empty; `path` is an RFC 6901 JSON Pointer, the root is
+  `""`) and nothing is stored. A structural seat error carries its one error in `details.errors` too.
 - `422 rootid_mismatch` - `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
   names both ids); retry with `?force=true` to bypass
 - `409 superseded` - `configYaml`'s fingerprint is known-old (guard 6 above); message names the

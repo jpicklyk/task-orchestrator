@@ -92,7 +92,7 @@ class ManageProjectConfigToolSchemaWarningsTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S12 push with an invalid role surfaces the warning text under data schemaWarnings`() {
+    fun `S12 push with an invalid role is rejected and the error names the path and the bad role`() {
         val yaml =
             """
             work_item_schemas:
@@ -104,13 +104,35 @@ class ManageProjectConfigToolSchemaWarningsTest {
 
         val result = push(rootId.toString(), yaml)
 
-        assertTrue(isSuccess(result), "a soft schema warning must never reject the push")
+        assertTrue(!isSuccess(result), "a former soft skip must reject the push: $result")
+        val errors = ((result as JsonObject)["data"] as JsonObject)["errors"]!!.jsonArray.map { it as JsonObject }
+        val error = errors.single { it["path"]!!.jsonPrimitive.content == "/work_item_schemas/feature-task/notes/0/role" }
+        val reason = error["reason"]!!.jsonPrimitive.content
+        assertTrue(reason.contains("feature-task"), "reason should name the schema: $reason")
+        assertTrue(reason.contains("spec"), "reason should name the entry's key: $reason")
+        assertTrue(reason.contains("not-a-role"), "reason should name the bad role value: $reason")
+    }
+
+    @Test
+    fun `S12b push with an advisory finding surfaces the warning text under data schemaWarnings`() {
+        val yaml =
+            """
+            work_item_schemas:
+              feature-task:
+                seats:
+                  - { name: impl, phase: work, enters: true }
+                notes:
+                  - key: spec
+                    role: work
+                    required: true
+            """.trimIndent()
+
+        val result = push(rootId.toString(), yaml)
+
+        assertTrue(isSuccess(result), "an advisory finding must never reject the push: $result")
         val schemaWarnings = dataOf(result)["schemaWarnings"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertEquals(1, schemaWarnings.size, "expected exactly one warning: $schemaWarnings")
-        val warning = schemaWarnings.single()
-        assertTrue(warning.contains("feature-task"), "warning should name the schema: $warning")
-        assertTrue(warning.contains("spec"), "warning should name the entry's key: $warning")
-        assertTrue(warning.contains("not-a-role"), "warning should name the bad role value: $warning")
+        assertTrue(schemaWarnings.single().contains("feature-task") && schemaWarnings.single().contains("spec"), schemaWarnings.single())
     }
 
     // ──────────────────────────────────────────────

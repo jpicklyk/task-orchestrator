@@ -1,8 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.CanonicalConfigJson
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
@@ -33,15 +36,21 @@ import java.util.UUID
  * Both the MCP `manage_project_config` tool and the REST config routes drive this one class, so both surfaces
  * converge on identical stored state for the same payload.
  *
- * Push pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor] parse-validate ->
- * embedded-rootId guard (skipped when `force: true`) -> ONE write unit that appends the next version. The pipeline
- * stops at the first failing step; nothing is written on failure.
+ * Push pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor] strict parse ->
+ * embedded-rootId guard (skipped when `force: true`) -> [ConfigValidator] (any error rejects, `force` does not
+ * bypass it) -> ONE write unit that appends the next version. The pipeline stops at the first failing step; nothing is
+ * written on failure. [validate] runs the same steps without the write, the compare-and-set and the superseded guard.
+ *
+ * Only a push is an admission point. Reading a stored version, rolling back to one and canonicalizing the rows the V25
+ * migration copied all parse in [ParseMode.MIGRATION], which never rejects.
  */
 class ConfigService(
     private val repositoryProvider: RepositoryProvider,
     private val parser: ConfigDocumentParser,
     /** The transaction boundary: each write ([push], [rollback], [reset]) is ONE write unit. */
     private val unitOfWork: UnitOfWork,
+    /** The admission check run by [push] and [validate]. */
+    private val validator: ConfigValidator = ConfigValidator(),
 ) {
     private val logger = LoggerFactory.getLogger(ConfigService::class.java)
 
@@ -83,11 +92,12 @@ class ConfigService(
                 null
             }
 
-        val (parsedRoot, schemaWarnings) =
-            when (val outcome = parseAndValidateYaml(configYaml)) {
-                is YamlParseOutcome.Failure -> return ConfigPushResult.ParseError(outcome.detail)
-                is YamlParseOutcome.Success -> outcome.root to outcome.warnings
+        val parsed =
+            when (val outcome = parseStrict(configYaml)) {
+                is ConfigDocumentParser.Outcome.Failed -> return ConfigPushResult.ParseError(outcome.detail, outcome.violations)
+                is ConfigDocumentParser.Outcome.Parsed -> outcome
             }
+        val parsedRoot = parsed.rawRoot
 
         if (!force && parsedRoot != null) {
             val embeddedRootId = extractEmbeddedRootId(parsedRoot)
@@ -95,6 +105,12 @@ class ConfigService(
                 return ConfigPushResult.RootIdMismatch(rootItemId, embeddedRootId)
             }
         }
+
+        val validation = validator.validate(parsed, ConfigScope.ROOT)
+        if (!validation.isValid) {
+            return ConfigPushResult.Invalid(validation.errors, validation.warnings)
+        }
+        val schemaWarnings = validation.warnings.map { it.reason }
 
         val store = repositoryProvider.configStore()
         val principalId = currentEventActor()?.id
@@ -140,7 +156,6 @@ class ConfigService(
                             version = outcome.version.version,
                             appended = outcome.appended,
                             warning = typeWarning,
-                            ignoredSections = computeIgnoredSections(parsedRoot),
                             schemaWarnings = schemaWarnings,
                         )
                     is ConfigAppendOutcome.Superseded -> ConfigPushResult.Superseded(rootItemId, outcome.currentCreatedAt)
@@ -152,12 +167,63 @@ class ConfigService(
     }
 
     /**
-     * Returns the top-level keys of [parsedRoot] that are NOT honored by any per-root resolution layer — e.g.
-     * `actor_authentication`, which stays global-only. Empty when only [ConfigDocument.PER_ROOT_HONORED_SECTIONS]
-     * keys are present.
+     * Dry run of [push] for [rootItemId]: the same size cap, root checks, strict parse, embedded-rootId guard and
+     * [ConfigValidator] pass, but nothing is written and neither the compare-and-set nor the superseded guard runs.
+     * When the document has no errors the result also carries the [ConfigDiff] against the root's head version (no head,
+     * or a reset head, counts as an empty document, so everything is added).
      */
-    private fun computeIgnoredSections(parsedRoot: Map<String, Any>?): List<String> =
-        parsedRoot?.keys?.filterNot { it in ConfigDocument.PER_ROOT_HONORED_SECTIONS } ?: emptyList()
+    suspend fun validate(
+        rootItemId: UUID,
+        configYaml: String,
+    ): ConfigValidateResult {
+        val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
+        if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
+            return ConfigValidateResult.TooLarge(sizeBytes, MAX_CONFIG_YAML_BYTES)
+        }
+
+        val item =
+            legacyReadFault({ return ConfigValidateResult.RepositoryError(it) }) {
+                repositoryProvider.workItemRepository().getById(rootItemId)
+            } ?: return ConfigValidateResult.NotFound(rootItemId)
+        if (item.depth != 0) {
+            return ConfigValidateResult.NotDepthZero(rootItemId, item.depth)
+        }
+
+        val parsed =
+            when (val outcome = parseStrict(configYaml)) {
+                is ConfigDocumentParser.Outcome.Failed -> return ConfigValidateResult.ParseError(outcome.detail, outcome.violations)
+                is ConfigDocumentParser.Outcome.Parsed -> outcome
+            }
+        val parsedRoot = parsed.rawRoot
+        if (parsedRoot != null) {
+            val embeddedRootId = extractEmbeddedRootId(parsedRoot)
+            if (embeddedRootId != null && embeddedRootId != rootItemId) {
+                return ConfigValidateResult.RootIdMismatch(rootItemId, embeddedRootId)
+            }
+        }
+
+        val validation = validator.validate(parsed, ConfigScope.ROOT)
+        if (!validation.isValid) {
+            return ConfigValidateResult.Checked(validation.errors, validation.warnings, diff = null)
+        }
+
+        val headRoot =
+            legacyReadFault({ return ConfigValidateResult.RepositoryError(it) }) {
+                get(rootItemId)?.let { headRoot(it) }
+            }
+        return ConfigValidateResult.Checked(
+            errors = emptyList(),
+            warnings = validation.warnings,
+            diff = ConfigDiff.between(headRoot, parsedRoot),
+        )
+    }
+
+    /** The parsed root map of a stored [version]: its canonical JSON, else a migration parse of its YAML. */
+    private fun headRoot(version: ConfigVersion): Map<String, Any?>? {
+        version.canonicalJson?.let { json -> CanonicalConfigJson.decode(json)?.let { return it } }
+        val outcome = parser.parse(version.yaml, warnOnMissingSchemas = false, mode = ParseMode.MIGRATION)
+        return (outcome as? ConfigDocumentParser.Outcome.Parsed)?.rawRoot
+    }
 
     /**
      * Reads a stored config version of [rootItemId]. With [version] null this is the head, or null when there is no
@@ -210,7 +276,8 @@ class ConfigService(
             }
             val canonical =
                 target.canonicalJson ?: run {
-                    val parsed = parser.parse(target.yaml, warnOnMissingSchemas = false)
+                    // Rollback restores a version that was already admitted, so it is never re-validated.
+                    val parsed = parser.parse(target.yaml, warnOnMissingSchemas = false, mode = ParseMode.MIGRATION)
                     if (parsed !is ConfigDocumentParser.Outcome.Parsed) {
                         return@writeUnit UnitResult.Rollback(
                             ConfigRollbackResult.RepositoryError(
@@ -326,8 +393,9 @@ class ConfigService(
             if (batch.isEmpty()) break
             var filledInBatch = 0
             for (row in batch) {
-                // The one parse call that Q16 retargets to the migration parse mode.
-                when (val outcome = parser.parse(row.yaml, warnOnMissingSchemas = false)) {
+                // Rows the V25 migration copied from 3.x carry whatever the 3.x parser tolerated (plugin sections, soft
+                // skips), so they parse in migration mode: nothing here is an admission point.
+                when (val outcome = parser.parse(row.yaml, warnOnMissingSchemas = false, mode = ParseMode.MIGRATION)) {
                     is ConfigDocumentParser.Outcome.Parsed ->
                         if (store.fillCanonical(row.id, CanonicalConfigJson.encode(outcome.rawRoot), CanonicalConfigJson.MODEL_VERSION)) {
                             filledInBatch++
@@ -359,35 +427,19 @@ class ConfigService(
         )
 
     /**
-     * Parses [configYaml] with the shared [parser] BEFORE storing — an unparseable stored config would otherwise
-     * fail every future read. Parses ONCE; the raw root is reused by the embedded-rootId guard and the canonical
-     * JSON. Uses a SafeConstructor (see [ConfigDocumentParser]): [configYaml] is attacker-reachable input.
-     * Soft validation warnings do not reject the push; they are carried back on [YamlParseOutcome.Success.warnings].
+     * Parses [configYaml] with the shared [parser] in [ParseMode.STRICT] BEFORE storing: an unparseable stored config
+     * would otherwise fail every future read. Parses ONCE; the raw root is reused by the embedded-rootId guard, the
+     * validator and the canonical JSON. Uses a SafeConstructor (see [ConfigDocumentParser]): [configYaml] is
+     * attacker-reachable input.
      */
-    private fun parseAndValidateYaml(configYaml: String): YamlParseOutcome =
-        when (val outcome = parser.parse(configYaml, warnOnMissingSchemas = false)) {
-            is ConfigDocumentParser.Outcome.Parsed ->
-                YamlParseOutcome.Success(outcome.rawRoot, outcome.document.warnings)
-            is ConfigDocumentParser.Outcome.Failed -> YamlParseOutcome.Failure(outcome.detail)
-        }
+    private fun parseStrict(configYaml: String): ConfigDocumentParser.Outcome =
+        parser.parse(configYaml, warnOnMissingSchemas = false, mode = ParseMode.STRICT)
 
     /** Reads a top-level `project.rootId` string from the parsed root as a UUID, or null when absent or malformed. */
     private fun extractEmbeddedRootId(root: Map<String, Any>): UUID? {
         val project = root["project"] as? Map<*, *> ?: return null
         val rawRootId = project["rootId"] as? String ?: return null
         return runCatchingNonCancellation { UUID.fromString(rawRootId) }.getOrNull()
-    }
-
-    /** Outcome of a single [parser] parse pass over `configYaml`. */
-    private sealed class YamlParseOutcome {
-        data class Success(
-            val root: Map<String, Any>?,
-            val warnings: List<String> = emptyList(),
-        ) : YamlParseOutcome()
-
-        data class Failure(
-            val detail: String
-        ) : YamlParseOutcome()
     }
 
     companion object {
@@ -407,8 +459,8 @@ sealed class ConfigPushResult {
     /**
      * [version] is the head version after the push; [appended] is false for an identical re-push (nothing written).
      * [updatedAt] is the head version's creation time. [warning] is non-null when the root's `type` is not
-     * `"project"` (non-fatal). [ignoredSections] lists top-level keys no per-root layer honors; [schemaWarnings]
-     * carries the soft parse warnings (a push is never rejected for these).
+     * `"project"` (non-fatal). [schemaWarnings] carries the advisory findings (resource fan-out, a required note no seat
+     * owns); a push is never rejected for these.
      */
     data class Success(
         val rootItemId: UUID,
@@ -417,8 +469,16 @@ sealed class ConfigPushResult {
         val version: Int,
         val appended: Boolean,
         val warning: String? = null,
-        val ignoredSections: List<String> = emptyList(),
         val schemaWarnings: List<String> = emptyList(),
+    ) : ConfigPushResult()
+
+    /**
+     * `configYaml` parsed but failed validation: [errors] (never empty) each name a JSON Pointer path and a reason;
+     * [warnings] are the advisory findings. Nothing was stored.
+     */
+    data class Invalid(
+        val errors: List<ConfigViolation>,
+        val warnings: List<ConfigViolation> = emptyList(),
     ) : ConfigPushResult()
 
     /** No WorkItem exists for [rootItemId]. */
@@ -438,9 +498,13 @@ sealed class ConfigPushResult {
         val maxBytes: Int
     ) : ConfigPushResult()
 
-    /** `configYaml` failed SafeConstructor parse-validation; [detail] is the parse failure message. */
+    /**
+     * `configYaml` failed SafeConstructor parse-validation; [detail] is the parse failure message. [violations] carries
+     * the same failure with a JSON Pointer path when it has one (a structural seat error), else it is empty.
+     */
     data class ParseError(
-        val detail: String
+        val detail: String,
+        val violations: List<ConfigViolation> = emptyList(),
     ) : ConfigPushResult()
 
     /** `configYaml` embeds a `project.rootId` that differs from [targetRootId]; rejected unless `force`. */
@@ -467,6 +531,51 @@ sealed class ConfigPushResult {
         val error: DomainError
     ) : ConfigPushResult() {
         /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
+}
+
+/** Outcome of [ConfigService.validate]. */
+sealed class ConfigValidateResult {
+    /**
+     * The document was checked. [errors] empty means it would be accepted by a push; [diff] is then the change against
+     * the root's head version (null when there are errors). [warnings] are the advisory findings.
+     */
+    data class Checked(
+        val errors: List<ConfigViolation>,
+        val warnings: List<ConfigViolation>,
+        val diff: ConfigDiff?,
+    ) : ConfigValidateResult() {
+        val isValid: Boolean get() = errors.isEmpty()
+    }
+
+    data class NotFound(
+        val rootItemId: UUID
+    ) : ConfigValidateResult()
+
+    data class NotDepthZero(
+        val rootItemId: UUID,
+        val depth: Int
+    ) : ConfigValidateResult()
+
+    data class TooLarge(
+        val sizeBytes: Int,
+        val maxBytes: Int
+    ) : ConfigValidateResult()
+
+    data class ParseError(
+        val detail: String,
+        val violations: List<ConfigViolation> = emptyList(),
+    ) : ConfigValidateResult()
+
+    data class RootIdMismatch(
+        val targetRootId: UUID,
+        val embeddedRootId: UUID
+    ) : ConfigValidateResult()
+
+    data class RepositoryError(
+        val error: DomainError
+    ) : ConfigValidateResult() {
         val message: String get() = LegacyFaults.message(error)
     }
 }

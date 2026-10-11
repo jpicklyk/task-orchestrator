@@ -26,8 +26,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * `interfaces` layering is never at risk from this file (enforced by `LayeringTest`).
  *
  * The 3.x `schema_resolution` key is no longer modeled: a document carrying it still parses, with one
- * warning saying the key was removed, and the key has no effect.
+ * finding saying the key was removed, and the key has no effect.
  *
+ * @property warnings the warnings as plain text, one per finding ([warningViolations] with the paths dropped).
+ * @property errors the findings that [ParseMode.STRICT] classified as errors (a former soft skip), each with its JSON
+ *   Pointer path; always empty for a document parsed in [ParseMode.MIGRATION].
+ * @property warningViolations the warnings with their JSON Pointer paths: every finding in [ParseMode.MIGRATION],
+ *   only the advisory ones in [ParseMode.STRICT].
  * @property traitResources per-trait resource requirements; a trait with no `resources:` key is
  *   absent from the map entirely (not mapped to an empty list).
  * @property traitDispatch per-trait, per-phase dispatch routing profiles; a trait with no
@@ -47,8 +52,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   service that reads this field still owns parsing it into an
  *   [io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig].
  * @property presentSections the top-level keys of the document, in document order (a
- *   `LinkedHashSet`), untransformed — used to compute `ignoredSections` for a per-root config push
- *   without hand-maintaining a separate literal set.
+ *   `LinkedHashSet`), untransformed.
  * @property traitSeats per-trait `seats:` lists (A1a); a trait with no `seats:` key at all is
  *   absent from the map entirely — mirroring [traitResources]/[traitDispatch] — NOT mapped to an
  *   empty list. [LayeredConfig.traitSeats] uses presence in [traits] (not this map) to decide
@@ -77,31 +81,13 @@ data class ConfigDocument(
     val actorAuthenticationSection: Any? = null,
     val presentSections: Set<String> = emptySet(),
     val warnings: List<String> = emptyList(),
+    val errors: List<ConfigViolation> = emptyList(),
+    val warningViolations: List<ConfigViolation> = emptyList(),
     val traitSeats: Map<String, List<SeatDefinition>> = emptyMap(),
     val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
         val EMPTY: ConfigDocument = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
-
-        /**
-         * Top-level `configYaml` keys honored by the per-root resolution layer. Replaces
-         * `ConfigService.HONORED_TOP_LEVEL_SECTIONS` (a hand-maintained literal set) —
-         * this is the single source of truth other top-level keys (e.g. `actor_authentication`,
-         * which stays global-only) are checked against to compute `ignoredSections`.
-         *
-         * `resources` (the registry is server-only) and the removed `schema_resolution` key are not
-         * honored per-root, so a push that carries either lists it under `ignoredSections`.
-         */
-        val PER_ROOT_HONORED_SECTIONS: Set<String> =
-            setOf(
-                "work_item_schemas",
-                "note_schemas",
-                "traits",
-                "project",
-                "note_limits",
-                "status_labels",
-                "independence",
-            )
     }
 }

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -53,7 +54,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S11 PUT with an invalid role returns 200 with the warning text in schemaWarnings and keeps the ETag`(): Unit =
+    fun `S11 PUT with an invalid role returns 422 parse_error with the error path and stores nothing`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
@@ -75,21 +76,55 @@ class ProjectConfigRoutesSchemaWarningsTest {
                     setBody(yaml)
                 }
 
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("parse_error"), "the error code is parse_error: $body")
+            assertTrue(body.contains("/work_item_schemas/feature-task/notes/0/role"), "details.errors names the path: $body")
+            assertTrue(body.contains("not-a-role"), "the reason names the bad value: $body")
+
+            val persisted = runBlocking { repo.configStore().get(root.id) }
+            assertNull(persisted, "a rejected push stores nothing")
+        }
+
+    // ──────────────────────────────────────────────
+    // S11b — an advisory finding: 200, schemaWarnings present, ETag still set
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S11b PUT with an advisory finding returns 200 with the warning text in schemaWarnings and keeps the ETag`(): Unit =
+        testApplication {
+            val repo = db.repositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
+
+            val yaml =
+                """
+                work_item_schemas:
+                  feature-task:
+                    seats:
+                      - { name: impl, phase: work, enters: true }
+                    notes:
+                      - key: spec
+                        role: work
+                        required: true
+                """.trimIndent()
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody(yaml)
+                }
+
             assertEquals(HttpStatusCode.OK, response.status)
-            val etag = response.headers[HttpHeaders.ETag]
-            assertNotNull(etag, "a push with only a soft schema warning must still succeed and set an ETag")
+            assertNotNull(response.headers[HttpHeaders.ETag], "a push with only an advisory finding must still succeed and set an ETag")
 
             val body = response.bodyAsText()
             assertTrue(body.contains("schemaWarnings"), "response should surface schemaWarnings: $body")
-            assertTrue(body.contains("feature-task"), "schemaWarnings text should name the schema: $body")
-            assertTrue(body.contains("not-a-role"), "schemaWarnings text should name the bad value: $body")
+            assertTrue(body.contains("feature-task") && body.contains("spec"), "schemaWarnings text should name the schema and note: $body")
 
             val persisted = runBlocking { repo.configStore().get(root.id) }
-            assertEquals(
-                yaml,
-                persisted?.configYaml,
-                "the document must be stored despite the soft warning"
-            )
+            assertEquals(yaml, persisted?.configYaml, "the document must be stored despite the advisory finding")
         }
 
     // ──────────────────────────────────────────────

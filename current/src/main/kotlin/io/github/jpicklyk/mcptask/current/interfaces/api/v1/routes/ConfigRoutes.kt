@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.infrastructure.config.ConfigJsonSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ConfigSnapshotDto
@@ -16,11 +17,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
@@ -40,6 +43,9 @@ private const val FINGERPRINT_ETAG_PREFIX = "\"cfg-"
  * - `GET /config/traits`     — list of all [TraitDto]
  * - `GET /config/types`      — list of registered type name strings
  * - `GET /config/status-graph` — [StatusGraphDto]
+ * - `GET /config/schema`     the JSON Schema (draft 2020-12) every config document is validated against, as
+ *   `application/schema+json` with a strong ETag. Same auth as the other config routes; the body is the schema
+ *   document itself, not an envelope.
  */
 fun Route.configRoutes(schemaService: WorkItemSchemaService) {
     val graphBuilder = StatusGraphBuilder(schemaService)
@@ -139,6 +145,17 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                         .toList()
                         .sorted()
                 )
+            }
+
+            // GET /config/schema: the published JSON Schema, byte-for-byte; ETag changes exactly when the schema does
+            get("/schema") {
+                val etag = ConfigJsonSchema.etag
+                call.response.header(HttpHeaders.ETag, etag)
+                if (respondWith304IfMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
+                    call.respond(HttpStatusCode.NotModified)
+                    return@get
+                }
+                call.respondBytes(ConfigJsonSchema.bytes, ContentType.parse(ConfigJsonSchema.MEDIA_TYPE), HttpStatusCode.OK)
             }
 
             // GET /config/status-graph — structural transition graph

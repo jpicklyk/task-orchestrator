@@ -30,8 +30,8 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item f75eb22e / Q8, scenario S16) for the wire shape of the 3.x
  * `manage_project_config` tool after it started delegating to the versioned [ConfigService].
  *
- * Oracle: task-scope section 1.9 and requirement R6: `push` and `get` keep their exact 3.x key sets
- * (`rootId, fingerprint, updatedAt, warning?, ignoredSections?, schemaWarnings?` and
+ * Oracle: task-scope section 1.9 and requirement R6: `push` and `get` keep their 3.x key sets, minus the
+ * `ignoredSections` key that 4.0 removed (`rootId, fingerprint, updatedAt, warning?, schemaWarnings?` and
  * `rootId, configYaml, fingerprint, updatedAt, relation?`), `updatedAt` is the head version's creation time, a
  * byte-identical re-push is naturally idempotent, and nothing about versions is added to the operation.
  */
@@ -113,16 +113,19 @@ class ManageProjectConfigToolWireTest {
     }
 
     @Test
-    fun `S16 push with unhonored sections schema warnings and a non-project root keeps only the 3x optional keys`() {
+    fun `S16 push with advisory warnings and a non-project root keeps only the 3x optional keys`() {
         runBlocking {
             val ctx = context(withService = true)
             val root = newRoot(type = "feature-task")
+            val unownedNote =
+                "work_item_schemas:\n  feature-task:\n    seats:\n      - { name: impl, phase: work, enters: true }\n" +
+                    "    notes:\n      - key: spec\n        role: work\n        required: true\n"
 
-            val result = push(ctx, root, "${yaml}actor_authentication:\n  mode: jwks\nschema_resolution: bogus\n")
+            val result = push(ctx, root, unownedNote)
 
             assertTrue(result.ok(), "$result")
             val keys = result.data().keys
-            assertEquals(setOf("rootId", "fingerprint", "updatedAt", "warning", "ignoredSections", "schemaWarnings"), keys)
+            assertEquals(setOf("rootId", "fingerprint", "updatedAt", "warning", "schemaWarnings"), keys)
             assertTrue(keys.none { it in versionWords }, "no version vocabulary leaks into the response: $keys")
         }
     }

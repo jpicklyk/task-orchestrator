@@ -88,6 +88,11 @@ dependencies {
     // YAML parsing
     implementation(libs.snakeyaml)
 
+    // JSON Schema 2020-12 structural validation of config documents (infrastructure adapter only). The Jackson BOM
+    // pins its transitive Jackson artifacts to a patched release (see libs.versions.toml).
+    implementation(platform(libs.jackson.bom))
+    implementation(libs.json.schema.validator)
+
     // Ktor BOM — version-aligns all ktor-* artifacts with the SDK's transitive Ktor
     implementation(platform(libs.ktor.bom))
     // CIO engine — not provided transitively by the MCP SDK, must be declared explicitly

@@ -632,9 +632,7 @@ data class ProjectConfigResponseDto(
     val warning: String? = null,
     /** "current" | "superseded" | "unknown" — present only on GET when `?fingerprint=` was supplied. */
     val relation: String? = null,
-    /** Top-level `configYaml` keys not honored by any per-root layer (e.g. `actor_authentication`); present only on PUT, and only when non-empty. */
-    val ignoredSections: List<String>? = null,
-    /** Soft schema/trait parse warnings (e.g. an invalid note `role`, a note entry missing `key`); present only on PUT, and only when non-empty. The push still succeeds and stores the config. */
+    /** Advisory findings (resource fan-out, a required note no seat owns); present only on PUT, and only when non-empty. The push still succeeds and stores the config. */
     val schemaWarnings: List<String>? = null,
     /** The version number of the returned config version (the new head on PUT / rollback). */
     val version: Int? = null,

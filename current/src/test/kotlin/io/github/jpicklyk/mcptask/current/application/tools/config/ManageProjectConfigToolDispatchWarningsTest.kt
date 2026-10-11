@@ -90,7 +90,7 @@ class ManageProjectConfigToolDispatchWarningsTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S14 push with dispatch phase key terminal succeeds and warns naming the trait and terminal`() {
+    fun `S14 push with dispatch phase key terminal is rejected with an error naming the trait and terminal`() {
         val yaml =
             """
             traits:
@@ -102,11 +102,11 @@ class ManageProjectConfigToolDispatchWarningsTest {
 
         val result = push(rootId.toString(), yaml)
 
-        assertTrue(isSuccess(result), "a soft schema warning must never reject the push")
-        val schemaWarnings = dataOf(result)["schemaWarnings"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertTrue(schemaWarnings.isNotEmpty(), "expected at least one warning: $schemaWarnings")
-        val warning = schemaWarnings.first { it.contains("delegated") && it.contains("terminal") }
-        assertTrue(warning.contains("delegated"), "warning should name the trait: $warning")
-        assertTrue(warning.contains("terminal"), "warning should name the invalid phase key: $warning")
+        assertTrue(!isSuccess(result), "a former soft skip must reject the push: $result")
+        val errors = ((result as JsonObject)["data"] as JsonObject)["errors"]!!.jsonArray.map { it as JsonObject }
+        val error = errors.first { it["path"]!!.jsonPrimitive.content == "/traits/delegated/dispatch/terminal" }
+        val reason = error["reason"]!!.jsonPrimitive.content
+        assertTrue(reason.contains("delegated"), "reason should name the trait: $reason")
+        assertTrue(reason.contains("terminal"), "reason should name the invalid phase key: $reason")
     }
 }

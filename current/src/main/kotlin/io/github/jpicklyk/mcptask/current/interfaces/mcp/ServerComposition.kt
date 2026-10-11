@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -26,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -185,7 +187,10 @@ class ServerComposition(
         // ONE read model for the whole server, over the same unit of work (served by the read tools as they move onto it).
         val workViewQueries = WorkViewQueries(unitOfWork)
         // The ONE config service: MCP's manage_project_config and the REST config routes both drive it.
-        val configService = ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork)
+        // Admission check for pushed config: the JSON Schema pass, the strict parser's findings, and the semantic rules
+        // against the server layer (the global file).
+        val configValidator = ConfigValidator(NetworkntConfigStructuralValidator(), globalConfigFile)
+        val configService = ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork, configValidator)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,

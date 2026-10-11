@@ -143,7 +143,7 @@ class ManageProjectConfigToolTest {
     }
 
     @Test
-    fun `push surfaces ignoredSections when the doc has an unhonored top-level key`() {
+    fun `push rejects a document with a server-only top-level key and lists the error path`() {
         // Plain concatenation (not a nested trimIndent template) — interpolating an already-
         // trimIndent'd multi-line constant into another trimIndent block would get its indentation
         // re-mangled by the outer trim's common-margin computation (see ConfigServiceTest).
@@ -151,17 +151,19 @@ class ManageProjectConfigToolTest {
 
         val result = push(rootId.toString(), yamlWithActorAuth)
 
-        assertTrue(isSuccess(result))
-        val ignoredSections = dataOf(result)["ignoredSections"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertEquals(listOf("actor_authentication"), ignoredSections)
+        assertFalse(isSuccess(result), "a server-only key must reject the push: $result")
+        val error = (result as JsonObject)["error"] as JsonObject
+        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
+        val paths = (result["data"] as JsonObject)["errors"]!!.jsonArray.map { (it as JsonObject)["path"]!!.jsonPrimitive.content }
+        assertEquals(listOf("/actor_authentication"), paths)
     }
 
     @Test
-    fun `push omits ignoredSections when the doc only uses honored keys`() {
+    fun `push never carries ignoredSections`() {
         val result = push(rootId.toString(), validYaml)
 
         assertTrue(isSuccess(result))
-        assertNull(dataOf(result)["ignoredSections"], "ignoredSections must be omitted entirely when empty, not an empty array")
+        assertNull(dataOf(result)["ignoredSections"], "ignoredSections was removed in 4.0")
     }
 
     @Test

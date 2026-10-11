@@ -105,8 +105,8 @@ class ConfigDocumentParseTest {
             assertEquals(1, added.size, "value '$value' warnings: ${doc.warnings}")
             assertTrue(added.single().contains("schema_resolution") && added.single().contains("removed"), "warning: ${added.single()}")
             assertEquals(
-                baseline.copy(presentSections = emptySet(), warnings = emptyList()),
-                doc.copy(presentSections = emptySet(), warnings = emptyList()),
+                baseline.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
+                doc.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
                 "schema_resolution must have no effect on the parsed document"
             )
         }
@@ -217,25 +217,5 @@ class ConfigDocumentParseTest {
         val outcome = YamlConfigDocumentParser.parse("project:\n  name: x\n", warnOnMissingSchemas = false)
         val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
         assertTrue(parsed.document.warnings.none { it.contains("note_schemas") }, "warnings: ${parsed.document.warnings}")
-    }
-
-    // ──────────────────────────────────────────────
-    // S14 — PER_ROOT_HONORED_SECTIONS
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the seven documented sections`() {
-        assertEquals(
-            setOf(
-                "work_item_schemas",
-                "note_schemas",
-                "traits",
-                "project",
-                "note_limits",
-                "status_labels",
-                "independence",
-            ),
-            ConfigDocument.PER_ROOT_HONORED_SECTIONS,
-        )
     }
 }

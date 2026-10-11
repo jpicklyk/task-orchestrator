@@ -42,6 +42,12 @@ konsist = "0.17.3"
 # YAML
 snakeyaml = "2.6"
 
+# JSON Schema validation (config structural validator). 1.5.x supports draft 2020-12 on Jackson 2; 2.x/3.x move
+# the API. Its transitive jackson-databind/-core 2.18.3 carry advisories (GHSA-3pjw-73gf-8qr5, GHSA-72hv-8253-57qq),
+# so jackson-bom pins the whole Jackson family to a patched release.
+jsonSchemaValidator = "1.5.9"
+jacksonBom = "2.21.7"
+
 # JWT / JWKS
 nimbusJoseJwt = "10.3"
 
@@ -95,6 +101,10 @@ kotlin-logging-jvm = { module = "io.github.oshai:kotlin-logging-jvm", version.re
 
 # YAML
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+
+# JSON Schema validation
+json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
+jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jacksonBom" }
 
 # JWT / JWKS
 nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbusJoseJwt" }

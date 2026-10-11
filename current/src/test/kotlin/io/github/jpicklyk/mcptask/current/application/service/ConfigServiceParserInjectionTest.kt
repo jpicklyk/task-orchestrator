@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
@@ -77,6 +79,7 @@ class ConfigServiceParserInjectionTest {
         override fun parse(
             yaml: String,
             warnOnMissingSchemas: Boolean,
+            mode: ParseMode,
         ): ConfigDocumentParser.Outcome = outcome
     }
 
@@ -101,9 +104,15 @@ class ConfigServiceParserInjectionTest {
         }
 
     @Test
-    fun `S10 - a Parsed outcome maps to Success carrying the document warnings and the raw root's keys as ignoredSections`(): Unit =
+    fun `S10 - a Parsed outcome maps to Success carrying the document warnings as schemaWarnings`(): Unit =
         runBlocking {
-            val doc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = listOf("w1"))
+            val doc =
+                ConfigDocument(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    warnings = listOf("w1"),
+                    warningViolations = listOf(ConfigViolation("/x", "w1")),
+                )
             val outcome = ConfigDocumentParser.Outcome.Parsed(doc, rawRoot = mapOf("x" to 1))
             val service = ConfigService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
 
@@ -111,7 +120,6 @@ class ConfigServiceParserInjectionTest {
 
             val success = assertIs<ConfigPushResult.Success>(result)
             assertEquals(listOf("w1"), success.schemaWarnings)
-            assertEquals(listOf("x"), success.ignoredSections)
         }
 
     // ──────────────────────────────────────────────

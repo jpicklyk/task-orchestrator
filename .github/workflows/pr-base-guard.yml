@@ -3,6 +3,10 @@ name: PR base guard
 # Fails any pull request that would merge 4.0 work into main.
 # 4.0 development lives on release/4.0 and feature branches named 4.0/* or v4/*.
 # Required status check on main so the merge button stays disabled when it fails.
+#
+# Also keeps the live dogfood config (.taskorchestrator/config.yaml) and the global floor
+# (deploy/global-config/) frozen on release/4.0. The only exemption is an explicit hatch, a head branch named
+# 4.0/sync-main-*, for a twin PR mirroring a main-side change to those files (there is no main->release/4.0 merge sync).
 
 on:
   pull_request:
@@ -31,3 +35,20 @@ jobs:
               ;;
           esac
           echo "ok"
+
+  dogfood-freeze:
+    runs-on: ubuntu-latest
+    if: github.base_ref == 'release/4.0'
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Keep the dogfood config frozen
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          git diff --name-only --no-renames "origin/$BASE...HEAD" | bash .github/scripts/dogfood-freeze-guard.sh "$BASE" "$HEAD"

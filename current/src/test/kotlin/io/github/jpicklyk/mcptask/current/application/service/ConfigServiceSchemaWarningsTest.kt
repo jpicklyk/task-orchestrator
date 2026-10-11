@@ -19,18 +19,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ConfigService.push]'s [ConfigPushResult.Success.schemaWarnings] --
- * the soft schema/trait parse warnings collected by
- * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot] (an
- * invalid note `role`, a note entry missing `key`) surfaced on the push result WITHOUT rejecting
- * the push; the config is still parsed, stored and read back verbatim.
+ * Exercises [ConfigService.push]'s [ConfigPushResult.Success.schemaWarnings] and [ConfigPushResult.Invalid]:
+ * advisory findings (a required note no declared seat owns) surface on a successful push WITHOUT rejecting it, while
+ * everything the 3.x parser used to skip softly (an invalid note `role`, a note entry missing `key`) now rejects the
+ * push with a JSON Pointer path and stores nothing.
  *
- * Independent test authorship per the `needs-test-author` trait: written against the item's
- * `test-plan` note oracles and the public [ConfigService.push] /
- * [ConfigPushResult.Success] shapes, without reading the implementer's own tests or
- * notes. Mirrors [ConfigServiceTest]'s SQLite-backed harness style; that file already
- * covers the rest of the validate-then-persist pipeline (size cap / existence / depth-0 / parse /
- * rootId guard / fingerprint guard) so this file focuses solely on `schemaWarnings`.
+ * Mirrors [ConfigServiceTest]'s SQLite-backed harness style; that file already covers the rest of the
+ * validate-then-persist pipeline (size cap / existence / depth-0 / parse / rootId guard / fingerprint guard).
  */
 class ConfigServiceSchemaWarningsTest {
     @RegisterExtension
@@ -56,9 +51,18 @@ class ConfigServiceSchemaWarningsTest {
             rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
 
-    // ──────────────────────────────────────────────
-    // S1 — all-valid schema: no warnings
-    // ──────────────────────────────────────────────
+    /** A seat-aware schema with a required note no seat owns: the one advisory finding a push can carry. */
+    private val unownedNoteYaml =
+        """
+        work_item_schemas:
+          feature-task:
+            seats:
+              - { name: impl, phase: work, enters: true }
+            notes:
+              - key: spec
+                role: work
+                required: true
+        """.trimIndent()
 
     @Test
     fun `S1 an all-valid schema pushes successfully with no schema warnings`() =
@@ -79,37 +83,49 @@ class ConfigServiceSchemaWarningsTest {
             assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
         }
 
-    // ──────────────────────────────────────────────
-    // S2 — a bad role still succeeds and stores unchanged
-    // ──────────────────────────────────────────────
+    @Test
+    fun `S2 an advisory finding still succeeds the push and stores the document unchanged`() =
+        runBlocking {
+            val result = service.push(rootId, unownedNoteYaml)
+
+            assertTrue(result is ConfigPushResult.Success, "an advisory finding must never reject the push: $result")
+            val warnings = (result as ConfigPushResult.Success).schemaWarnings
+            assertEquals(1, warnings.size, "expected exactly one advisory warning: $warnings")
+            assertTrue(warnings.single().contains("feature-task") && warnings.single().contains("spec"), warnings.single())
+
+            val stored = projectConfigRepository.get(rootId)
+            assertEquals(unownedNoteYaml, stored?.configYaml, "the document must be stored verbatim")
+        }
 
     @Test
-    fun `S2 a bad role still succeeds the push and stores the document unchanged`() =
+    fun `S7 two unowned required notes produce two warnings in note order`() =
         runBlocking {
             val yaml =
                 """
                 work_item_schemas:
                   feature-task:
+                    seats:
+                      - { name: impl, phase: work, enters: true }
                     notes:
-                      - key: spec
-                        role: not-a-role
+                      - key: first-note
+                        role: work
+                        required: true
+                      - key: second-note
+                        role: work
+                        required: true
                 """.trimIndent()
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ConfigPushResult.Success, "a soft schema warning must never reject the push")
-            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isNotEmpty())
-
-            val stored = projectConfigRepository.get(rootId)
-            assertEquals(yaml, stored?.configYaml, "the document must be stored verbatim despite the soft warning")
+            assertTrue(result is ConfigPushResult.Success)
+            val warnings = (result as ConfigPushResult.Success).schemaWarnings
+            assertEquals(2, warnings.size, "expected exactly two warnings: $warnings")
+            assertTrue(warnings[0].contains("first-note"), "first warning should be for the first note: $warnings")
+            assertTrue(warnings[1].contains("second-note"), "second warning should be for the second note: $warnings")
         }
 
-    // ──────────────────────────────────────────────
-    // S7 — multiple invalid entries, entry order preserved
-    // ──────────────────────────────────────────────
-
     @Test
-    fun `S7 two invalid entries in one notes list produce two warnings in entry order`() =
+    fun `S8 an invalid role and a missing key reject the push with their paths and store nothing`() =
         runBlocking {
             val yaml =
                 """
@@ -125,49 +141,12 @@ class ConfigServiceSchemaWarningsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ConfigPushResult.Success)
-            val warnings = (result as ConfigPushResult.Success).schemaWarnings
-            assertEquals(2, warnings.size, "expected exactly two warnings: $warnings")
-            assertTrue(
-                warnings[0].contains("bad-role-entry"),
-                "first warning should be for the bad-role entry (index 0): $warnings"
-            )
-            assertTrue(
-                warnings[1].contains("key"),
-                "second warning should be for the missing-key entry (index 2): $warnings"
-            )
+            assertTrue(result is ConfigPushResult.Invalid, "former soft skips must reject the push: $result")
+            val errorPaths = (result as ConfigPushResult.Invalid).errors.map { it.path }
+            assertTrue("/work_item_schemas/feature-task/notes/0/role" in errorPaths, "$errorPaths")
+            assertTrue("/work_item_schemas/feature-task/notes/2" in errorPaths, "$errorPaths")
+            assertEquals(null, projectConfigRepository.get(rootId), "a rejected push stores nothing")
         }
-
-    // ──────────────────────────────────────────────
-    // S8 — schemaWarnings AND ignoredSections both present
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `S8 an invalid entry alongside an unhonored top-level key surfaces both schemaWarnings and ignoredSections`() =
-        runBlocking {
-            // Deliberately plain concatenation, not a nested trimIndent template (see
-            // ConfigServiceTest) -- interpolating an already-trimIndent'd multi-line
-            // constant into another trimIndent block would get its indentation re-mangled.
-            val yaml =
-                "work_item_schemas:\n" +
-                    "  feature-task:\n" +
-                    "    notes:\n" +
-                    "      - key: spec\n" +
-                    "        role: not-a-role\n" +
-                    "actor_authentication:\n" +
-                    "  mode: jwks\n"
-
-            val result = service.push(rootId, yaml)
-
-            assertTrue(result is ConfigPushResult.Success)
-            val success = result as ConfigPushResult.Success
-            assertTrue(success.schemaWarnings.isNotEmpty(), "expected a schema warning for the bad role")
-            assertEquals(listOf("actor_authentication"), success.ignoredSections)
-        }
-
-    // ──────────────────────────────────────────────
-    // S9 — blank document: Success, no schema warnings
-    // ──────────────────────────────────────────────
 
     @Test
     fun `S9 a blank document pushes successfully with no schema warnings`() =
@@ -178,24 +157,11 @@ class ConfigServiceSchemaWarningsTest {
             assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
         }
 
-    // ──────────────────────────────────────────────
-    // S10 — re-push (idempotent) recomputes the same warnings
-    // ──────────────────────────────────────────────
-
     @Test
-    fun `S10 re-pushing identical bad YAML recomputes the same warnings rather than persisting them`() =
+    fun `S10 re-pushing identical YAML recomputes the same warnings rather than persisting them`() =
         runBlocking {
-            val yaml =
-                """
-                work_item_schemas:
-                  feature-task:
-                    notes:
-                      - key: spec
-                        role: not-a-role
-                """.trimIndent()
-
-            val first = service.push(rootId, yaml)
-            val second = service.push(rootId, yaml)
+            val first = service.push(rootId, unownedNoteYaml)
+            val second = service.push(rootId, unownedNoteYaml)
 
             assertTrue(first is ConfigPushResult.Success)
             assertTrue(second is ConfigPushResult.Success)
