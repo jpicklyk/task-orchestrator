@@ -35,6 +35,15 @@ interface DocumentStore {
         includeArchived: Boolean
     ): List<DocumentSummary>
 
+    /**
+     * Metadata-only summaries (no body, archived included) of the documents under [rootItemId] whose slug is one of
+     * [slugs], of any kind, in one batched query. Empty [slugs] returns an empty list without a query.
+     */
+    suspend fun findBySlugs(
+        rootItemId: UUID,
+        slugs: Collection<String>
+    ): List<DocumentSummary>
+
     /** Inserts [document] as given (its id, version and timestamps included) and returns the stored row. */
     suspend fun insert(document: Document): Document
 

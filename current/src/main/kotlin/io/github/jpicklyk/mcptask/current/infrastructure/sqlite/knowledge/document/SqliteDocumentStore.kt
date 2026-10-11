@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentVersionsTable
@@ -15,6 +16,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -84,6 +86,31 @@ class SqliteDocumentStore(
                 .orderBy(DocumentsTable.kind to SortOrder.ASC, DocumentsTable.slug to SortOrder.ASC)
                 .map(::toSummary)
         }
+
+    override suspend fun findBySlugs(
+        rootItemId: UUID,
+        slugs: Collection<String>
+    ): List<DocumentSummary> {
+        if (slugs.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            slugs.distinct().chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                DocumentsTable
+                    .select(
+                        DocumentsTable.id,
+                        DocumentsTable.rootItemId,
+                        DocumentsTable.kind,
+                        DocumentsTable.slug,
+                        DocumentsTable.title,
+                        DocumentsTable.contentHash,
+                        DocumentsTable.version,
+                        DocumentsTable.archivedAt,
+                        DocumentsTable.createdAt,
+                        DocumentsTable.modifiedAt
+                    ).where { (DocumentsTable.rootItemId eq rootItemId) and (DocumentsTable.slug inList chunk) }
+                    .map(::toSummary)
+            }
+        }
+    }
 
     override suspend fun insert(document: Document): Document =
         databaseManager.writeTx("DocumentStore.insert") {

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
@@ -669,7 +670,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 refToItem = refToItem,
                 deps = depSpecs,
                 notes = notesList,
-                adoption = docSlug?.let { slug -> DocAdoption(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) }
+                adoption = docSlug?.let { slug -> DocAdoption(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) },
+                derivations = builtNotes.derivations
             )
 
         val (transactionOutcome, transactionError) =
@@ -1103,7 +1105,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     /** What the note-building steps produce: the notes to write, and any `maxLength` warnings (warn mode). */
     private data class BuiltNotes(
         val notes: List<Note>,
-        val warnings: Map<Pair<UUID, String>, NoteLengthWarning>
+        val warnings: Map<Pair<UUID, String>, NoteLengthWarning>,
+        /** (item id, note key) -> the plan anchor the note's final body was cut from; explicit notes are absent. */
+        val derivations: Map<Pair<UUID, String>, String> = emptyMap()
     )
 
     /**
@@ -1199,7 +1203,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         itemSchemas: Map<String, WorkItemSchema?>,
         explicitByRefKey: Map<Pair<String, String>, Int>,
         notesList: MutableList<Note>,
-        warnings: MutableMap<Pair<UUID, String>, NoteLengthWarning>
+        warnings: MutableMap<Pair<UUID, String>, NoteLengthWarning>,
+        derivations: MutableMap<Pair<UUID, String>, String>
     ): Pair<MutableMap<Pair<String, String>, Int>?, JsonElement?> {
         val docSlug = treeCtx.docSlug
         val docRootId = treeCtx.docRootId
@@ -1300,6 +1305,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     actorClaim = noteActorClaim,
                     verification = noteVerification
                 )
+            derivations[targetItem.id to anchor.noteKey] = anchor.anchor
             val existingIndex = anchorByRefKey[refKey]
             if (existingIndex != null) {
                 notesList[existingIndex] = note
@@ -1366,8 +1372,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         if (explicitError != null) return null to explicitError
         val (notesList, explicitByRefKey) = explicitResult!!
 
+        val derivations = mutableMapOf<Pair<UUID, String>, String>()
         val (anchorByRefKey, anchorError) =
-            resolveAnchorNotes(treeCtx, itemSchemas, explicitByRefKey, notesList, warnings)
+            resolveAnchorNotes(treeCtx, itemSchemas, explicitByRefKey, notesList, warnings, derivations)
         if (anchorError != null) return null to anchorError
 
         fillCreateNotesBlanks(
@@ -1381,7 +1388,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             noteVerification
         )
 
-        return BuiltNotes(notesList, warnings) to null
+        return BuiltNotes(notesList, warnings, derivations) to null
     }
 
     /** The stashed plan document a tree adopts as its LAST step, by [adoptingItemId] (the created/attached root). */
@@ -1397,7 +1404,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val refToItem: Map<String, WorkItem>,
         val deps: List<TreeDepSpec>,
         val notes: List<Note>,
-        val adoption: DocAdoption?
+        val adoption: DocAdoption?,
+        /** See [BuiltNotes.derivations]. */
+        val derivations: Map<Pair<UUID, String>, String> = emptyMap()
     )
 
     /** What the tree's write unit stored: the items (root-first, attach-mode root excluded), deps and notes. */
@@ -1555,8 +1564,17 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             }
                         }
 
-                        // LAST: a concurrent adopt or a vanished document rolls the whole tree back.
+                        // Provenance: each note whose final body came from a noteAnchor is derived from the plan document.
                         val adoption = input.adoption
+                        if (adoption != null && input.derivations.isNotEmpty()) {
+                            val links = LinkService(context.repositoryProvider, context.unitOfWork)
+                            for (note in createdNotes) {
+                                val anchorText = input.derivations[note.itemId to note.key] ?: continue
+                                links.recordDerivedFrom(adoption.rootItemId, note.id, adoption.slug, anchorText, now)
+                            }
+                        }
+
+                        // LAST: a concurrent adopt or a vanished document rolls the whole tree back.
                         if (adoption != null) {
                             val adopted =
                                 context.planDocumentService.adoptInUnit(
