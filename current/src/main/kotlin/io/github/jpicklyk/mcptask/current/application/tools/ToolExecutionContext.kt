@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
+import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -160,6 +161,12 @@ class ToolExecutionContext(
      * without a search index fails only when a search actually runs).
      */
     val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
+
+    /**
+     * The `related` read (weighted fusion of dependency, link, tag and text signals), built from
+     * [RepositoryProvider.searchIndex] on first use, like [searchService].
+     */
+    val relatedService: RelatedService by lazy { RelatedService(repositoryProvider.searchIndex(), unitOfWork) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

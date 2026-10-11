@@ -299,6 +299,27 @@ object ItemsReadParityScenarios {
                 expectContains = rootForbidden,
                 expectAbsent = listOf("Beta root")
             ),
+            // related (Q30 630a826a): C1 shares the `alpha` tag with R1, so R1 is a relative with a shared-tag reason.
+            scenario(
+                "related happy",
+                "related",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"related","itemId":"$c1"}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux", "shared_tags:1")
+            ),
+            scenario(
+                "related scope root",
+                "related",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"related","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
             scenario(
                 "context happy",
                 "context",

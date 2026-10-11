@@ -22,7 +22,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 | Tool | Category | R/W | Description |
 |---|---|---|---|
 | `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems (`ops[]`, per-element results) |
-| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy; orchestration profile adds `context` (gate state or health view), `next` (ranked pick-up candidates) and `blocked` (4.0 envelope) |
+| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy, or find an item's relatives; orchestration profile adds `context` (gate state or health view), `next` (ranked pick-up candidates) and `blocked` (4.0 envelope) |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
@@ -107,7 +107,8 @@ principal of the `item.created`, `item.updated`, `item.reparented` and `item.del
 ### items_read
 
 **Purpose.** Read work items: `get` one item, `list` a filtered page, read the note `schema` of a type or
-an item, full-text `search` over item content and note bodies, or an `overview` of the hierarchy. A 4.0
+an item, full-text `search` over item content and note bodies, an `overview` of the hierarchy, or the
+items and documents `related` to an item. A 4.0
 envelope tool: a request is `select` plus that select's fields, and every answer is the response envelope
 (`ok`, `data` or `error`, `meta.reqId`). The same tool is served over MCP and over REST
 `POST /api/v1/ops/items_read`; `GET /items/{id}` and `GET /items/{id}/children` are thin translations to
@@ -115,9 +116,9 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 `schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
 (`describe: true`).
 
-**Selects.** `get`, `list`, `schema`, `search`, `overview` (every profile), and `context`, `next`, `blocked`
-(the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select needs the
-`READ` capability and honors the root and tag scope of the caller.
+**Selects.** `get`, `list`, `schema`, `search`, `overview`, `related` (every profile), and `context`, `next`,
+`blocked` (the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select
+needs the `READ` capability and honors the root and tag scope of the caller.
 
 | Select | Fields | Answer (`data`) |
 |---|---|---|
@@ -126,6 +127,7 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 | `schema` | exactly one of `type` / `itemId`; `rootId?` (with `type` only); `fields?` | the resolved schema view, or `{schemaFree: true}` |
 | `search` | `query`, `kinds?`, `matchMode?`, `itemId?`, `ancestorId?`, `role?`, `tags?`, `traits?`, `snippet?`, `explain?`, `limit?`, `cursor?` | `{items: [hit], page}` |
 | `overview` | `itemId?` or `anchorId?` (not both), `excludeTerminal?`, `includeChildren?` (global only), `limit?`, `cursor?` | global `{items, page}`; scoped `{item, childCounts, items, page}`; anchored `{anchor: {id, title}, items, page}` |
+| `related` | `itemId`, `acrossRoots?`, `explain?`, `limit?`, `cursor?` | `{items: [hit], page}` |
 | `context` | `itemId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | with `itemId`: the gate state of one item; without: `{active, blocked, stalled, claimSummary}` |
 | `next` | `parentId?`, `ancestorId?`, `role?`, `priority?`, `tags?`, `type?`, `complexityMax?`, date bounds, `orderBy?`, `includeClaimed?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view], page, reason?}` |
 | `blocked` | `parentId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view + blockType + blockers], page}` |
@@ -133,8 +135,8 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 **Ids.** Every id field takes a full UUID or 8 to 32 hex characters of one. A prefix that matches more than
 one item is `ambiguous_id`; no match is `not_found`. Under a restricted scope an id that matches nothing
 the caller may see is `forbidden`, never `not_found`, so scope is no existence oracle, and an ambiguous
-prefix lists only the candidates the scope admits. A target id (`get`, `schema`, the overview `itemId` and
-`anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
+prefix lists only the candidates the scope admits. A target id (`get`, `schema`, `related`, the overview
+`itemId` and `anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
 `search` `itemId` / `ancestorId`) is not scope-checked: an out-of-scope subtree simply selects nothing.
 
 **Item views.** One renderer serves every select. Lean defaults: a null, an empty string, an empty array and
@@ -158,8 +160,8 @@ items with at least one of the listed traits (exact). Date bounds are inclusive 
 inverted pair is `invalid_request`. `list` sorts by `sort` (`title`, `priority`, `complexity`, `createdAt`,
 `modifiedAt`; default `createdAt`) in `order` (`asc`, `desc`; default `desc`); the 3.x aliases are gone.
 
-**Paging.** `list`, `search` and `overview` page with `limit` and `cursor`. `list` and `overview`: `limit`
-1 to 200, default 50. `search`: 1 to 100, default 20. A `limit` outside its range is `invalid_request`; a
+**Paging.** `list`, `search`, `overview` and `related` page with `limit` and `cursor`. `list` and `overview`:
+`limit` 1 to 200, default 50. `search`: 1 to 100, default 20. `related`: 1 to 50, default 10. A `limit` outside its range is `invalid_request`; a
 `cursor` that does not decode is `invalid_cursor`. `page` is `{total, truncated, capped?, next?}` and
 follows the envelope's list rules (amendment U22): `total` is the full count on every page, `truncated` is
 true exactly when entries exist after this page, and `next` (an opaque cursor) is present exactly when
@@ -228,6 +230,32 @@ page), and each document hit on the returned page records its id and version as 
 open work below them; a terminal item with a non-terminal descendant is kept. Under a restricted scope
 every list and count covers only items the caller may see. `includeChildren` with `itemId` or `anchorId`,
 or `itemId` with `anchorId`, is `invalid_request`.
+
+**`related`.** The items and documents related to `itemId`, fused from four ranked signals with weighted
+Reciprocal Rank Fusion: each signal contributes `weight / (60 + position)` (position 1-based in that
+signal's list), with weights `edges` 1.0, `links` 1.0, `tags` 0.5, `text` 0.5. The signals:
+
+- `edges`: dependency counterparts in both directions, RELATES_TO first, then blocking ones, each by id.
+  Reasons `relates_to`, `blocks` (this item blocks it) and `blocked_by` (it blocks this item).
+- `links`: resolved links from the item or one of its notes (`links_to`) and links to the item
+  (`linked_from`), any relation; a note end counts as its owning item. Entities with more link rows rank
+  higher. Dangling links, a deleted target and an archived document never count.
+- `tags`: items sharing a tag (case-insensitive), each shared tag worth `1/n` where `n` is the number of
+  visible items carrying it, so rare tags weigh more. Reason `shared_tags:<n>` (the number of shared tags).
+- `text`: up to 8 distinctive words of the item's title, summary, description and note bodies (longest
+  first, common words dropped), matched any-term with stemming over item content, note bodies and
+  documents; a note match counts as its item. Reason `text`.
+
+Hits are ordered by score (higher first), then kind (`document` before `item`), then id. The item itself
+never appears. By default every signal stays inside the item's own root; `acrossRoots: true` lifts that
+bound only. The caller's scope always applies before fusion, so a relative the caller may not see is
+absent and not counted. An item hit is `{kind: "item", itemId, title, score, reasons, explain?}`; a document
+hit is `{kind: "document", rootId, docKind, slug, title?, score, reasons, explain?}`, addressed like a search
+document hit. `reasons` lists every signal that found the hit, in the order edges, links, tags, text.
+`explain` (default off) adds `{ranks: {edges?, links?, tags?, text?}, weights, rrfK}`. `page.total` is the
+size of the capped list (at most 50); `page.capped` is true when more relatives existed. The call log's
+`request_shape` carries `relatedSignals`, per signal the number of hits on the returned page it found
+(zeros kept), and each returned hit records its id and version as a target version.
 
 **Orchestration selects.** `context`, `next` and `blocked` replace `get_context`, `get_next_status`,
 `get_next_item` and `get_blocked_items`. They share the compact view, the id rules, the `fields` rule and the page
@@ -341,6 +369,7 @@ satisfied}]` (`id` a full UUID, `threshold` the role the blocker must reach, `sa
 { "select": "schema", "type": "feature-task", "rootId": "a1b2c3d4", "fields": ["guidance"] }
 { "select": "search", "query": "OAuth flow", "kinds": ["note"], "ancestorId": "550e8400" }
 { "select": "overview", "anchorId": "550e8400", "excludeTerminal": true }
+{ "select": "related", "itemId": "550e8400", "explain": true, "limit": 5 }
 ```
 
 `get_context`, `get_next_status`, `get_next_item` and `get_blocked_items` are removed: their `mode`,

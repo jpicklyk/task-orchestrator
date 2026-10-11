@@ -51,7 +51,8 @@ object ItemsReadTool {
     /** Select enumeration only; every field documents itself (doc single-source policy). */
     const val DESCRIPTION =
         "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an " +
-            "item), search (full text over item, note and document content), overview (a hierarchy summary)."
+            "item), search (full text over item, note and document content), overview (a hierarchy summary), related " +
+            "(items and documents related to an item by dependencies, links, shared tags and similar text)."
 
     val spec: SelectToolSpec =
         SelectToolSpec(
@@ -66,6 +67,7 @@ object ItemsReadTool {
                 ItemsReadContext.select,
                 ItemsReadNext.select,
                 ItemsReadBlocked.select,
+                ItemsReadRelated.select,
             )
         )
 }
@@ -73,8 +75,11 @@ object ItemsReadTool {
 /** The single documentation text of every request field more than one `items_read` select declares. */
 object ItemsReadDocs {
     const val ITEM_ID =
-        "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children."
-    const val LIMIT = "Page size. list, overview: default 50, max 200. search: default 20, max 100."
+        "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. " +
+            "related: the item to find relatives of."
+    const val LIMIT =
+        "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50."
+    const val EXPLAIN = "Add ranking detail to each hit (search: per-analyzer ranks; related: per-signal ranks); default false."
     const val CURSOR = "The page.next of the previous page; absent for the first page."
     const val FIELDS =
         "Extra members. get: createdAt, modifiedAt, roleChangedAt, ancestors. list: the same plus summary. schema: guidance."
