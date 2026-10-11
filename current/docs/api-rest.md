@@ -1212,8 +1212,9 @@ keeps the match count under the cap instead of walking a truncated scan.
 All require `READ`.
 
 The 3.x `GET /search` and `GET /notes/search` routes are removed (`404`). Search items and notes with
-`items_read` `select: search` over `POST /api/v1/ops/items_read` (section 20a): `kinds` picks item content
-and/or note bodies, ranked in one list, and the token's root and tag scope applies before ranking and
+`items_read` `select: search` over `POST /api/v1/ops/items_read` (section 20a): `kinds` picks item content,
+note bodies and/or document title and body (default: every kind the `role`, `tags` and `traits` filters apply
+to, so all three without them), ranked in one list, and the token's root and tag scope applies before ranking and
 capping. Fields and the hit shape are in `api-reference.md` -> `items_read`.
 
 ---

@@ -131,8 +131,8 @@ object CallLogFields {
 
     /**
      * [requestShapeJson] plus the server-derived [searchShape] of a search call (`queryHash`, `termCount`,
-     * `matchMode`), which always survive the [MAX_SHAPE_KEYS] limit and replace a client flag of the same name.
-     * The query text is never part of it.
+     * `matchMode`, and `hitsByKind` once the search ran), which always survive the [MAX_SHAPE_KEYS] limit and
+     * replace a client flag of the same name. The query text is never part of it.
      */
     fun requestShapeJson(
         arguments: JsonObject?,
@@ -146,12 +146,18 @@ object CallLogFields {
     }
 
     /** The `request_shape` fields of a search call. */
-    fun searchShapeFields(shape: CallTelemetry.SearchShape): Map<String, JsonElement> =
-        mapOf(
-            "queryHash" to JsonPrimitive(shape.queryHash),
-            "termCount" to JsonPrimitive(shape.termCount),
-            "matchMode" to JsonPrimitive(shape.matchMode)
-        )
+    fun searchShapeFields(shape: CallTelemetry.SearchShape): Map<String, JsonElement> {
+        val fields =
+            mutableMapOf<String, JsonElement>(
+                "queryHash" to JsonPrimitive(shape.queryHash),
+                "termCount" to JsonPrimitive(shape.termCount),
+                "matchMode" to JsonPrimitive(shape.matchMode)
+            )
+        shape.hitsByKind?.let { mix ->
+            fields["hitsByKind"] = JsonObject(mix.toSortedMap().mapValues { JsonPrimitive(it.value) })
+        }
+        return fields
+    }
 
     private fun clientShape(arguments: JsonObject?): Map<String, JsonElement> {
         if (arguments == null) return emptyMap()

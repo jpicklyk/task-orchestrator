@@ -154,12 +154,13 @@
       },
       "kinds": {
         "type": "array",
-        "description": "item (title, summary, description) and/or note (bodies); default both. [select: search]",
+        "description": "item (title, summary, description), note (bodies) and/or document (title, body); default every kind the filters apply to. role, tags and traits apply to item and note only: with any of them the default is item and note, and naming document too is invalid. [select: search]",
         "items": {
           "type": "string",
           "enum": [
             "item",
-            "note"
+            "note",
+            "document"
           ]
         }
       },
@@ -199,7 +200,7 @@
     },
     "type": "object"
   },
-  "description": "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item and note content), overview (a hierarchy summary). Call with describe:true for each operation's parameters and errors.",
+  "description": "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,
