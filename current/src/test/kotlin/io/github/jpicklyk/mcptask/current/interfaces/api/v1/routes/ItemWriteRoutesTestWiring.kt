@@ -27,7 +27,6 @@ internal fun Route.itemWriteRoutes(
     repositoryProvider,
     degradedModePolicy,
     idempotency,
-    advanceServiceFactory,
     unitOfWork,
     ItemCommandService(
         repositoryProvider,

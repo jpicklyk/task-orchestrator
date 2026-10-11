@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps.depsReadTool
@@ -119,4 +120,5 @@ class ToolRegistry(
  * `buildMcpTools()`). Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
  * `deps_read` and `deps_write`; Q19 added `items_read`.
  */
-fun buildToolSpecs(): List<ToolSpec> = listOf(notesReadTool, notesWriteTool, depsReadTool(), depsWriteTool(), ItemsReadTool.spec)
+fun buildToolSpecs(): List<ToolSpec> =
+    listOf(notesReadTool, notesWriteTool, depsReadTool(), depsWriteTool(), advanceTool(), ItemsReadTool.spec)

@@ -1,6 +1,12 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
 import com.lemonappdev.konsist.api.Konsist
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.time.Instant
 import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -339,5 +345,83 @@ class ErrorCatalogTest {
     @Test
     fun `row lookup sanity`() {
         assertEquals(409, row(ErrorCode.GATE_BLOCKED).status)
+    }
+
+    // ------------------------------------------------------------------ Q13 (item 2cd17c00)
+    // Oracles: envelope spec section 4 (gate_blocked detail with optional violations[{gate, reason}] omitted when empty, amendment
+    // U19; claim_held always carries expiresAt; resource_unavailable lists at least one resource; not_found kinds), task-scope TS3/TS4.
+
+    private val noteX = MissingNote("task-scope", "queue")
+    private val violationX = GateViolation("independence", "test-manifest: independent_of conflicts with seat implementer")
+
+    @Test
+    fun `Q13-S9 gate_blocked needs a missing note or a violation, never neither`() {
+        val id = ErrorFixtures.id1
+        assertFailsWith<IllegalArgumentException> { ErrorDetail.GateBlocked(id, "queue", emptyList()) }
+        assertFailsWith<IllegalArgumentException> { ErrorDetail.GateBlocked(id, "queue", emptyList(), emptyList()) }
+        assertEquals(listOf(noteX), ErrorDetail.GateBlocked(id, "queue", listOf(noteX)).missing)
+        assertEquals(listOf(violationX), ErrorDetail.GateBlocked(id, "work", emptyList(), listOf(violationX)).violations)
+        assertEquals(
+            listOf(violationX),
+            ErrorDetail.GateBlocked(id, "work", listOf(noteX), listOf(violationX)).violations
+        )
+    }
+
+    @Test
+    fun `Q13-S9 the encoded gate_blocked detail carries violations only when there are some`() {
+        val id = ErrorFixtures.id1
+        val noViolations = EnvelopeEncoder.detail(ErrorDetail.GateBlocked(id, "queue", listOf(noteX)))
+        assertFalse("violations" in noViolations, "absent violations are omitted: $noViolations")
+        val emptyViolations = EnvelopeEncoder.detail(ErrorDetail.GateBlocked(id, "queue", listOf(noteX), emptyList()))
+        assertFalse("violations" in emptyViolations, "empty violations are omitted: $emptyViolations")
+
+        val only = EnvelopeEncoder.detail(ErrorDetail.GateBlocked(id, "work", emptyList(), listOf(violationX)))
+        val entry =
+            only
+                .getValue("violations")
+                .jsonArray
+                .single()
+                .jsonObject
+        assertEquals(listOf("gate", "reason"), entry.keys.toList())
+        assertEquals("independence", entry.getValue("gate").jsonPrimitive.content)
+        assertEquals(violationX.reason, entry.getValue("reason").jsonPrimitive.content)
+
+        val both = EnvelopeEncoder.detail(ErrorDetail.GateBlocked(id, "work", listOf(noteX), listOf(violationX)))
+        assertEquals(1, both.getValue("missing").jsonArray.size)
+        assertEquals(1, both.getValue("violations").jsonArray.size)
+    }
+
+    @Test
+    fun `Q13-S10 resource_unavailable must name at least one resource`() {
+        assertFailsWith<IllegalArgumentException> { ErrorDetail.ResourceUnavailable(ErrorFixtures.id1, emptyList(), 1000L) }
+        val named = ErrorDetail.ResourceUnavailable(ErrorFixtures.id1, listOf(ResourceRef("p11-db", "exclusive")), null)
+        assertEquals("p11-db", named.resources.single().name)
+    }
+
+    @Test
+    fun `Q13-S11 an already-claimed result always carries a non-null expiry and retry hint that claim_held can carry`() {
+        val expires = Instant.parse("2026-10-10T12:15:00Z")
+        val claimed = ClaimResult.AlreadyClaimed(ErrorFixtures.id1, expires, 5000L)
+        // the declared types are non-nullable: these assignments do not compile if expiresAt or retryAfterMs may be null
+        val expiry: Instant = claimed.expiresAt
+        val retry: Long = claimed.retryAfterMs
+        assertEquals(expires, expiry)
+        assertEquals(5000L, retry)
+        val held = ErrorDetail.ClaimHeld(claimed.itemId, claimed.expiresAt, claimed.retryAfterMs)
+        assertEquals(
+            "2026-10-10T12:15:00Z",
+            EnvelopeEncoder
+                .detail(held)
+                .getValue("expiresAt")
+                .jsonPrimitive.content
+        )
+    }
+
+    @Test
+    fun `Q13-S16 not_found can name a lease and the kind is lease on the wire`() {
+        val detail = EnvelopeEncoder.detail(ErrorDetail.NotFound(EntityKind.LEASE, "staging-db"))
+        assertEquals("lease", detail.getValue("kind").jsonPrimitive.content)
+        assertEquals("staging-db", detail.getValue("id").jsonPrimitive.content)
+        assertTrue(EntityKind.entries.map { it.name }.contains("LEASE"))
     }
 }

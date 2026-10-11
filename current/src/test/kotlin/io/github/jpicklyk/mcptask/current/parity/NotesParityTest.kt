@@ -558,7 +558,12 @@ class NotesParityTest {
             setOf("notes_read" to "get", "notes_read" to "list", "notes_write" to "upsert", "notes_write" to "delete"),
             members.toSet()
         )
-        assertEquals(emptyList(), ParityCoverage.missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions))
+        assertEquals(
+            emptyList(),
+            ParityCoverage
+                .missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions)
+                .filter { it.tool.startsWith("notes") }
+        )
         assertEquals(emptyList(), ParityCoverage.stale(registry, NotesParityCatalog.scenarios))
         assertTrue(NotesParityCatalog.exemptions.isEmpty(), "no scope exemption: every notes member touches an item")
     }

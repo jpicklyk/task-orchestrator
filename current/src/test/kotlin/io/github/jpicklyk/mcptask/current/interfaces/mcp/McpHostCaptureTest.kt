@@ -129,9 +129,18 @@ class McpHostCaptureTest {
                 it
         }
 
+    /** The deleted 3.x advance/claim tools as test-only drivers: these call-log tests need a write tool that records a rejection event. */
+    private fun legacyWorkflowTools(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
+        listOf(
+            io.github.jpicklyk.mcptask.current.application.tools.workflow
+                .AdvanceItemTool(),
+            io.github.jpicklyk.mcptask.current.application.tools.workflow
+                .ClaimItemTool()
+        )
+
     /** One Server carrying the production 3.x tool set through the real McpToolAdapter with the real call log writer. */
     private fun server3x(): Server =
-        bareServer().also { McpToolAdapter(callLog = writer).registerToolsWithServer(it, buildMcpTools(), rig.ctx) }
+        bareServer().also { McpToolAdapter(callLog = writer).registerToolsWithServer(it, buildMcpTools() + legacyWorkflowTools(), rig.ctx) }
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
@@ -680,7 +689,7 @@ class McpHostCaptureTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             servers += server
-            McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools(), rig.ctx)
+            McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools() + legacyWorkflowTools(), rig.ctx)
             application { installMcpStreamableHttp(server) }
 
             val alpha = client.initSession("HttpAlpha")

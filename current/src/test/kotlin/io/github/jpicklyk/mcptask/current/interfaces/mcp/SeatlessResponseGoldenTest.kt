@@ -11,21 +11,15 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemSchemaProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -37,7 +31,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -518,54 +511,6 @@ class SeatlessResponseGoldenTest {
     // MCP: advance_item start (feature-task, gate fail) + complete (bug-fix, gate fail)
     // ─────────────────────────────────────────────────────────────────────────
 
-    @Test
-    fun `golden advance_item start on feature-task fails the queue gate`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        runBlocking {
-            val fx = newFixture(tempDir)
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString()))
-                                    put("trigger", JsonPrimitive("start"))
-                                },
-                            )
-                        },
-                    )
-                }
-            val result = AdvanceItemTool().execute(params, fx.toolContext)
-            compareOrRecord("advance_start_feature_task", result)
-        }
-
-    @Test
-    fun `golden advance_item complete on bug-fix fails the work gate`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        runBlocking {
-            val fx = newFixture(tempDir)
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(BUG_FIX_ID.toString()))
-                                    put("trigger", JsonPrimitive("complete"))
-                                },
-                            )
-                        },
-                    )
-                }
-            val result = AdvanceItemTool().execute(params, fx.toolContext)
-            compareOrRecord("advance_complete_bug_fix", result)
-        }
-
     // ─────────────────────────────────────────────────────────────────────────
     // REST: GET /items/{id}/gate x2, POST /items/{id}/advance 422 x1
     // ─────────────────────────────────────────────────────────────────────────
@@ -646,37 +591,5 @@ class SeatlessResponseGoldenTest {
                     header("Authorization", "Bearer $TEST_TOKEN")
                 }
             compareOrRecord("rest_gate_bug_fix", restEnvelope(response.status, response.bodyAsText()))
-        }
-
-    @Test
-    fun `golden REST POST items id advance feature-task returns 422 gate_blocked`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val fx = newFixture(tempDir)
-            val authConfig = makeWriteAuthConfig()
-            application {
-                install(ContentNegotiation) { json(McpJson) }
-                installRestApiRoutes(
-                    apiConfig = authConfig,
-                    eventBus = null,
-                    effectiveProvider = fx.repositoryProvider,
-                    apiTokenEntries = tokenEntriesFor(authConfig),
-                    allowQueryToken = false,
-                    serverName = "a1-t0-golden",
-                    serverVersion = "test",
-                    actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
-                    toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
-                )
-            }
-            val response =
-                client.post("/api/v1/items/$FEATURE_TASK_ID/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            compareOrRecord("rest_advance_422_feature_task", restEnvelope(response.status, response.bodyAsText()))
         }
 }

@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -250,6 +251,26 @@ class ClaimService(
             events.record(out)
             result
         }
+
+    /** Every active (non-expired) lease, ordered by (resource key, holder item id): the lease list read. */
+    suspend fun activeLeases(): List<ResourceLease> =
+        repositoryProvider
+            .resourceLeaseRepository()
+            .findAllActive()
+            .sortedWith(compareBy<ResourceLease>({ it.resourceKey }, { it.holderItemId }))
+
+    /**
+     * The lease hold intervals, newest-first, at most [limit]: those held at [at] when given, else the most recent
+     * ones, optionally restricted to [key]. Open and closed intervals alike.
+     */
+    suspend fun leaseHistory(
+        key: String?,
+        at: Instant?,
+        limit: Int
+    ): List<ResourceLeaseInterval> {
+        val leases = repositoryProvider.resourceLeaseRepository()
+        return if (at != null) leases.findHoldersAt(key, at, limit) else leases.findRecentIntervals(key, limit)
+    }
 
     // -------------------------------------------------------------------------
     // Sweep

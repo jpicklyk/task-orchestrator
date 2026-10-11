@@ -150,7 +150,7 @@ class McpCallLogTest {
         runBlocking {
             rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
             writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
-            val pair = connect(McpToolAdapter(callLog = writer), buildMcpTools() + extraTools)
+            val pair = connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools)
             client = pair.first
             server = pair.second
         }
@@ -744,4 +744,13 @@ class McpCallLogTest {
                 }
             }
         }
+
+    /** The deleted 3.x advance/claim tools as test-only drivers: these call-log tests need write tools that reject and record events. */
+    private fun legacyWorkflowTools(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
+        listOf(
+            io.github.jpicklyk.mcptask.current.application.tools.workflow
+                .AdvanceItemTool(),
+            io.github.jpicklyk.mcptask.current.application.tools.workflow
+                .ClaimItemTool()
+        )
 }
