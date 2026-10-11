@@ -430,7 +430,17 @@ class ParityHarness(
 
     companion object {
         private val TABLES =
-            listOf("work_items", "notes", "dependencies", "events", "documents", "document_versions", "links", "config_versions", "config_heads")
+            listOf(
+                "work_items",
+                "notes",
+                "dependencies",
+                "events",
+                "documents",
+                "document_versions",
+                "links",
+                "config_versions",
+                "config_heads"
+            )
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
 
@@ -490,7 +500,19 @@ class ParityHarness(
             tables.mapValues { (table, rows) -> if (table == "events") rows else rows.sortedBy { it.toString() } }
 
         /** The [snapshot] projection of [rawTables] output: noise columns dropped, non-event rows sorted. */
-        internal fun project(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> = sorted(withoutNoise(raw))
+        internal fun project(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> =
+            sorted(withoutNoise(withDocumentRowids(raw)))
+
+        /**
+         * [raw] with each `document_versions.document_id` replaced by its document's `doc_rowid`: the id is generated per leg (a seeded
+         * rule document gets a fresh one on each leg, like the dropped `documents.id`), while the rowid is assigned in write order and
+         * so keeps the version-to-document link comparable.
+         */
+        private fun withDocumentRowids(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> {
+            val rowids = raw["documents"].orEmpty().associate { it["id"] to it["doc_rowid"] }
+            val versions = raw["document_versions"] ?: return raw
+            return raw + ("document_versions" to versions.map { row -> row + ("document_id" to "doc#" + rowids[row["document_id"]]) })
+        }
 
         private val UUID_TEXT = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         private val HEX_BLOB = Regex("[0-9a-f]{32}")
@@ -531,7 +553,7 @@ class ParityHarness(
             known: Set<String>
         ): Pair<String, Map<String, List<Map<String, Any?>>>> {
             // noise columns carry per-call generated ids (request and session ids): they must not take token numbers
-            val raw = withoutNoise(rawWithNoise)
+            val raw = withoutNoise(withDocumentRowids(rawWithNoise))
             val tokens = LinkedHashMap<String, String>()
 
             fun note(uuid: String) {
