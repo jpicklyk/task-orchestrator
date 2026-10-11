@@ -1,6 +1,9 @@
+@file:OptIn(ClaimWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult

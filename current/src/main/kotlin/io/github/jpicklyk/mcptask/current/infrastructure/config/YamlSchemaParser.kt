@@ -318,7 +318,11 @@ internal object YamlSchemaParser {
         val errors: List<ConfigViolation>
         val warningViolations: List<ConfigViolation>
         if (mode == ParseMode.STRICT) {
-            errors = findings.filter { it.kind == ParseFindings.Kind.SOFT }.map { ConfigViolation(it.path, it.reason) }
+            // A strict rejection must not say "ignoring": the lenient wording describes a skip that does not happen here.
+            errors =
+                findings
+                    .filter { it.kind == ParseFindings.Kind.SOFT }
+                    .map { ConfigViolation(it.path, it.reason.removeSuffix("; ignoring")) }
             warningViolations = findings.filter { it.kind == ParseFindings.Kind.ADVISORY }.map { ConfigViolation(it.path, it.reason) }
         } else {
             errors = emptyList()

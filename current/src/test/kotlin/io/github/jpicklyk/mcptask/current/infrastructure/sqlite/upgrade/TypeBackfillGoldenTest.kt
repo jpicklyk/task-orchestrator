@@ -183,7 +183,10 @@ class TypeBackfillGoldenTest {
     private fun dumpOf(url: String) =
         DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }.mapValues { (table, rows) ->
             when (table) {
-                "config_versions" -> rows.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
+                "config_versions" ->
+                    // The every-boot `server-config-import` step lands the mounted global file as a file-import row.
+                    rows.filterValues { it["source"] != "file-import" }.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
+                "config_heads" -> rows.filterValues { it["scope"] != "server" }
                 "data_steps" -> rows.filterValues { it["name"] == stepName }
                 "work_items" -> rows.mapValues { (_, row) -> row + ("properties" to withoutTraitsKey(row["properties"])) }
                 "item_traits" -> emptyMap()

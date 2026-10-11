@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -15,11 +15,11 @@ import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
+import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
@@ -31,8 +31,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigS
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -93,7 +91,8 @@ data class ApiWiring(
 class CompositionResult(
     val toolContext: ToolExecutionContext,
     val apiWiring: ApiWiring,
-    val noteSchemaService: WorkItemSchemaService,
+    /** The server-scope config layer: the DB head, read per call (the REST `/config*` routes view it per request). */
+    val serverConfig: ServerConfigSource,
     val degradedModePolicy: DegradedModePolicy,
     val actorAuthEnabled: Boolean,
     val configResolver: EffectiveConfigResolver,
@@ -112,7 +111,7 @@ class CompositionResult(
  * (startup/shutdown/transport).
  *
  * There is no DI framework — wiring is explicit and ordered. The environment is read once (in
- * [AppConfig.fromEnv], by the caller) and passed in; this class performs no direct [System.getenv]
+ * [AppConfig.fromEnv], by the caller) and passed in; this class performs no direct environment
  * reads except by delegating to validated config loaders that accept an injectable resolver.
  *
  * @param appConfig The single startup environment snapshot.
@@ -154,18 +153,20 @@ class ServerComposition(
         // typed AppConfig. FileBodySource reads no environment.
         val bodySource = FileBodySource(Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir)))
 
-        // ONE GlobalConfigFile instance reads and parses the file once; the schema service, the
-        // status-label service, and the actor-auth service below all read from this SAME parsed
-        // document instead of each independently re-reading and re-parsing it (AR-41 step 2/3).
+        // The directory every file-relative setting resolves against (`bodyFromFile`, `jwks_path`, the global file):
+        // built ONCE here, so no service reads AGENT_CONFIG_DIR itself.
+        val configBaseDir = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
+
+        // ONE GlobalConfigFile instance reads and parses the file once. It feeds the `server-config-import` boot step
+        // (the file's text), the actor-auth service (`actor_authentication` stays file-sourced) and the type-backfill
+        // step. The runtime never reads the file for schemas, traits or labels: it reads the stored server head.
         val globalConfigFile = GlobalConfigFile(globalConfigPath)
         // Force the lazy load NOW, before anything else is wired, so a broken global config file
         // fails startup here (surfaced to CurrentMcpServer.run() -> CurrentMain, before the
         // readiness marker is ever written) rather than on first incidental use deep in a request.
         globalConfigFile.layer()
-        val noteSchemaService = YamlNoteSchemaService(globalConfigFile)
-        val statusLabelService = YamlStatusLabelService(globalConfigFile)
         val actorAuthConfigService = YamlActorAuthenticationConfigService(globalConfigFile, envResolver = appConfig.envResolver)
-        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService)
+        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService, configBaseDir)
 
         // Resolve the REST/SSE API wiring ONCE, EARLY, before the tool context is built, so the
         // SAME recorder (and, with the API on, the SAME event bus) feeds BOTH the MCP tool context
@@ -186,20 +187,22 @@ class ServerComposition(
         // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
         // REST previously built its own PerRootConfigService (a separate last-known-good cache);
         // sharing this instance is the only intended observable behavior change in this item.
-        val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
+        // The server layer is the DB head too (`PerRootConfigService` is both sources): the boot import landed the file
+        // there, and a version another process appends is served on the next read, with no restart.
+        val configResolver = EffectiveConfigResolver(perRootConfigService, perRootConfigService)
         // The unit of work hands scopes the SAME provider the tools use.
         val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
         // ONE read model for the whole server, over the same unit of work (served by the read tools as they move onto it).
         val workViewQueries = WorkViewQueries(unitOfWork)
         // The ONE config service: MCP's manage_project_config and the REST config routes both drive it.
         // Admission check for pushed config: the JSON Schema pass, the strict parser's findings, and the semantic rules
-        // against the server layer (the global file).
-        val configValidator = ConfigValidator(NetworkntConfigStructuralValidator(), globalConfigFile)
-        val configService = ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork, configValidator)
+        // against the server layer, which ConfigService reads from the DB head on every push / validate.
+        val configValidator = ConfigValidator(NetworkntConfigStructuralValidator())
+        val configService =
+            ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork, configValidator, serverConfig = perRootConfigService)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
-                statusLabelService = statusLabelService,
                 actorVerifier = actorVerifier,
                 degradedModePolicy = degradedModePolicy,
                 nextItemRecommender = nextItemRecommender,
@@ -210,6 +213,7 @@ class ServerComposition(
                 workViewQueries = workViewQueries,
                 configService = configService,
                 bodySource = bodySource,
+                resourceLeasesEnforced = appConfig.resourceLeasesEnforced,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
@@ -226,7 +230,7 @@ class ServerComposition(
         return CompositionResult(
             toolContext = toolContext,
             apiWiring = apiWiring,
-            noteSchemaService = noteSchemaService,
+            serverConfig = perRootConfigService,
             degradedModePolicy = degradedModePolicy,
             actorAuthEnabled = actorAuthEnabled,
             configResolver = configResolver,
@@ -235,7 +239,7 @@ class ServerComposition(
             configService = configService,
             dataStepRunner =
                 DataStepRunner(
-                    steps = productionDataSteps(configService, globalConfigPath) + extraDataSteps,
+                    steps = productionDataSteps(configService, globalConfigFile, globalConfigPath) + extraDataSteps,
                     unitOfWork = unitOfWork,
                     store = SqliteDataStepStore(databaseManager),
                     clock = clock,
@@ -317,6 +321,7 @@ class ServerComposition(
                             algorithms = apiConfig.algorithms,
                             cacheTtlSeconds = apiConfig.cacheTtlSeconds,
                         ),
+                        Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir)),
                     )
                 shutdownCoordinator.addCleanupAction("Close REST JWKS key provider") {
                     keyProvider.close()
@@ -353,6 +358,7 @@ class ServerComposition(
      */
     private fun createActorVerifierAndPolicy(
         configService: YamlActorAuthenticationConfigService,
+        configBaseDir: Path,
     ): Pair<ActorVerifier, DegradedModePolicy> {
         configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()
@@ -378,7 +384,7 @@ class ServerComposition(
                                 "reject for cross-org deployments that must not trust an unverified claim.",
                         )
                     }
-                    JwksActorVerifier(vc).also { jwksVerifier ->
+                    JwksActorVerifier(vc, DefaultJwksKeySetProvider(vc, configBaseDir)).also { jwksVerifier ->
                         shutdownCoordinator.addCleanupAction("Close JWKS ActorVerifier") {
                             jwksVerifier.close()
                         }
@@ -391,11 +397,19 @@ class ServerComposition(
     private companion object {
         /**
          * The data steps the server ships; later work items register theirs here. Phase order runs config-canonicalize
-         * (CONFIG_CANONICALIZE) before type-backfill (ITEM_BACKFILL).
+         * (CONFIG_CANONICALIZE), then server-config-import (CONFIG_IMPORT, every boot), then type-backfill
+         * (ITEM_BACKFILL).
          */
         fun productionDataSteps(
             configService: ConfigService,
+            globalConfigFile: GlobalConfigFile,
             globalConfigPath: Path,
-        ): List<DataStep> = listOf(ConfigCanonicalizeStep(configService), TypeBackfillStep(globalConfigPath), TraitsFromPropertiesStep())
+        ): List<DataStep> =
+            listOf(
+                ConfigCanonicalizeStep(configService),
+                ServerConfigImportStep(configService, globalConfigFile),
+                TypeBackfillStep(globalConfigPath),
+                TraitsFromPropertiesStep(),
+            )
     }
 }

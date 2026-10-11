@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJ
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import kotlinx.serialization.json.JsonArray
@@ -47,6 +48,7 @@ enum class LegacyMcpCode(
     REJECTED_BY_POLICY("rejected_by_policy", ErrorCode.UNAUTHENTICATED),
     RESOURCE_UNAVAILABLE("resource_unavailable", ErrorCode.RESOURCE_UNAVAILABLE),
     CONFIG_UNAVAILABLE(PerRootConfigUnavailableException.CODE, ErrorCode.INTERNAL),
+    CONFIG_INVALID(PerRootConfigInvalidException.CODE, ErrorCode.CONFIG_INVALID),
     NOTE_BODY_TOO_LONG("NOTE_BODY_TOO_LONG", ErrorCode.NOTE_TOO_LONG),
     NOTE_BODY_TOO_LARGE("NOTE_BODY_TOO_LARGE", ErrorCode.PAYLOAD_TOO_LARGE),
     IDEMPOTENCY_MISMATCH("idempotency_mismatch", ErrorCode.IDEMPOTENCY_MISMATCH),

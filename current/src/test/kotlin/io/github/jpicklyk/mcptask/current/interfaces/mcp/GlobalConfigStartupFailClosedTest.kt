@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -90,7 +91,7 @@ class GlobalConfigStartupFailClosedTest {
             ).build()
 
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, composition.degradedModePolicy)
-        assertNull(composition.noteSchemaService.getConfigFingerprint())
+        assertNull(runBlocking { composition.serverConfig.layer() }?.fingerprint)
         assertFalse(composition.actorAuthEnabled)
     }
 

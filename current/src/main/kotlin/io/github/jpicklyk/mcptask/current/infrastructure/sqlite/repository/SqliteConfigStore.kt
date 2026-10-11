@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigHead
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
@@ -87,6 +88,7 @@ class SqliteConfigStore(
         }
     }
 
+    @StoreWrite
     override suspend fun append(
         scope: ConfigScope,
         rootId: UUID?,
@@ -96,14 +98,19 @@ class SqliteConfigStore(
         rejectSuperseded: Boolean,
         now: Instant
     ): ConfigAppendOutcome {
-        require(scope == ConfigScope.ROOT) { "Server-scope config versions cannot be appended yet" }
-        val root = requireNotNull(rootId) { "rootId is required for the root scope" }
+        val root: UUID? =
+            if (scope == ConfigScope.ROOT) {
+                requireNotNull(rootId) { "rootId is required for the root scope" }
+            } else {
+                require(rootId == null) { "rootId must be null for the server scope" }
+                null
+            }
         return databaseManager.writeTx("ConfigStore.append") {
             val head = readHead(scope, root)
             val headVersion = head?.let { versionRow(it.versionId) }
 
             if (head != null && headVersion != null) {
-                if (rejectSuperseded && classify(root, append.fingerprint, head) == FingerprintRelation.SUPERSEDED) {
+                if (rejectSuperseded && root != null && classify(root, append.fingerprint, head) == FingerprintRelation.SUPERSEDED) {
                     return@writeTx ConfigAppendOutcome.Superseded(head.version, headVersion.createdAt)
                 }
                 if ((expectedVersion != null && expectedVersion != head.version) ||
@@ -183,6 +190,7 @@ class SqliteConfigStore(
             classify(rootId, fingerprint, readHead(ConfigScope.ROOT, rootId))
         }
 
+    @StoreWrite
     override suspend fun fillCanonical(
         id: UUID,
         canonicalJson: String,

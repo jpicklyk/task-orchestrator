@@ -29,12 +29,48 @@ import kotlin.coroutines.coroutineContext
  * per-root config read failure is never treated as "no per-root config, use the global layer".
  * Callers at an operation boundary catch it and report the transient `config_unavailable` outcome.
  */
-class EffectiveConfigResolver(
-    val global: GlobalConfigLookup,
+class EffectiveConfigResolver private constructor(
+    private val server: ServerConfigSource,
     private val perRoot: PerRootConfigSource?,
+    private val fixedGlobal: GlobalConfigLookup?,
 ) {
-    /** Fetches [rootId]'s per-root layer (see class kdoc for the null/no-source cases) and pairs it with [global]. */
-    suspend fun layered(rootId: UUID?): LayeredConfig = LayeredConfig(rootId, layerFor(rootId), global)
+    /** The production form: the server layer is the DB head, read per call (memoised per [ConfigSession]). */
+    constructor(server: ServerConfigSource, perRoot: PerRootConfigSource?) : this(server, perRoot, null)
+
+    /** A fixed server lookup (tests, and any caller that holds one document): never reads a server source. */
+    constructor(global: GlobalConfigLookup, perRoot: PerRootConfigSource?) : this({ null }, perRoot, global)
+
+    /**
+     * The fixed server lookup of a resolver built from a [GlobalConfigLookup]. A resolver built from a
+     * [ServerConfigSource] has no fixed lookup (its layer is read per call): use [layered] and
+     * [LayeredConfig.global] instead.
+     */
+    val global: GlobalConfigLookup
+        get() =
+            fixedGlobal
+                ?: throw IllegalStateException("This resolver reads the server layer from the database; use layered(rootId).global")
+
+    /**
+     * Fetches [rootId]'s per-root layer (see class kdoc for the null/no-source cases) and pairs it with the server
+     * layer (read here: the DB head, or the fixed lookup).
+     */
+    suspend fun layered(rootId: UUID?): LayeredConfig = LayeredConfig(rootId, layerFor(rootId), serverLookup())
+
+    /** The server side of a resolution: the fixed lookup, else a lookup over the freshly (or session-memoised) read layer. */
+    private suspend fun serverLookup(): GlobalConfigLookup = fixedGlobal ?: LayerBackedGlobalLookup(serverLayer())
+
+    /**
+     * One read of the server layer. Memoised per ambient [ConfigSession] like the per-root read (keyed on the server
+     * source and the nil UUID); fresh with no session.
+     */
+    private suspend fun serverLayer(): ConfigLayer? {
+        val session = coroutineContext[ConfigSession.Key]
+        return if (session != null) {
+            session.memoized(server, SERVER_KEY) { server.layer() }
+        } else {
+            server.layer()
+        }
+    }
 
     /** Effective (trait-merged) schema for [item], or null when no schema matches (schema-free). */
     suspend fun resolveSchema(item: WorkItem): WorkItemSchema? {
@@ -184,7 +220,7 @@ class EffectiveConfigResolver(
             } else {
                 emptyList()
             }
-        return (perRootTraits + global.traitNames()).distinct()
+        return (perRootTraits + serverLookup().traitNames()).distinct()
     }
 
     /** Trait list for dispatch resolution: [TraitResolver.order] of [item]'s traits and [resolvedSchema]'s defaultTraits. */
@@ -223,3 +259,6 @@ class EffectiveConfigResolver(
         }
     }
 }
+
+/** Session-memo key of the server layer (no real root has the nil UUID). */
+private val SERVER_KEY = UUID(0L, 0L)

@@ -68,7 +68,7 @@ class EventRestCoverageTest {
             serverName = "p8-event-rest-coverage",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )
@@ -191,29 +191,17 @@ class EventRestCoverageTest {
     // ---------------------------------------------------------------------------------------------
 
     // ---------------------------------------------------------------------------------------------
-    // Plan documents, project config, leases
+    // Project config, leases
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `REST plan document PUT and project config PUT and DELETE record their rows`(
+    fun `REST project config PUT and DELETE record their rows`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             application { configureProductionApp(rig.composition) }
             val root = rig.seed("rest cfg root")
-
-            val plan =
-                client.put("/api/v1/roots/${root.id}/plans/rest-plan") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("A plan document.")
-                }
-            assertEquals(HttpStatusCode.OK, plan.status, plan.bodyAsText())
-            val planRows = rig.rows()
-            assertEquals(listOf("document.created"), planRows.types())
-            assertEquals("rest-plan", planRows.single().str("slug"))
-            assertEquals(root.id, planRows.single().rootId)
 
             val mark = rig.maxSeq()
             val config =

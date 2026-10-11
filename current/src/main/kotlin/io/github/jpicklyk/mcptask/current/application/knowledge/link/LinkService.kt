@@ -1,7 +1,10 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -107,6 +110,23 @@ class LinkService(
     /** Deletes every link sourced from note [noteId] (all relations). */
     suspend fun onNoteDeleted(noteId: UUID) {
         repositoryProvider.linkStore().deleteFrom(EntityRef(RefKind.NOTE, noteId))
+    }
+
+    /**
+     * Cleans up after an item-delete cascade removed [itemIds] and, through the notes foreign key, [noteIds]: every
+     * link sourced from a removed note or item is deleted (all relations), and so is every resolved link INTO a
+     * removed item except [LinkRelation.ADOPTED_BY] (an adoption outlives the adopting item). Matches on (kind, id)
+     * only, so links stamped with another root are cleaned too. Joins the ambient unit; records no event.
+     */
+    suspend fun onItemsDeleted(
+        itemIds: Collection<UUID>,
+        noteIds: Collection<UUID>,
+    ) {
+        if (itemIds.isEmpty() && noteIds.isEmpty()) return
+        val links = repositoryProvider.linkStore()
+        val items = itemIds.map { EntityRef(RefKind.ITEM, it) }
+        links.deleteFromAny(noteIds.map { EntityRef(RefKind.NOTE, it) } + items)
+        links.deleteToAny(items, keep = setOf(LinkRelation.ADOPTED_BY))
     }
 
     /**

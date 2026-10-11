@@ -18,14 +18,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import java.util.UUID
 
 /**
- * The 3.x plan-document surface, kept byte-for-byte for `manage_plan_documents`, the REST plan routes and
- * `create_work_tree` adoption, and delegating every write to the knowledge [DocumentService].
+ * The 3.x plan-document surface, kept for `create_work_tree` adoption (the `docs_read` /
+ * `docs_write` tools address documents through [DocumentService] directly), and delegating every write to the knowledge [DocumentService].
  *
- * Extracted the same way [ConfigService] is: so the exact SAME pipeline can be driven
- * by both the MCP `manage_plan_documents` `stash` operation and the REST
- * `PUT /api/v1/roots/{rootId}/plans/{slug}` route
- * ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes]) — both callers
- * must converge on identical DB state (and identical `contentHash`) for the same payload.
+ * Extracted the same way [ConfigService] is: one pipeline, one place that stashes a plan
+ * document, so every caller converges on identical DB state (and identical `contentHash`) for the same payload.
  *
  * A 3.x slug maps to a document address through [PlanSlugs] (`rule/<key>` is the RULE document `<key>`, every other
  * slug the PLAN document of the same slug). Pipeline for [stash], in order: size cap -> root exists -> root is
@@ -48,8 +45,8 @@ class PlanDocumentService(
      * ([io.github.jpicklyk.mcptask.current.application.port.BodySource.MAX_FILE_BYTES]) - kept
      * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere. A
      * `slug` starting with [RuleService.RULE_SLUG_PREFIX] (`rule/`) is capped tighter, at
-     * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for both `manage_plan_documents`
-     * `stash` and the REST PUT route, so `query_rules`/the `rules` REST routes never need their own
+     * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for every
+     * plan-document write (`docs_write` enforces the same caps in [DocumentService]), so `query_rules`/the `rules` REST routes never need their own
      * cap (A3, 840e700a).
      */
     suspend fun stash(

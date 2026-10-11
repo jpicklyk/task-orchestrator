@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
 import io.github.jpicklyk.mcptask.current.domain.model.Link
 import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
@@ -16,6 +17,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -31,6 +33,7 @@ import java.util.UUID
 class SqliteLinkStore(
     private val databaseManager: DatabaseManager
 ) : LinkStore {
+    @StoreWrite
     override suspend fun insert(link: Link): Link {
         require(link.to != null || link.toRef != null) { "a link needs a resolved target or a target reference" }
         return databaseManager.writeTx("LinkStore.insert") {
@@ -94,6 +97,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteFrom(
         ref: EntityRef,
         relation: LinkRelation?
@@ -106,6 +110,40 @@ class SqliteLinkStore(
             }
         }
 
+    @StoreWrite
+    override suspend fun deleteFromAny(refs: Collection<EntityRef>): Int {
+        if (refs.isEmpty()) return 0
+        return databaseManager.writeTx("LinkStore.deleteFromAny") {
+            refs.groupBy({ it.kind }, { it.id }).entries.sumOf { (kind, ids) ->
+                val dbKind = kind.toDbValue()
+                ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    LinksTable.deleteWhere { (LinksTable.fromKind eq dbKind) and (LinksTable.fromId inList chunk) }
+                }
+            }
+        }
+    }
+
+    @StoreWrite
+    override suspend fun deleteToAny(
+        refs: Collection<EntityRef>,
+        keep: Set<LinkRelation>
+    ): Int {
+        if (refs.isEmpty()) return 0
+        val keepDb = keep.map { it.toDbValue() }
+        return databaseManager.writeTx("LinkStore.deleteToAny") {
+            refs.groupBy({ it.kind }, { it.id }).entries.sumOf { (kind, ids) ->
+                val dbKind = kind.toDbValue()
+                ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    LinksTable.deleteWhere {
+                        val target = (LinksTable.toKind eq dbKind) and (LinksTable.toId inList chunk)
+                        if (keepDb.isEmpty()) target else target and (LinksTable.relation notInList keepDb)
+                    }
+                }
+            }
+        }
+    }
+
+    @StoreWrite
     override suspend fun deleteByIds(ids: Collection<UUID>): Int {
         if (ids.isEmpty()) return 0
         return databaseManager.writeTx("LinkStore.deleteByIds") {
@@ -134,6 +172,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun resolve(
         id: UUID,
         target: EntityRef
@@ -145,6 +184,7 @@ class SqliteLinkStore(
             } == 1
         }
 
+    @StoreWrite
     override suspend fun unresolveTo(ref: EntityRef): Int =
         databaseManager.writeTx("LinkStore.unresolveTo") {
             val kind = ref.kind.toDbValue()

@@ -27,13 +27,14 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
 | `deps_read` | Dependencies | Read | List an item's edges by direction, or walk its blocking graph in topological order (4.0 envelope) |
+| `docs_write` | Documents | Write | Upsert, archive, unarchive, delete a root's versioned documents; attach or detach items (4.0 envelope) |
+| `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
 | `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
 | `get_blocked_items` | Workflow | Read | Items blocked by dependency or explicit block trigger, capped at 500 per role |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
-| `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
 | `query_rules` | System | Read | Read git-tracked rule text by rootId+key, by an item skill-pointer resolution, or list rule keys under a root |
 
 ---
@@ -75,7 +76,7 @@ lists. `clear` lists optional fields to set to null: `description`, `statusLabel
 
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
-in one unit. Notes and dependency edges go with their items. `expectedVersion` guards the item itself.
+in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself.
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
@@ -272,20 +273,33 @@ on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-re
 per-root rule text served by [`query_rules`](#query_rules) and `GET /api/v1/roots/{rootId}/rules[/{key}]`.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
-(title, summary, description) and/or `note` (bodies); default both, fused in one ranking; an empty `kinds`
-is `invalid_request`. `query` terms must all match and are matched literally (special characters are
+(title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
+documents); an empty `kinds` is `invalid_request`. With `kinds` absent the search covers every kind the other
+filters apply to, fused in one ranking: all three when none of `role`, `tags` and `traits` is set, `item` and
+`note` when any is (they describe items, so they cannot filter documents). Naming `document` in `kinds`
+together with `role`, `tags` or `traits` is `invalid_request` on `/role`, `/tags` or `/traits` (the first one
+set, in that order); a filter is never silently dropped. `query` terms must all match and are matched literally (special characters are
 escaped); a query the search core rejects (for example a control character other than ASCII whitespace) is
 `invalid_request` on `/query`. `matchMode` is `auto` (default: the trigram and the stemmed tables fused by
 RRF), `substring` (trigram only, terms of 3 or more characters) or `text` (stemmed). `itemId` keeps only
 that item's own content; `ancestorId` its subtree; `role`, `tags` and `traits` filter on the item that owns
-the content. The caller's scope filters candidates before ranking and capping, so a restricted token gets a
-full page of in-scope hits. A hit is `{kind, itemId, noteKey?, title?, field, snippet?, score, matchedIn,
-explain?}`: `kind` is `item` or `note`, `itemId` is the 8-hex short id, `noteKey` is set on note hits,
-`title` is the owning item's title, `field` is the field holding the match (`title` or `summary`, `title`
-when both do, `body` for a note), `snippet` (default on) carries `<mark>` highlights, `score` is the fused
-RRF value (higher is more relevant), and `explain` (default off) adds `{trigramRank?, textRank?, rrfK}`.
-`page.total` is the size of the capped hit list (at most 100); `page.capped` is true when more matches
-existed than the cap: refine the query or narrow the filters.
+the content. A document is owned by its root item, so `itemId` or `ancestorId` set to that root finds the
+root's documents and any other id finds none. Archived documents are never searched; an edited document is
+searchable at once. The caller's scope filters candidates before ranking and capping, so a restricted token
+gets a full page of in-scope hits; a document is visible exactly when its root item is (a token scoped to an
+id below the root, or by a tag the root does not carry, does not see the root's documents). A hit is
+`{kind, itemId, noteKey?, title?, field, snippet?, score, matchedIn, explain?}` for an item or note:
+`kind` is `item` or `note`, `itemId` is the 8-hex short id, `noteKey` is set on note hits, `title` is the
+owning item's title, `field` is the field holding the match (`title` or `summary`, `title` when both do,
+`body` for a note). A document hit is `{kind: "document", rootId, docKind, slug, title?, field, snippet?,
+score, matchedIn, explain?}`: `rootId` is the root's 8-hex short id, `docKind` is `plan`, `rule` or `page`,
+`title` is the document's own title (omitted when it has none), `field` is `title` or `body` (`title` when
+both match), and it has no `itemId` or `noteKey`; `rootId`, `docKind` and `slug` address the document for
+`docs_read`. `snippet` (default on) carries `<mark>` highlights, `score` is the fused RRF value (higher is
+more relevant), and `explain` (default off) adds `{trigramRank?, textRank?, rrfK}`. `page.total` is the size of the capped hit list (at most 100); `page.capped` is true when more matches
+existed than the cap: refine the query or narrow the filters. The call log's `request_shape` for a search
+carries `hitsByKind`, the count of hits per searched kind in the capped list (zeros kept, the same on every
+page), and each document hit on the returned page records its id and version as a target version.
 
 **`overview`.** Three modes:
 
@@ -372,7 +386,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   A missing note on `delete` is `not_found`.
 - **`bodyFromFile` (`BodySource`).** One `BodySource`, built once from the agent config root
   (`AGENT_CONFIG_DIR`, else the server's working directory), reads the file for `notes_write` and
-  `manage_plan_documents`: a relative path strictly inside the root (no absolute path, no `..`, no
+  `docs_write`: a relative path strictly inside the root (no absolute path, no `..`, no
   symlink out of it), a regular UTF-8 file of at most 65536 bytes, CRLF normalized to LF. Failures use
   fixed reasons that never echo filesystem text. An idempotency replay does not re-read the file. Giving
   both or neither of `body` and `bodyFromFile` is `invalid_request`. `bodyFromFile` is MCP-only: on
@@ -387,7 +401,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   result carries `warning: {key, max, actual}`, under `reject` the element fails with `note_too_long`.
   `note_limits` is layered per root (see
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)).
-  A per-root config that cannot be read answers `unavailable` (`retryAfterMs`).
+  A per-root config that cannot be read answers `unavailable` (`retryAfterMs`). A config head that exists but cannot be loaded answers `config_invalid` (permanent).
 - **Attribution.** Over MCP the body `actor` is lifted as before and recorded with the note
   (verification included); over REST `/ops` the principal is the bearer token's and a body `actor` is
   ignored.
@@ -560,7 +574,8 @@ such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credenti
 claiming a terminal item), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
 `detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `not_claim_holder`, `claim_held`
 (`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
-`retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000),
+`retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000), `config_invalid` (a config head, the server's or the root's, has no loadable canonical form; permanent,
+`detail.errors[0].path` empty; never `internal`),
 `idempotency_mismatch`.
 
 Resource leases: a `transition` that enters `work` acquires an exclusive lease for each resource the item's traits declare;
@@ -1241,138 +1256,99 @@ Read First") applying to config data the same way it already applies to every ot
 Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
 single trusted process.
 
-### manage_plan_documents
+### docs_read
 
-**Purpose.** Transport-agnostic store for per-root plan documents — free-floating planning docs an
-agent stashes ahead of adoption into a real WorkItem. Mirrors `manage_project_config`'s push/get
-shape: `PlanDocumentService` is the same validate-then-persist pipeline shared with the REST
-`PUT/GET /api/v1/roots/{rootId}/plans/{slug}` and `GET /api/v1/roots/{rootId}/plans` routes — both
-surfaces converge on identical DB state (including `contentHash`) for the same payload.
+**Purpose.** Read the versioned documents of a project root: plans, git-tracked rules and pages. A 4.0 registry tool: the request is
+the envelope request (`select` plus the select's fields) and every answer is the response envelope. The same tool is served over MCP and
+over REST `POST /api/v1/ops/docs_read`. It replaces the read half of `manage_plan_documents` and `GET /api/v1/roots/{rootId}/plans[/{slug}]`.
+Each field is documented once in the tool's own schema (`describe: true`).
 
-Supports three operations, selected via `operation`:
+**Selects.** `get`, `list`, `history`, `links`. All need the `READ` capability and honor the caller's root and tag scope: a `rootId` outside
+the scope is `forbidden`, and nothing is read. A document is addressed by `(rootId, kind, slug)`; `kind` (`plan`, `rule`, `page`) is required
+on every select that names one document and an optional filter on `list`. A `rootId` that is not a depth-0 item is `invalid_request`.
 
-#### `stash`
+| Select | Fields | Answer (`data`) |
+|---|---|---|
+| `get` | `rootId`, `kind`, `slug`, `version?`, `ifVersion?` | `{id, rootId, kind, slug, title?, body, contentHash, version, archivedAt?, adoptedBy?, createdAt, modifiedAt}`; with `ifVersion` equal to the current version `{unchanged: true, version}`; with `version` n `{kind, slug, version, body, contentHash, createdAt, actor?}` |
+| `list` | `rootId`, `kind?`, `includeArchived?`, `limit?` (1-200, default 50), `cursor?` | `{items: [{id, kind, slug, title?, contentHash, version, archivedAt?, adoptedBy?, createdAt, modifiedAt}], page}` ordered by kind, slug, id; no body |
+| `history` | `rootId`, `kind`, `slug`, `limit?`, `cursor?` | `{items: [{version, contentHash, bodyLength, createdAt, actor?}], page}` oldest first |
+| `links` | `rootId`, `kind`, `slug`, `direction?` (`outgoing`, `incoming`, `all`; default `all`), `limit?`, `cursor?` | `{items: [{id, relation, from: {kind, id}, to: {kind, id}, toRef?, anchor?}], page}` ordered by creation time then id |
 
-Validates, in order:
-1. The resolved body (`body` or `bodyFromFile`) must not exceed **64 KiB** (65,536 bytes, UTF-8) —
-   rejected before any repository call. **Exception:** a `slug` starting with `rule/` (a rule
-   document served back by [`query_rules`](#query_rules), below) is capped tighter, at **16384
-   bytes** (16 KiB, UTF-8) — the same `PlanDocumentStashResult.TooLarge` outcome, just a smaller
-   `maxBytes`, so the error still reads "... exceeds the 16384 byte (16 KiB) limit"
-   (`VALIDATION_ERROR` here; REST `PUT /roots/{rootId}/plans/rule%2F<key>` — note the `%2F` —
-   returns `413 payload_too_large`, see [api-rest.md](./api-rest.md) section 19a). Every other
-   slug keeps the 64 KiB cap.
-2. `rootId` must resolve to an existing WorkItem.
-3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
-4. If a document already exists at `rootId`+`slug` and its `status` is `"adopted"`, the stash
-   is rejected — adoption is a one-way transition (see the materialization tooling that calls
-   `PlanDocumentStore.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
-   document at that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` replaced;
-   `id` and `createdAt` preserved).
-
-`body` (inline text) and `bodyFromFile` (server-side path) are mutually exclusive — providing both,
-or neither, fails validation. `bodyFromFile` resolves strictly relative to the agent config root
-(`AGENT_CONFIG_DIR`, the same `BodySource` as `notes_write`' `bodyFromFile`: rejects absolute
-paths, `..`, and symlink escapes; file must exist, ≤65536 bytes; CRLF is normalized to LF) —
-so a document stashed via REST PUT and via `bodyFromFile` land byte-identical content when the
-underlying text matches.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `stash` |
-| `slug` | string | Yes (stash, get) | Document identifier, unique within `rootId` |
-| `body` | string | One of `body`/`bodyFromFile` (stash only) | Inline document text; max 64 KiB |
-| `bodyFromFile` | string | One of `body`/`bodyFromFile` (stash only) | Server-side path, resolved relative to the agent config root |
-| `status` | string (`"pending"` \| `"adopted"`) | No (list only) | Filter to a single status |
-
-**Example.**
+- `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
+- `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that [`query_rules`](#query_rules) reports.
+- `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item.
+- `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; a reference to a document that does not exist yet has no `to` and carries `toRef`. A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`.
+- `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
+- Paging follows the envelope's list rules (amendment U22).
 
 ```json
-{
-  "operation": "stash",
-  "rootId": "3f9c2b10-...",
-  "slug": "auth-redesign",
-  "body": "# Auth Redesign\n\n## Goals\n..."
-}
+{ "select": "get", "rootId": "3f9c2b10", "kind": "plan", "slug": "auth-redesign" }
+{ "select": "list", "rootId": "3f9c2b10", "kind": "rule", "includeArchived": true }
+{ "select": "links", "rootId": "3f9c2b10", "kind": "plan", "slug": "auth-redesign", "direction": "incoming" }
 ```
 
-**Response (success).**
+### docs_write
+
+**Purpose.** Write the versioned documents of a project root. A request is `{ops: [...], atomic?}`; each `ops[i]` names its `op` and may carry
+an `idempotencyKey`. Every element commits on its own unless `atomic` is true; the answer is a batch result (`results[i]` with `ok`, and
+`207 partial_failure` over REST when some elements failed). It is served over MCP and `POST /api/v1/ops/docs_write`, and replaces the write half
+of `manage_plan_documents` and `PUT /api/v1/roots/{rootId}/plans/{slug}`.
+
+Every op needs the `WRITE_CONFIG` capability (`write-config`), the capability of the route this tool replaces: a `write-notes` token cannot
+rewrite documents, because rule documents are served to agents as instructions by `query_rules`. Every op also checks the caller's root and tag
+scope on `rootId`; a forbidden element is never executed and records no event.
+
+| Op | Fields | Result (`results[i]`) |
+|---|---|---|
+| `upsert` | `rootId`, `kind`, `slug`, exactly one of `body` and `bodyFromFile`, `title?`, `expectedVersion?` | `{id, kind, slug, version, contentHash, created}` |
+| `archive` | `rootId`, `kind`, `slug`, `expectedVersion?` | `{id, kind, slug, version, archived: true}` |
+| `unarchive` | `rootId`, `kind`, `slug`, `expectedVersion?` | `{id, kind, slug, version, archived: false}` |
+| `delete` | `rootId`, `kind`, `slug` | `{id, kind, slug, deleted: true}` |
+| `attach` | `rootId`, `kind`, `slug`, `itemId` | `{linkId, documentId, itemId}` |
+| `detach` | `rootId`, `kind`, `slug`, `itemId` | `{detached: n}` |
+
+- **`upsert`.** Creates the document or writes its next version (every write, version 1 included, appends a history row). CRLF becomes LF. A plan or
+  page body is at most 65536 UTF-8 bytes, a rule body 16384 (`payload_too_large`). `expectedVersion` omitted writes unconditionally; `0` requires that
+  the document does not exist; `n` requires that its current version is `n`; anything else is `version_conflict` and nothing is written. An adopted plan
+  is frozen (`duplicate`); an archived document must be unarchived first (`invalid_request`). `title` omitted keeps the current title. `created` is true
+  when the write made version 1. The `slug` of an upsert is 1 to 200 characters with no leading or trailing whitespace, no control characters and none
+  of `[`, `]`, `#` (a `[[slug]]` reference could not name it), and a `plan` slug must not start with `rule/` (the plan facade would hide it); reads and
+  the other ops accept any non-empty slug, so slugs migrated from 3.x stay reachable. The rule-key grammar of `query_rules` is not enforced here.
+- **`bodyFromFile`** is MCP-only: over `POST /api/v1/ops/docs_write` an element that sets it fails `invalid_request` (`/bodyFromFile`) and no file is
+  read. Over MCP it is read through the same `BodySource` as `notes_write` (a relative path strictly inside the agent config root, a regular UTF-8 file
+  of at most 65536 bytes).
+- **`archive` / `unarchive`.** Set or clear the archived mark; the version does not change. Archiving an archived document, or unarchiving a live one, is
+  a no-op that records no event.
+- **`delete`.** Removes the document and its versions and its outbound links; links that pointed at it by text become dangling and resolve again if it
+  is re-created. An adopted plan cannot be deleted (`invalid_request`).
+- **`attach` / `detach`.** `attach` links an item of the same root to the document (relation `attached`); attaching twice returns the same link. The item
+  must be inside the caller's scope (`forbidden` otherwise, nothing written) and under the document's root (`invalid_request`). `detach` is `not_found` for
+  a missing document and otherwise `{detached: 0}` or `{detached: 1}`.
+- **Events.** `document.created`, `document.updated`, `document.archived` and `document.deleted` carry the call principal.
+- `rootId` is a full UUID or 8 to 32 hex characters; a missing root is `not_found`, a root that is not depth 0 `invalid_request`.
 
 ```json
 {
-  "id": "8a1e...",
-  "rootId": "3f9c2b10-...",
-  "slug": "auth-redesign",
-  "contentHash": "e3b0c44298fc1c14...",
-  "status": "pending",
-  "createdAt": "2026-07-16T18:00:00Z",
-  "updatedAt": "2026-07-16T18:00:00Z"
-}
-```
-
-`body` is never echoed back on `stash` — the caller already has it. `adoptedByItemId` is included
-only once `status` is `"adopted"`.
-
-**Error cases.**
-
-| Condition | `error.code` |
-|---|---|
-| Resolved body exceeds 64 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
-| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
-| Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
-| Both `body` and `bodyFromFile` supplied, or neither | `VALIDATION_ERROR` |
-| `bodyFromFile` path rejected (absolute, `..`, symlink escape, missing, over cap) | `VALIDATION_ERROR` |
-| Target slug is already `"adopted"` | `CONFLICT_ERROR` (message names the adopting item when known) |
-| Storage failure | `DATABASE_ERROR` |
-
-#### `get`
-
-Reads back the full stored document (including `body`) for `rootId`+`slug`.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read from |
-| `slug` | string | Yes | Document identifier to read |
-
-**Response (no document at this slug).** `error.code` is `RESOURCE_NOT_FOUND`.
-
-#### `list`
-
-Reads back metadata-only summaries (never the body) for every document under `rootId`,
-optionally filtered by `status`, ordered by `slug` ascending.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list documents for |
-| `status` | string (`"pending"` \| `"adopted"`) | No | Filter to a single status |
-
-**Response (success).**
-
-```json
-{
-  "rootId": "3f9c2b10-...",
-  "plans": [
-    { "id": "8a1e...", "rootId": "3f9c2b10-...", "slug": "auth-redesign", "contentHash": "e3b0c4...", "status": "pending", "createdAt": "...", "updatedAt": "..." }
+  "ops": [
+    { "op": "upsert", "rootId": "3f9c2b10", "kind": "plan", "slug": "auth-redesign", "body": "# Auth Redesign\n\n## Goals\n...", "expectedVersion": 0 },
+    { "op": "attach", "rootId": "3f9c2b10", "kind": "plan", "slug": "auth-redesign", "itemId": "550e8400" }
   ]
 }
 ```
 
-**Note on actor attribution.** Like `manage_project_config`, this tool does not accept an `actor`
-parameter — plan documents have no per-note attribution model to stamp.
+`manage_plan_documents` and the REST `/roots/{rootId}/plans` routes are removed. A plan's 3.x `status` (`pending` / `adopted`) is now `adoptedBy` on a
+document, and a write over an adopted plan answers `duplicate` instead of the 3.x conflict. `items_write` `create_tree` with a `docRef` still adopts a stashed plan.
 
 ### query_rules
 
 **Purpose.** Read-only surface for git-tracked rule text -- client-neutral operating rules (the
 blind-authorship protocol, commit discipline, forbidden test patterns, review scoping, and so on)
-stashed as `rule/<key>` [plan documents](#manage_plan_documents) via `manage_plan_documents` and
+stored as `rule` [documents](#docs_write) (`kind` `rule`, slug `<key>`) via `docs_write` and
 served here verbatim. `query_rules` never inlines rule text into `items_read(select="schema")`
 -- that surface stays pointer-only: a note-schema entry's `skill` field names a rule key, and the
 caller resolves the actual text through this tool. Both operations converge on the same
 `RuleService` the REST `rules` routes use (see [api-rest.md](./api-rest.md) section 19a) -- one
-read-only view over the `rule/<key>` plan documents `manage_plan_documents`/`PlanDocumentService`
+read-only view over the `rule` documents `docs_write`/`PlanDocumentService`
 write, so MCP and REST always agree on `rulesVersion` and body for the same key.
 
 Supports two operations, selected via `operation`:
@@ -1457,8 +1433,8 @@ schema lookup succeeds (see **Error cases** below).
 ```
 
 `body` is served byte-for-byte as stored -- no trimming, no re-encoding -- and `rulesVersion` is
-always the stored document's `contentHash`, the same value `manage_plan_documents`/the REST plan
-routes report for that `rule/<key>` slug.
+always the stored document's `contentHash`, the same value `docs_read` reports for that
+rule document (`kind` `rule`, slug `<key>`).
 
 **Error cases.**
 
@@ -1482,7 +1458,7 @@ routes report for that `rule/<key>` slug.
 Returns `{key, rulesVersion, updatedAt}` for every valid rule key under `rootId`, sorted by key
 ascending, **never the body**. Accepts only `rootId` -- `key`, `itemId`, and `noteKey` are all
 rejected. A `rule/<key>` document whose key fails the key grammar (stashable via
-`manage_plan_documents`, which does not itself enforce the grammar, but never served by `get` or
+`docs_write`, which does not itself enforce the grammar, but never served by `get` or
 `list`) is silently excluded, as are non-`rule/` slugs. A document's `status` (`pending` vs
 `adopted`) is ignored -- both are listed and served; adoption freezes a rule's content, it does not
 hide it.
@@ -1513,7 +1489,7 @@ hide it.
 | `rootId` is not depth-0 | `VALIDATION_ERROR` |
 | Storage failure | `DATABASE_ERROR` |
 
-**Note on actor attribution.** Like `manage_project_config`/`manage_plan_documents`, this tool does
+**Note on actor attribution.** Like `manage_project_config`, this tool does
 not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ---

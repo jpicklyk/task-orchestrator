@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
@@ -34,8 +35,20 @@ import java.nio.file.Path
  */
 class GlobalConfigFile(
     val configPath: Path
-) : GlobalConfigSource {
+) : GlobalConfigSource,
+    ConfigFileSource {
     private val logger = LoggerFactory.getLogger(GlobalConfigFile::class.java)
+
+    override val description: String = configPath.toString()
+
+    /** The exact bytes read by [loadLayer] (null when the file is absent); the one read behind [text] and the layer. */
+    @Volatile
+    private var textRead: String? = null
+
+    override fun text(): String? {
+        layer() // force the one lazy load so a read fault surfaces exactly as it does for layer()
+        return textRead
+    }
 
     /** Lazily loaded layer. `null` means no file was present at load time. */
     private val loadResult: ConfigLayer? by lazy { loadLayer() }
@@ -63,7 +76,9 @@ class GlobalConfigFile(
         // JVM String decoding of UTF-8 bytes keeps a leading U+FEFF as a real character, so
         // configFingerprint's BOM-stripping normalization applies here exactly as it does for the
         // raw byte path elsewhere — YAML parsing below still uses the raw bytes.
-        val fingerprint = configFingerprint(String(bytes, Charsets.UTF_8))
+        val fileText = String(bytes, Charsets.UTF_8)
+        textRead = fileText
+        val fingerprint = configFingerprint(fileText)
 
         val root =
             try {

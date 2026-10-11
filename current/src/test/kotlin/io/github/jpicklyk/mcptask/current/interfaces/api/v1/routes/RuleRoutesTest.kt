@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
+import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -16,11 +16,8 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -31,8 +28,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -103,7 +98,7 @@ class RuleRoutesTest {
             serverName = "rule-routes-test",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )
@@ -120,19 +115,8 @@ class RuleRoutesTest {
         slug: String,
         body: String,
     ) {
-        val result =
-            runBlocking {
-                ManagePlanDocumentsTool().execute(
-                    params(
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(rootId.toString()),
-                        "slug" to JsonPrimitive(slug),
-                        "body" to JsonPrimitive(body),
-                    ),
-                    context,
-                )
-            } as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "fixture stash failed: $result")
+        val stashed = runBlocking { context.planDocumentService.stash(rootId, slug, body) }
+        assertTrue(stashed is PlanDocumentStashResult.Success, "fixture stash failed: $stashed")
     }
 
     private fun stashDirect(
@@ -190,51 +174,6 @@ class RuleRoutesTest {
                 body["rulesVersion"]!!.jsonPrimitive.content,
                 "REST rulesVersion must equal an independently computed SHA-256 of the UTF-8 body (M2 must also go red on REST)",
             )
-        }
-
-    // -----------------------------------------------------------------------
-    // Probe P1 -- REST PUT with %2F ingestion lands slug rule/k, served by GET rules/k
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `probe P1 - REST PUT roots rootId plans rule pct2F k ingests slug rule slash k and is served by GET roots rootId rules k`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir)
-            val root =
-                runBlocking {
-                    composition.toolContext.repositoryProvider
-                        .workItemRepository()
-                        .create(
-                            WorkItem(title = "P1 Root", depth = 0)
-                        )!!
-                }
-            application { configureProductionRuleApp(composition, authConfig = makeWriteAuthConfig()) }
-
-            val putResponse =
-                client.put("/api/v1/roots/${root.id}/plans/rule%2Fp1-key") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("P1 rule body via REST PUT ingestion.")
-                }
-            // Record the outcome either way, per addendum P1 -- but if ingestion succeeded, the GET
-            // below must serve exactly what was PUT.
-            println("[probe P1] REST PUT rule%2Fp1-key status = ${putResponse.status}")
-            if (putResponse.status == HttpStatusCode.OK) {
-                val getResponse =
-                    client.get("/api/v1/roots/${root.id}/rules/p1-key") {
-                        header("Authorization", "Bearer $TEST_TOKEN")
-                    }
-                assertEquals(HttpStatusCode.OK, getResponse.status, "PUT with %2F-encoded slug succeeded; GET rules/p1-key must serve it")
-                val body = parseObj(getResponse.bodyAsText())
-                assertEquals("P1 rule body via REST PUT ingestion.", body["body"]!!.jsonPrimitive.content)
-            } else {
-                assertTrue(
-                    putResponse.status.value in 400..499,
-                    "if %2F ingestion is rejected it must be a client error, not a server error: ${putResponse.status}",
-                )
-            }
         }
 
     // -----------------------------------------------------------------------
@@ -606,7 +545,7 @@ class RuleRoutesRootLookupFailureTest {
                     serverName = "rule-routes-root-lookup-failure-test",
                     serverVersion = "test",
                     actorAuthEnabled = composition.actorAuthEnabled,
-                    noteSchemaService = composition.noteSchemaService,
+                    serverConfig = composition.serverConfig,
                     toolContext = composition.toolContext,
                     degradedModePolicy = composition.degradedModePolicy,
                 )

@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -19,7 +19,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -86,7 +85,7 @@ class RulePointerOnlyGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
+        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
         val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
     )
 
@@ -142,35 +141,18 @@ class RulePointerOnlyGoldenTest {
                 ) ?: error("fixture: bug-fix item creation failed")
         }
 
-        // This item's addition: stash the two rule/ documents these skill pointers name, via the
-        // real MCP stash surface.
-        val stashParams: (String, String) -> JsonObject = { slug, body ->
-            buildJsonObject {
-                put("operation", JsonPrimitive("stash"))
-                put("rootId", JsonPrimitive(ROOT_ID.toString()))
-                put("slug", JsonPrimitive(slug))
-                put("body", JsonPrimitive(body))
-            }
-        }
+        // This item's addition: stash the two rule/ documents these skill pointers name.
         runBlocking {
-            val r1 =
-                ManagePlanDocumentsTool().execute(
-                    stashParams("rule/spec-quality", RULE_MARKER_SPEC_QUALITY),
-                    composition.toolContext
-                ) as JsonObject
-            val r2 =
-                ManagePlanDocumentsTool().execute(
-                    stashParams("rule/test-author", RULE_MARKER_TEST_AUTHOR),
-                    composition.toolContext
-                ) as JsonObject
-            check(r1["success"]!!.jsonPrimitive.boolean) { "fixture: rule/spec-quality stash failed: $r1" }
-            check(r2["success"]!!.jsonPrimitive.boolean) { "fixture: rule/test-author stash failed: $r2" }
+            val r1 = composition.toolContext.planDocumentService.stash(ROOT_ID, "rule/spec-quality", RULE_MARKER_SPEC_QUALITY)
+            val r2 = composition.toolContext.planDocumentService.stash(ROOT_ID, "rule/test-author", RULE_MARKER_TEST_AUTHOR)
+            check(r1 is PlanDocumentStashResult.Success) { "fixture: rule/spec-quality stash failed: $r1" }
+            check(r2 is PlanDocumentStashResult.Success) { "fixture: rule/test-author stash failed: $r2" }
         }
 
         return Fixture(
             toolContext = composition.toolContext,
             repositoryProvider = repo,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             degradedModePolicy = composition.degradedModePolicy,
         )
     }

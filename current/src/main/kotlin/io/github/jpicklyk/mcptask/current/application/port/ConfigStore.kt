@@ -54,8 +54,12 @@ interface ConfigStore {
      * [expectedVersion]: compare-and-set on head.version (ignored when no head). [expectedFingerprint]: legacy
      * compare-and-set on head.fingerprint (ignored when no head). [rejectSuperseded]: fast-forward guard.
      * Identical content (fingerprint == head.fingerprint) returns Applied(head, appended=false) and writes nothing.
-     * `scope = SERVER` throws [IllegalArgumentException] until the server-scope writer lands.
+     * `scope = ROOT` requires a non-null [rootId]; `scope = SERVER` requires a null one (both throw
+     * [IllegalArgumentException] otherwise). For SERVER, [rejectSuperseded] is ignored: the server scope has no
+     * known-fingerprint epoch ([classifyFingerprint] and `config_known_fingerprints` are root-only); [expectedVersion]
+     * and [expectedFingerprint] still work.
      */
+    @StoreWrite
     suspend fun append(
         scope: ConfigScope,
         rootId: UUID?,
@@ -72,6 +76,7 @@ interface ConfigStore {
     ): FingerprintRelation
 
     /** The only in-place write: NULL -> value. Returns false when the row is missing or already filled. */
+    @StoreWrite
     suspend fun fillCanonical(
         id: UUID,
         canonicalJson: String,

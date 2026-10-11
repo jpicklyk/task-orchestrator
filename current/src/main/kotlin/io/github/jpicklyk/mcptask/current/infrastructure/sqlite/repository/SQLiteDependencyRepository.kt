@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
@@ -32,6 +33,7 @@ import java.util.UUID
 class SQLiteDependencyRepository(
     private val databaseManager: DatabaseManager
 ) : DependencyStore {
+    @StoreWrite
     override suspend fun create(dependency: Dependency): Dependency =
         databaseManager.writeTx("DependencyStore.create") {
             insertDependencyInTransaction(dependency)
@@ -99,11 +101,13 @@ class SQLiteDependencyRepository(
                 .map { mapRowToDependency(it) }
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("DependencyStore.delete") {
             DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
         }
 
+    @StoreWrite
     override suspend fun deleteByItemId(itemId: UUID): Int =
         databaseManager.writeTx("DependencyStore.deleteByItemId") {
             DependenciesTable.deleteWhere {
@@ -111,6 +115,7 @@ class SQLiteDependencyRepository(
             }
         }
 
+    @StoreWrite
     override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> =
         databaseManager.writeTx("DependencyStore.createBatch") {
             if (dependencies.isEmpty()) {

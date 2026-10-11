@@ -78,8 +78,8 @@ import kotlin.test.assertTrue
  * reference (`current/docs/api-reference.md`, manage_items), the only public statement of that shape.
  *
  * Scenario ids are the test-plan's: S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 (S14 is PlacementInvariantTest, S15 is
- * StoreWriteConfinementTest). Fixtures are created by the services under test where placement matters, so no row carries a
- * hand-set depth or root; fixtures that need a role other than queue set it directly on the stored row.
+ * WriteConfinementTest and DeletedClassGuardTest). Fixtures are created by the services under test where placement matters,
+ * so no row carries a hand-set depth or root; fixtures that need a role other than queue set it directly on the stored row.
  */
 @Timeout(value = 240, unit = TimeUnit.SECONDS)
 class ItemCommandServiceTest {

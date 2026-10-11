@@ -84,7 +84,7 @@ class ApiStatusPagesWiringTest {
             serverName = "status-pages-wiring-test",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy
         )

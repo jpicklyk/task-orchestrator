@@ -6,9 +6,10 @@ rejects, and how the server reports a rejection. The structure itself is publish
 (see [REST API Reference](api-rest.md)).
 
 A config document is YAML. It reaches the server two ways: the server-wide file `.taskorchestrator/config.yaml`
-(read once at startup from `AGENT_CONFIG_DIR`, see [Fleet Deployment](fleet-deployment.md)), and a per-root document
-pushed with `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, which layers over the server file for
-that project root's items and hot-reloads without a restart.
+(imported into the database at every boot from `AGENT_CONFIG_DIR`, see [Fleet Deployment](fleet-deployment.md)), and a
+per-root document pushed with `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, which layers over the
+server config for that project root's items and hot-reloads without a restart. The runtime reads the stored copy of the
+file, never the file itself.
 
 ## Key ownership
 
@@ -103,11 +104,21 @@ only classifies a finding.
 
 | Mode | A former soft skip is | Used for |
 |------|-----------------------|----------|
-| `STRICT` | an error | pushing and validating new config |
-| `MIGRATION` | a warning | reading config that already exists: stored versions, the server file, canonicalizing the rows copied from 3.x, restoring a version on rollback |
+| `STRICT` | an error | pushing and validating new config, and the boot import of the server file (with the allowance below) |
+| `MIGRATION` | a warning | reading config that already exists: stored versions, canonicalizing the rows copied from 3.x, restoring a version on rollback |
 
 Reading a stored version is never an admission point, so a root whose 3.x config carries the old top-level plugin
 sections keeps working. Only a new push has to be clean. Advisory findings are warnings in both modes.
+
+**The server file is an admission point once per boot.** The `server-config-import` data step parses the file in
+`STRICT` mode, the same rules a push is held to, with one allowance: an error at exactly the top-level key
+`schema_resolution`, `orchestration`, `retrospective` or `actor_attribution` (the plugin sections and the removed
+resolution key a 3.x file carried) becomes a stored warning instead (served as `configWarnings` by `GET /api/v1/info`);
+nested or differently-cased keys get no allowance, and a push of the same text is still rejected. `actor_authentication`
+is removed before validation (it stays read from the file). Every other error fails startup with one `path: reason`
+line each. A file whose `project.rootId` names a depth-0 root is imported as that root's config and is held to the
+per-root rules (`resources` and the legacy `note_schemas` next to `work_item_schemas` are rejected); a malformed or
+unknown `project.rootId` fails startup. An absent, empty or comment-only file imports nothing.
 
 ## Related
 

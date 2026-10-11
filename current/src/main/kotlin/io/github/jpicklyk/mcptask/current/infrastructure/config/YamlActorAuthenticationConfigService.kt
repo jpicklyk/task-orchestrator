@@ -70,22 +70,22 @@ import java.nio.file.Path
  *
  * @param configPath Path to the `.taskorchestrator/config.yaml` file (path-based constructor only).
  * @param globalConfig Shared, already-parsed global config document (document-based constructor).
- * @param envResolver Injectable resolver for environment variables; defaults to [System::getenv].
- *   Tests inject a fake to avoid mutating the JVM environment.
+ * @param envResolver Resolver for environment variables; defaults to "nothing set". The composition root passes the
+ *   resolver behind `AppConfig`, so this class never reads the process environment itself.
  */
 class YamlActorAuthenticationConfigService private constructor(
     private val configPathParam: Path?,
     private val globalConfig: GlobalConfigFile?,
-    private val envResolver: (String) -> String? = System::getenv
+    private val envResolver: (String) -> String? = { null }
 ) {
     constructor(
-        configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath(),
-        envResolver: (String) -> String? = System::getenv
+        configPath: Path,
+        envResolver: (String) -> String? = { null }
     ) : this(configPath, null, envResolver)
 
     constructor(
         globalConfig: GlobalConfigFile,
-        envResolver: (String) -> String? = System::getenv
+        envResolver: (String) -> String? = { null }
     ) : this(null, globalConfig, envResolver)
 
     /** The config path every error message names, regardless of which constructor was used. */

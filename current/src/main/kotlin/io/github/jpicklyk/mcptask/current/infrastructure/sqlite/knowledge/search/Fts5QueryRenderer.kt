@@ -28,5 +28,10 @@ import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 internal object Fts5QueryRenderer {
     private const val QUOTE = "\""
 
-    fun render(query: TextQuery): String = query.terms.joinToString(" ") { QUOTE + it.replace(QUOTE, QUOTE + QUOTE) + QUOTE }
+    fun render(query: TextQuery): String = query.terms.joinToString(" ") { phrase(it) }
+
+    /** The same phrases joined with `OR`: a row matches when it contains ANY term (used under a column filter). */
+    fun renderAny(query: TextQuery): String = query.terms.joinToString(" OR ") { phrase(it) }
+
+    private fun phrase(term: String): String = QUOTE + term.replace(QUOTE, QUOTE + QUOTE) + QUOTE
 }

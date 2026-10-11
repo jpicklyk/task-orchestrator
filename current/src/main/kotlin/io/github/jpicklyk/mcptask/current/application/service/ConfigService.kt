@@ -1,18 +1,24 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.CanonicalConfigJson
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidationResult
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadFault
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
@@ -25,6 +31,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -51,6 +58,11 @@ class ConfigService(
     private val unitOfWork: UnitOfWork,
     /** The admission check run by [push] and [validate]. */
     private val validator: ConfigValidator = ConfigValidator(),
+    /**
+     * The DB-backed server layer a per-root document is validated against (read once per [push] / [validate] call).
+     * Null = the validator's own constructor layer.
+     */
+    private val serverConfig: ServerConfigSource? = null,
 ) {
     private val logger = LoggerFactory.getLogger(ConfigService::class.java)
 
@@ -106,7 +118,7 @@ class ConfigService(
             }
         }
 
-        val validation = validator.validate(parsed, ConfigScope.ROOT)
+        val validation = validateRoot(parsed)
         if (!validation.isValid) {
             return ConfigPushResult.Invalid(validation.errors, validation.warnings)
         }
@@ -202,7 +214,7 @@ class ConfigService(
             }
         }
 
-        val validation = validator.validate(parsed, ConfigScope.ROOT)
+        val validation = validateRoot(parsed)
         if (!validation.isValid) {
             return ConfigValidateResult.Checked(validation.errors, validation.warnings, diff = null)
         }
@@ -217,6 +229,14 @@ class ConfigService(
             diff = ConfigDiff.between(headRoot, parsedRoot),
         )
     }
+
+    /** Validates a per-root document against the DB server layer when one is wired, else the validator's own. */
+    private suspend fun validateRoot(parsed: ConfigDocumentParser.Outcome.Parsed): ConfigValidationResult =
+        if (serverConfig != null) {
+            validator.validate(parsed, ConfigScope.ROOT, serverConfig.layer())
+        } else {
+            validator.validate(parsed, ConfigScope.ROOT)
+        }
 
     /** The parsed root map of a stored [version]: its canonical JSON, else a migration parse of its YAML. */
     private fun headRoot(version: ConfigVersion): Map<String, Any?>? {
@@ -415,6 +435,110 @@ class ConfigService(
         return filled
     }
 
+    /**
+     * Boot import of the mounted global config file (the body of the `server-config-import` data step). Runs INSIDE
+     * the ambient write unit, like [canonicalizeMissing]; nothing is written unless the document is accepted.
+     *
+     * Pipeline: size cap -> strict parse (an empty or comment-only document is [ConfigImportResult.Skipped]) ->
+     * target (`project.rootId` absent = [ConfigScope.SERVER]; a valid UUID of a depth-0 item = [ConfigScope.ROOT]; a
+     * malformed one is [ConfigImportResult.Invalid]; an unknown or non-root one is [ConfigImportResult.RootNotFound]) ->
+     * the top-level `actor_authentication` entry is removed from the raw root (it stays file-sourced and is never
+     * validated or stored in canonical form) -> [ConfigValidator] -> the U20 allowance: errors at exactly
+     * `/schema_resolution`, `/orchestration`, `/retrospective` or `/actor_attribution` become stored warnings (a push
+     * of the same text is still rejected) -> append with source `file-import`. The stored `yaml` is [yaml] verbatim
+     * and the fingerprint is the config fingerprint of that text. Identical content appends nothing.
+     */
+    suspend fun importDocument(yaml: String): ConfigImportResult {
+        val sizeBytes = yaml.toByteArray(Charsets.UTF_8).size
+        if (sizeBytes > MAX_CONFIG_YAML_BYTES) return ConfigImportResult.TooLarge(sizeBytes, MAX_CONFIG_YAML_BYTES)
+
+        val parsed =
+            when (val outcome = parseStrict(yaml)) {
+                is ConfigDocumentParser.Outcome.Failed -> return ConfigImportResult.ParseError(outcome.detail, outcome.violations)
+                is ConfigDocumentParser.Outcome.Parsed -> outcome
+            }
+        val rawRoot = parsed.rawRoot ?: return ConfigImportResult.Skipped
+
+        val rawRootId = (rawRoot["project"] as? Map<*, *>)?.get("rootId")
+        val rootId: UUID? =
+            if (rawRootId == null) {
+                null
+            } else {
+                val id =
+                    (rawRootId as? String)?.let { runCatchingNonCancellation { UUID.fromString(it) }.getOrNull() }
+                        ?: return ConfigImportResult.Invalid(
+                            errors = listOf(ConfigViolation("/project/rootId", "must be a UUID")),
+                            warnings = emptyList(),
+                        )
+                val item =
+                    legacyReadFault({ throw IllegalStateException("config import could not read root $id: ${LegacyFaults.message(it)}") }) {
+                        repositoryProvider.workItemRepository().getById(id)
+                    }
+                if (item == null || item.depth != 0) return ConfigImportResult.RootNotFound(id)
+                id
+            }
+        val scope = if (rootId == null) ConfigScope.SERVER else ConfigScope.ROOT
+
+        val strippedRoot = rawRoot - "actor_authentication"
+        val stripped = ConfigDocumentParser.Outcome.Parsed(parsed.document, strippedRoot)
+        val validation =
+            if (scope == ConfigScope.SERVER) {
+                validator.validate(stripped, ConfigScope.SERVER, null)
+            } else {
+                validator.validate(stripped, ConfigScope.ROOT, serverConfig?.layer())
+            }
+        val (allowed, errors) = validation.errors.partition { it.path in MIGRATION_ONLY_KEY_POINTERS }
+        if (errors.isNotEmpty()) return ConfigImportResult.Invalid(errors, validation.warnings)
+        val warnings = allowed.map { it.reason } + validation.warnings.map { it.reason }
+
+        val store = repositoryProvider.configStore()
+        val append =
+            ConfigAppend(
+                yaml = yaml,
+                fingerprint = store.computeFingerprint(yaml),
+                canonicalJson = CanonicalConfigJson.encode(strippedRoot),
+                modelVersion = CanonicalConfigJson.MODEL_VERSION,
+                source = ConfigVersionSource.FILE_IMPORT,
+                principalId = null,
+                reqId = null,
+                warnings = warnings,
+            )
+        return unitOfWork.writeUnit(
+            "ConfigService.importDocument",
+            onFault = { throw IllegalStateException("config import failed: ${LegacyFaults.message(it)}") }
+        ) {
+            val outcome =
+                store.append(
+                    scope = scope,
+                    rootId = rootId,
+                    append = append,
+                    expectedVersion = null,
+                    expectedFingerprint = null,
+                    rejectSuperseded = false,
+                    now = now,
+                )
+            val applied =
+                outcome as? ConfigAppendOutcome.Applied
+                    ?: throw IllegalStateException("config import append was unexpectedly rejected: $outcome")
+            // DomainEvent.rootId is non-null, so a server-scope import records no event: the version row and the step
+            // log are its record.
+            if (applied.appended && scope == ConfigScope.ROOT) events.record(createdEvent(applied.version))
+            UnitResult.Commit<ConfigImportResult>(ConfigImportResult.Imported(applied.version, applied.appended, warnings))
+        }
+    }
+
+    /** The server-scope head version, or null when there is none or its head is a reset. */
+    suspend fun serverHead(): ConfigVersion? =
+        try {
+            val store = repositoryProvider.configStore()
+            val head = store.head(ConfigScope.SERVER, null)
+            if (head == null || head.source == ConfigVersionSource.RESET) null else store.version(head.versionId)
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Same split as the per-root path: a store read fault is transient config_unavailable, never untyped.
+            throw PerRootConfigUnavailableException(null, "Server config is temporarily unavailable (read failed)", e)
+        }
+
     private fun createdEvent(version: ConfigVersion): DomainEvent.ConfigVersionCreated =
         DomainEvent.ConfigVersionCreated(
             rootId = checkNotNull(version.rootId) { "A root-scope config version has a rootId" },
@@ -449,9 +573,46 @@ class ConfigService(
         /** Hard cap on a pushed `configYaml` document's UTF-8 byte size (CWE-770), enforced before any parse. */
         const val MAX_CONFIG_YAML_BYTES = MAX_CONFIG_YAML_KIB * 1024
 
+        /** The U20 allowance: top-level keys 3.x configs carried, as JSON Pointers (`ConfigKeyCatalog.TOP_LEVEL_MIGRATION_ONLY`). */
+        private val MIGRATION_ONLY_KEY_POINTERS: Set<String> =
+            setOf("/schema_resolution", "/orchestration", "/retrospective", "/actor_attribution")
+
         /** Default page size of [history]. */
         const val DEFAULT_HISTORY_LIMIT = 50
     }
+}
+
+/** Outcome of [ConfigService.importDocument]. */
+sealed class ConfigImportResult {
+    /** The document was accepted; [appended] is false when it was identical to the head (nothing written). */
+    data class Imported(
+        val version: ConfigVersion,
+        val appended: Boolean,
+        val warnings: List<String>,
+    ) : ConfigImportResult()
+
+    /** An empty or comment-only document: nothing is imported and any stored head stands. */
+    object Skipped : ConfigImportResult()
+
+    data class Invalid(
+        val errors: List<ConfigViolation>,
+        val warnings: List<ConfigViolation>,
+    ) : ConfigImportResult()
+
+    data class ParseError(
+        val detail: String,
+        val violations: List<ConfigViolation> = emptyList(),
+    ) : ConfigImportResult()
+
+    /** `project.rootId` is a valid UUID but names no depth-0 item in this database. */
+    data class RootNotFound(
+        val rootId: UUID,
+    ) : ConfigImportResult()
+
+    data class TooLarge(
+        val sizeBytes: Int,
+        val maxBytes: Int,
+    ) : ConfigImportResult()
 }
 
 /** Outcome of [ConfigService.push]. */

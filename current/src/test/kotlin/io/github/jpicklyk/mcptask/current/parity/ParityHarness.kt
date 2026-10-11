@@ -134,7 +134,7 @@ internal fun Application.installParityRestApp(
         serverName = "parity-harness",
         serverVersion = "test",
         actorAuthEnabled = rig.composition.actorAuthEnabled,
-        noteSchemaService = rig.composition.noteSchemaService,
+        serverConfig = rig.composition.serverConfig,
         toolContext = rig.composition.toolContext,
         degradedModePolicy = rig.composition.degradedModePolicy,
         callLog = callLog,
@@ -397,7 +397,7 @@ class ParityHarness(
     }
 
     companion object {
-        private val TABLES = listOf("work_items", "notes", "dependencies", "events")
+        private val TABLES = listOf("work_items", "notes", "dependencies", "events", "documents", "document_versions", "links")
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
 

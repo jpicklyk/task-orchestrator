@@ -18,10 +18,9 @@ import kotlinx.io.readByteArray
  * [io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider.MAX_BODY_BYTES])
  * and comfortably exceeds any legitimate item/note/dependency JSON payload.
  *
- * This is a NEW cap, not a change to an existing one — the two routes that already had a
- * documented limit ([io.github.jpicklyk.mcptask.current.application.service.ConfigService.MAX_CONFIG_YAML_BYTES],
- * [io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService.MAX_BODY_BYTES])
- * keep their own numeric value unchanged, passed to [receiveBounded] directly instead of this
+ * This is a NEW cap, not a change to an existing one — the route that already had a
+ * documented limit ([io.github.jpicklyk.mcptask.current.application.service.ConfigService.MAX_CONFIG_YAML_BYTES])
+ * keeps its own numeric value unchanged, passed to [receiveBounded] directly instead of this
  * constant.
  */
 const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024

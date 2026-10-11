@@ -77,7 +77,10 @@ private const val P11_SCHEMAS_YAML =
         "traits:\n" +
         "  p11-exclusive:\n" +
         "    resources:\n" +
-        "      - key: p11-db\n        mode: exclusive\n        ttlSeconds: 600\n"
+        "      - key: p11-db\n        mode: exclusive\n        ttlSeconds: 600\n" +
+        "resources:\n" +
+        "  p11-db:\n" +
+        "    description: p11 test lease\n"
 
 /** Global config with no status_labels section. */
 internal const val P11_BASE_YAML = P11_SCHEMAS_YAML

@@ -626,12 +626,12 @@ class SqliteConfigStoreTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `append with SERVER scope throws IllegalArgumentException in Q8`(): Unit =
+    fun `append with SERVER scope requires a null rootId`(): Unit =
         runBlocking {
             assertFailsWith<IllegalArgumentException> {
                 store.append(
                     scope = ConfigScope.SERVER,
-                    rootId = null,
+                    rootId = UUID.randomUUID(),
                     append = payload("a: 1\n"),
                     now = t0
                 )

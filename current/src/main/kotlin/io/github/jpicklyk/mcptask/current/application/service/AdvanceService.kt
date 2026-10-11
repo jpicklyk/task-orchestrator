@@ -1,3 +1,5 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -7,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -50,7 +53,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -300,9 +302,9 @@ data class AdvanceResult(
  * @property labelFor the status label for a (trigger, target role) pair; production binds
  *   [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.labelFor] to the
  *   item's root. Defaults to the built-in labels ([NoOpStatusLabelService]).
- * @property resourceLeasesEnforced deployment kill switch, read from the `RESOURCE_LEASES_ENFORCED`
- *   environment variable at CONSTRUCTION time (see [resourceLeasesEnforcedFromEnv]). When false the
- *   lease gate and acquisition are skipped; releases still run.
+ * @property resourceLeasesEnforced deployment kill switch (`AppConfig.resourceLeasesEnforced`, the
+ *   `RESOURCE_LEASES_ENFORCED` env var read once at startup). When false the lease gate and acquisition are
+ *   skipped; releases still run.
  * @property clock the time source for ownership checks and `roleChangedAt`; the ambient unit instant
  *   wins inside a unit.
  */
@@ -346,9 +348,6 @@ class AdvanceService(
 
         private const val UNIT_OP = "AdvanceService.advance"
 
-        /** Environment variable name for the deployment-wide resource-lease kill switch. */
-        const val RESOURCE_LEASES_ENFORCED_ENV = "RESOURCE_LEASES_ENFORCED"
-
         /** Fallback lease TTL when neither the requirement nor the registry specifies one. */
         const val DEFAULT_RESOURCE_TTL_SECONDS = 3600
 
@@ -361,21 +360,6 @@ class AdvanceService(
         /** The built-in status labels ([NoOpStatusLabelService]) under the shared key rule ([statusLabelKey]). */
         val DEFAULT_LABEL_FOR: suspend (Trigger, Role) -> String? =
             { trigger, target -> NoOpStatusLabelService.resolveLabel(statusLabelKey(trigger, target)) }
-
-        /**
-         * Reads the [RESOURCE_LEASES_ENFORCED_ENV] kill switch. Enforcement is ON by default;
-         * parsed via the shared [io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean]
-         * vocabulary (`true/1/yes` vs `false/0/no`, case-insensitive, trimmed).
-         *
-         * Call this at AdvanceService CONSTRUCTION sites and pass the result in — the pipeline
-         * itself never touches the environment.
-         */
-        fun resourceLeasesEnforcedFromEnv(env: (String) -> String? = System::getenv): Boolean =
-            EnvBoolean.parse(
-                RESOURCE_LEASES_ENFORCED_ENV,
-                env(RESOURCE_LEASES_ENFORCED_ENV),
-                default = true,
-            )
     }
 
     /**
