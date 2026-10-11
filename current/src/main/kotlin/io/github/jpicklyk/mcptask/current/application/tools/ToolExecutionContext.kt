@@ -94,6 +94,8 @@ class ToolExecutionContext(
      * root into can never read a file.
      */
     val bodySource: BodySource = BodySource.DISABLED,
+    /** The lease kill switch (`AppConfig.resourceLeasesEnforced`, read once at startup). */
+    private val resourceLeasesEnforced: Boolean = true,
 ) {
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
@@ -114,6 +116,7 @@ class ToolExecutionContext(
             repositoryProvider.resourceLeaseRepository(),
             configResolver,
             unitOfWork,
+            resourceLeasesEnforced = { resourceLeasesEnforced },
             clock = clock,
             claimService = claimService
         )

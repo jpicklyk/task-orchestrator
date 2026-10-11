@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -136,7 +137,7 @@ internal class EventLogRig(
                     databaseManager = databaseManager,
                     shutdownCoordinator = ShutdownCoordinator(),
                     clock = clock,
-                ).build()
+                ).build().also { runBlocking { it.dataStepRunner.run() } }
             return EventLogRig(db, composition)
         }
     }

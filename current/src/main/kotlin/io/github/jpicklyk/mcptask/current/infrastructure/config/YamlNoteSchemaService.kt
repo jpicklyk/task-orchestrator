@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import java.nio.file.Path
-import java.nio.file.Paths
 
 /**
  * YAML-backed implementation of [WorkItemSchemaService].
@@ -53,7 +52,7 @@ import java.nio.file.Paths
 class YamlWorkItemSchemaService(
     private val globalConfig: GlobalConfigFile
 ) : WorkItemSchemaService {
-    constructor(configPath: Path = resolveDefaultConfigPath()) : this(GlobalConfigFile(configPath))
+    constructor(configPath: Path) : this(GlobalConfigFile(configPath))
 
     /** The current document, or [ConfigDocument.EMPTY] when no global config file is present. */
     private val document: ConfigDocument get() = globalConfig.layer()?.document ?: ConfigDocument.EMPTY
@@ -88,16 +87,6 @@ class YamlWorkItemSchemaService(
      * load time.
      */
     override fun getConfigFingerprint(): String? = globalConfig.layer()?.fingerprint
-
-    companion object {
-        fun resolveDefaultConfigPath(): Path {
-            val projectRoot =
-                Paths.get(
-                    AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR"))
-                )
-            return projectRoot.resolve(".taskorchestrator/config.yaml")
-        }
-    }
 }
 
 /**

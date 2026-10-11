@@ -34,6 +34,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -431,7 +432,8 @@ class SeatConfigLoadFailClosedTest {
 
         // Must NOT throw -- warnings are non-fatal.
         val composition = ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
-        assertTrue(composition.noteSchemaService.getConfigFingerprint() != null, "the (warning-laden but valid) config must still load")
+        // Building never imports the file (the boot import is a data step); a lenient file load must not throw.
+        assertNotNull(composition.serverConfig, "the (warning-laden but valid) config must still load")
     }
 
     @Test

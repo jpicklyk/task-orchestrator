@@ -60,7 +60,7 @@ import kotlin.time.Duration.Companion.seconds
  * @param source The event log this bus projects. Null only for a bus that is never subscribed to.
  */
 class ApiEventBus(
-    private val bufferSize: Int = System.getenv("API_SSE_BUFFER_SIZE")?.toIntOrNull() ?: 1000,
+    private val bufferSize: Int = 1000,
     private val connectionQueueSize: Int = 256,
     source: EventStore? = null,
 ) : EventCommitListener {

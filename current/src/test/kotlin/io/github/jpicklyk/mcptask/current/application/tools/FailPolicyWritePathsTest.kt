@@ -87,7 +87,7 @@ class FailPolicyWritePathsTest {
             serverName = "fail-policy-write-paths",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )

@@ -9,7 +9,20 @@ import java.util.UUID
  * Deliberately NOT a [PerRootConfigUnavailableException]: that one is a transient read fault; this is a data fault.
  */
 class PerRootConfigInvalidException(
-    val rootId: UUID,
+    /** The project root whose head is unloadable; null = the server-scope head. */
+    val rootId: UUID?,
     val version: Int,
     detail: String
-) : RuntimeException("Per-root config for root $rootId (version $version) is invalid: $detail")
+) : RuntimeException() {
+    override val message: String =
+        if (rootId == null) {
+            "Server config (version $version) is invalid: $detail"
+        } else {
+            "Per-root config for root $rootId (version $version) is invalid: $detail"
+        }
+
+    companion object {
+        /** MCP `errorCode` / REST `ErrorDto.error` literal for this failure mode. */
+        const val CODE = "config_invalid"
+    }
+}

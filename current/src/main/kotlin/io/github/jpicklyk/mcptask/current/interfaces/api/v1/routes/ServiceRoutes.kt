@@ -2,7 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -28,17 +33,31 @@ import kotlinx.serialization.Serializable
  * @param serverName The server name as returned in [ServiceInfoDto.serverName].
  * @param serverVersion The server version as returned in [ServiceInfoDto.version].
  * @param actorAuthEnabled Whether the actor_authentication feature is enabled in the runtime config.
+ * @param configService When given, `/info` reports the stored server config head's warnings as
+ *   [ServiceInfoDto.configWarnings] (the reasons recorded when the global file was imported at boot). A server-head read
+ *   fault answers 503 `config_unavailable`; `/health` never reads it.
  */
 fun Route.serviceRoutes(
     repositoryProvider: RepositoryProvider? = null,
-    serverName: String = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current",
+    serverName: String = "mcp-task-orchestrator-current",
     serverVersion: String = "unknown",
     actorAuthEnabled: Boolean = false,
+    configService: ConfigService? = null,
 ) {
     // GET /api/v1/info — requires auth (auth plugin is installed on the parent route block)
     get("/info") {
         val principal = call.attributes.getOrNull(ApiPrincipalKey)
         val capabilities = principal?.capabilities?.map { it.name.lowercase().replace('_', '-') } ?: emptyList()
+        val configWarnings =
+            try {
+                configService?.serverHead()?.warnings ?: emptyList()
+            } catch (e: PerRootConfigUnavailableException) {
+                call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+                return@get
+            } catch (e: PerRootConfigInvalidException) {
+                call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
+                return@get
+            }
 
         call.respond(
             HttpStatusCode.OK,
@@ -50,6 +69,7 @@ fun Route.serviceRoutes(
                 claimModeAvailable = true,
                 actorAuthenticationEnabled = actorAuthEnabled,
                 features = ServerFeatures.ADVERTISED,
+                configWarnings = configWarnings,
             ),
         )
     }
@@ -92,6 +112,9 @@ data class ServiceInfoDto(
     // client can look for regardless of whether any config on this server currently uses them —
     // see ServerFeatures.ADVERTISED.
     val features: List<String> = ServerFeatures.ADVERTISED,
+    // The stored server config head's warnings (reason strings, the form push warnings use): what the boot import of
+    // the global file recorded, e.g. one per legacy top-level key. Empty when there is no server config.
+    val configWarnings: List<String> = emptyList(),
 )
 
 // DTO for GET /api/v1/health

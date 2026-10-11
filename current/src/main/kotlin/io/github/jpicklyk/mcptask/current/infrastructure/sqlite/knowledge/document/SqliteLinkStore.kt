@@ -17,6 +17,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -108,6 +109,39 @@ class SqliteLinkStore(
                 if (relation == null) from else from and (LinksTable.relation eq relation.toDbValue())
             }
         }
+
+    @StoreWrite
+    override suspend fun deleteFromAny(refs: Collection<EntityRef>): Int {
+        if (refs.isEmpty()) return 0
+        return databaseManager.writeTx("LinkStore.deleteFromAny") {
+            refs.groupBy({ it.kind }, { it.id }).entries.sumOf { (kind, ids) ->
+                val dbKind = kind.toDbValue()
+                ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    LinksTable.deleteWhere { (LinksTable.fromKind eq dbKind) and (LinksTable.fromId inList chunk) }
+                }
+            }
+        }
+    }
+
+    @StoreWrite
+    override suspend fun deleteToAny(
+        refs: Collection<EntityRef>,
+        keep: Set<LinkRelation>
+    ): Int {
+        if (refs.isEmpty()) return 0
+        val keepDb = keep.map { it.toDbValue() }
+        return databaseManager.writeTx("LinkStore.deleteToAny") {
+            refs.groupBy({ it.kind }, { it.id }).entries.sumOf { (kind, ids) ->
+                val dbKind = kind.toDbValue()
+                ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    LinksTable.deleteWhere {
+                        val target = (LinksTable.toKind eq dbKind) and (LinksTable.toId inList chunk)
+                        if (keepDb.isEmpty()) target else target and (LinksTable.relation notInList keepDb)
+                    }
+                }
+            }
+        }
+    }
 
     @StoreWrite
     override suspend fun deleteByIds(ids: Collection<UUID>): Int {

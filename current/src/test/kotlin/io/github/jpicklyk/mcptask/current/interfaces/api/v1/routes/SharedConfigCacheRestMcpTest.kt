@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -78,7 +79,7 @@ class SharedConfigCacheRestMcpTest {
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
-            effectiveConfigRoutes(provider, ctx.configResolver, NoGlobalSchemaService)
+            effectiveConfigRoutes(provider, ctx.configResolver, ServerConfigSource { null })
         }
     }
 
