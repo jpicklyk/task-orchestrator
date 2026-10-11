@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -39,7 +40,6 @@ class QueryItemsToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: QueryItemsTool
-    private lateinit var manageTool: ManageItemsTool
     private lateinit var advanceTool: AdvanceItemTool
 
     @BeforeEach
@@ -48,7 +48,6 @@ class QueryItemsToolTest {
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryItemsTool()
-        manageTool = ManageItemsTool()
         advanceTool = AdvanceItemTool()
     }
 
@@ -117,20 +116,8 @@ class QueryItemsToolTest {
                     io.github.jpicklyk.mcptask.current.domain.model.Role.TERMINAL
             }
         terminalParent?.let { forceRole(it, "queue") }
-        val result =
-            manageTool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to JsonArray(listOf(itemObj))
-                ),
-                context
-            ) as JsonObject
+        val createdId = seedItem(context, itemObj)
         terminalParent?.let { forceRole(it, "terminal") }
-        val createdId =
-            (result["data"] as JsonObject)["items"]!!
-                .jsonArray[0]
-                .jsonObject["id"]!!
-                .jsonPrimitive.content
         role?.let { forceRole(createdId, it) }
         return createdId
     }

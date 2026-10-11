@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -20,7 +20,6 @@ class GetBlockedItemsToolTest {
 
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: GetBlockedItemsTool
-    private lateinit var manageTool: ManageItemsTool
     private lateinit var depTool: ManageDependenciesTool
 
     @BeforeEach
@@ -28,7 +27,6 @@ class GetBlockedItemsToolTest {
         val repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = GetBlockedItemsTool()
-        manageTool = ManageItemsTool()
         depTool = ManageDependenciesTool()
     }
 
@@ -62,20 +60,8 @@ class GetBlockedItemsToolTest {
                     io.github.jpicklyk.mcptask.current.domain.model.Role.TERMINAL
             }
         terminalParent?.let { forceRole(it, "queue") }
-        val result =
-            manageTool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to JsonArray(listOf(itemObj))
-                ),
-                context
-            ) as JsonObject
+        val createdId = seedItem(context, itemObj)
         terminalParent?.let { forceRole(it, "terminal") }
-        val createdId =
-            (result["data"] as JsonObject)["items"]!!
-                .jsonArray[0]
-                .jsonObject["id"]!!
-                .jsonPrimitive.content
         role?.let { forceRole(createdId, it) }
         return createdId
     }

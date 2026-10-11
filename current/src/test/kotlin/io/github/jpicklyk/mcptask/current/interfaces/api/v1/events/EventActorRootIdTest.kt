@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -29,7 +28,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.inUnit
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +44,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -686,38 +687,8 @@ class EventActorRootIdTest {
     // S11 -- MCP tool wrap sites [WRAP]
     // -------------------------------------------------------------------------
 
-    private fun idOfFirstItem(r: JsonObject): UUID =
-        UUID.fromString(
-            (r["data"] as JsonObject)["items"]!!
-                .jsonArray[0]
-                .jsonObject["id"]!!
-                .jsonPrimitive.content,
-        )
-
-    private fun itemCreateParams(
-        parent: WorkItem,
-        title: String,
-        actor: JsonObject?,
-    ): JsonObject =
-        buildJsonObject {
-            put("operation", "create")
-            put(
-                "items",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("type", "test-item")
-                            put("title", title)
-                            put("parentId", parent.id.toString())
-                        },
-                    )
-                },
-            )
-            actor?.let { put("actor", it) }
-        }
-
     @Test
-    fun `S11a manage_items create with a top-level actor attributes item created and a call without an actor has none`(): Unit =
+    fun `S11a items_write create with a top-level actor attributes item created and a call without an actor has none`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
@@ -725,14 +696,14 @@ class EventActorRootIdTest {
             val ctx = toolContext(bus)
             val root = provider.newRoot("R-s11a")
 
-            val withActor = assertToolSuccess(ManageItemsTool().execute(itemCreateParams(root, "With-s11a", actorJson("agent-a")), ctx))
-            val without = assertToolSuccess(ManageItemsTool().execute(itemCreateParams(root, "Without-s11a", null), ctx))
+            val withActor = ctx.itemsWrite(createOp("With-s11a", root.id), actor = actorJson("agent-a"))
+            val without = ctx.itemsWrite(createOp("Without-s11a", root.id))
 
             val events = bus.drainDelivered("s11a", flow)
-            val a = events.one(ApiEventType.ITEM_CREATED, idOfFirstItem(withActor))
+            val a = events.one(ApiEventType.ITEM_CREATED, withActor.okId(0))
             assertEquals(dtoPlainA(), a.actor)
             assertEquals(root.id.toString(), a.rootId)
-            assertNull(events.one(ApiEventType.ITEM_CREATED, idOfFirstItem(without)).actor, "no actor supplied -> field absent")
+            assertNull(events.one(ApiEventType.ITEM_CREATED, without.okId(0)).actor, "no actor supplied -> field absent")
         }
 
     @Test

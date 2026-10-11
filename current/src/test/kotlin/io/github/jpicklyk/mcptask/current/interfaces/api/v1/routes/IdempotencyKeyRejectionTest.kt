@@ -1,16 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
-import io.ktor.client.request.patch
-import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -18,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -39,66 +34,6 @@ import kotlin.test.assertTrue
 class IdempotencyKeyRejectionTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `POST items with malformed Idempotency-Key returns 400 validation_error and creates nothing`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header("Idempotency-Key", "not-a-uuid")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"Should Not Be Created"}""")
-                }
-
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("validation_error"), "Should report validation_error: $body")
-
-            // Hard assertion: nothing was created.
-            val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertNotNull(items)
-            assertTrue(
-                items.items.none { it.title == "Should Not Be Created" },
-                "Malformed Idempotency-Key must not create an item"
-            )
-        }
-
-    @Test
-    fun `PATCH items id with malformed Idempotency-Key returns 400 validation_error and leaves item unmodified`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Untouched Title", depth = 0))!!
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
-            val response =
-                client.patch("/api/v1/items/${item.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag)
-                    header("Idempotency-Key", "not-a-uuid")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Be Applied"}""")
-                }
-
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("validation_error"), "Should report validation_error: $body")
-
-            // Hard assertion: the patch was never applied.
-            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals(
-                "Untouched Title",
-                persisted!!.title,
-                "Malformed Idempotency-Key must leave the item unmodified"
-            )
-        }
 
     @Test
     fun `PUT note with malformed Idempotency-Key returns 400 validation_error and creates no note`(): Unit =

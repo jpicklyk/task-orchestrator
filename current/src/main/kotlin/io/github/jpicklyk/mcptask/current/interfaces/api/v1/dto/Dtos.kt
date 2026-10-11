@@ -185,20 +185,6 @@ data class ErrorDto(
     val details: JsonObject? = null,
 )
 
-/**
- * Response body for `DELETE /api/v1/items/{id}?recursive=true` (200 OK).
- *
- * `deleted` is the total row count removed (the target item plus every descendant);
- * `descendantsDeleted` is the descendant-only count, matching the MCP `manage_items` delete
- * operation's `deleted` / `descendantsDeleted` fields.
- */
-@Serializable
-data class ItemDeleteResultDto(
-    val id: String,
-    val deleted: Int,
-    val descendantsDeleted: Int,
-)
-
 // ─── Phase 4: Config / schema-discovery DTOs ────────────────────────────────
 
 /**
@@ -363,67 +349,6 @@ data class EffectiveConfigDto(
 )
 
 // ─── Phase 5: Write-API request DTOs ─────────────────────────────────────────
-
-/**
- * Request DTO for `POST /api/v1/items`.
- *
- * All optional fields match [WorkItem] semantics. `parentId` must be a valid UUID string
- * when provided; null creates a root item.
- *
- * [type] is required by the service rule (`ItemCommandService`): a missing or blank type is rejected with a 400
- * `validation_error` whose `details.availableTypes` lists the declared types, and so is a type that is not
- * declared whenever any schema is configured for the root. The field stays nullable here so a missing field gets that
- * typed rejection, not a serializer error.
- */
-@Serializable
-data class ItemCreateDto(
-    val title: String,
-    val description: String? = null,
-    val summary: String? = null,
-    val parentId: String? = null,
-    val type: String? = null,
-    val priority: String? = null,
-    val complexity: Int? = null,
-    val requiresVerification: Boolean? = null,
-    val tags: List<String>? = null,
-    val statusLabel: String? = null,
-    val properties: JsonObject? = null,
-    val metadata: String? = null,
-    /** The item's traits, in order. A `properties` object carrying a `traits` key is rejected (400). */
-    val traits: List<String>? = null,
-)
-
-/**
- * Merge-patch DTO for `PATCH /api/v1/items/{id}`.
- *
- * ALL fields are nullable so that absent fields are distinguished from explicit nulls.
- * This DTO is decoded from the MERGED JsonObject, not directly from the request body
- * (the request body is parsed as a raw [JsonObject] to preserve absent-vs-null semantics).
- *
- * Tags: when present in the merged object, `tags` is a comma-separated string mirroring
- * the domain model storage format.
- *
- * [type] cannot be cleared: `{"type": null}` (the RFC 7396 delete) and `""` are rejected with a 400
- * `validation_error`, and so is a changed type that is not declared whenever any schema is configured. An unchanged
- * type is never re-checked, so a `untyped` item stays patchable.
- */
-@Serializable
-data class ItemPatchDto(
-    val title: String? = null,
-    val description: String? = null,
-    val summary: String? = null,
-    val statusLabel: String? = null,
-    val priority: String? = null,
-    val complexity: Int? = null,
-    val requiresVerification: Boolean? = null,
-    val tags: String? = null,
-    val type: String? = null,
-    val properties: String? = null,
-    val metadata: String? = null,
-    val parentId: String? = null,
-    /** The FINAL trait list; `{"traits": null}` (the RFC 7396 delete) clears it. */
-    val traits: List<String>? = null,
-)
 
 /**
  * Request DTO for `PUT /api/v1/items/{id}/notes/{key}`.

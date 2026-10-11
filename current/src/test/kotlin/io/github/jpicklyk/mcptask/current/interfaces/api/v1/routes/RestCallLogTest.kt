@@ -150,35 +150,6 @@ class RestCallLogTest {
             assertNull(row["session_id"], "REST has no MCP session")
         }
 
-    @Test
-    fun `S4 a REST write stamps its events with the X-Req-Id and records the request body size`() =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            val writer = newWriter(rig.composition)
-            application { configureApp(rig.composition, writer) }
-
-            val body = """{"title":"S4 café write","type":"test-item"}"""
-            val response =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-            assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-            val reqId = assertNotNull(response.headers["X-Req-Id"])
-
-            val stamps = CallLogRows.eventStamps(db.jdbcUrl)
-            assertTrue(stamps.isNotEmpty(), "fixture: the write recorded at least one event")
-            assertTrue(stamps.all { it.first == reqId }, "every event of the write carries X-Req-Id $reqId: $stamps")
-
-            writer.flushNow()
-            val row = callLogRows().single()
-            assertEquals(reqId, row["req_id"])
-            assertEquals("POST /api/v1/items", row["tool"])
-            assertEquals("api:$WRITE_TOKEN_ID", row["principal_id"])
-            assertEquals(body.toByteArray(Charsets.UTF_8).size.toLong(), row["request_bytes"], "Content-Length of the JSON body")
-        }
-
     // ------------------------------------------------------------------ S10
 
     @Test

@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -302,48 +301,7 @@ class McpCallLogTest {
 
     // ------------------------------------------------------------------ S3
 
-    @Test
-    fun `S3 every events row a call wrote shares the call's reqId and session, and a second call differs`() =
-        runBlocking {
-            val first = call("manage_items", *itemsCreateArgs("S3 one", "S3 two"))
-            val second = call("manage_items", *itemsCreateArgs("S3 three"))
-            val id1 = assertNotNull(reqIdOf(first))
-            val id2 = assertNotNull(reqIdOf(second))
-            assertNotEquals(id1, id2)
-
-            val rows = flush()
-            val session = rowOf(id1)["session_id"] as String?
-            assertNotNull(session)
-            val stamps = CallLogRows.eventStamps(db.jdbcUrl)
-            assertEquals(
-                setOf<String?>(id1, id2),
-                stamps.map { it.first }.toSet(),
-                "every events row carries one of the two calls' reqIds: $stamps"
-            )
-            assertEquals(2, stamps.count { it.first == id1 }, "two items created by call 1: $stamps")
-            assertEquals(1, stamps.count { it.first == id2 }, "one item created by call 2: $stamps")
-            assertTrue(stamps.all { it.second == session }, "events carry the connection's session id: $stamps vs $session")
-            assertEquals(2, rows.size, "reads and writes alike: one call_log row per call")
-        }
-
     // ------------------------------------------------------------------ S5
-
-    @Test
-    fun `S5 byte counts are UTF-8 bytes of non-ASCII payloads and tokens are their ceil over 4`() =
-        runBlocking {
-            val title = "é ✓ 😀"
-            val args = itemsCreateArgs(title)
-            val result = call("manage_items", *args)
-            assertTrue(result.isError != true, "fixture: the create must succeed: ${result.content}")
-            val row = flush().single { it["tool"] == "manage_items" }
-
-            val argsJson = JsonObject(mapOf(*args)).toString()
-            assertNotEquals(argsJson.length.toLong(), utf8(argsJson), "fixture: the title must make bytes differ from characters")
-            assertEquals(utf8(argsJson), row["request_bytes"], "request_bytes counts UTF-8 bytes of the compact arguments")
-            val expectedResponse = responseBytes(result)
-            assertEquals(expectedResponse, row["response_bytes"])
-            assertEquals(ceilQuarter(expectedResponse), row["response_tokens_est"])
-        }
 
     // ------------------------------------------------------------------ S6
 
@@ -497,27 +455,6 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S7
 
     @Test
-    fun `S7 a validation error still gets a reqId and one error row with the structured code`() =
-        runBlocking {
-            val result = call("manage_items") // required operation is missing
-            assertEquals(true, result.isError)
-            val reqId = assertNotNull(reqIdOf(result), "error results carry _meta.reqId too")
-            val row = flush().single()
-            assertEquals(reqId, row["req_id"])
-            assertEquals("error", row["outcome"])
-            val code =
-                result.structuredContent
-                    ?.get("error")
-                    ?.jsonObject
-                    ?.get("code")
-                    ?.jsonPrimitive
-                    ?.content
-            assertEquals("VALIDATION_ERROR", code, "fixture: ${result.structuredContent}")
-            assertEquals(code, row["error_code"])
-            assertEquals(responseBytes(result), row["response_bytes"])
-        }
-
-    @Test
     fun `S7 a thrown exception yields INTERNAL_ERROR with a reqId and exactly one row`() =
         runBlocking {
             val result = call("p10_boom")
@@ -653,62 +590,7 @@ class McpCallLogTest {
 
     // ------------------------------------------------------------------ S14
 
-    @Test
-    fun `S14 the same requestId and actor create three times replays after the first`() =
-        runBlocking {
-            val requestId = UUID.randomUUID().toString()
-            val args = itemsCreateArgs("S14 once", actorId = "idem-agent", requestId = requestId)
-            val ids = (1..3).map { assertNotNull(reqIdOf(call("manage_items", *args))) }
-            assertEquals(3, ids.toSet().size, "each call has its own reqId even when it replays")
-            flush()
-            val replayed = ids.map { rowOf(it)["replayed"] }
-            assertEquals(listOf<Any?>(0L, 1L, 1L), replayed, "first execution is not a replay, the next two are")
-            assertEquals(1, rig.rows().count { it.type == "item.created" }, "the replays wrote no second item")
-        }
-
-    @Test
-    fun `S14 different requestIds are never replays`() =
-        runBlocking {
-            val a =
-                assertNotNull(
-                    reqIdOf(
-                        call("manage_items", *itemsCreateArgs("S14 a", actorId = "idem-agent", requestId = UUID.randomUUID().toString()))
-                    )
-                )
-            val b =
-                assertNotNull(
-                    reqIdOf(
-                        call("manage_items", *itemsCreateArgs("S14 b", actorId = "idem-agent", requestId = UUID.randomUUID().toString()))
-                    )
-                )
-            flush()
-            assertEquals(0L, rowOf(a)["replayed"])
-            assertEquals(0L, rowOf(b)["replayed"])
-        }
-
     // ------------------------------------------------------------------ S17
-
-    @Test
-    fun `S17 an actor without proof is recorded as principal id kind and status`() =
-        runBlocking {
-            call("manage_items", *itemsCreateArgs("S17 actor", actorId = "a1"))
-            val row = flush().single()
-            assertEquals("a1", row["principal_id"])
-            assertEquals("subagent", row["principal_kind"])
-            val status = row["proof_status"] as String?
-            val known = VerificationStatus.entries.map { it.toJsonString() }
-            assertTrue(status in known, "proof_status is a VerificationStatus.toJsonString() value, got $status of $known")
-        }
-
-    @Test
-    fun `S17 a call without an actor has three null principal columns`() =
-        runBlocking {
-            call("manage_items", *itemsCreateArgs("S17 anonymous"))
-            val row = flush().single()
-            assertNull(row["principal_id"])
-            assertNull(row["principal_kind"])
-            assertNull(row["proof_status"])
-        }
 
     @Test
     fun `A2 every call records one row whose outcome matches its result, errors included`() =
@@ -745,36 +627,4 @@ class McpCallLogTest {
         }
 
     // ------------------------------------------------------------------ F1
-
-    @Test
-    fun `F1 client-supplied operation and flag names are bounded in the stored row`() =
-        runBlocking {
-            val long = "z".repeat(5000)
-            val junkOp = call("manage_items", "operation" to jstr(long))
-            val badOp = call("manage_items", "operation" to jstr("Not Valid!"))
-            val noOp = call("p10_echo", "m" to jstr("x"))
-            val goodOp = call("query_items", "operation" to jstr("overview"))
-            val flags =
-                call(
-                    "p10_echo",
-                    *(0 until 30).map { "flag" + it.toString().padStart(2, '0') to (JsonPrimitive(true) as JsonElement) }.toTypedArray(),
-                    "bad key" to JsonPrimitive(true),
-                    long to JsonPrimitive(true)
-                )
-            flush()
-            assertEquals("invalid", rowOf(reqIdOf(junkOp))["operation"], "5000-char operation")
-            assertEquals("invalid", rowOf(reqIdOf(badOp))["operation"], "non-conforming operation")
-            assertNull(rowOf(reqIdOf(noOp))["operation"], "absent stays null")
-            assertEquals("overview", rowOf(reqIdOf(goodOp))["operation"])
-            val shape = Json.parseToJsonElement(rowOf(reqIdOf(flags))["request_shape"] as String).jsonObject
-            assertEquals(16, shape.size, "30 conforming flags are capped at 16: ${shape.keys}")
-            assertEquals(shape.keys.sorted(), shape.keys.toList())
-            assertTrue(shape.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "${shape.keys}")
-            for (row in CallLogRows.read(db.jdbcUrl)) {
-                for (column in listOf("tool", "operation", "error_code", "principal_id", "principal_kind", "session_id")) {
-                    val value = row[column] as String?
-                    assertTrue(value == null || value.length <= 64, "$column is ${value?.length} chars")
-                }
-            }
-        }
 }

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -31,7 +30,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the six mutating tools (manage_items, manage_notes,
+ * a malformed `requestId` on any of the mutating tools (manage_notes,
  * manage_dependencies, advance_item, complete_tree, create_work_tree) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
  * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
@@ -122,30 +121,6 @@ class RequestIdValidationTest {
 
     private fun toolCases(): List<ToolCase> =
         listOf(
-            ToolCase("manage_items", ManageItemsTool()) { context, actorId ->
-                val baseline = (context.workItemRepository().findRootItems()!!).items.size
-                val params =
-                    buildJsonObject {
-                        put("operation", JsonPrimitive("create"))
-                        put(
-                            "items",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
-                                        put("title", JsonPrimitive("RID-${UUID.randomUUID()}"))
-                                    }
-                                )
-                            )
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    val count = (context.workItemRepository().findRootItems()!!).items.size
-                    count > baseline
-                }
-                params to check
-            },
             ToolCase("manage_notes", ManageNotesTool()) { context, actorId ->
                 val itemId = createItem(context, "Notes Target ${UUID.randomUUID()}")
                 val params =
@@ -341,12 +316,12 @@ class RequestIdValidationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────
-    // S4 — guard (manage_items, create_work_tree): valid requestId, actor ABSENT -> unchanged
+    // S4 — guard (create_work_tree): valid requestId, actor ABSENT -> unchanged
     // ──────────────────────────────────────────────────────────────────
 
     @TestFactory
     fun `S4 requestId without actor does not enable idempotency (guard unchanged)`(): List<DynamicTest> =
-        listOf("manage_items", "create_work_tree").map { label ->
+        listOf("create_work_tree").map { label ->
             dynamicTest(label) {
                 runBlocking {
                     val context = freshContext()
@@ -579,12 +554,12 @@ class RequestIdValidationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────
-    // S10 — edge (manage_items): non-string JSON shapes for requestId are all rejected
+    // S10 — edge (manage_notes): non-string JSON shapes for requestId are all rejected
     // ──────────────────────────────────────────────────────────────────
 
     @TestFactory
-    fun `S10 manage_items rejects non-string requestId JSON shapes`(): List<DynamicTest> {
-        val case = toolCases().first { it.label == "manage_items" }
+    fun `S10 manage_notes rejects non-string requestId JSON shapes`(): List<DynamicTest> {
+        val case = toolCases().first { it.label == "manage_notes" }
         val forms: List<Pair<String, JsonElement>> =
             listOf(
                 "number" to JsonPrimitive(123),
@@ -612,13 +587,13 @@ class RequestIdValidationTest {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // S11 — edge (manage_items): requestId is validated before operation (ordering)
+    // S11 — edge (manage_notes): requestId is validated before operation (ordering)
     // ──────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S11 manage_items validates requestId before operation`() =
+    fun `S11 manage_notes validates requestId before operation`() =
         runBlocking {
-            val case = toolCases().first { it.label == "manage_items" }
+            val case = toolCases().first { it.label == "manage_notes" }
             val context = freshContext()
             val (baseParams, mutated) = case.build(context, "agent-1")
             val withBadOperation =

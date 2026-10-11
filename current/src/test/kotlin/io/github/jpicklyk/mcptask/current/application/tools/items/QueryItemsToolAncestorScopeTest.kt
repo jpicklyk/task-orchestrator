@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -24,14 +25,12 @@ class QueryItemsToolAncestorScopeTest {
 
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryItemsTool
-    private lateinit var manageTool: ManageItemsTool
 
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryItemsTool()
-        manageTool = ManageItemsTool()
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -46,19 +45,7 @@ class QueryItemsToolAncestorScopeTest {
                 put("title", JsonPrimitive(title))
                 parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
             }
-        val result =
-            manageTool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to JsonArray(listOf(itemObj))
-                ),
-                context
-            ) as JsonObject
-        val idStr =
-            (result["data"] as JsonObject)["items"]!!
-                .jsonArray[0]
-                .jsonObject["id"]!!
-                .jsonPrimitive.content
+        val idStr = seedItem(context, itemObj)
         return UUID.fromString(idStr)
     }
 

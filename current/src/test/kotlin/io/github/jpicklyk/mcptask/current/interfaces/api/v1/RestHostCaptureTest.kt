@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
@@ -17,14 +16,10 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -406,54 +401,6 @@ class RestHostCaptureTest {
         }
 
     // ------------------------------------------------------------------ S6
-
-    @Test
-    fun `S6 a REST write stamps call_log and every event row with the same host`() =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            val writer = newWriter(rig.composition)
-            application { configureApp(rig.composition, writer) }
-
-            val response =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")
-                    header("X-Client-Host", "Pi")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S6 host write","type":"test-item"}""")
-                }
-            assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-            val reqId = assertNotNull(response.headers["X-Req-Id"])
-
-            val events = eventHosts()
-            assertTrue(events.isNotEmpty(), "fixture: the write recorded at least one event")
-            assertTrue(events.all { it.first == reqId }, "fixture: every event belongs to this call: $events")
-            assertTrue(events.all { it.second == "pi" }, "$events")
-            writer.flushNow()
-            assertEquals("pi", rowOf(response)["host"])
-        }
-
-    @Test
-    fun `S6 a REST write with no host headers records the rest fallback on its events`() =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            val writer = newWriter(rig.composition)
-            application { configureApp(rig.composition, writer) }
-
-            assertEquals("UA=[];XCH=[<none>]", client.echo(ua("")), "harness proof: nothing identifies the caller")
-            val response =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.UserAgent, "")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S6 fallback write","type":"test-item"}""")
-                }
-            assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-            val events = eventHosts()
-            assertTrue(events.isNotEmpty(), "fixture: events recorded")
-            assertTrue(events.all { it.second == "rest" }, "$events")
-            writer.flushNow()
-            assertEquals("rest", rowOf(response)["host"])
-        }
 
     // ------------------------------------------------------------------ per-call isolation and S13
 

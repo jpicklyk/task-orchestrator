@@ -5,8 +5,10 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -341,31 +343,19 @@ class McpToolAdapterIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `callTool with real ManageItemsTool creates item`(): Unit =
+    fun `callTool with real QueryItemsTool lists a seeded item`(): Unit =
         runBlocking {
-            val manageTool =
-                io.github.jpicklyk.mcptask.current.application.tools.items
-                    .ManageItemsTool()
-            adapter.registerToolWithServer(server, manageTool, dummyContext)
+            seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("Integration test item")) })
+            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
 
-            val result =
-                client.callTool(
-                    name = "manage_items",
-                    arguments =
-                        mapOf(
-                            "operation" to "create",
-                            "items" to listOf(mapOf("title" to "Integration test item", "type" to "test-item"))
-                        )
-                )
+            val result = client.callTool(name = "query_items", arguments = mapOf("operation" to "search"))
 
-            assertTrue(result.isError != true, "Expected successful item creation, got: ${result.content}")
+            assertTrue(result.isError != true, "Expected a successful search, got: ${result.content}")
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
-            // The summary should indicate items were created
             assertTrue(
-                textContent[0].text.contains("created", ignoreCase = true) ||
-                    textContent[0].text.contains("1", ignoreCase = true),
-                "Summary should indicate item creation: ${textContent[0].text}"
+                textContent[0].text.contains("1", ignoreCase = true),
+                "Summary should report the seeded item: ${textContent[0].text}"
             )
         }
 
@@ -448,22 +438,14 @@ class McpToolAdapterIntegrationTest {
     @Test
     fun `not_found error carries its code through structuredContent`(): Unit =
         runBlocking {
-            // Real tool, real DB: an unresolvable parentId prefix produces a top-level
+            // Real tool, real DB: an unresolvable itemId prefix produces a top-level
             // RESOURCE_NOT_FOUND error envelope.
-            val manageTool =
-                io.github.jpicklyk.mcptask.current.application.tools.items
-                    .ManageItemsTool()
-            adapter.registerToolWithServer(server, manageTool, dummyContext)
+            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
 
             val result =
                 client.callTool(
-                    name = "manage_items",
-                    arguments =
-                        mapOf(
-                            "operation" to "create",
-                            "parentId" to "deadbeef", // valid hex prefix, matches nothing
-                            "items" to listOf(mapOf("title" to "Orphan item", "type" to "test-item"))
-                        )
+                    name = "query_items",
+                    arguments = mapOf("operation" to "get", "itemId" to "deadbeef") // valid hex prefix, matches nothing
                 )
 
             assertEquals(true, result.isError)

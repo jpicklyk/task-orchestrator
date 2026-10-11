@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProject
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
@@ -605,7 +604,6 @@ internal fun productionServerCapabilities(): ServerCapabilities =
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
         // Phase 1: CRUD
-        ManageItemsTool(),
         QueryItemsTool(),
         ManageNotesTool(),
         QueryNotesTool(),
@@ -787,7 +785,6 @@ internal fun Application.installRestApiRoutes(
                 toolContext.idempotency,
                 toolContext.advanceServiceFactory(),
                 toolContext.unitOfWork,
-                toolContext.itemCommandService,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
             )

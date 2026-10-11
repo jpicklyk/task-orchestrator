@@ -9,21 +9,13 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.patch
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -41,11 +33,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.sql.DriverManager
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
@@ -90,78 +80,6 @@ class P5bRouteFaultTest {
     private fun errorOf(body: String) = Json.parseToJsonElement(body).jsonObject
 
     // ---------------------------------------------------------------- S5
-    @Test
-    fun `S5 POST items with a failing insert returns 500 db_error Failed to create item and writes no row`(): Unit =
-        testApplication {
-            rawExec("CREATE TRIGGER s5_post BEFORE INSERT ON work_items WHEN NEW.title = 'REST boom' BEGIN SELECT RAISE(ABORT, 'inj'); END")
-            application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
-
-            val response =
-                db.assertNoOutsideUnitWrites {
-                    client.post("/api/v1/items") {
-                        header("Authorization", "Bearer $WRITE_TOKEN")
-                        contentType(ContentType.Application.Json)
-                        setBody("""{"type":"test-item","title":"REST boom"}""")
-                    }
-                }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.InternalServerError, response.status, body)
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
-            assertEquals("Failed to create item", errorOf(body)["message"]!!.jsonPrimitive.content, body)
-            assertEquals(0, rawInt("SELECT count(*) FROM work_items WHERE title = 'REST boom'"))
-
-            rawExec("DROP TRIGGER s5_post")
-            val healthy =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"REST boom"}""")
-                }
-            assertEquals(HttpStatusCode.Created, healthy.status, "control: the same request succeeds once the trigger is gone")
-            assertEquals(1, rawInt("SELECT count(*) FROM work_items WHERE title = 'REST boom'"))
-        }
-
-    @Test
-    fun `S5 PATCH items with a failing update returns 500 db_error Failed to update item and leaves the title`(): Unit =
-        testApplication {
-            val item =
-                runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST patch original", depth = 0)) }
-            rawExec(
-                "CREATE TRIGGER s5_patch BEFORE UPDATE ON work_items WHEN NEW.title = 'REST patch boom' BEGIN SELECT RAISE(ABORT, 'inj'); END"
-            )
-            application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
-
-            val response =
-                db.assertNoOutsideUnitWrites {
-                    client.patch("/api/v1/items/${item.id}") {
-                        header("Authorization", "Bearer $WRITE_TOKEN")
-                        header(HttpHeaders.IfMatch, etag(item))
-                        contentType(ContentType.Application.Json)
-                        setBody("""{"title":"REST patch boom"}""")
-                    }
-                }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.InternalServerError, response.status, body)
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
-            assertEquals("Failed to update item", errorOf(body)["message"]!!.jsonPrimitive.content, body)
-            assertEquals(
-                "REST patch original",
-                runBlocking { assertNotNull(db.repositoryProvider().workItemRepository().getById(item.id)).title }
-            )
-
-            rawExec("DROP TRIGGER s5_patch")
-            val healthy =
-                client.patch("/api/v1/items/${item.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(item))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"REST patch boom"}""")
-                }
-            assertEquals(HttpStatusCode.OK, healthy.status, "control: ${healthy.bodyAsText()}")
-        }
-
     // ---------------------------------------------------------------- S4
     private class ConflictOnUpdateRepository(
         private val delegate: WorkItemRepository
@@ -206,35 +124,6 @@ class P5bRouteFaultTest {
             }
         }
     }
-
-    @Test
-    fun `S4 PATCH items maps a store VersionConflictException to 409 version_conflict with the 3x message`(): Unit =
-        testApplication {
-            val item = runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST conflict", depth = 0)) }
-            val provider = ConflictProvider(db.repositoryProvider())
-            application { conflictApp(provider, SqliteUnitOfWork(db.databaseManager, provider) { Instant.now() }) }
-
-            val response =
-                client.patch("/api/v1/items/${item.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(item))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"REST conflict changed"}""")
-                }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.Conflict, response.status, body)
-            assertEquals("version_conflict", errorOf(body)["error"]!!.jsonPrimitive.content, body)
-            assertEquals(
-                "Item was modified by another request; retry with a fresh If-Match ETag",
-                errorOf(body)["message"]!!.jsonPrimitive.content,
-                body
-            )
-            assertEquals(
-                "REST conflict",
-                runBlocking { assertNotNull(db.repositoryProvider().workItemRepository().getById(item.id)).title }
-            )
-        }
 
     // ---------------------------------------------------------------- S9
     @Test

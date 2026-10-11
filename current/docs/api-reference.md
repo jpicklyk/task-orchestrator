@@ -21,7 +21,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 | Tool | Category | R/W | Description |
 |---|---|---|---|
-| `manage_items` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems |
+| `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems (`ops[]`, per-element results) |
 | `query_items` | Hierarchy & CRUD | Read | Get, search, or overview WorkItems |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
@@ -43,165 +43,68 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 ## Category: Hierarchy & CRUD
 
-### manage_items
+### items_write
 
-**Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `update` additionally rejects a reparent to itself or to one of its own descendants in the application layer, and fails closed: if the ancestor lookup errors, that item fails with a `failed to verify hierarchy` error and nothing is written. `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
+**Purpose.** Create, update and delete WorkItems. One `ops[]` array of flat objects, each naming its op in `op`
+(`create`, `update`, `delete`). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
+as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
+gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
+returns `data.results[i]` (`{ok:true, ...}` or `{ok:false, error}`), a `data.summary`, and `meta.reqId`. By default
+every element is its own write unit (one failing element does not stop the others, and the call answers
+`partial_failure`); `atomic: true` runs the whole array in one unit and the first failure rolls everything back.
+An element may carry an `idempotencyKey` (requires an `actor`): a repeated key replays the stored result with
+`replayed: true`; the same key with a different element is `idempotency_mismatch`.
 
-**Operations.** `create`, `update`, `delete`
+Placement (depth, root) is computed from the parent row inside the write unit; an item is always created in `queue`
+and there is no role field (use `advance_item`). A `terminal` parent under `auto` lifecycle accepts no new children
+and no reparent onto it (`invalid_transition`).
 
-**Parent rules (4.0).** Every write runs as one unit over the item command service:
+| Op | Element fields | Result (`results[i]`) |
+|---|---|---|
+| `create` | `title` and `type` (required); `parentId`, `description`, `summary`, `statusLabel`, `priority` (`high`, `medium` default, `low`), `complexity` (1-10), `requiresVerification`, `metadata`, `tags` (array), `traits` (array), `properties` (JSON object) | `{ok, id, version}` |
+| `update` | `id` (required), `expectedVersion`; any create field except that all are optional; `clear` | `{ok, id, version, cascade?}` |
+| `delete` | `id` (required), `recursive`, `expectedVersion` | `{ok, id, deleted, cascade?}` (`deleted` counts the item and its descendants) |
 
-- **Create always lands in `queue`.** A `role` field on a create item fails that item with
-  `Item at index N: 'role' is not accepted on create; items are created in queue (use advance_item to move them)`;
-  nothing is created for it. Move items with `advance_item`.
-- **Closed parent.** Creating an item under, or moving an item under, a `terminal` parent whose effective lifecycle
-  is `auto` fails that item (`Item at index N: parent '<id>' is terminal under auto lifecycle; reopen it before adding
-  children` on create; `Item '<id>': parent '<pid>' is terminal under auto lifecycle; reopen it before moving items
-  under it` on update). Under `manual` and `permanent` lifecycle the parent accepts children. Reopen the parent first.
-- **Old-parent re-evaluation.** Moving an item away from its parent (to another parent or to root), or deleting it,
-  re-evaluates the OLD parent exactly like a child completion: under `auto` lifecycle it completes when every remaining
-  child is terminal and its gate passes; with required notes missing the cascade is suppressed and reported with
-  `gateBlocked`; nothing happens when no child remains, under `manual`/`permanent`, or when the item had no parent.
-  The new parent is never cascaded. An update or delete element reports these cascades as `cascadeEvents` (the
-  element shape `advance_item` uses), omitted when empty.
-- **Descendant restamp.** A reparent restamps every descendant's `depth` and `rootId` in one statement; each
-  restamped descendant's `version` and `modifiedAt` change (its REST ETag changes).
+**Update semantics.** An absent or `null` field keeps its stored value. `tags: []` and `traits: []` clear those
+lists. `clear` lists optional fields to set to null: `description`, `statusLabel`, `metadata`, `complexity`,
+`properties`, `parentId` (the last moves the item to root). A field cannot be both sent and cleared in one element.
+`expectedVersion` is the optimistic lock: when given, a stale value fails `version_conflict` (`kind`, `id`,
+`expected`, `actual`) and nothing is written; when absent the update locks against the version it just read.
+`type` cannot be cleared; a changed type is checked against the destination root's declared types.
 
-#### Key Parameters
+**Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
+whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
+in one unit. Notes and dependency edges go with their items. `expectedVersion` guards the item itself.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | One of: `create`, `update`, `delete` |
-| `items` | array | Yes (create/update) | Array of item objects |
-| `itemIds` | array | Yes (delete) | Array of item UUIDs to delete |
-| `parentId` | string (UUID) | No | Shared default parent for all created items; per-item `parentId` overrides this |
-| `traits` | string | No | Comma-separated trait names applied as a shared default to all items in this batch, for both `create` and `update` (e.g., `"needs-migration-review,needs-security-review"`); a per-item `traits` field overrides this default for that item. Adds trait note requirements from the `traits:` config section. Stored as each item's typed trait list — on `update`, this replaces the item's existing `traits` list rather than unioning with it, and an absent value (top-level and per-item) leaves existing traits untouched. |
-| `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
-| `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
-| `type` | string | No | **Top-level `type` is ignored.** Set it on individual items in the `items` array instead. |
-| `properties` | string | No | **Top-level `properties` is ignored.** Set it on individual items in the `items` array instead. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Each array element is applied once for 24 hours: a retry with the same `requestId` replays the stored result of elements that succeeded and re-runs those that did not. See [Idempotency](#idempotency). |
-| `actor` | object | No | Actor for idempotency key resolution: `{ id (required string), kind (required: orchestrator\|subagent\|user\|external), parent? (optional string), proof? (optional string) }`. Required when `requestId` is provided. |
+**Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
+completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
+that blocked an unapplied cascade (`gate_blocked`, `resource_unavailable`, `dependency_unmet`, `invalid_transition`).
 
-**Item object fields (create):**
+**Errors.** `invalid_request` / `unknown_parameter` (decoding; pointers like `/ops/0/type`), `not_found`,
+`ambiguous_id` (an 8-hex prefix matching several items), `version_conflict`, `cycle_detected` (reparent under a
+descendant), `schema_violation` (undeclared or blank `type`, undeclared trait; `detail.availableTypes` /
+`availableTraits`), `invalid_transition` (closed parent), `forbidden` (scope), `unavailable` (a per-root config fault:
+transient, `retryAfterMs`). A `properties` object carrying a `traits` key is `invalid_request` on `properties`
+(`traits` is its own field).
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `title` | string | Yes | — | |
-| `description` | string | No | null | |
-| `summary` | string | No | `""` | |
-| `statusLabel` | string | No | null | |
-| `priority` | string | No | `medium` | |
-| `complexity` | integer (1–10) | No | null (not set) | |
-| `parentId` | string (UUID) | No | shared `parentId` or null | |
-| `tags` | string | No | null | |
-| `metadata` | string | No | null | |
-| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (the union of per-root and global keys, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
-| `properties` | string | No | null | JSON string for extensible item metadata. A value that parses to a JSON object with a `traits` key is rejected with `invalid_request` (field `properties`): traits are a typed field, pass `traits`. |
-| `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Stored as the item's typed trait list (split on `,`, trimmed, empty elements dropped, duplicates dropped first-wins); on update, absent keeps the list and `""` clears it. When the root's config declares any trait, an undeclared name fails the element with `schema_violation` and `availableTraits`. |
-| `requiresVerification` | boolean | No | false | |
+**Scope.** Every item an element touches is checked against the caller's scope before any write: the target of
+`update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
+scope (the new id cannot be a listed root) and, under a tag scope, needs a listed tag in `tags`; `clear: ["parentId"]`
+under a root scope is allowed only when the item itself is a listed root. Under a restricted scope an id that
+resolves to nothing, or is ambiguous, is `forbidden` (scope is no existence oracle).
 
-**Item object fields (update):** Same fields as create plus required `itemId` (UUID), including `type`,
-`properties`, and `traits`. Only provided fields are changed; omitted fields retain existing values.
-Setting `parentId` to JSON null moves the item to root. `type` cannot be cleared: `null` or a blank string fails the
-element with `schema_violation` (shape `{ id, error, errorCode, errorKind, availableTypes }`), and a changed `type` must be a
-declared one whenever any schema is configured. A patch that leaves `type` unchanged is never re-checked, so an `untyped`
-item stays editable.
-
-**Note:** The `role` field is accepted in neither create nor update operations. Use `advance_item` with an
-appropriate trigger instead.
-
-**Response (update).**
+**Actor and events.** The caller's actor (body `actor` over MCP, the bearer principal over REST) is recorded as the
+principal of the `item.created`, `item.updated`, `item.reparented` and `item.deleted` events the call writes.
 
 ```json
 {
-  "items": [
-    {
-      "id": "uuid",
-      "modifiedAt": "2025-01-01T00:00:00Z",
-      "requiresVerification": false,
-      "cascadeEvents": [
-        { "itemId": "old-parent-uuid", "title": "Feature", "previousRole": "work", "targetRole": "terminal", "applied": true }
-      ]
-    }
-  ],
-  "updated": 1,
-  "failed": 0,
-  "failures": [{ "id": "bad-uuid", "error": "Item 'bad-uuid' not found" }]
-}
-```
-
-`failures` is only present when `failed > 0`; omitted entirely on a clean run. `cascadeEvents` is present only when
-the update moved the item and that re-evaluated its old parent (see **Parent rules** above).
-
-**Examples.**
-
-```json
-// Create two child items under a shared parent
-{
-  "operation": "create",
-  "parentId": "550e8400-e29b-41d4-a716-446655440000",
-  "items": [
-    { "title": "Design API schema", "priority": "high", "tags": "task-implementation" },
-    { "title": "Write unit tests", "priority": "medium" }
+  "ops": [
+    { "op": "create", "title": "Add retry", "type": "feature-task", "parentId": "9f3a1c22", "tags": ["backend"] },
+    { "op": "update", "id": "9f3a1c22", "expectedVersion": 3, "priority": "high", "clear": ["description"] },
+    { "op": "delete", "id": "0b6d4e11", "recursive": true }
   ]
 }
-
-// Partial update
-{
-  "operation": "update",
-  "items": [
-    { "itemId": "550e8400-e29b-41d4-a716-446655440001", "priority": "high", "complexity": 3 }
-  ]
-}
-
-// Recursive delete
-{
-  "operation": "delete",
-  "itemIds": ["550e8400-e29b-41d4-a716-446655440000"],
-  "recursive": true
-}
 ```
-
-**Response (delete).**
-
-```json
-{
-  "ids": ["550e8400-e29b-41d4-a716-446655440000"],
-  "deleted": 5,
-  "failed": 0,
-  "descendantsDeleted": 4
-}
-```
-
-`descendantsDeleted` is only present when `recursive: true` and descendants were actually deleted; it counts the number of descendant items removed (not including the root items listed in `ids`). The `deleted` count includes both the root items and their descendants. Without `recursive: true`, deleting an item with children fails proactively (via a child-count check, not a DB constraint) with an error message listing the child count. A deleted item's resource leases are released in the same unit as the delete. When a delete re-evaluated the deleted item's parent (see **Parent rules** above), the response carries a top-level `cascadeEvents` array (the `advance_item` element shape) collecting every element's cascades; it is omitted when empty.
-
-**Response (create).**
-
-```json
-{
-  "items": [
-    {
-      "id": "uuid",
-      "title": "Design API schema",
-      "depth": 1,
-      "role": "queue",
-      "priority": "high",
-      "requiresVerification": false,
-      "tags": "task-implementation",
-      "schemaMatch": true,
-      "expectedNotes": [
-        { "key": "feature-summary", "role": "queue", "required": true, "exists": false }
-      ]
-    }
-  ],
-  "created": 1,
-  "failed": 0
-}
-```
-
-`expectedNotes` is always present — an empty array when no schema resolves — and is keys-only: `key`, `role`, `required`, `exists` (no `description`/`guidance`/`skill`). The boolean `schemaMatch` indicates whether a note schema was resolved for the item (via `type`, tag match, or default fallback). Resolve full note text via `query_items(operation="schema", itemId=...)` (see below). Check `expectedNotes` immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. When the config defines traits, the create response also includes a top-level `availableTraits` string array naming the trait values accepted by the `traits` parameter (omitted when no traits are configured). Both full item responses (from `get`) and minimal responses (from `search` and `overview`) include `type` when it is non-null.
 
 ---
 
@@ -519,7 +422,7 @@ the document stays PENDING.
 
 **Purpose.** Atomically create a root WorkItem, optional child items, optional dependency edges
 between them, and optional blank notes — all in a single call. Eliminates the round-trips required
-when calling `manage_items`, `manage_dependencies`, and `manage_notes` separately.
+when calling `items_write`, `manage_dependencies`, and `manage_notes` separately.
 
 **Attach mode.** Pass `root.id` (UUID or hex prefix of an existing item) instead of `root.title` to
 attach children, deps, and notes directly to an existing item. When `root.id` is provided, `root.title`
@@ -546,7 +449,7 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 
 **Note write policy.** Explicit `notes` and `noteAnchors`-sourced notes follow the same policy as [`manage_notes`](#manage_notes) (see its **Note write policy**). `role` may be given in any letter case (stored lowercase). Unlike `manage_notes`, which reports per-note failures, a policy rejection here fails the WHOLE `create_work_tree` call: an over-cap body (65536 UTF-8 bytes), a schema-role mismatch, or - under `note_limits.mode: reject` - a body over the schema `maxLength` returns `VALIDATION_ERROR` with zero items created and the plan document not adopted. Under `note_limits.mode: warn` the call succeeds and the affected note's entry in the `notes` response array carries a `warning` field naming the limit and actual length; for a duplicate `(itemRef, key)` the warning follows the last-wins note. `createNotes=true` blanks are built from the schema entry with an empty body and do not go through the policy.
 
-`root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `manage_items` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
+`root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `items_write` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
 
 Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Descendant traversal (e.g. cascade delete, re-parent depth recompute) is additionally bounded to 1000 levels and fails with a data error on a cycle or a subtree at/beyond the bound, instead of hanging or silently truncating; subtree search instead bounds-and-continues, excluding anything past the cap.
 
@@ -1237,7 +1140,7 @@ or not at all. Unblocked downstream items are then reported. The MCP path enforc
 REST path bypasses it (see `api-rest.md`). Both enforce the same gates (REST accepts an ADMIN-only
 override for the lease gate; MCP does not), and report the same cascade/unblock results.
 
-**When to call.** Call to move an item between phases once its work is done — never edit status via `manage_items`.
+**When to call.** Call to move an item between phases once its work is done — never edit status via `items_write`.
 
 #### Key Parameters
 
@@ -2408,7 +2311,7 @@ pre-V11 row with no history). Callers deciding whether to push should treat `sup
 
 **Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
 
-**Note on actor attribution.** Unlike `manage_notes`/`manage_items`, this tool does not accept an
+**Note on actor attribution.** Unlike `manage_notes`/`items_write`, this tool does not accept an
 `actor` parameter — its writes aren't part of the per-note/per-item attribution model (a config
 document has no "author" note field to stamp), so mirroring the actor-claim/verification machinery
 would add complexity with no corresponding read surface to expose it through.
@@ -2702,11 +2605,13 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ## Idempotency
 
-The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency.
+The mutating tools `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency.
 
 **`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
 
-**The rest keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+**The rest keep `requestId` optional.** `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+
+**`items_write` is keyed differently.** It takes no `requestId`: each `ops[]` element may carry an `idempotencyKey` (needs an `actor`), recorded per `(principal, tool, key)` with the same 24-hour record and replay rules; see `items_write`.
 
 **How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
 
@@ -2718,7 +2623,7 @@ The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advan
 
 **Constraints:**
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
-- For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
+- For `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
 - `manage_dependencies` create, `create_work_tree`, `complete_tree` and a `manage_notes` delete by `itemId` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
 - A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
 
@@ -2759,7 +2664,7 @@ error catalog code that classifies the failure; the 3.x `code` strings and messa
 {
   "error": {
     "code": "DATABASE_ERROR",
-    "message": "Database error in 'manage_items': Database is busy: database is locked",
+    "message": "Database error in 'manage_notes': Database is busy: database is locked",
     "kind": "shedding"
   }
 }
@@ -2782,8 +2687,7 @@ or `contendedItemId` where they apply:
 }
 ```
 
-**Per-element failure entries.** A failed element of a batch call (`manage_items` create, update and
-delete; `manage_notes` upsert and delete; `manage_dependencies` create; every `complete_tree` item that was
+**Per-element failure entries.** A failed element of a batch call (`manage_notes` upsert and delete; `manage_dependencies` create; every `complete_tree` item that was
 not applied, including a skipped dependent and an already-terminal item) carries `errorCode` and
 `errorKind` next to `error`. `errorCode` is the error catalog's wire code (`invalid_request`,
 `not_found`, `ambiguous_id`, `version_conflict`, `duplicate`, `cycle_detected`, `idempotency_mismatch`,

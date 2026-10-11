@@ -21,12 +21,9 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
-import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
@@ -111,131 +108,6 @@ class RestWriteEventActorTest {
     }
 
     @Test
-    fun `R1 reparent attributes the moved item and every descendant to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val rootA = seed(repo, "Root A")
-            val rootB = seed(repo, "Root B")
-            val p = seed(repo, "P", rootA)
-            val c = seed(repo, "C", p)
-            val g = seed(repo, "G", c)
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r1", emptySet(), lastEventId = null)
-
-            val response =
-                client.patch("/api/v1/items/${p.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(p))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"parentId":"${rootB.id}"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, response.bodyAsText())
-            val events = bus.drainDelivered("r1", flow)
-
-            assertAttributed(events, "R1 all events")
-            val updated = events.filter { it.event == ApiEventType.ITEM_UPDATED }
-            // The moved item itself may be reported through scope.* events; any event satisfies A1 R1.
-            assertTrue(
-                events.any { it.itemId == p.id.toString() },
-                "R1: no event for P (${p.id}); got ${events.map { it.event to it.itemId }}",
-            )
-            for (descendant in listOf(c, g)) {
-                assertTrue(
-                    updated.any { it.itemId == descendant.id.toString() },
-                    "R1: no item.updated for ${descendant.title} (${descendant.id}); got ${updated.map { it.itemId }}",
-                )
-            }
-            // Descendants now live under Root B, so their depth-0 ancestor is B.
-            for (descendant in listOf(c, g)) {
-                updated.filter { it.itemId == descendant.id.toString() }.forEach {
-                    assertEquals(rootB.id.toString(), it.rootId, "R1: rootId of ${descendant.title}")
-                }
-            }
-        }
-
-    @Test
-    fun `R2 create root and nested child attribute item created events to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r2", emptySet(), lastEventId = null)
-
-            val rootResp =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"R2 root"}""")
-                }
-            assertEquals(HttpStatusCode.Created, rootResp.status)
-            val rootId = idOf(rootResp.bodyAsText())
-            val childResp =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"R2 child","parentId":"$rootId"}""")
-                }
-            assertEquals(HttpStatusCode.Created, childResp.status)
-            val childId = idOf(childResp.bodyAsText())
-            val events = bus.drainDelivered("r2", flow)
-
-            assertAttributed(events, "R2 all events")
-            val created = events.filter { it.event == ApiEventType.ITEM_CREATED }
-            assertEquals(setOf(rootId, childId), created.mapNotNull { it.itemId }.toSet())
-            assertEquals(rootId, created.single { it.itemId == childId }.rootId)
-        }
-
-    @Test
-    fun `R3 patch without reparent attributes item updated and bus readback keeps the actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = seed(repo, "R3 item")
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r3", emptySet(), lastEventId = null)
-
-            val response =
-                client.patch("/api/v1/items/${item.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(item))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"R3 renamed"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, response.bodyAsText())
-            val events = bus.drainDelivered("r3", flow)
-
-            assertAttributed(events, "R3 all events")
-            val updated = events.filter { it.event == ApiEventType.ITEM_UPDATED && it.itemId == item.id.toString() }
-            assertEquals(1, updated.size, "R3: exactly one item.updated for the item; got $events")
-            // Read-back through the bus ring buffer yields the same attribution (replay path).
-            val replayed = bus.projectedEvents().filter { it.id == updated.single().id }
-            assertEquals(1, replayed.size)
-            assertEquals(expectedActor, replayed.single().actor)
-        }
-
-    @Test
-    fun `R4 delete attributes item deleted to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = seed(repo, "R4 item")
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r4", emptySet(), lastEventId = null)
-
-            val response =
-                client.delete("/api/v1/items/${item.id}") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-            val events = bus.drainDelivered("r4", flow)
-
-            assertAttributed(events, "R4 all events")
-            assertTrue(
-                events.any { it.event == ApiEventType.ITEM_DELETED && it.itemId == item.id.toString() },
-                "R4: no item.deleted for ${item.id}; got $events",
-            )
-        }
-
-    @Test
     fun `R5 note delete attributes note deleted to the api actor`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
@@ -315,25 +187,5 @@ class RestWriteEventActorTest {
                 events.any { it.event == ApiEventType.DEPENDENCY_REMOVED },
                 "R7: no dependency.removed event; got $events",
             )
-        }
-
-    @Test
-    fun `read-only token is rejected 403 on a write route and emits no event`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("ro", emptySet(), lastEventId = null)
-
-            val denied =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"denied"}""")
-                }
-            assertEquals(HttpStatusCode.Forbidden, denied.status)
-            // The same request with the write token produces an event (R2), so a zero here is
-            // attributable to the 403, not to a fixture that can never emit.
-            assertEquals(emptyList(), bus.drainDelivered("ro", flow))
         }
 }

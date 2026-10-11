@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -52,7 +51,7 @@ import kotlin.test.assertTrue
  * (gate_blocked ...) are NOT recorded so a retry with the same key executes; unkeyed calls (no requestId, or no
  * trusted actor id) never create a record. The call shapes come from the pre-existing tool tests
  * (IdempotencyToolsTest at the base commit, AdvanceItemToolErrorCodeTest, ClaimItemToolRealStateTest,
- * ManageItemsToolTest).
+ * and the removed manage_items tests).
  *
  * Record counts are read with raw JDBC from idempotency_records, so they are independent of the service API.
  */
@@ -123,30 +122,6 @@ class KeyedElementToolsTest {
 
     private fun data(result: JsonElement): JsonObject = (result as JsonObject)["data"] as JsonObject
 
-    private fun createParams(
-        requestId: String?,
-        vararg titles: String,
-        actorId: String? = "agent-1"
-    ): JsonObject =
-        buildJsonObject {
-            put("operation", "create")
-            put(
-                "items",
-                buildJsonArray {
-                    titles.forEach { t ->
-                        add(
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", t)
-                            }
-                        )
-                    }
-                }
-            )
-            if (requestId != null) put("requestId", requestId)
-            if (actorId != null) put("actor", actor(actorId))
-        }
-
     private fun JsonObject.isReplayed(): Boolean = this["replayed"]?.jsonPrimitive?.booleanOrNull == true
 
     private fun elements(
@@ -203,90 +178,7 @@ class KeyedElementToolsTest {
 
     // ---------------------------------------------------------------- S1
 
-    @Test
-    fun `S1 manage_items create with two elements replays each element and creates nothing the second time`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            val params = createParams(key, "First", "Second")
-
-            val first = ManageItemsTool().execute(params, ctx)
-            val firstEls = elements(first, "items")
-            assertEquals(2, firstEls.size)
-            assertTrue(firstEls.none { it.isReplayed() }, "a first execution must not claim to be a replay: $first")
-            assertEquals(2, records(), "one record per keyed element")
-            assertEquals(2, itemRows())
-
-            val second = ManageItemsTool().execute(params, ctx)
-            val secondEls = elements(second, "items")
-            assertEquals(2, secondEls.size)
-            assertTrue(secondEls.all { it.isReplayed() }, "every element replays: $second")
-            assertEquals(firstEls.map { it["id"] }, secondEls.map { it["id"] }, "the replay returns the same item ids")
-            assertEquals(2, itemRows(), "the replay must not create items")
-            assertEquals(2, records())
-        }
-
-    @Test
-    fun `S1 probe - two identical elements in one call both execute because their keys carry different indexes`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            val params = createParams(key, "Twin", "Twin")
-
-            ManageItemsTool().execute(params, ctx)
-            assertEquals(2, itemRows(), "both identical elements execute on the first call")
-            assertEquals(2, records())
-
-            val again = ManageItemsTool().execute(params, ctx)
-            assertTrue(elements(again, "items").all { it.isReplayed() })
-            assertEquals(2, itemRows())
-        }
-
-    @Test
-    fun `S1 probe - the same requestId in upper case is the same key`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val lower = UUID.randomUUID().toString()
-            ManageItemsTool().execute(createParams(lower, "Cased"), ctx)
-            val replay = ManageItemsTool().execute(createParams(lower.uppercase(), "Cased"), ctx)
-            assertTrue(elements(replay, "items").single().isReplayed(), "an upper-case requestId must replay: $replay")
-            assertEquals(1, itemRows())
-            assertEquals(1, records())
-        }
-
-    @Test
-    fun `S1 probe - a different requestId executes fresh`(): Unit =
-        runBlocking {
-            val ctx = context()
-            ManageItemsTool().execute(createParams(UUID.randomUUID().toString(), "One"), ctx)
-            val second = ManageItemsTool().execute(createParams(UUID.randomUUID().toString(), "One"), ctx)
-            assertFalse(elements(second, "items").single().isReplayed())
-            assertEquals(2, itemRows())
-            assertEquals(2, records())
-        }
-
     // ---------------------------------------------------------------- S6
-
-    @Test
-    fun `S6 a changed second element is an idempotency_mismatch failure while the unchanged first element replays`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            val first = ManageItemsTool().execute(createParams(key, "Alpha", "Beta"), ctx)
-            val firstIds = elements(first, "items").map { it["id"] }
-
-            val second = ManageItemsTool().execute(createParams(key, "Alpha", "Beta CHANGED"), ctx)
-
-            val replayed = elements(second, "items")
-            assertEquals(1, replayed.size, "only the unchanged element is returned as an item: $second")
-            assertTrue(replayed.single().isReplayed())
-            assertEquals(firstIds[0], replayed.single()["id"])
-            val failures = data(second)["failures"]!!.jsonArray
-            assertEquals(1, failures.size, "exactly the changed element fails: $second")
-            assertTrue("idempotency_mismatch" in failures.single().toString(), "failure must carry the mismatch code: $failures")
-            assertEquals(2, itemRows(), "a mismatch must not create the changed element")
-            assertEquals(2, records(), "a mismatch must not write a record")
-        }
 
     @Test
     fun `S6 manage_notes upsert with the same key and a different body is a mismatch and keeps the stored body`(): Unit =
@@ -518,36 +410,6 @@ class KeyedElementToolsTest {
 
     // ---------------------------------------------------------------- S8 tool level
 
-    @Test
-    fun `S8 a non-object element is a stored payload-validation failure that replays on retry with the same key`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-
-            fun badParams(element: JsonElement) =
-                obj(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to JsonArray(listOf(element)),
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-
-            val first = ManageItemsTool().execute(badParams(JsonPrimitive("not an object")), ctx)
-            assertTrue("must be a JSON object" in first.toString(), "attempt 1 reports the payload failure: $first")
-            assertEquals(1, records(), "a payload-validation failure IS recorded (every other failure is not)")
-            assertEquals(0, itemRows())
-
-            val retry = ManageItemsTool().execute(badParams(JsonPrimitive("not an object")), ctx)
-            assertTrue("must be a JSON object" in retry.toString(), "the retry returns the same stored failure: $retry")
-            assertFalse("idempotency_mismatch" in retry.toString(), "an identical retry is not a mismatch: $retry")
-            assertEquals(1, records(), "the replay adds no record")
-            assertEquals(0, itemRows())
-
-            val changed = ManageItemsTool().execute(badParams(JsonPrimitive(5)), ctx)
-            assertTrue("idempotency_mismatch" in changed.toString(), "a different bad element under the same key is a mismatch: $changed")
-            assertEquals(1, records())
-        }
-
     // ---------------------------------------------------------------- S10 tool level
 
     private val leaseSchema: EffectiveConfigResolver
@@ -603,87 +465,6 @@ class KeyedElementToolsTest {
 
     // ---------------------------------------------------------------- S11 / S15
 
-    @Test
-    fun `S11 a requestId without an actor executes every time and records nothing`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            ManageItemsTool().execute(createParams(key, "No actor", actorId = null), ctx)
-            ManageItemsTool().execute(createParams(key, "No actor", actorId = null), ctx)
-            assertEquals(2, itemRows())
-            assertEquals(0, records())
-        }
-
-    @Test
-    fun `S11 no requestId executes every time and records nothing`(): Unit =
-        runBlocking {
-            val ctx = context()
-            ManageItemsTool().execute(createParams(null, "Unkeyed"), ctx)
-            ManageItemsTool().execute(createParams(null, "Unkeyed"), ctx)
-            assertEquals(2, itemRows())
-            assertEquals(0, records())
-        }
-
-    @Test
-    fun `S11 an actor rejected by policy is never keyed - control with an accepting policy records`(): Unit =
-        runBlocking {
-            val key = UUID.randomUUID().toString()
-
-            ManageItemsTool().execute(createParams(key, "Rejected"), context(policy = DegradedModePolicy.REJECT))
-            assertEquals(0, records(), "a rejected unverified actor must not produce a record")
-
-            ManageItemsTool().execute(createParams(key, "Accepted"), context(policy = DegradedModePolicy.ACCEPT_CACHED))
-            assertEquals(1, records(), "control: the same call under an accepting policy is recorded")
-        }
-
-    @Test
-    fun `S15 the same requestId under two actors executes twice with separate records`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            ManageItemsTool().execute(createParams(key, "Same", actorId = "agent-a"), ctx)
-            val other = ManageItemsTool().execute(createParams(key, "Same", actorId = "agent-b"), ctx)
-            assertFalse(elements(other, "items").single().isReplayed())
-            assertEquals(2, itemRows())
-            assertEquals(2, records())
-        }
-
-    @Test
-    fun `S15 the same requestId on two different tools executes both`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            ManageItemsTool().execute(createParams(key, "Host"), ctx)
-            val hostId =
-                items
-                    .findRootItems()
-                    .items
-                    .single()
-                    .id
-
-            val noteCall =
-                obj(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", hostId.toString())
-                                    put("key", "approach")
-                                    put("role", "work")
-                                    put("body", "body")
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-            val result = ManageNotesTool().execute(noteCall, ctx)
-            assertFalse("idempotency_mismatch" in result.toString(), "a different tool is a different operation: $result")
-            assertEquals(1, ctx.noteRepository().findByItemId(hostId).size)
-            assertEquals(2, records())
-        }
-
     // ---------------------------------------------------------------- S17
 
     @Test
@@ -735,19 +516,6 @@ class KeyedElementToolsTest {
         }
 
     // ---------------------------------------------------------------- probes
-
-    @Test
-    fun `probe an empty items array stores nothing, and the control call stores a record`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-            runCatching { ManageItemsTool().execute(createParams(key), ctx) }
-            assertEquals(0, records(), "nothing was created, so nothing is recorded")
-            assertEquals(0, itemRows())
-
-            ManageItemsTool().execute(createParams(key, "Control"), ctx)
-            assertEquals(1, records())
-        }
 
     private object AdvanceTrigger {
         const val START = "start"

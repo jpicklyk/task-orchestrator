@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -17,31 +16,24 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWriteTestApp
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createCommand
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.rawCount
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsert
-import io.ktor.client.HttpClient
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -60,7 +52,6 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -548,55 +539,44 @@ class TraitsTypedTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // S2 / S3 / S9 / S10 - the manage_items and create_work_tree adapters
+    // S2 / S3 / S9 / S10 - the items_write and create_work_tree adapters
     // ---------------------------------------------------------------------------------------------
 
     private fun JsonObject.data(): JsonObject = this["data"]!!.jsonObject
-
-    private fun JsonObject.failures(): List<JsonObject> = data()["failures"]!!.jsonArray.map { it.jsonObject }
 
     private fun JsonObject.text(key: String): String = this[key]!!.jsonPrimitive.content
 
     private fun createElement(
         title: String,
-        traits: String? = null,
-        properties: String? = null,
+        traits: List<String>? = null,
+        properties: JsonObject? = null,
     ): JsonObject =
-        buildJsonObject {
-            put("type", "test-item")
-            put("title", title)
-            if (traits != null) put("traits", traits)
-            if (properties != null) put("properties", properties)
-        }
+        createOp(
+            title,
+            null,
+            "test-item",
+            *listOfNotNull(
+                traits?.let { "traits" to strings(*it.toTypedArray()) },
+                properties?.let { "properties" to it },
+            ).toTypedArray(),
+        )
 
-    private suspend fun EventLogRig.createItems(
-        vararg elements: JsonObject,
-        sharedTraits: String? = null,
-    ): JsonObject {
-        val params = mutableListOf<Pair<String, JsonElement>>("operation" to str("create"), "items" to JsonArray(elements.toList()))
-        if (sharedTraits != null) params += "traits" to str(sharedTraits)
-        return callOk(ManageItemsTool(), *params.toTypedArray())
-    }
+    private suspend fun EventLogRig.createItems(vararg elements: JsonObject): JsonObject = itemsWrite(*elements)
 
-    private suspend fun EventLogRig.updateItems(
-        vararg elements: JsonObject,
-        sharedTraits: String? = null,
-    ): JsonObject {
-        val params = mutableListOf<Pair<String, JsonElement>>("operation" to str("update"), "items" to JsonArray(elements.toList()))
-        if (sharedTraits != null) params += "traits" to str(sharedTraits)
-        return callOk(ManageItemsTool(), *params.toTypedArray())
-    }
+    private suspend fun EventLogRig.updateItems(vararg elements: JsonObject): JsonObject = itemsWrite(*elements)
 
     private fun updateElement(
         id: UUID,
-        traits: String? = null,
-        properties: String? = null,
+        traits: List<String>? = null,
+        properties: JsonObject? = null,
     ): JsonObject =
-        buildJsonObject {
-            put("itemId", id.toString())
-            if (traits != null) put("traits", traits)
-            if (properties != null) put("properties", properties)
-        }
+        updateOp(
+            id,
+            *listOfNotNull(
+                traits?.let { "traits" to strings(*it.toTypedArray()) },
+                properties?.let { "properties" to it },
+            ).toTypedArray(),
+        )
 
     private suspend fun EventLogRig.getData(id: UUID): JsonObject =
         callOk(QueryItemsTool(), "operation" to str("get"), "itemId" to str(id.toString())).data()
@@ -604,12 +584,12 @@ class TraitsTypedTest {
     private suspend fun EventLogRig.wireTraits(id: UUID): List<String> =
         getData(id)["traits"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
 
-    private fun JsonObject.createdIds(): List<UUID> = data()["items"]!!.jsonArray.map { UUID.fromString(it.jsonObject.text("id")) }
+    private fun JsonObject.createdIds(): List<UUID> = results().indices.map { okId(it) }
 
     private suspend fun EventLogRig.storedProperties(id: UUID): String? = raw.workItemRepository().getById(id)!!.properties
 
     @Test
-    fun `S2 manage_items create splits trims drops empty and dedupes the traits string and get returns a top-level array`(
+    fun `S2 items_write create stores the traits array in order and an absent or empty array is no traits`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -617,92 +597,56 @@ class TraitsTypedTest {
 
             val result =
                 r.createItems(
-                    createElement("messy", "b, a,,b"),
-                    createElement("single", "  solo  "),
-                    createElement("empty-string", ""),
-                    createElement("only-commas", ",,,"),
+                    createElement("ordered", listOf("b", "a")),
+                    createElement("single", listOf("solo")),
+                    createElement("empty-array", emptyList()),
                     createElement("none"),
-                    createElement("with props", "z", """{"custom":"v"}"""),
+                    createElement("with props", listOf("z"), buildJsonObject { put("custom", "v") }),
                 )
 
-            assertEquals(6, result.data()["created"]!!.jsonPrimitive.int, "$result")
+            assertEquals(5, result.results().size, "$result")
             val ids = result.createdIds()
-            assertEquals(listOf("b", "a"), r.wireTraits(ids[0]), "split, trim, drop empty, first-wins dedupe")
+            assertEquals(listOf("b", "a"), r.wireTraits(ids[0]), "stored in the given order")
             assertEquals(ordered("b", "a"), rawTraits(ids[0]))
             assertEquals(listOf("solo"), r.wireTraits(ids[1]))
-            for (i in 2..4) {
+            for (i in 2..3) {
                 assertEquals(emptyList(), r.wireTraits(ids[i]), "item $i has no traits")
                 assertFalse(r.getData(ids[i]).containsKey("traits"), "an empty list is omitted from get, never an empty array")
                 assertEquals(emptyList(), rawTraits(ids[i]))
             }
-            assertEquals(listOf("z"), r.wireTraits(ids[5]))
-            val props = Json.parseToJsonElement(r.getData(ids[5]).text("properties")).jsonObject
+            assertEquals(listOf("z"), r.wireTraits(ids[4]))
+            val props = Json.parseToJsonElement(r.getData(ids[4]).text("properties")).jsonObject
             assertEquals(setOf("custom"), props.keys, "properties keeps its own key and never gains traits")
             assertNull(r.storedProperties(ids[0]), "no properties supplied, none stored")
         }
 
     @Test
-    fun `S2 a shared top-level traits value applies to elements without their own and a per-item value overrides it`(
+    fun `S3 items_write update keeps the list when traits is absent, clears it with an empty array and replaces it otherwise`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val r = freeRig(dir)
-
-            val result = r.createItems(createElement("own", "own-trait"), createElement("inherits"), sharedTraits = "shared-1,shared-2")
-
-            val ids = result.createdIds()
-            assertEquals(listOf("own-trait"), r.wireTraits(ids[0]))
-            assertEquals(listOf("shared-1", "shared-2"), r.wireTraits(ids[1]))
-        }
-
-    @Test
-    fun `S3 manage_items update keeps the list when traits is absent, clears it with an empty string and replaces it otherwise`(
-        @TempDir dir: Path,
-    ): Unit =
-        runBlocking {
-            val r = freeRig(dir)
-            val id = r.createItems(createElement("subject", "x,y")).createdIds().single()
+            val id = r.createItems(createElement("subject", listOf("x", "y"))).createdIds().single()
             assertEquals(listOf("x", "y"), r.wireTraits(id), "control: created with x,y")
 
             r.updateItems(updateElement(id))
             assertEquals(listOf("x", "y"), r.wireTraits(id), "absent keeps")
 
-            r.updateItems(updateElement(id, traits = "y, x"))
+            r.updateItems(updateElement(id, traits = listOf("y", "x")))
             assertEquals(listOf("y", "x"), r.wireTraits(id), "replaces, and a reorder is honoured")
             assertEquals(ordered("y", "x"), rawTraits(id))
 
-            r.updateItems(updateElement(id, traits = "z"))
+            r.updateItems(updateElement(id, traits = listOf("z")))
             assertEquals(listOf("z"), r.wireTraits(id), "replaced, not unioned")
 
-            r.updateItems(updateElement(id, traits = ""))
-            assertEquals(emptyList(), r.wireTraits(id), "the empty string clears")
+            r.updateItems(updateElement(id, traits = emptyList()))
+            assertEquals(emptyList(), r.wireTraits(id), "the empty array clears")
             assertEquals(emptyList(), rawTraits(id))
             assertFalse(r.getData(id).containsKey("traits"))
         }
 
     @Test
-    fun `S3 manage_items update applies a shared traits value only to elements without their own`(
-        @TempDir dir: Path,
-    ): Unit =
-        runBlocking {
-            val r = freeRig(dir)
-            val ids =
-                r
-                    .createItems(
-                        createElement("one", "old-1"),
-                        createElement("two", "old-2"),
-                        createElement("three", "old-3")
-                    ).createdIds()
-
-            r.updateItems(updateElement(ids[0]), updateElement(ids[1], traits = "own"), updateElement(ids[2]), sharedTraits = "shared")
-
-            assertEquals(listOf("shared"), r.wireTraits(ids[0]), "the shared default applies")
-            assertEquals(listOf("own"), r.wireTraits(ids[1]), "the per-item value wins")
-            assertEquals(listOf("shared"), r.wireTraits(ids[2]))
-        }
-
-    @Test
-    fun `S9 manage_items reports an undeclared trait as an element failure carrying availableTraits and still runs the siblings`(
+    fun `S9 items_write reports an undeclared trait as an element failure carrying availableTraits and still runs the siblings`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -711,62 +655,86 @@ class TraitsTypedTest {
 
             val result =
                 r.createItems(
-                    createElement("good-1", "alpha-trait"),
-                    createElement("bad", "alpha-trait,nope"),
-                    createElement("good-2", "beta-trait, gamma-trait"),
+                    createElement("good-1", listOf("alpha-trait")),
+                    createElement("bad", listOf("alpha-trait", "nope")),
+                    createElement("good-2", listOf("beta-trait", "gamma-trait")),
                 )
 
-            val data = result.data()
-            assertEquals(2, data["created"]!!.jsonPrimitive.int, "$result")
-            assertEquals(1, data["failed"]!!.jsonPrimitive.int, "$result")
-            val failure = result.failures().single()
-            assertEquals(1, failure["index"]!!.jsonPrimitive.int, "$failure")
-            assertEquals(ErrorCode.SCHEMA_VIOLATION.wire, failure.text("errorCode"), "$failure")
-            assertEquals(declared, failure["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content }, "$failure")
+            assertEquals(
+                2,
+                result
+                    .data()["summary"]!!
+                    .jsonObject["ok"]!!
+                    .jsonPrimitive.int,
+                "$result"
+            )
+            assertEquals(
+                1,
+                result
+                    .data()["summary"]!!
+                    .jsonObject["failed"]!!
+                    .jsonPrimitive.int,
+                "$result"
+            )
+            val failure = result.errorAt(1)
+            assertEquals(ErrorCode.SCHEMA_VIOLATION.wire, failure.text("code"), "$failure")
+            assertEquals(
+                declared,
+                failure["detail"]!!.jsonObject["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content },
+                "$failure"
+            )
             assertEquals(before + 2, r.itemCount(), "only the two valid elements were written")
-            val ids = result.createdIds()
-            assertEquals(listOf("alpha-trait"), r.wireTraits(ids[0]))
-            assertEquals(listOf("beta-trait", "gamma-trait"), r.wireTraits(ids[1]))
+            assertEquals(listOf("alpha-trait"), r.wireTraits(result.okId(0)))
+            assertEquals(listOf("beta-trait", "gamma-trait"), r.wireTraits(result.okId(2)))
         }
 
     @Test
-    fun `S9 manage_items update with an undeclared trait fails the element and leaves the item as it was`(
+    fun `S9 items_write update with an undeclared trait fails the element and leaves the item as it was`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val r = typedRig(dir)
-            val id = r.createItems(createElement("subject", "alpha-trait")).createdIds().single()
+            val id = r.createItems(createElement("subject", listOf("alpha-trait"))).createdIds().single()
             val before = r.raw.workItemRepository().getById(id)!!
 
-            val result = r.updateItems(updateElement(id, traits = "nope"))
+            val result = r.updateItems(updateElement(id, traits = listOf("nope")))
 
-            val failure = result.failures().single()
-            assertEquals(ErrorCode.SCHEMA_VIOLATION.wire, failure.text("errorCode"), "$failure")
-            assertEquals(id.toString(), failure.text("id"), "$failure")
-            assertEquals(declared, failure["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content })
+            val failure = result.errorAt(0)
+            assertEquals(ErrorCode.SCHEMA_VIOLATION.wire, failure.text("code"), "$failure")
+            assertEquals(declared, failure["detail"]!!.jsonObject["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertEquals(before, r.raw.workItemRepository().getById(id), "version and traits untouched")
         }
 
     @Test
-    fun `S10 manage_items rejects a properties string carrying traits as an element failure on create and on update`(
+    fun `S10 items_write rejects a properties object carrying traits as an element failure on create and on update`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val r = freeRig(dir)
-            val id = r.createItems(createElement("subject", "kept")).createdIds().single()
+            val id = r.createItems(createElement("subject", listOf("kept"))).createdIds().single()
             val before = r.itemCount()
 
             val created =
                 r.createItems(
-                    createElement("bad", properties = """{"traits":["a"]}"""),
-                    createElement("good", properties = """{"custom":1}"""),
+                    createElement("bad", properties = buildJsonObject { put("traits", buildJsonArray { add(JsonPrimitive("a")) }) }),
+                    createElement("good", properties = buildJsonObject { put("custom", 1) }),
                 )
-            val updated = r.updateItems(updateElement(id, properties = """{"traits":["a"],"custom":1}"""))
+            val updated =
+                r.updateItems(
+                    updateElement(
+                        id,
+                        properties =
+                            buildJsonObject {
+                                put("traits", buildJsonArray { add(JsonPrimitive("a")) })
+                                put("custom", 1)
+                            },
+                    ),
+                )
 
-            assertEquals(1, created.data()["created"]!!.jsonPrimitive.int, "$created")
-            assertEquals(ErrorCode.INVALID_REQUEST.wire, created.failures().single().text("errorCode"), "$created")
+            assertEquals(ErrorCode.INVALID_REQUEST.wire, created.errorAt(0).text("code"), "$created")
+            created.okId(1)
             assertEquals(before + 1, r.itemCount(), "only the clean element was written")
-            assertEquals(ErrorCode.INVALID_REQUEST.wire, updated.failures().single().text("errorCode"), "$updated")
+            assertEquals(ErrorCode.INVALID_REQUEST.wire, updated.errorAt(0).text("code"), "$updated")
             assertEquals(listOf("kept"), r.wireTraits(id), "the failed update changed nothing")
             assertNull(r.storedProperties(id))
         }
@@ -842,180 +810,5 @@ class TraitsTypedTest {
             r.raw.noteRepository().upsert(Note(itemId = gated.id, key = "migration-assessment", role = "queue", body = "assessed"))
             assertEquals(emptySet(), missing(gated))
             assertTrue(gate(gated)["canAdvance"]!!.jsonPrimitive.boolean, "${gate(gated)}")
-        }
-
-    // ---------------------------------------------------------------------------------------------
-    // S4 - REST
-    // ---------------------------------------------------------------------------------------------
-
-    private suspend fun HttpClient.send(
-        path: String,
-        body: String,
-        etag: String? = null,
-        asPatch: Boolean = false,
-    ): HttpResponse {
-        val block: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {
-            header("Authorization", "Bearer $WRITE_TOKEN")
-            if (etag != null) header(HttpHeaders.IfMatch, etag)
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-        return if (asPatch) patch(path, block) else post(path, block)
-    }
-
-    private fun parse(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
-
-    private fun JsonObject.traitList(): List<String> = this["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
-
-    private fun idOf(body: String): String = Regex(""""id"\s*:\s*"([0-9a-f\-]{36})"""").find(body)!!.groupValues[1]
-
-    @Test
-    fun `S4 POST accepts a traits array, returns it in order, GET shows it and a missing array reads as empty`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val created = client.send("/api/v1/items", """{"title":"With traits","type":"alpha-type","traits":["b","a"]}""")
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-            val createdJson = parse(created.bodyAsText())
-            assertEquals(listOf("b", "a"), createdJson.traitList())
-            val id = UUID.fromString(idOf(created.bodyAsText()))
-            assertEquals(ordered("b", "a"), rawTraits(id))
-            assertEquals(listOf("b", "a"), repo.workItemRepository().getById(id)!!.traits)
-
-            val got = client.get("/api/v1/items/$id") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(listOf("b", "a"), parse(got.bodyAsText()).traitList(), "GET returns the same order")
-
-            val bare = client.send("/api/v1/items", """{"title":"Without traits","type":"alpha-type"}""")
-            assertEquals(HttpStatusCode.Created, bare.status, bare.bodyAsText())
-            val bareJson = parse(bare.bodyAsText())
-            assertTrue(bareJson.containsKey("traits"), "traits is always present on an ItemDto: $bareJson")
-            assertEquals(emptyList(), bareJson.traitList())
-        }
-
-    @Test
-    fun `S4 PATCH replaces the list, keeps it when absent and clears it with null`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val created = client.send("/api/v1/items", """{"title":"Subject","type":"alpha-type","traits":["k1","k2"]}""")
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-            val id = UUID.fromString(idOf(created.bodyAsText()))
-            var etag: String? = created.headers[HttpHeaders.ETag]
-            assertNotNull(etag)
-
-            suspend fun patchBody(body: String): JsonObject {
-                val response = client.send("/api/v1/items/$id", body, etag = etag, asPatch = true)
-                assertEquals(HttpStatusCode.OK, response.status, "$body: ${response.bodyAsText()}")
-                etag = assertNotNull(response.headers[HttpHeaders.ETag], "$body: the new ETag")
-                return parse(response.bodyAsText())
-            }
-
-            assertEquals(listOf("k1", "k2"), patchBody("""{"title":"renamed"}""").traitList(), "an absent traits field keeps the list")
-            assertEquals(ordered("k1", "k2"), rawTraits(id))
-
-            assertEquals(listOf("z"), patchBody("""{"traits":["z"]}""").traitList())
-            assertEquals(ordered("z"), rawTraits(id))
-
-            assertEquals(listOf("b", "a"), patchBody("""{"traits":["b","a"]}""").traitList())
-            assertEquals(listOf("a", "b"), patchBody("""{"traits":["a","b"]}""").traitList(), "a reorder is a change")
-            assertEquals(ordered("a", "b"), rawTraits(id))
-
-            assertEquals(emptyList(), patchBody("""{"traits":null}""").traitList(), "RFC 7396: null clears")
-            assertEquals(emptyList(), rawTraits(id))
-            assertEquals(emptyList(), repo.workItemRepository().getById(id)!!.traits)
-
-            assertEquals(listOf("again"), patchBody("""{"traits":["again"]}""").traitList())
-            assertEquals(emptyList(), patchBody("""{"traits":[]}""").traitList(), "an empty array clears as well")
-        }
-
-    @Test
-    fun `S4 a properties object carrying traits is 400 validation_error on POST and on PATCH and a clean object is accepted`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val items = rawCount(db.jdbcUrl, "SELECT COUNT(*) FROM work_items")
-
-            for (props in listOf("""{"traits":["a"]}""", """{"custom":1,"traits":"a,b"}""", """{"traits":null}""")) {
-                val response = client.send("/api/v1/items", """{"title":"Bad","type":"alpha-type","properties":$props}""")
-                assertEquals(HttpStatusCode.BadRequest, response.status, "$props: ${response.bodyAsText()}")
-                val json = parse(response.bodyAsText())
-                assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "$props: $json")
-                assertTrue(response.bodyAsText().contains("traits is a typed field"), "$props: the error carries the frozen reason: $json")
-            }
-            assertEquals(items, rawCount(db.jdbcUrl, "SELECT COUNT(*) FROM work_items"), "no rejected POST wrote a row")
-
-            val clean = client.send("/api/v1/items", """{"title":"Clean","type":"alpha-type","properties":{"custom":1}}""")
-            assertEquals(HttpStatusCode.Created, clean.status, clean.bodyAsText())
-            val id = UUID.fromString(idOf(clean.bodyAsText()))
-            val etag = clean.headers[HttpHeaders.ETag]
-            assertNotNull(etag)
-            val before = repo.workItemRepository().getById(id)!!
-
-            for (props in listOf("""{"traits":["a"]}""", """{"custom":2,"traits":"a"}""")) {
-                val response = client.send("/api/v1/items/$id", """{"properties":$props}""", etag = etag, asPatch = true)
-                assertEquals(HttpStatusCode.BadRequest, response.status, "$props: ${response.bodyAsText()}")
-                assertEquals("validation_error", parse(response.bodyAsText())["error"]?.jsonPrimitive?.content)
-                assertEquals(before, repo.workItemRepository().getById(id), "$props: the item is untouched")
-            }
-            val ok = client.send("/api/v1/items/$id", """{"properties":{"custom":2}}""", etag = etag, asPatch = true)
-            assertEquals(HttpStatusCode.OK, ok.status, ok.bodyAsText())
-            assertTrue(
-                repo
-                    .workItemRepository()
-                    .getById(id)!!
-                    .properties!!
-                    .contains("2"),
-                "control: a clean properties patch merges"
-            )
-        }
-
-    @Test
-    fun `S4 an undeclared trait is 400 validation_error with availableTraits on POST and PATCH and nothing is written`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val root = client.send("/api/v1/items", """{"title":"Root","type":"alpha-type"}""")
-            assertEquals(HttpStatusCode.Created, root.status, root.bodyAsText())
-            val rootId = UUID.fromString(idOf(root.bodyAsText()))
-            repo.configStore().upsert(
-                rootId,
-                "traits:\n  alpha-trait:\n    notes:\n      - { key: alpha-note, role: work, required: false }\n" +
-                    "  beta-trait:\n    notes:\n      - { key: beta-note, role: work, required: false }\n",
-            )
-
-            val bad =
-                client.send(
-                    "/api/v1/items",
-                    """{"title":"Bad","type":"alpha-type","parentId":"$rootId","traits":["alpha-trait","nope"]}"""
-                )
-            assertEquals(HttpStatusCode.BadRequest, bad.status, bad.bodyAsText())
-            val badJson = parse(bad.bodyAsText())
-            assertEquals("validation_error", badJson["error"]?.jsonPrimitive?.content, "$badJson")
-            val details = badJson["details"]!!.jsonObject
-            assertEquals(
-                listOf("alpha-trait", "beta-trait"),
-                details["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content },
-                "$badJson"
-            )
-            assertEquals("trait 'nope' is not declared", details["reason"]?.jsonPrimitive?.content, "$badJson")
-            assertEquals(0, repo.workItemRepository().findChildren(rootId).size, "the rejected POST wrote nothing")
-
-            val good = client.send("/api/v1/items", """{"title":"Good","type":"alpha-type","parentId":"$rootId","traits":["beta-trait"]}""")
-            assertEquals(HttpStatusCode.Created, good.status, good.bodyAsText())
-            val goodId = UUID.fromString(idOf(good.bodyAsText()))
-            val etag = good.headers[HttpHeaders.ETag]
-            assertNotNull(etag)
-            val before = repo.workItemRepository().getById(goodId)!!
-
-            val badPatch = client.send("/api/v1/items/$goodId", """{"traits":["nope"]}""", etag = etag, asPatch = true)
-            assertEquals(HttpStatusCode.BadRequest, badPatch.status, badPatch.bodyAsText())
-            val patchDetails = parse(badPatch.bodyAsText())["details"]!!.jsonObject
-            assertEquals(listOf("alpha-trait", "beta-trait"), patchDetails["availableTraits"]!!.jsonArray.map { it.jsonPrimitive.content })
-            assertEquals(before, repo.workItemRepository().getById(goodId), "the rejected PATCH changed nothing")
-
-            val goodPatch = client.send("/api/v1/items/$goodId", """{"traits":["alpha-trait"]}""", etag = etag, asPatch = true)
-            assertEquals(HttpStatusCode.OK, goodPatch.status, goodPatch.bodyAsText())
-            assertEquals(listOf("alpha-trait"), repo.workItemRepository().getById(goodId)!!.traits)
         }
 }

@@ -1,25 +1,23 @@
 package io.github.jpicklyk.mcptask.current.contention
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.P11Driver
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.updateOp
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -65,40 +63,13 @@ internal object WalReparentScenarios {
         drv: P11Driver,
         item: WorkItem,
         newParent: WorkItem
-    ): JsonObject =
-        drv.rig.call(
-            ManageItemsTool(),
-            "operation" to JsonPrimitive("update"),
-            "items" to
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("parentId", newParent.id.toString())
-                        }
-                    )
-                }
-        )
+    ): JsonObject = drv.rig.itemsWrite(updateOp(item.id, "parentId" to JsonPrimitive(newParent.id.toString())))
 
     private suspend fun createUnder(
         drv: P11Driver,
         parent: WorkItem,
         title: String
-    ): JsonObject =
-        drv.rig.call(
-            ManageItemsTool(),
-            "operation" to JsonPrimitive("create"),
-            "items" to
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("type", "test-item")
-                            put("title", title)
-                            put("parentId", parent.id.toString())
-                        }
-                    )
-                }
-        )
+    ): JsonObject = drv.rig.itemsWrite(createOp(title, parent.id))
 
     private fun JsonObject.data(): JsonObject = this["data"]?.jsonObject ?: fail("no data: $this")
 
@@ -169,17 +140,13 @@ internal object WalReparentScenarios {
                 }
             }
 
-        val moved = (results[0] as JsonObject).data()
-        assertEquals(1, moved["updated"]!!.jsonPrimitive.int, "the reparent applies: ${results[0]}")
-        val created =
-            (results[1] as JsonObject)
-                .data()["items"]!!
-                .jsonArray
-                .single()
-                .jsonObject
-        val createdDepth = created["depth"]!!.jsonPrimitive.int
-        assertTrue(createdDepth == 3 || createdDepth == 4, "created under D before (3) or after (4) the move: $created")
-        fx.ordering(index0First = createdDepth == 4, detail = results)
+        (results[0] as JsonObject).okResult(0)
+        val createdId = (results[1] as JsonObject).okId(0)
+        // The element no longer carries the depth at creation, so the order is read from the event rows.
+        val eventRows = fx.rig.rowsAfter(mark)
+        val createSeq = eventRows.single { it.type == "item.created" && it.entityId == createdId }.seq
+        val moveSeq = eventRows.first { it.type == "item.reparented" }.seq
+        fx.ordering(index0First = moveSeq < createSeq, detail = results)
         val started = results[2] as JsonObject
         assertEquals(true, started.flag("applied"), "$started")
         assertEquals("work", started.text("newRole"), "$started")
@@ -213,8 +180,7 @@ internal object WalReparentScenarios {
 
         val faulted = reparent(drv, t.x, t.q1)
 
-        assertEquals(0, faulted.data()["updated"]!!.jsonPrimitive.int, "the faulted reparent applies nothing: $faulted")
-        assertEquals(1, faulted.data()["failed"]!!.jsonPrimitive.int, "$faulted")
+        faulted.errorAt(0)
         assertEquals(before, subtree.map { placement(drv.reload(it)) }, "X, D and E keep parent_id, depth and root_id")
         val rows = fx.rig.rowsAfter(mark)
         assertEquals(
@@ -225,7 +191,7 @@ internal object WalReparentScenarios {
 
         rawExec(drv.jdbcUrl, "DROP TRIGGER $trigger")
         val healthy = reparent(drv, t.x, t.q1)
-        assertEquals(1, healthy.data()["updated"]!!.jsonPrimitive.int, "control: $healthy")
+        healthy.okResult(0)
         assertEquals(
             listOf(Triple(t.q1.id, 2, t.q.id), Triple(t.x.id, 3, t.q.id), Triple(t.d.id, 4, t.q.id)),
             subtree.map { placement(drv.reload(it)) },

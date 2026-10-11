@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -24,7 +23,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.updateOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -79,38 +85,6 @@ class EventCoverageTest {
         assertTrue(seqs.first() > EventStore.SEQ_FLOOR, "$label: seq must be above the floor")
     }
 
-    private fun itemsCreate(
-        title: String,
-        parentId: UUID? = null,
-        actorId: String? = null,
-    ): Array<Pair<String, JsonElement>> {
-        val base =
-            mutableListOf<Pair<String, JsonElement>>(
-                "operation" to JsonPrimitive("create"),
-                "items" to
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", title)
-                                if (parentId != null) put("parentId", parentId.toString())
-                            },
-                        )
-                    },
-            )
-        if (actorId != null) {
-            base.add(
-                "actor" to
-                    buildJsonObject {
-                        put("id", actorId)
-                        put("kind", "subagent")
-                    },
-            )
-            base.add("requestId" to JsonPrimitive(UUID.randomUUID().toString()))
-        }
-        return base.toTypedArray()
-    }
-
     private fun advance(
         id: UUID,
         trigger: String,
@@ -139,7 +113,7 @@ class EventCoverageTest {
             val rig = rig(dir)
             assertNull(rig.composition.apiWiring.eventBus, "fixture: this composition must be the API-off one")
 
-            val (_, rows) = rig.written { rig.callOk(ManageItemsTool(), *itemsCreate("S2 root")) }
+            val (_, rows) = rig.written { rig.itemsWrite(createOp("S2 root")).okResult(0) }
 
             assertEquals(listOf("item.created"), rows.types())
             val row = rows.single()
@@ -159,14 +133,14 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S2b a child created through manage_items records parentId and the parent as root_id`(
+    fun `S2b a child created through items_write records parentId and the parent as root_id`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val rig = rig(dir)
             val root = rig.seed("S2b root")
 
-            val (_, rows) = rig.written { rig.callOk(ManageItemsTool(), *itemsCreate("S2b child", parentId = root.id)) }
+            val (_, rows) = rig.written { rig.itemsWrite(createOp("S2b child", root.id)).okResult(0) }
 
             val row = rows.single()
             assertEquals("item.created", row.type)
@@ -182,7 +156,17 @@ class EventCoverageTest {
         runBlocking {
             val rig = rig(dir)
 
-            val (_, rows) = rig.written { rig.callOk(ManageItemsTool(), *itemsCreate("actor root", actorId = "agent-p8")) }
+            val (_, rows) =
+                rig.written {
+                    rig.itemsWrite(
+                        createOp("actor root"),
+                        actor =
+                            buildJsonObject {
+                                put("id", "agent-p8")
+                                put("kind", "subagent")
+                            },
+                    )
+                }
 
             val row = rows.single()
             assertEquals("agent-p8", row.principalId)
@@ -244,12 +228,7 @@ class EventCoverageTest {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("delete"),
-                        "itemIds" to buildJsonArray { add(JsonPrimitive(root.id.toString())) },
-                        "recursive" to JsonPrimitive(true),
-                    )
+                    rig.itemsWrite(deleteOp(root.id, recursive = true)).okResult(0)
                 }
 
             assertEquals(2, rows.ofType("item.deleted").size, "$rows")
@@ -289,19 +268,7 @@ class EventCoverageTest {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("update"),
-                        "items" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", child.id.toString())
-                                        put("parentId", r2.id.toString())
-                                    },
-                                )
-                            },
-                    )
+                    rig.itemsWrite(updateOp(child.id, "parentId" to JsonPrimitive(r2.id.toString()))).okResult(0)
                 }
 
             val moved = rows.ofType("item.reparented")
@@ -339,11 +306,11 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // manage_items update / no-op / empty delete probes
+    // items_write update / no-op / empty delete probes
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `manage_items update of a title records item updated with the changed field and a no-op update records nothing`(
+    fun `items_write update of a title records item updated with the changed field and a no-op update records nothing`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -352,19 +319,7 @@ class EventCoverageTest {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("update"),
-                        "items" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", item.id.toString())
-                                        put("title", "upd after")
-                                    },
-                                )
-                            },
-                    )
+                    rig.itemsWrite(updateOp(item.id, "title" to JsonPrimitive("upd after"))).okResult(0)
                 }
 
             val row = rows.single()
@@ -398,25 +353,11 @@ class EventCoverageTest {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("update"),
-                        "items" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", root.id.toString())
-                                        put("title", "S15 root renamed")
-                                    },
-                                )
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", orphanChild.id.toString())
-                                        put("title", "S15 child renamed")
-                                    },
-                                )
-                            },
-                    )
+                    rig
+                        .itemsWrite(
+                            updateOp(root.id, "title" to JsonPrimitive("S15 root renamed")),
+                            updateOp(orphanChild.id, "title" to JsonPrimitive("S15 child renamed")),
+                        ).okResult(1)
                 }
 
             assertEquals(2, rows.ofType("item.updated").size, "$rows")
@@ -1124,7 +1065,7 @@ class EventCoverageTest {
 
     @Test
     fun `S17 every tool the server registers is classified as a covered write tool or an allow-listed read-only tool`() {
-        val registered = buildMcpTools().map { it.name }.toSet()
+        val registered = buildMcpTools().map { it.name }.toSet() + ToolRegistry(buildToolSpecs()).tools.map { it.name }
         val covered = WRITE_TOOLS_COVERED.keys
         assertTrue(covered.intersect(READ_ONLY_TOOLS).isEmpty(), "a tool is either a covered write tool or read-only, not both")
         assertEquals(
@@ -1154,7 +1095,7 @@ class EventCoverageTest {
                 }
             val perTool: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
-                    "manage_items" to itemsCreate("S17 created"),
+                    "items_write" to emptyArray(),
                     "manage_notes" to
                         arrayOf(
                             "operation" to JsonPrimitive("upsert"),
@@ -1215,8 +1156,18 @@ class EventCoverageTest {
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
-                val (result, rows) = rig.written { rig.call(tools.getValue(name), *params) }
-                assertTrue(result["success"]!!.jsonPrimitive.boolean, "$name must succeed: $result")
+                val (result, rows) =
+                    rig.written {
+                        if (name ==
+                            "items_write"
+                        ) {
+                            rig.itemsWrite(createOp("S17 created"))
+                        } else {
+                            rig.call(tools.getValue(name), *params)
+                        }
+                    }
+                val succeeded = (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean
+                assertTrue(succeeded, "$name must succeed: $result")
                 assertTrue(rows.isNotEmpty(), "write tool $name left no event row")
                 assertTrue(
                     rows.any { it.type in WRITE_TOOLS_COVERED.getValue(name) },
@@ -1247,7 +1198,7 @@ class EventCoverageTest {
             assertEquals(mark, rig.maxSeq(), "read-only tools must append zero rows (maxSeq unchanged)")
             assertEquals(emptyList(), rig.rowsAfter(mark), "read-only tools must record no event rows")
             // Control: a write on the same rig does append a row, so the zero-row assertions above can fail.
-            val (_, control) = rig.written { rig.callOk(ManageItemsTool(), *itemsCreate("S17 read control")) }
+            val (_, control) = rig.written { rig.itemsWrite(createOp("S17 read control")).okResult(0) }
             assertEquals(listOf("item.created"), control.types(), "control: the same rig does append a row for a write")
         }
 
@@ -1275,7 +1226,7 @@ class EventCoverageTest {
         /** Write tool name -> the event types a successful call must include at least one of. */
         val WRITE_TOOLS_COVERED: Map<String, Set<String>> =
             mapOf(
-                "manage_items" to setOf("item.created"),
+                "items_write" to setOf("item.created"),
                 "manage_notes" to setOf("note.upserted"),
                 "manage_dependencies" to setOf("dependency.added"),
                 "advance_item" to setOf("item.transitioned"),
