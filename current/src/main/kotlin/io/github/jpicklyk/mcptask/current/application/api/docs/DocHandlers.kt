@@ -2,12 +2,14 @@ package io.github.jpicklyk.mcptask.current.application.api.docs
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.IdResolution
 import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -20,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
@@ -388,7 +391,7 @@ object DocHandlers {
         ref: IdRef
     ): Outcome<UUID> {
         val rootId =
-            when (val resolved = IdResolver(stores.itemStore()).resolve(ref).toOutcome("/rootId")) {
+            when (val resolved = resolveScoped(stores, ctx, ref, "/rootId")) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
@@ -415,6 +418,45 @@ object DocHandlers {
         return Outcome.Ok(rootId)
     }
 
+    /**
+     * Resolves [ref] under the call's scope, by the `items_*` rule: an unrestricted scope gets the plain resolution
+     * (`not_found` / `ambiguous_id`). A restricted scope never learns of an id outside it from a prefix: no match is
+     * `forbidden` (never `not_found`), an ambiguous prefix keeps only the candidates [ScopeGuard] admits (none is
+     * `forbidden`, one resolves, several is `ambiguous_id` listing only those).
+     */
+    private suspend fun resolveScoped(
+        stores: RepositoryProvider,
+        ctx: CallContext,
+        ref: IdRef,
+        field: String
+    ): Outcome<UUID> {
+        val resolution = IdResolver(stores.itemStore()).resolve(ref)
+        val scope = ctx.scope
+        if (scope.isUnrestricted) return resolution.toOutcome(field)
+        val repo = stores.workItemRepository()
+        return when (resolution) {
+            is IdResolution.NotFound -> Outcome.Err(scopeDenied(scope))
+            is IdResolution.Ambiguous -> {
+                val admitted = resolution.candidates.filter { ScopeGuard.check(scope, it, repo) is Outcome.Ok }
+                when (admitted.size) {
+                    0 -> Outcome.Err(scopeDenied(scope))
+                    1 -> Outcome.Ok(admitted.single())
+                    else -> IdResolution.Ambiguous(resolution.prefix, admitted).toOutcome(field)
+                }
+            }
+            else -> resolution.toOutcome(field)
+        }
+    }
+
+    private fun scopeDenied(scope: AccessScope): DomainError {
+        val roots = scope.rootIds
+        return if (roots != null) {
+            ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() })
+        } else {
+            ScopeGuard.forbidden(ForbiddenScope.TAG, scope.tagsInclude)
+        }
+    }
+
     /** Resolves [ref] to an item the call's scope admits: `not_found` / `ambiguous_id` / `forbidden`. */
     private suspend fun admitItem(
         stores: RepositoryProvider,
@@ -422,7 +464,7 @@ object DocHandlers {
         ref: IdRef
     ): Outcome<UUID> {
         val itemId =
-            when (val resolved = IdResolver(stores.itemStore()).resolve(ref).toOutcome("/itemId")) {
+            when (val resolved = resolveScoped(stores, ctx, ref, "/itemId")) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
@@ -466,8 +508,7 @@ object DocHandlers {
             noteItems[noteId] = stores.noteRepository().getById(noteId)?.itemId
         }
         val candidates = itemIds + noteItems.values.filterNotNull()
-        if (candidates.isEmpty()) return links
-        val existing = stores.itemStore().findByIdSet(candidates).mapTo(HashSet()) { it.id }
+        val existing = if (candidates.isEmpty()) emptySet() else stores.itemStore().findByIdSet(candidates).mapTo(HashSet()) { it.id }
         val admitted = ScopeGuard.admitted(ctx.scope, existing, stores.workItemRepository())
         val ok = { ref: EntityRef ->
             when (ref.kind) {
