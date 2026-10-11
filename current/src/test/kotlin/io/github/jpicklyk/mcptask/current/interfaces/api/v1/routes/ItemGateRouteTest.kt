@@ -297,7 +297,7 @@ class ItemGateRouteTest {
                                     type = "gt",
                                     role = Role.WORK,
                                     depth = 0,
-                                    properties = """{"traits": ["tr"]}""",
+                                    traits = listOf("tr"),
                                 ),
                             )!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))

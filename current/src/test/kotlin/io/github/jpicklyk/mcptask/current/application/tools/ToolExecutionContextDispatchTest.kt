@@ -67,14 +67,14 @@ class ToolExecutionContextDispatchTest {
     }
 
     private fun makeItem(
-        properties: String? = null,
+        traits: List<String> = emptyList(),
         rootId: UUID? = null
     ): WorkItem =
         WorkItem(
             id = UUID.randomUUID(),
             title = "Test Item",
             type = "feature-task",
-            properties = properties,
+            traits = traits,
             rootId = rootId,
             depth = 0
         )
@@ -104,7 +104,7 @@ class ToolExecutionContextDispatchTest {
         runBlocking {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            val item = makeItem(properties = """{"traits": ["delegated"]}""")
+            val item = makeItem(traits = listOf("delegated"))
             val profile = context.resolveDispatchProfile(item, Role.WORK, resolvedSchema = null)
 
             assertEquals(DispatchProfile(agent = "task-orchestrator:implementer"), profile)
@@ -121,7 +121,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "team-default"))
             server.traitDispatch["x"] = mapOf(Role.WORK to DispatchProfile(agent = "a"))
 
-            val item = makeItem(properties = """{"traits": ["x"]}""")
+            val item = makeItem(traits = listOf("x"))
             val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals("a", profile?.agent)
@@ -335,7 +335,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["d"] = mapOf(Role.WORK to DispatchProfile(agent = "d-agent"))
             server.traitDispatch["t"] = mapOf(Role.WORK to DispatchProfile(agent = "t-agent"))
 
-            val item = makeItem(properties = """{"traits": ["t"]}""")
+            val item = makeItem(traits = listOf("t"))
             val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("d", "t")))
 
             assertEquals("t-agent", profile?.agent, "order = [t, d, t].distinct() = [t, d] -- t wins")

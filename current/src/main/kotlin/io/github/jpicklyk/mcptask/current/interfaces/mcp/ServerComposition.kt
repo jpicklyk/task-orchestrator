@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -389,6 +390,6 @@ class ServerComposition(
         fun productionDataSteps(
             configService: ConfigService,
             globalConfigPath: Path,
-        ): List<DataStep> = listOf(ConfigCanonicalizeStep(configService), TypeBackfillStep(globalConfigPath))
+        ): List<DataStep> = listOf(ConfigCanonicalizeStep(configService), TypeBackfillStep(globalConfigPath), TraitsFromPropertiesStep())
     }
 }

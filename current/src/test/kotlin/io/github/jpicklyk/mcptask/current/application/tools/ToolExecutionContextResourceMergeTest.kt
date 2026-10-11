@@ -41,7 +41,7 @@ class ToolExecutionContextResourceMergeTest {
     private fun makeItem(
         type: String? = null,
         tags: String? = null,
-        properties: String? = null,
+        traits: List<String> = emptyList(),
         rootId: UUID? = null
     ): WorkItem =
         WorkItem(
@@ -49,7 +49,7 @@ class ToolExecutionContextResourceMergeTest {
             title = "Test Item",
             type = type,
             tags = tags,
-            properties = properties,
+            traits = traits,
             rootId = rootId,
             depth = 0
         )
@@ -74,7 +74,7 @@ class ToolExecutionContextResourceMergeTest {
             val item =
                 makeItem(
                     type = "feature-task",
-                    properties = """{"traits": ["trait-a", "trait-b"]}"""
+                    traits = listOf("trait-a", "trait-b")
                 )
 
             val result = context.resolveResourceRequirements(item)
@@ -168,7 +168,7 @@ class ToolExecutionContextResourceMergeTest {
                 makeItem(
                     type = null,
                     tags = null,
-                    properties = """{"traits": ["needs-staging-db"]}"""
+                    traits = listOf("needs-staging-db")
                 )
 
             val result = context.resolveResourceRequirements(item)

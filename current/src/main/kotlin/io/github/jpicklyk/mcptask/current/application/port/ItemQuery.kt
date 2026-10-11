@@ -17,6 +17,9 @@ import java.util.UUID
  * @property tagsAny The item carries at least one of these tags: each one trimmed and lower-cased,
  *   matched against the comma-separated `tags` column at element boundaries. Null or empty means no
  *   tag condition.
+ * @property traitsAny The item carries at least one of these trait names: each one trimmed, empty elements dropped,
+ *   matched exactly (case-sensitive) against the item's typed traits. Null or effectively empty means no trait
+ *   condition.
  * @property createdAfter Inclusive lower bound; the other After/Before pairs work the same way.
  * @property claimStatus Evaluated at the instant the store reads its clock for the call.
  */
@@ -27,6 +30,7 @@ data class ItemFilter(
     val role: Role? = null,
     val priority: Priority? = null,
     val tagsAny: List<String>? = null,
+    val traitsAny: List<String>? = null,
     val type: String? = null,
     val createdAfter: Instant? = null,
     val createdBefore: Instant? = null,

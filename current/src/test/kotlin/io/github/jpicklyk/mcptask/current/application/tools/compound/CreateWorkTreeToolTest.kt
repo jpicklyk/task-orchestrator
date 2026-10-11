@@ -1165,7 +1165,7 @@ class CreateWorkTreeToolTest {
         }
 
     @Test
-    fun `traits on root item stores traits in properties JSON`(): Unit =
+    fun `traits on root item stores typed traits`(): Unit =
         runBlocking {
             var capturedInput: CapturedTree? = null
 
@@ -1182,15 +1182,12 @@ class CreateWorkTreeToolTest {
             extractData(result) // assert success
 
             val rootItem = capturedInput!!.items.first()
-            assertNotNull(rootItem.properties, "Root item with traits should have non-null properties")
-            val traits =
-                io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
-                    .extractTraits(rootItem.properties)
-            assertEquals(listOf("needs-security-review", "needs-perf-review"), traits)
+            assertNull(rootItem.properties, "traits are typed: they never land in properties")
+            assertEquals(listOf("needs-security-review", "needs-perf-review"), rootItem.traits)
         }
 
     @Test
-    fun `traits on child item stores traits in properties JSON`(): Unit =
+    fun `traits on child item stores typed traits`(): Unit =
         runBlocking {
             var capturedInput: CapturedTree? = null
 
@@ -1209,11 +1206,8 @@ class CreateWorkTreeToolTest {
 
             val childItem = capturedInput!!.items.find { it.depth == 1 }
             assertNotNull(childItem, "Should have a child item")
-            assertNotNull(childItem.properties, "Child with traits should have non-null properties")
-            val traits =
-                io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
-                    .extractTraits(childItem.properties)
-            assertEquals(listOf("needs-perf-review"), traits)
+            assertNull(childItem.properties, "traits are typed: they never land in properties")
+            assertEquals(listOf("needs-perf-review"), childItem.traits)
         }
 
     // ──────────────────────────────────────────────

@@ -483,4 +483,5 @@ private fun renamed(
         tags = item.tags,
         type = item.type,
         properties = item.properties,
+        traits = item.traits,
     )

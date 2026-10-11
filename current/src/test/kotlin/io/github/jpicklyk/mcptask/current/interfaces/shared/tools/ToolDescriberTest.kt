@@ -255,7 +255,7 @@ class ToolDescriberTest {
                 ErrorCode.NOTE_OWNED_BY_OTHER to setOf("itemId", "key", "ownerSeat"),
                 ErrorCode.NOTE_TOO_LONG to setOf("key", "max", "actual"),
                 ErrorCode.RESOURCE_UNAVAILABLE to setOf("itemId", "resources", "retryAfterMs"),
-                ErrorCode.SCHEMA_VIOLATION to setOf("type", "reason", "availableTypes"),
+                ErrorCode.SCHEMA_VIOLATION to setOf("type", "reason", "availableTypes", "availableTraits"),
                 ErrorCode.SCHEMA_PINNED_CONFLICT to setOf("itemId", "pinnedVersion", "currentVersion"),
                 ErrorCode.CONFIG_INVALID to setOf("errors"),
                 ErrorCode.PAYLOAD_TOO_LARGE to setOf("max", "actual"),

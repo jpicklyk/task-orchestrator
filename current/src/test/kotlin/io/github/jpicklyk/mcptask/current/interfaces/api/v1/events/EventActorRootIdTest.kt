@@ -189,6 +189,7 @@ class EventActorRootIdTest {
                         item.tags,
                         item.type,
                         item.properties,
+                        item.traits,
                     ),
                 ).value()
                 .item

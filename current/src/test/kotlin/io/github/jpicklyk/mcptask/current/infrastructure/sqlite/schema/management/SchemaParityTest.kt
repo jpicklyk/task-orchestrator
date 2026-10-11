@@ -133,7 +133,11 @@ class SchemaParityTest {
                     // non-INTEGER primary key hold NULL unless NOT NULL is stated); every other table is pinned to (database
                     // notnull=0, Exposed non-null).
                     val allowedDbNotNull =
-                        t == "idempotency_records" || t == "call_log" || t == "data_steps" || t == "config_known_fingerprints"
+                        t == "idempotency_records" ||
+                            t == "call_log" ||
+                            t == "data_steps" ||
+                            t == "config_known_fingerprints" ||
+                            t == "item_traits"
                     if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
                         mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
                     }

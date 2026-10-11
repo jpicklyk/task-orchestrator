@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
  *
  * `properties` is deserialized from the domain JSON string on read (parse failure returns empty object).
  * `tags` is expanded from the comma-separated domain string via WorkItem.tagList().
+ * `traits` is the item's typed trait list in order; always present, possibly empty.
  * All timestamps are ISO-8601 strings.
  * `etag` is derived from `modifiedAt` via [io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor].
  */
@@ -26,6 +27,7 @@ data class ItemDto(
     val complexity: Int?,
     val requiresVerification: Boolean,
     val tags: List<String>,
+    val traits: List<String>,
     val properties: JsonObject,
     val createdAt: String,
     val modifiedAt: String,
@@ -387,6 +389,8 @@ data class ItemCreateDto(
     val statusLabel: String? = null,
     val properties: JsonObject? = null,
     val metadata: String? = null,
+    /** The item's traits, in order. A `properties` object carrying a `traits` key is rejected (400). */
+    val traits: List<String>? = null,
 )
 
 /**
@@ -417,6 +421,8 @@ data class ItemPatchDto(
     val properties: String? = null,
     val metadata: String? = null,
     val parentId: String? = null,
+    /** The FINAL trait list; `{"traits": null}` (the RFC 7396 delete) clears it. */
+    val traits: List<String>? = null,
 )
 
 /**

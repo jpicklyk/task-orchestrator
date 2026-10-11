@@ -485,6 +485,7 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
   "complexity": 5,
   "requiresVerification": false,
   "tags": ["string"],
+  "traits": ["string"],
   "properties": {},
   "createdAt": "ISO-8601",
   "modifiedAt": "ISO-8601",
@@ -1197,7 +1198,8 @@ Create a work item. Requires `WRITE_ITEMS`.
   "requiresVerification": false, // optional (default false)
   "tags": ["feature", "auth"], // optional — JSON array
   "statusLabel": "string",     // optional
-  "properties": {},            // optional — JSON object
+  "traits": ["needs-review"],  // optional — JSON array of trait names, in order
+  "properties": {},            // optional — JSON object; a "traits" key inside it is rejected (400 validation_error)
   "metadata": "string"         // optional
 }
 ```
@@ -2349,9 +2351,9 @@ caller capability tier, or admin status, because there is no attribution-bearing
 
 **Content-Type:** Must be `application/merge-patch+json` or `application/json`. Wrong type → `415` with `Accept-Patch` response header.
 
-**Patchable fields:** `title`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `tags` (CSV string), `type`, `properties`, `metadata`, `parentId`
+**Patchable fields:** `title`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `tags` (CSV string), `type`, `traits` (array; `null` clears it), `properties`, `metadata`, `parentId`
 
-**`properties` null-delete/nested-merge:** The `properties` field in the patch is merged recursively when both the base and the patch value are JSON objects. Setting a key to `null` removes it from `properties`. Setting `properties` itself to `null` clears the entire properties object.
+**`properties` null-delete/nested-merge:** The `properties` field in the patch is merged recursively when both the base and the patch value are JSON objects. Setting a key to `null` removes it from `properties`. Setting `properties` itself to `null` clears the entire properties object. A patch that leaves `properties` holding a `traits` key is rejected with `400 validation_error` (field `properties`); traits are patched through the typed `traits` field.
 
 **`tags` deviation — see §8 ItemDto section.** POST accepts a JSON array; PATCH requires a CSV string.
 
