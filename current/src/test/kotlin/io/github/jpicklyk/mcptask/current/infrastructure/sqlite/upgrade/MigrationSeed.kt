@@ -23,6 +23,10 @@ import java.sql.Connection
  *   column-wide exclusion: a step below this migration still verifies every column it does not transform, and the
  *   transformed columns are verified against the exact expected value rather than skipped. Return overrides only
  *   for columns present in the row (guard with `"col" in row`): earlier steps dump older schemas.
+ * - [expectedAfterDataSteps] is the same contract for a check that ALSO ran the production data steps after the chain
+ *   (a [UpgradeHarness.checkUpgrade] call given a data-step report or registered steps). It defaults to [expected];
+ *   a seed whose rows a data step (not the migration) rewrites keeps [expected] for the bare chain and declares the
+ *   step's effect here.
  * - [verify] runs after the whole chain has been migrated to the latest version, on the migration's own step only,
  *   and asserts the transformation took effect.
  * - [relocated] is the DROPPED-TABLE contract. When a table present before the chain is missing after it, the harness
@@ -41,6 +45,12 @@ abstract class MigrationSeed(
         table: String,
         row: Map<String, Any?>
     ): Map<String, Any?> = emptyMap()
+
+    /** Like [expected], for a check that ran the production data steps after the chain; defaults to [expected]. */
+    open fun expectedAfterDataSteps(
+        table: String,
+        row: Map<String, Any?>
+    ): Map<String, Any?> = expected(table, row)
 
     open fun verify(conn: Connection) {}
 

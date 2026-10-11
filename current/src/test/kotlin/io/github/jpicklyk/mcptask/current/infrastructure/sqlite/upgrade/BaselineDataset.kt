@@ -143,7 +143,7 @@ object BaselineDataset {
         // 3.16 (V17) never writes a raw actor_proof: it stores the sha256 and claims instead. Raw proofs are only
         // seeded below V17, where they are the data the V17 scrub must remove.
         val rawProofs = "actor_proof_sha256" !in columnsOf(conn, "notes")
-        // From V26 traits are typed (item_traits rows, no properties.traits key); below it they ride in properties.
+        // From V27 traits are typed (item_traits rows, no properties.traits key); below it they ride in properties.
         val typedTraits = columnsOf(conn, "item_traits").isNotEmpty()
 
         fun item(

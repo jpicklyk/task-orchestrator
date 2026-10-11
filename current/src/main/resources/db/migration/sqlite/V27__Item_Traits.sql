@@ -1,4 +1,4 @@
--- V26: typed item traits (plan section 3.7, Q15). One row per (item, position); the position keeps the
+-- V27: typed item traits (plan section 3.7, Q15). One row per (item, position); the position keeps the
 -- caller's order, the (item, name) uniqueness keeps a name from appearing twice on one item. Rows are
 -- written by the item store on create/update and by the traits-from-properties data step on the first
 -- 4.0 boot; the migration itself backfills nothing (SQL cannot parse every 3.x properties form safely).

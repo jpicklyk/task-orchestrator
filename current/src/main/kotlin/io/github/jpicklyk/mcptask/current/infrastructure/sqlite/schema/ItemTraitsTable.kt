@@ -5,8 +5,8 @@ import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.Table
 
 /**
- * V26: the typed traits of a work item, one row per (item, position). Query mapping only; Flyway
- * (`V26__Item_Traits.sql`) is the only schema path.
+ * V27: the typed traits of a work item, one row per (item, position). Query mapping only; Flyway
+ * (`V27__Item_Traits.sql`) is the only schema path.
  */
 object ItemTraitsTable : Table("item_traits") {
     val itemId: Column<java.util.UUID> = javaUuidSqlite("item_id")

@@ -71,7 +71,7 @@ Traits are **composable orchestration signals** declared in `.taskorchestrator/c
 | Trait definitions | `.taskorchestrator/config.yaml` -> `traits:` section |
 | Schema resolution | `current/.../application/config/LayeredConfig.kt` (per-layer lookups, `resolveBaseSchema()`/`resolveTypeSchema()`, the precedence table), `current/.../application/config/EffectiveConfigResolver.kt` (shared entry point) |
 | Trait merging | `current/.../application/config/TraitResolver.kt` (`mergeSchema()`, `resources()`, `dispatch()`, `dispatchBySeat()`, `order()`) |
-| Item traits | `WorkItem.traits` (domain); `current/.../infrastructure/sqlite/schema/ItemTraitsTable.kt` + `V26__Item_Traits.sql`; `ItemStore.traitsOf()`; `TraitsFromPropertiesStep` (one-time move out of `properties`) |
+| Item traits | `WorkItem.traits` (domain); `current/.../infrastructure/sqlite/schema/ItemTraitsTable.kt` + `V27__Item_Traits.sql`; `ItemStore.traitsOf()`; `TraitsFromPropertiesStep` (one-time move out of `properties`) |
 | Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
 | Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/config/TraitResolver.kt` -> `dispatch()`/`dispatchBySeat()` |
 | `ToolExecutionContext` | `current/.../application/tools/ToolExecutionContext.kt` — thin delegate methods over `configResolver`; no longer where the merge logic lives |

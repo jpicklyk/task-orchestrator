@@ -208,7 +208,7 @@ object StartupIntegrity {
     }
 
     /**
-     * WARN-only: items whose `properties` still holds a `traits` key. Traits live in `item_traits` since V26, so these
+     * WARN-only: items whose `properties` still holds a `traits` key. Traits live in `item_traits` since V27, so these
      * are rows the `traits-from-properties` data step could not migrate (it names them when it runs).
      */
     fun reportTraitsResidue(connection: Connection) {

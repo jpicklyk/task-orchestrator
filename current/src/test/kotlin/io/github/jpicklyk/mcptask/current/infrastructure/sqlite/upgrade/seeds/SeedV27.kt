@@ -17,7 +17,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * V26 adds `item_traits` (one row per item and position, a unique name per item, cascade on item delete, an index on
+ * V27 adds `item_traits` (one row per item and position, a unique name per item, cascade on item delete, an index on
  * `name`); the `traits-from-properties` data step then moves the `traits` key of every 3.x `properties` bag into it.
  *
  * Oracle: migration-assessment sections 1, 3 and 4 (frozen) and task-scope B9: the DDL (columns item_id BLOB, position
@@ -26,16 +26,18 @@ import kotlin.test.assertTrue
  * `properties` is a JSON object whose `traits` is an array of strings or a comma-separated string with every trimmed name
  * at most 100 characters, strips the key (NULL when nothing remains) and leaves every other row byte-identical.
  *
- * The expected-transform contract ([expected]) is derived here by an independent reading of that rule ([rewrite]); it is
- * applied to every dumped `work_items` row of every harness step, so the baseline rows (`{"traits":["needs-review",
- * "trait-<name>"]}` below V26) must end with `properties` NULL. The harness runs the production data steps after the
- * migration and before [verify]. Remainders are single-key compact objects so the exact rewritten text is unambiguous.
+ * The migration itself rewrites no row, so the bare-chain contract ([expected]) is empty: `properties` keeps its `traits`
+ * key until the step runs. The after-data-steps contract ([expectedAfterDataSteps]) is derived here by an independent
+ * reading of the step's rule ([rewrite]); it applies to every dumped `work_items` row of a check that ran the production
+ * data steps, so the baseline rows (`{"traits":["needs-review","trait-<name>"]}` below V27) must end with `properties`
+ * NULL there. The harness runs the production data steps after the migration and before [verify]. Remainders are
+ * single-key compact objects so the exact rewritten text is unambiguous.
  *
  * [seed] adds twelve work items covering every form of the `traits` value; [verify] checks the table shape, the indexes,
  * the rows, the untouched rows, `rows_affected`, the other tables' counts and CHECK / UNIQUE / FK probes, then removes its
  * probe rows. The migration alone (without the step) is checked on a scratch copy in [migrationOnlyChecks].
  */
-object SeedV26 : MigrationSeed(26) {
+object SeedV27 : MigrationSeed(27) {
     private const val STEP = "traits-from-properties"
 
     /** The expected effect of the step on one `properties` text: the names it yields and the remaining object text. */
@@ -77,18 +79,18 @@ object SeedV26 : MigrationSeed(26) {
 
     private val seeded =
         listOf(
-            Seeded("s26-array", """{"traits":["alpha","beta"]}"""),
-            Seeded("s26-comma", """{"traits":" gamma ,, delta , gamma "}"""),
-            Seeded("s26-dups", """{"traits":["p","q","p"," q "]}"""),
-            Seeded("s26-other-keys", """{"custom":1,"traits":["a"]}"""),
-            Seeded("s26-empty-array", """{"traits":[]}"""),
-            Seeded("s26-no-key", """{"custom":3}"""),
-            Seeded("s26-nonjson", "plain text, not json"),
-            Seeded("s26-number", """{"traits":7}"""),
-            Seeded("s26-array-number", """{"traits":["a",5]}"""),
-            Seeded("s26-long-name", """{"traits":["${"n".repeat(101)}"]}"""),
-            Seeded("s26-null", null),
-            Seeded("s26-blank", "  ")
+            Seeded("s27-array", """{"traits":["alpha","beta"]}"""),
+            Seeded("s27-comma", """{"traits":" gamma ,, delta , gamma "}"""),
+            Seeded("s27-dups", """{"traits":["p","q","p"," q "]}"""),
+            Seeded("s27-other-keys", """{"custom":1,"traits":["a"]}"""),
+            Seeded("s27-empty-array", """{"traits":[]}"""),
+            Seeded("s27-no-key", """{"custom":3}"""),
+            Seeded("s27-nonjson", "plain text, not json"),
+            Seeded("s27-number", """{"traits":7}"""),
+            Seeded("s27-array-number", """{"traits":["a",5]}"""),
+            Seeded("s27-long-name", """{"traits":["${"n".repeat(101)}"]}"""),
+            Seeded("s27-null", null),
+            Seeded("s27-blank", "  ")
         )
 
     private val baselineNames = BaselineDataset.ITEM_NAMES
@@ -130,7 +132,13 @@ object SeedV26 : MigrationSeed(26) {
         before = UpgradeHarness.userTables(conn).associateWith { count(conn, it) }
     }
 
+    /** The migration alone changes no existing row: `properties` keeps `traits` until the data step runs. */
     override fun expected(
+        table: String,
+        row: Map<String, Any?>
+    ): Map<String, Any?> = emptyMap()
+
+    override fun expectedAfterDataSteps(
         table: String,
         row: Map<String, Any?>
     ): Map<String, Any?> {
@@ -228,7 +236,7 @@ object SeedV26 : MigrationSeed(26) {
 
     private fun verifyRows(conn: Connection) {
         var rewritten = 0
-        // baseline rows: `{"traits":["needs-review","trait-<name>"]}` below V26
+        // baseline rows: `{"traits":["needs-review","trait-<name>"]}` below V27
         for (name in baselineNames) {
             assertEquals(
                 listOf(0 to "needs-review", 1 to "trait-$name"),
@@ -260,10 +268,10 @@ object SeedV26 : MigrationSeed(26) {
     }
 
     private fun verifyOtherTablesUnchanged(conn: Connection) {
-        val pre = before ?: error("SeedV26.seed did not run before the migration")
+        val pre = before ?: error("SeedV27.seed did not run before the migration")
         for ((table, rows) in pre) {
             if (table == "data_steps") continue
-            assertEquals(rows, count(conn, table), "$table row count changed across V26 and the step")
+            assertEquals(rows, count(conn, table), "$table row count changed across V27 and the step")
         }
     }
 
@@ -286,10 +294,10 @@ object SeedV26 : MigrationSeed(26) {
     private fun verifyChecks(conn: Connection) {
         conn.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
         try {
-            insertItem(conn, "s26-probe-a", null)
-            insertItem(conn, "s26-probe-b", null)
-            val a = BaselineDataset.id("s26-probe-a")
-            val b = BaselineDataset.id("s26-probe-b")
+            insertItem(conn, "s27-probe-a", null)
+            insertItem(conn, "s27-probe-b", null)
+            val a = BaselineDataset.id("s27-probe-a")
+            val b = BaselineDataset.id("s27-probe-b")
             val baseTraits = count(conn, "item_traits")
 
             assertFailsWith<SQLException>("a negative position must be rejected") { insertTrait(conn, a, -1, "t") }
@@ -302,7 +310,7 @@ object SeedV26 : MigrationSeed(26) {
             assertFailsWith<SQLException>("a NULL position must be rejected") { insertTrait(conn, a, null, "t") }
             assertFailsWith<SQLException>("a NULL name must be rejected") { insertTrait(conn, a, 0, null) }
             assertFailsWith<SQLException>("an unknown item_id must be rejected by the foreign key") {
-                insertTrait(conn, BaselineDataset.id("s26-no-such-item"), 0, "t")
+                insertTrait(conn, BaselineDataset.id("s27-no-such-item"), 0, "t")
             }
             assertEquals(baseTraits, count(conn, "item_traits"), "no rejected insert left a row")
 
@@ -338,9 +346,9 @@ object SeedV26 : MigrationSeed(26) {
     // ---------------------------------------------------------------------------------------------
 
     private fun migrationOnlyChecks() {
-        val dir = Files.createTempDirectory("seed-v26-only-")
+        val dir = Files.createTempDirectory("seed-v27-only-")
         try {
-            val url = UpgradeHarness.copyAt(25, File(dir.toFile(), "only.db"))
+            val url = UpgradeHarness.copyAt(26, File(dir.toFile(), "only.db"))
             java.sql.DriverManager.getConnection(url).use { conn ->
                 insertItem(conn, "mo-root", """{"traits":["a","b"]}""", parent = null, depth = 0)
             }
