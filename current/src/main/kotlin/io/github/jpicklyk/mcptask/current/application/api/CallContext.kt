@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 
@@ -18,10 +19,12 @@ data class CallPrincipal(
  *
  * Request classes never declare `actor`: the transport lifts the top-level `actor` into [principal]
  * in one place (transitional until W4 replaces self-reported actors). [reqId] is the call's
- * correlation id and [surface] the transport (`mcp` or `rest`).
+ * correlation id, [surface] the transport (`mcp` or `rest`) and [scope] what the caller may see: handlers check
+ * every item they touch with [ScopeGuard].
  */
 data class CallContext(
     val reqId: String,
     val surface: String,
-    val principal: CallPrincipal?
+    val principal: CallPrincipal?,
+    val scope: AccessScope = AccessScope.unrestricted()
 )

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
@@ -68,6 +69,7 @@ class ToolSurfaceGuardsTest {
                             name = "make",
                             doc = "Make.",
                             profile = profile,
+                            capability = ApiCapability.WRITE_ITEMS,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
                         )
@@ -188,13 +190,19 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<DeepReq, String>(name = "dig", doc = "Dig.", request = serializer<DeepReq>(), execute = {
-                            _,
-                            _,
-                            _
-                            ->
-                            Outcome.Ok("x")
-                        })
+                        OpSpec<DeepReq, String>(
+                            name = "dig",
+                            doc = "Dig.",
+                            capability = ApiCapability.WRITE_ITEMS,
+                            request = serializer<DeepReq>(),
+                            execute = {
+                                _,
+                                _,
+                                _
+                                ->
+                                Outcome.Ok("x")
+                            }
+                        )
                     ),
                 codec = FixtureTools.StringCodec,
                 element = { buildJsonObject { } }
@@ -213,13 +221,19 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<DeepReq, String>(name = "dig", doc = "Dig.", request = serializer<DeepReq>(), execute = {
-                            _,
-                            _,
-                            _
-                            ->
-                            Outcome.Ok("x")
-                        })
+                        OpSpec<DeepReq, String>(
+                            name = "dig",
+                            doc = "Dig.",
+                            capability = ApiCapability.WRITE_ITEMS,
+                            request = serializer<DeepReq>(),
+                            execute = {
+                                _,
+                                _,
+                                _
+                                ->
+                                Outcome.Ok("x")
+                            }
+                        )
                     ),
                 codec = FixtureTools.StringCodec,
                 element = { buildJsonObject { } }
@@ -237,13 +251,19 @@ class ToolSurfaceGuardsTest {
                 description = "Naked.",
                 ops =
                     listOf(
-                        OpSpec<NakedReq, String>(name = "go", doc = "Go.", request = serializer<NakedReq>(), execute = {
-                            _,
-                            _,
-                            _
-                            ->
-                            Outcome.Ok("x")
-                        })
+                        OpSpec<NakedReq, String>(
+                            name = "go",
+                            doc = "Go.",
+                            capability = ApiCapability.WRITE_ITEMS,
+                            request = serializer<NakedReq>(),
+                            execute = {
+                                _,
+                                _,
+                                _
+                                ->
+                                Outcome.Ok("x")
+                            }
+                        )
                     ),
                 codec = FixtureTools.StringCodec,
                 element = { buildJsonObject { } }
@@ -311,6 +331,7 @@ class ToolSurfaceGuardsTest {
                             OpSpec<FixtureTools.CreateReq, String>(
                                 name = "make",
                                 doc = "Make.",
+                                capability = ApiCapability.WRITE_ITEMS,
                                 request = serializer<FixtureTools.CreateReq>(),
                                 execute = { _, _, _ -> Outcome.Ok("x") }
                             )

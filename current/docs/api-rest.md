@@ -44,6 +44,7 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 19. [Endpoints — Plan Documents (Per-Root)](#19-endpoints--plan-documents-per-root)
 19a. [Endpoints — Rules (Per-Root)](#19a-endpoints--rules-per-root)
 20. [Endpoints — Service Meta](#20-endpoints--service-meta)
+20a. [Endpoints - Ops (RPC)](#20a-endpoints---ops-rpc)
 21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 22. [Audit Model](#22-audit-model)
 23. [Merge Patch Semantics](#23-merge-patch-semantics)
@@ -2190,6 +2191,95 @@ rule text served by §19a — see [api-reference.md](api-reference.md)
 
 `features` (array, A1) — same server-wide feature advertisement as `GET /api/v1/info`'s `features`
 above.
+
+---
+
+## 20a. Endpoints - Ops (RPC)
+
+### POST /api/v1/ops/{tool}
+
+The canonical RPC route for the 4.0 tool surface: one route that calls any tool in the tool registry, the
+same tools MCP serves. `{tool}` is the registry tool name. Until the profile work (Q29) lands it serves the
+orchestration profile. The
+machine-readable form is in [`api/openapi.yaml`](api/openapi.yaml) (path `/ops/{tool}`).
+
+**Request body:** the tool's envelope request, i.e. the same JSON object an MCP `tools/call` carries as
+`arguments` (`select` for a read tool, `ops[]` for a write tool, `describe: true` for the tool's schema). The
+body must be a JSON object, at most 1 MiB. The `Content-Type` header may be absent or `application/json` with
+any parameters (`application/json; charset=utf-8`); anything else is rejected. This check is not the CSRF
+protection on its own (an absent `Content-Type` is accepted); cross-site calls are stopped by the CORS plugin
+and the host allowlist, as on every other route.
+
+**Response:** the response envelope, byte-equal to what MCP returns for the same arguments and access, apart
+from `meta.reqId`. The HTTP status comes from the envelope's error code (`200` for ok, `207` for a partial
+batch, otherwise the code's own status, e.g. `404 not_found`, `403 forbidden`); no route picks a status by
+hand. Errors use the envelope, not the `ErrorDto` body of the other routes (§6), with the one exception of
+`401` below.
+
+**Principal.** The caller's principal comes from the bearer token (`api:<tokenId>`, kind `external`). A body
+`actor` is ignored, never decoded, so a token holder cannot spoof attribution (MCP, which has no bearer
+credential, still lifts the body `actor`). Idempotency keys (`ops[].idempotencyKey`) are therefore namespaced
+per token principal: the same key and payload sent from two different tokens is two different calls, not a
+replay. A reused key with a different payload from the same token is `idempotency_mismatch`, as in §5.
+
+**Capabilities.** There is no route-level capability wrapper; the dispatcher checks capability per select and
+per op with the shared capability predicate (`ADMIN` grants every capability, otherwise the capability must
+be listed on the token; see §2). Each select and op declares the capability it needs (`READ` for a read
+select, the matching write capability for an op).
+- A read `select` the token lacks the capability for fails the whole call: `403 forbidden` with
+  `detail.scope: "capability"` and `detail.required` the kebab-case capability name (`read`, `write-items`,
+  ...). The handler does not run. `describe` needs no capability.
+- A write op the token lacks the capability for fails that `ops[]` element alone with `forbidden`; it is never
+  executed and never stored. The capability check runs before the element's `idempotencyKey` and field
+  checks, so a forbidden element with invalid fields reports `forbidden`, not `invalid_request`. In a
+  non-atomic batch the other elements still run and the call answers `207 partial_failure`; in an atomic batch
+  the call answers `403` with `error.index` naming the forbidden element.
+
+**Scope.** The token's `scope` (§3) reaches every tool handler. An item outside the token's `root_ids` or
+`tags_include` is reported `forbidden` with `detail.scope` `root` or `tag` and `detail.required` the sorted
+listed root ids or tags joined by `,`. The check is the transport-neutral `ScopeGuard`, the twin of the
+`scope_forbidden` check on the other routes: an unrestricted token is admitted with no database read; with a
+root restriction the item or one of its ancestors must be a listed root; with a tag restriction the item must
+carry one of the listed tags (exact, case-sensitive match on the trimmed comma-separated tags). A missing item
+and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
+existence oracle; the one exception is an id that is itself one of the token's listed roots, which is admitted
+under a root restriction (as in 3.x) and then answers the tool's own `not_found`, revealing nothing beyond
+the token's own scope. List reads filter out-of-scope entities instead of failing.
+
+**Faults.** Every fault answers an envelope and is checked in this order:
+
+| Condition | Status | Envelope |
+|-----------|--------|----------|
+| No authenticated principal on the call | 401 | `unauthenticated` |
+| `Content-Type` present and not `application/json[;params]` | 400 | `invalid_request`, field `Content-Type` |
+| An `Idempotency-Key` header (use `ops[].idempotencyKey`) | 400 | `invalid_request`, field `Idempotency-Key` |
+| Body over 1 MiB (the declared `Content-Length`, or the bytes read, capped at 1 MiB + 1) | 413 | `payload_too_large` with `max` and `actual` |
+| Body is not a JSON object (empty, malformed, array, scalar) | 400 | `invalid_request`, field `$` |
+| `{tool}` unknown, or not visible in the served profile | 400 | `invalid_request`, field `tool`, reason listing the valid tool names |
+
+Anything a tool or the dispatcher reports (`not_found`, `idempotency_mismatch`, `forbidden`, ...) is the
+tool's own envelope with its own status.
+
+**Authentication failures keep the legacy body.** A missing or invalid bearer token is rejected by the shared
+`ApiBearerAuth` plugin before this route runs, so it answers `401` with the OAuth-style
+`error`/`error_description` body described in §1 and §6, not an envelope. Envelope conformance of the `401` is
+planned for the end of the 4.0 line (Q32). With the REST API disabled (`API_ENABLED=false`) the route is not
+mounted and answers `404` like every other `/api/v1` route.
+
+**Request correlation.** The `X-Req-Id` response header (§6a) equals `meta.reqId` in the envelope, on success
+and on every fault above.
+
+**Call log.** The `call_log` row of an `/ops` call (§6a, `fleet-deployment.md` -> "Call log and `reqId`")
+records the registry tool name as `tool` (not the route template), the select or op name as `operation`, and
+`batch_size`, `failed_count` and `result_count` from the dispatch, with `surface` `rest` and `host` captured
+like any other REST row. A fault answered before dispatch (the table above) keeps the route template
+`POST /api/v1/ops/{tool}` as `tool` and no `operation`.
+
+**Parity with MCP.** MCP and this route share one tool registry and one dispatcher, so a tool behaves the same
+on both surfaces. A test-side parity harness runs every registered tool over both transports with identically
+seeded databases and compares the envelope bytes (minus `meta.reqId`), the HTTP status against the error
+code, and the resulting database state; a coverage guard requires every registered select and op to carry a
+happy-path and a scope-forbidden scenario.
 
 ---
 

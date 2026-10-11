@@ -1586,6 +1586,28 @@ components:
           items:
             $ref: "#/components/schemas/RuleSummaryDto"
 
+    OpsEnvelope:
+      type: object
+      description: >-
+        The 4.0 response envelope: ok, then data (success) or error {code, kind, message, fix?, detail?}
+        (failure), and meta {reqId}. Per-tool data shapes are served by the tool's describe call.
+      required: [ok, meta]
+      properties:
+        ok:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          required: [reqId]
+          properties:
+            reqId:
+              type: string
+
   responses:
     IdempotencyMismatch:
       description: >-
@@ -3736,6 +3758,91 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+
+  /ops/{tool}:
+    post:
+      summary: Call a 4.0 tool (RPC)
+      operationId: callOp
+      tags: [ops]
+      description: |
+        The canonical RPC route over the 4.0 tool registry. The body is the tool's MCP arguments
+        (`select` for a read tool, `ops[]` for a write tool, `describe: true` for its schema); the
+        answer is the response envelope, byte-equal to what MCP returns for the same arguments and
+        access, apart from `meta.reqId` (also the `X-Req-Id` header). The HTTP status comes from the
+        envelope error code (200 for ok, 207 for a partial batch); no route picks one by hand.
+
+        Identity is the bearer credential (`api:<tokenId>`); a body `actor` is ignored, so idempotency
+        keys (`ops[].idempotencyKey`) are namespaced per token. Capability is checked per select/op
+        (ADMIN grants all): a read select lacking it fails the whole call with `forbidden`
+        (`scope: capability`), an op element lacking it fails alone and is never executed. The
+        token's root/tag scope reaches every handler; an out-of-scope item is `forbidden`
+        (`scope: root|tag`), list reads filter instead.
+
+        Faults answer an envelope with status 400 `invalid_request`: a tool that is unknown or not in
+        the served profile (field `tool`), a `Content-Type` other than `application/json` (field
+        `Content-Type`; absent is accepted), an `Idempotency-Key` header (field `Idempotency-Key`; use
+        `ops[].idempotencyKey`), or a body that is not a JSON object (field `$`). A body over 1 MiB
+        is 413 `payload_too_large`. A missing or invalid credential keeps the legacy 401 body
+        (see Unauthorized). Serves the orchestration profile.
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          description: Registry tool name.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: The tool's arguments, exactly as in an MCP tools/call.
+              additionalProperties: true
+      responses:
+        "200":
+          description: Envelope with ok=true; every batch element succeeded (any failed element makes the call 207)
+          headers:
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "207":
+          description: Partial batch - some ops[] elements failed (see results[].error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: forbidden envelope (capability, root or tag scope) or another 403 catalog code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "413":
+          description: payload_too_large envelope (body over 1 MiB)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "500":
+          description: internal envelope (fixed message; detail only in the server log)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /info:
     get:

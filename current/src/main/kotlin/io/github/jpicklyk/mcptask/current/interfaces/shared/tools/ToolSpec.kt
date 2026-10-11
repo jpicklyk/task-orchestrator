@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import kotlinx.serialization.KSerializer
@@ -39,15 +40,16 @@ class SelectToolSpec(
 
 /**
  * One select of a [SelectToolSpec]: its [request] class (decoded strictly; `actor`, `describe` and
- * `select` are lifted first), the [profile] that first shows it, and the [errors] its handler may
- * return beyond the common ones.
+ * `select` are lifted first), the [profile] that first shows it, the [capability] a caller needs (READ
+ * unless declared otherwise; ADMIN grants all), and the [errors] its handler may return beyond the common ones.
  */
 sealed class SelectSpec<R : Any, T>(
     val name: String,
     val doc: String,
     val profile: ToolProfile,
     val request: KSerializer<R>,
-    val errors: Set<ErrorCode>
+    val errors: Set<ErrorCode>,
+    val capability: ApiCapability
 ) {
     /** A select returning one value; [data] maps it to `data` (null means no `data` member). */
     class Single<R : Any, T>(
@@ -56,9 +58,10 @@ sealed class SelectSpec<R : Any, T>(
         profile: ToolProfile = ToolProfile.KNOWLEDGE,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
+        capability: ApiCapability = ApiCapability.READ,
         val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<T>,
         val data: (T) -> JsonElement?
-    ) : SelectSpec<R, T>(name, doc, profile, request, errors) {
+    ) : SelectSpec<R, T>(name, doc, profile, request, errors, capability) {
         override suspend fun respond(
             env: ToolExecutionContext,
             ctx: CallContext,
@@ -73,9 +76,10 @@ sealed class SelectSpec<R : Any, T>(
         profile: ToolProfile = ToolProfile.KNOWLEDGE,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
+        capability: ApiCapability = ApiCapability.READ,
         val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<ListPage<T>>,
         val item: (T) -> JsonElement
-    ) : SelectSpec<R, T>(name, doc, profile, request, errors) {
+    ) : SelectSpec<R, T>(name, doc, profile, request, errors, capability) {
         override suspend fun respond(
             env: ToolExecutionContext,
             ctx: CallContext,
@@ -131,14 +135,16 @@ class OpsToolSpec<R>(
 
 /**
  * One op of an [OpsToolSpec]: its element [request] class (decoded strictly; `op` and `idempotencyKey`
- * are lifted first), the [profile] that first shows it, whether it is [destructive], the [errors] it may
- * return beyond the common ones, and [execute], which runs inside the element's write unit.
+ * are lifted first), the [profile] that first shows it, whether it is [destructive], the [capability] a caller
+ * needs (required, no default: a new write op must never silently be READ-only), the [errors] it may return
+ * beyond the common ones, and [execute], which runs inside the element's write unit.
  */
 class OpSpec<E : Any, R>(
     val name: String,
     val doc: String,
     val profile: ToolProfile = ToolProfile.KNOWLEDGE,
     val destructive: Boolean = false,
+    val capability: ApiCapability,
     val request: KSerializer<E>,
     val errors: Set<ErrorCode> = emptySet(),
     val execute: suspend WriteScope.(ToolExecutionContext, CallContext, E) -> Outcome<R>

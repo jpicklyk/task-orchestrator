@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -14,10 +15,14 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.grants
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import kotlinx.serialization.SerialName
@@ -46,6 +51,11 @@ data class Dispatched(
  * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments.
  *
  * Order (task-scope D2):
+ * 0. **Access** (Q6). A transport that authenticated the caller passes a [CallAccess]: its principal replaces the
+ *    body `actor` (which is then ignored, never decoded), its scope reaches handlers as `CallContext.scope`, and
+ *    its capabilities are checked against each select/op (`Set<ApiCapability>.grants`; ADMIN grants all). A
+ *    select lacking the capability answers the whole call `forbidden`; an op element lacking it fails
+ *    `forbidden` alone and is never executed or stored. `describe` needs no capability.
  * 1. **Actor lift** (D6). An absent `actor` is no principal. A present one is decoded strictly as
  *    `{id, kind, parent?, proof?}` (an unknown key is `unknown_parameter` `/actor/<key>`; a non-object,
  *    missing or wrong-typed member, or an unknown kind is `invalid_request` under `/actor`), then verified
@@ -76,18 +86,20 @@ class ToolDispatcher(
         profile: ToolProfile,
         arguments: JsonObject,
         reqId: String,
-        surface: String
+        surface: String,
+        access: CallAccess = CallAccess.UNRESTRICTED
     ): Dispatched {
         // What the call log learns as dispatch progresses; kept when an exception escapes later.
         var operation: String? = null
         val batchSize = if (spec is OpsToolSpec<*>) (arguments["ops"] as? JsonArray)?.size else null
         return try {
             val principal =
-                when (val lifted = liftActor(arguments)) {
-                    is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
-                    is Outcome.Ok -> lifted.value
-                }
-            val ctx = CallContext(reqId, surface, principal)
+                access.principal
+                    ?: when (val lifted = liftActor(arguments)) {
+                        is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
+                        is Outcome.Ok -> lifted.value
+                    }
+            val ctx = CallContext(reqId, surface, principal, access.scope)
 
             when (val describe = describeFlag(arguments)) {
                 is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(describe.error, reqId), null, batchSize)
@@ -106,6 +118,9 @@ class ToolDispatcher(
                             is Outcome.Ok -> selected.value
                         }
                     operation = select.name
+                    if (!access.capabilities.grants(select.capability)) {
+                        return Dispatched(EnvelopeEncoder.error(missingCapability(select.capability), reqId), select.name, null)
+                    }
                     val envelope =
                         when (val bound = select.decode(decoder, arguments)) {
                             is Outcome.Err -> EnvelopeEncoder.error(bound.error, reqId)
@@ -113,7 +128,7 @@ class ToolDispatcher(
                         }
                     Dispatched(envelope, select.name, null)
                 }
-                is OpsToolSpec<*> -> runOps(spec, profile, arguments, ctx) { operation = it }
+                is OpsToolSpec<*> -> runOps(spec, profile, arguments, ctx, access) { operation = it }
             }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
@@ -275,6 +290,7 @@ class ToolDispatcher(
         profile: ToolProfile,
         arguments: JsonObject,
         ctx: CallContext,
+        access: CallAccess,
         onOperation: (String?) -> Unit
     ): Dispatched {
         val reqId = ctx.reqId
@@ -311,6 +327,9 @@ class ToolDispatcher(
                     visible.firstOrNull { it.name == opName }
                         ?: return@mapIndexed failed<R>(invalidFields(listOf(oneOf("$at/$OP", visibleNames, opRaw))), obj)
                 resolved.add(op.name)
+                if (!access.capabilities.grants(op.capability)) {
+                    return@mapIndexed failed<R>(missingCapability(op.capability), obj)
+                }
 
                 val keyRaw = obj[IDEMPOTENCY_KEY]
                 val key = (keyRaw as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -347,6 +366,10 @@ class ToolDispatcher(
             }
         return Dispatched(EnvelopeEncoder.batch(execution, reqId, spec.element), operation, batchSize)
     }
+
+    /** The `forbidden` error of a caller lacking [required]; `required` is the kebab-case capability name. */
+    private fun missingCapability(required: ApiCapability): DomainError =
+        ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, required.configName())
 
     /** A failed element: no idempotency key, so the failure is never stored or replayed. */
     private fun <R> failed(
