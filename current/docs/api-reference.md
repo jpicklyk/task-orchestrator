@@ -2055,22 +2055,19 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ## Idempotency
 
-The mutating tools `manage_items`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency. The 4.0 tools (`notes_write`, `deps_write`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write).
+The mutating 3.x tools `manage_items`, `create_work_tree`, and `complete_tree` support `requestId: UUID` for idempotency. The 4.0 write tools (`notes_write`, `deps_write`, `advance`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write) and [advance](#advance).
 
-**`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
+**`requestId` is optional.** `manage_items`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
-**The rest keep `requestId` optional.** `manage_items`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
-
-**How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
+**How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
 
 - **Same key, same element → replayed.** The stored result is returned with `"replayed": true` on that element (`data.replayed: true` for an atomic or single-element tool) and the element is **not** re-executed. Batch counts are recomputed from the element results.
 - **Same key, different element → `idempotency_mismatch`.** The element fails with `errorCode` `idempotency_mismatch` and nothing is executed. The comparison is a SHA-256 of the canonical request (sorted keys, no whitespace); the shared call parameters count too, and an `actor.proof` does not.
-- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item, `dispatch` on an advance result, and `itemContext` on a notes upsert reflect the config at replay time.
+- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item reflect the config at replay time.
 
-**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, `resource_unavailable`, `already_claimed`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
+**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
 
 **Constraints:**
-- For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
 - For `manage_items`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
 - `create_work_tree` and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
 - A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
@@ -2079,7 +2076,9 @@ The mutating tools `manage_items`, `advance_item`, `create_work_tree`, `complete
 
 ```json
 {
-  "transitions": [{ "itemId": "uuid", "trigger": "start", "actor": { "id": "agent-1", "kind": "subagent" } }],
+  "operation": "create",
+  "items": [{ "type": "task", "title": "Write tests" }],
+  "actor": { "id": "agent-1", "kind": "subagent" },
   "requestId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924"
 }
 ```

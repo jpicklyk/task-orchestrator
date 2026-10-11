@@ -224,7 +224,7 @@ The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** f
 | Layer | What it authenticates | Governs |
 |-------|----------------------|---------|
 | **REST API auth** (`API_AUTH_MODE`) | HTTP callers (dashboards, CI systems, operators) using bearer tokens or JWTs | Access to `/api/v1/*` endpoints — which HTTP clients can read/write the work-item graph via REST |
-| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (`claim_item`, `advance_item`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
+| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (the `advance` tool, `notes_write`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
 
 A REST API caller with `write-items` capability can create and patch items; it does NOT need (and does NOT have) an MCP agent identity. An MCP agent with a verified `did:web` identity can claim and advance items; it does NOT use REST API bearer tokens.
 
@@ -516,7 +516,7 @@ Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `rejec
 |---|---|---|
 | `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes — with a WARN log (verifier, reason, actor id; never the proof) when the outcome is `REJECTED` (verification was attempted and actively failed), and a WARN when JWKS was unreachable with no usable cache; `ABSENT`/`UNCHECKED` fall back silently. A one-time startup WARN is also logged when a real `jwks` verifier is configured under this policy. | Single-org deployments; JWKS endpoint occasionally unreachable |
 | `accept-self-reported` | Always use self-reported `actor.id` from the caller, regardless of verification result. Equivalent to v3.2 implicit behavior. | Local dev; no JWKS; explicitly documented opt-out of identity guarantees |
-| `reject` | Reject any operation requiring verified identity when the actor is not fully verified. `claim_item` returns `rejected_by_policy`. `advance_item` on claimed items fails. | Cross-org `did:web` deployments; high-assurance environments |
+| `reject` | Reject any operation requiring verified identity when the actor is not fully verified. The `advance` tool's `claim`, `release` and `heartbeat` ops return `unauthenticated`; a `transition` on a claimed item fails. | Cross-org `did:web` deployments; high-assurance environments |
 
 ### Cross-Org `did:web` Deployments
 
@@ -678,7 +678,7 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 
 | Stage | Config | Server behavior |
 |---|---|---|
-| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | `claim_item` works but is optional. `advance_item` does not enforce ownership of unclaimed items. No actor required. |
+| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | The `advance` tool's `claim` op works but is optional. A `transition` does not enforce ownership of unclaimed items. No actor required. |
 | **1 — Actor authentication on, self-reported identity** | Hook-side `actor_authentication.enabled: true` (client config, not read by the server), `degraded_mode_policy: accept-self-reported`, no `verifier` | The plugin hook requires an actor on writes. Claim ownership is not gated by `enabled`: the server enforces it whenever the item is claimed, and a call carrying no actor at all on a claimed item is also rejected. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
 | **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
@@ -1075,8 +1075,8 @@ The server intentionally restricts where `claimedBy` identity is visible. This d
 | Surface | Claim data exposed |
 |---|---|
 | `get_context(itemId)` | Full claim detail: `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired` |
-| `claim_item` success response | Own claim metadata only: `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt` |
-| `claim_item` `already_claimed` failure | `retryAfterMs` only — competing agent identity never disclosed |
+| `advance` `claim` op success result | Own claim metadata only: `claimedAt`, `expiresAt`, `originalClaimedAt` |
+| `advance` `claim` op `claim_held` error | `expiresAt` and `retryAfterMs` only — competing agent identity never disclosed |
 | `get_next_item(includeClaimed=true)` | `isClaimed: boolean` per item only — no identity |
 | `query_items(search, claimStatus=...)` | `isClaimed: boolean` per item only — no identity |
 | `query_items(overview, global)` | `claimSummary: { active, expired, unclaimed }` per root — counts only |
