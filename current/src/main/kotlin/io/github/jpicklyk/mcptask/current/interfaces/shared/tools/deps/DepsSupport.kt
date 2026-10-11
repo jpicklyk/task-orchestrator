@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.CursorCodec
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
@@ -107,19 +106,12 @@ internal object DepsSupport {
         )
 }
 
-/** One page of [all] for [page]; [capped] marks a lower-bound total (U15). */
+/**
+ * One page of [all] for [page], built by [ListPage.of] (U22: `total` is the full count on every page; `truncated` and
+ * `next` derive from the page offset). [capped] marks a lower-bound total (U15).
+ */
 internal fun pageOfAll(
     all: List<JsonObject>,
     page: PageRequest,
     capped: Boolean = false
-): ListPage<JsonObject> {
-    val items = all.drop(page.offset).take(page.limit)
-    val truncated = items.size < all.size
-    return ListPage(
-        items = items,
-        total = all.size,
-        truncated = truncated,
-        capped = capped,
-        next = if (truncated) CursorCodec.encode(page.offset + items.size) else null
-    )
-}
+): ListPage<JsonObject> = ListPage.of(all.drop(page.offset).take(page.limit), all.size, page, capped)

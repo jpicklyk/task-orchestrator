@@ -298,8 +298,9 @@ class DepsToolsBehaviorTest {
             assertFalse(second.isError, second.text)
             assertEquals(1, second.items().size, "second page: ${second.structured}")
             assertEquals(3, second.total(), "total is exact on every page: ${second.structured}")
-            // envelope section 2: truncated is items.length < total and next is present exactly when truncated, on every page
-            assertEquals(second.items().size < second.total(), second.truncated(), "second page: ${second.structured}")
+            // envelope section 2 (amendment U22): truncated is offset + items.length < total and next is present exactly when
+            // truncated, on every page; this last page (offset 2, one item, total 3) is not truncated
+            assertFalse(second.truncated(), "second page: ${second.structured}")
             assertEquals(second.truncated(), second.page()["next"] != null, "second page: ${second.structured}")
 
             val seen = (first.items() + second.items()).map { it.getValue("id").jsonPrimitive.content }
