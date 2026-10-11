@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import kotlinx.serialization.json.jsonObject
 import java.lang.reflect.Field
@@ -241,5 +242,25 @@ class RedactionTest {
                 .jsonObject
         assertEquals(setOf("code", "kind", "message"), error.keys)
         assertTrue("detail" !in error && "fix" !in error)
+    }
+
+    // ------------------------------------------------------------------ Q13 (item 2cd17c00)
+    // Oracle: envelope spec section 2 detail rule (never another principal's identity), section 4 rows gate_blocked and claim_held.
+
+    @Test
+    fun `Q13-S15 gate_blocked detail carries exactly itemId role missing and violations and a violation exactly gate and reason`() {
+        assertEquals(
+            setOf("itemId", "role", "missing", "violations"),
+            dataFields(ErrorDetail.GateBlocked::class.java).map { it.name }.toSet()
+        )
+        assertEquals(setOf("gate", "reason"), dataFields(GateViolation::class.java).map { it.name }.toSet())
+    }
+
+    @Test
+    fun `Q13-S15 the already-claimed result that feeds claim_held carries no holder identity`() {
+        assertEquals(
+            setOf("itemId", "expiresAt", "retryAfterMs"),
+            dataFields(ClaimResult.AlreadyClaimed::class.java).map { it.name }.toSet()
+        )
     }
 }

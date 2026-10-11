@@ -147,6 +147,6 @@ object ParityCoverage {
  * SCOPE_FORBIDDEN scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails.
  */
 object ProductionParity {
-    val scenarios: List<ParityScenario> = emptyList()
+    val scenarios: List<ParityScenario> = AdvanceParityScenarios.all
     val exemptions: List<ScopeExempt> = emptyList()
 }
