@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
@@ -74,7 +75,8 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
             val principal = authorize(call, reqId, ApiCapability.READ) ?: return@get
             val isAdmin = principal.capabilities.grants(ApiCapability.ADMIN)
             val leases = claimService.activeLeases()
-            val page = ListPage(leases, total = leases.size, truncated = false)
+            // D7: the active-lease set is bounded; the page holds every lease (total = items.size).
+            val page = ListPage.of(leases, total = leases.size, page = PageRequest())
             call.respondEnvelope(EnvelopeEncoder.page(page, reqId) { leaseJson(it, isAdmin) })
         }
 
@@ -154,7 +156,7 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
             }
 
             val intervals = claimService.leaseHistory(key, at, limit)
-            val page = ListPage(intervals, total = intervals.size, truncated = false)
+            val page = ListPage.of(intervals, total = intervals.size, page = PageRequest(limit = limit))
             call.respondEnvelope(EnvelopeEncoder.page(page, reqId) { intervalJson(it, isAdmin) })
         }
     }

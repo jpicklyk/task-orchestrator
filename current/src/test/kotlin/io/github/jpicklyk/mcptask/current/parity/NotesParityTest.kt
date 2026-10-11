@@ -559,7 +559,9 @@ class NotesParityTest {
         )
         assertEquals(
             emptyList(),
-            ParityCoverage.missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions).filter { it.tool.startsWith("notes") }
+            ParityCoverage
+                .missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions)
+                .filter { it.tool.startsWith("notes") }
         )
         assertEquals(emptyList(), ParityCoverage.stale(registry, NotesParityCatalog.scenarios))
         assertTrue(NotesParityCatalog.exemptions.isEmpty(), "no scope exemption: every notes member touches an item")

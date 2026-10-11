@@ -90,7 +90,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 43_500 // was 50_450; Q11 removed manage_notes and the note get/list of query_notes (49_200), Q13 -5_700 for the deleted advance_item (3_150) and claim_item (2_550) ceilings
+    private val totalCeiling = 43_500 // 49_200 after Q11; Q13 -5_700 (advance_item 3_150, claim_item 2_550)
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

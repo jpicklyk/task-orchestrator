@@ -686,7 +686,8 @@ class NotesReadToolTest {
     @Test
     fun `S20 the registry holds notes_read and notes_write, manage_notes is gone and query_notes keeps only search`() {
         val registry = ToolRegistry(buildToolSpecs())
-        assertEquals(listOf("notes_read", "notes_write"), registry.tools.map { it.name }.filter { it.startsWith("notes") }.sorted())
+        val noteTools = registry.tools.map { it.name }.filter { it.startsWith("notes") }
+        assertEquals(listOf("notes_read", "notes_write"), noteTools.sorted())
         for (name in listOf("notes_read", "notes_write")) {
             val spec = assertNotNull(registry[name], name)
             assertEquals(name, McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE)?.name, "$name is exposed in the knowledge profile")
