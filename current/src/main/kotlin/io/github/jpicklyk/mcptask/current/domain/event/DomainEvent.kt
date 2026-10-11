@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
+import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
@@ -91,7 +92,9 @@ sealed class DomainEvent {
         val toStatusLabel: String?,
         val origin: TransitionOrigin,
         val actor: ActorClaim? = null,
-        val verification: VerificationResult? = null
+        val verification: VerificationResult? = null,
+        val summary: String? = null,
+        val consumedCredentials: List<String> = emptyList()
     ) : DomainEvent() {
         override val type: String get() = ITEM_TRANSITIONED
         override val entityKind: String get() = KIND_ITEM
@@ -105,8 +108,29 @@ sealed class DomainEvent {
                 "toRole" to toRole,
                 "fromStatusLabel" to fromStatusLabel,
                 "toStatusLabel" to toStatusLabel,
-                "origin" to origin.wire
+                "origin" to origin.wire,
+                "summary" to summary,
+                "consumedCredentials" to consumedCredentials,
+                "actorProofSha256" to verification?.proofSha256,
+                "actorProofClaims" to proofClaimsMap(verification?.proofClaims),
+                "verifier" to verification?.verifier,
+                "verificationReason" to verification?.reason
             )
+
+        /** Non-null claim fields as a nested map, or null when claims are null or all fields are null. */
+        private fun proofClaimsMap(claims: ProofClaims?): Map<String, Any?>? {
+            if (claims == null) return null
+            val map = LinkedHashMap<String, Any?>()
+            claims.iss?.let { map["iss"] = it }
+            claims.sub?.let { map["sub"] = it }
+            claims.aud?.let { map["aud"] = it }
+            claims.jti?.let { map["jti"] = it }
+            claims.iat?.let { map["iat"] = it }
+            claims.exp?.let { map["exp"] = it }
+            claims.kid?.let { map["kid"] = it }
+            claims.alg?.let { map["alg"] = it }
+            return map.takeIf { it.isNotEmpty() }
+        }
     }
 
     data class TransitionRejected(
