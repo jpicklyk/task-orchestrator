@@ -70,7 +70,6 @@ class ToolTokenBudgetTest {
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
             "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
-            "manage_plan_documents" to 2150, // measured 1834; new tool: stash/get/list per-root plan documents (dual REST+MCP ingestion)
             "query_rules" to 1600, // measured 1384; new tool: per-root rule text get/list + skill-pointer resolution (A3, 840e700a)
         )
 
@@ -81,11 +80,11 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      * 49_200 after Q11; Q12 -4_635 (manage_dependencies 2_585, query_dependencies 2_050);
-     * Q13 -5_700 (advance_item 3_150, claim_item 2_550); Q18 -2_950 (manage_items).
+     * Q13 -5_700 (advance_item 3_150, claim_item 2_550); Q18 -2_950 (manage_items); Q25 -2_110 (manage_plan_documents, measured 1_834).
      * Q22 -7_700 (get_next_item 3_150, get_context 2_650, get_blocked_items 1_250, get_next_status 650; they are the
      * `items_read` selects context / next / blocked, budgeted by the 4.0 tool-profile guards).
      */
-    private val totalCeiling = 16_950 // Q19 33_300 (query_items, query_notes removed; measured 28_919) - Q13 5_700 - Q18 2_950 - Q22 7_700
+    private val totalCeiling = 14_840 // Q19 33_300 (measured 28_919) - Q13 5_700 - Q18 2_950 - Q25 2_110 - Q22 7_700
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

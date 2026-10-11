@@ -13,7 +13,7 @@ import java.util.UUID
 
 /**
  * Transport-agnostic read pipeline for git-tracked rule text, stored as `rule/<key>` plan
- * documents (see [PlanDocumentStore]) -- the same table `manage_plan_documents`/`PlanDocumentService`
+ * documents (see [PlanDocumentStore]) -- the same table `docs_write`/`PlanDocumentService`
  * already write to, so `query_rules` and the `rules` REST routes are pure READ surfaces over that
  * store with no new table and no migration.
  *
@@ -61,7 +61,7 @@ class RuleService(
 
     /**
      * Lists every `rule/<key>` document under [rootId] whose key matches [KEY_PATTERN] -- slugs
-     * that fail the grammar (stashable via `manage_plan_documents`, per P5, but never served) are
+     * that fail the grammar (writable via `docs_write`, per P5, but never served) are
      * silently excluded, as are non-`rule/` slugs; `status` is ignored (both PENDING and ADOPTED
      * rule documents are listed and served -- adoption freezes a rule's content, it does not hide
      * it). Sorted by key ascending. See [RuleListResult] for the possible outcomes.

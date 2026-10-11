@@ -70,7 +70,7 @@ depth in attach mode). No depth cap.
 
 **Materialize-from-document:** pass `docRef` (`{ rootId?, slug }`) plus per-item `noteAnchors`
 (`root` and/or any `children` entry) to source note bodies from a stashed plan document
-(see `manage_plan_documents`) instead of inlining them. Each anchor is sliced from the document and
+(see `docs_write`) instead of inlining them. Each anchor is sliced from the document and
 written as that item's note in the SAME transaction as the item/dependency/note inserts, then the
 document is marked adopted by the created/attached root. Precedence on `(itemRef, key)` collision:
 explicit `notes` win over `noteAnchors`; `noteAnchors` win over `createNotes=true` blanks. Any anchor

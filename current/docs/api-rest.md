@@ -7,8 +7,9 @@ This document describes the HTTP REST API layer (v1) added alongside the MCP tra
 **OpenAPI spec:** [`api/openapi.yaml`](api/openapi.yaml) — covers all routes for machine consumption. Note: the YAML is hand-maintained and may lag behind edge-case behavior; this document and the source are authoritative.
 
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
-streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
-`PUT /roots/{rootId}/plans/{slug}`) — are built HTTP-only, each fail-opening to a silent no-op when
+streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a plan document;
+its `PUT /roots/{rootId}/plans/{slug}` route was removed in 4.0 in favour of `POST /ops/docs_write`, and the hook
+follows in the plugin work) — are built HTTP-only, each fail-opening to a silent no-op when
 its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
 functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
@@ -184,7 +185,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
-| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `PUT /roots/{rootId}/plans/{slug}` |
+| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
@@ -291,11 +292,11 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 No REST route takes the 3.x `Idempotency-Key` header any more: `POST /items/{id}/advance` (moved to the `advance` tool) and
 `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` (moved to `items_write`) were its last users. The 4.0 write
-tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_write`, `advance`) take a per-element
+tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_write`, `docs_write`, `advance`) take a per-element
 `idempotencyKey` instead, recorded per `(principal, tool, key)` for 24 hours (section 20a); an `Idempotency-Key` header on
 `/ops` is `400 invalid_request`.
 
-- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, enforced at the same pre-buffer point. See §6 for the legacy `payload_too_large` error shape.
+- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); `PUT /roots/{rootId}/config` (128 KiB) keeps its existing numeric limit, enforced at the same pre-buffer point; a `docs_write` document body is capped by the document service instead (section 6). See §6 for the legacy `payload_too_large` error shape.
 
 ---
 
@@ -335,7 +336,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /api/v1/ops/{tool}` is 1 MiB (an envelope error, section 20a); `PUT /roots/{rootId}/config` is 128 KiB. A document body written through `docs_write` is capped by the document service, not by a route limit: 65536 bytes, or 16384 for `kind` `rule` (a `payload_too_large` element), the single enforcement point `query_rules`/§19a rely on (see §18, §19, §19a). |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -750,35 +751,6 @@ still stored regardless of `schemaWarnings`. The 3.x `ignoredSections` field was
 the per-root layer does not honor is now rejected, not ignored. See §18 and the
 [config reference](config-reference.md).
 
-**PlanDocumentResponseDto** (see §19):
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
-  "slug": "auth-redesign",
-  "contentHash": "e3b0c44298fc1c14...",
-  "status": "pending",
-  "adoptedByItemId": "string|null",
-  "createdAt": "2026-07-15T19:00:00Z",
-  "updatedAt": "2026-07-15T19:00:00Z",
-  "body": "string|null"
-}
-```
-`body` is populated on `GET` only (omitted on `PUT`). `adoptedByItemId` is populated once `status`
-is `"adopted"`; null while `"pending"`, and null again if the adopting item is later deleted
-(`ON DELETE SET NULL` — the document's own `status` does not revert).
-
-**PlanDocumentSummaryDto** — one row of `PlanDocumentListResponseDto.plans` (see §19); same shape as
-`PlanDocumentResponseDto` minus `body`, which is never included in list responses.
-
-**PlanDocumentListResponseDto** (see §19):
-```json
-{
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
-  "plans": [<PlanDocumentSummaryDto>]
-}
-```
-
 **RuleResponseDto** (see §19a) — §19a's per-key rule read; mirrors the MCP `query_rules` tool's
 `get` data payload minus `resolvedFrom` (REST has no item/skill-pointer mode):
 ```json
@@ -789,8 +761,8 @@ is `"adopted"`; null while `"pending"`, and null again if the adopting item is l
   "body": "string"
 }
 ```
-`rulesVersion` is the backing `rule/<key>` plan document's `contentHash` (same value
-`PlanDocumentResponseDto`/`PlanDocumentSummaryDto` report for that slug). `body` is served
+`rulesVersion` is the backing rule document's `contentHash` (same value
+`docs_read` reports for `kind` `rule`, slug `<key>`). `body` is served
 byte-for-byte as stored.
 
 **RuleSummaryDto** — one row of `RuleListResponseDto.rules` (see §19a); metadata only, never the
@@ -1372,59 +1344,22 @@ precedence rule: per-root exact type, then global exact type, then per-root `def
 
 ---
 
-## 19. Endpoints — Plan Documents (Per-Root)
+## 19. Endpoints — Plan Documents (Per-Root) — removed in 4.0
 
-Per-root plan documents — free-floating planning docs an agent stashes ahead of adoption into a
-real WorkItem. See [`PlanDocumentService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/PlanDocumentService.kt)
-and the MCP `manage_plan_documents` tool's `stash`/`get`/`list` operations, which share the exact
-same validate-then-persist pipeline as these routes (both converge on identical DB state, including
-`contentHash`, for the same payload).
+`PUT /roots/{rootId}/plans/{slug}`, `GET /roots/{rootId}/plans/{slug}` and `GET /roots/{rootId}/plans` are removed
+(the paths answer `404`), together with the MCP `manage_plan_documents` tool and the `PlanDocumentResponseDto` family
+of responses. Documents (kinds `plan`, `rule` and `page`, addressed by `(rootId, kind, slug)`) are read and written
+through the 4.0 envelope tools, served over MCP and over the RPC route (section 20a):
 
-All verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
-`403 scope_forbidden` otherwise. `{rootId}` must be a depth-0 WorkItem UUID. `{slug}` is a
-caller-chosen identifier, unique within `{rootId}`.
+| 3.x | 4.0 |
+|---|---|
+| `PUT /roots/{rootId}/plans/{slug}` | `POST /ops/docs_write` op `upsert` (`WRITE_CONFIG`); a `rule/<key>` slug is `kind` `rule`, slug `<key>` |
+| `GET /roots/{rootId}/plans/{slug}` | `POST /ops/docs_read` select `get` (`READ`) |
+| `GET /roots/{rootId}/plans` | `POST /ops/docs_read` select `list` (`READ`) |
 
-### PUT /roots/{rootId}/plans/{slug}
-
-Validates and stores the raw request body as the `pending` document at `{rootId}`+`{slug}`.
-Requires `WRITE_CONFIG`.
-
-**Request body:** raw document text (markdown or plain text); max 64 KiB.
-
-**Validation pipeline (in order, stops at first failure — nothing is written on failure):**
-1. Body size ≤ 64 KiB
-2. `{rootId}` resolves to an existing WorkItem
-3. That WorkItem is depth-0 (plan documents anchor to project roots only)
-4. If a document already exists at `{rootId}`+`{slug}` and its `status` is `adopted`, the stash is
-   rejected — adoption is a one-way transition and cannot be overwritten. A `pending` document at
-   that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` are replaced; `id` and
-   `createdAt` are preserved).
-
-**Responses:**
-- `200 OK` → `PlanDocumentResponseDto` (no `body` field on this verb — the caller already has it)
-- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` — `{rootId}` is not depth-0
-- `409 adopted_conflict` — the slug is already `adopted` (message names the adopting item when known)
-- `413 payload_too_large` — body exceeds 64 KiB; enforced before the body is fully buffered (see §5)
-- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
-
-### GET /roots/{rootId}/plans/{slug}
-
-Reads back the stored document (including its body) for `{rootId}`+`{slug}`. Requires `READ`.
-
-**Responses:**
-- `200 OK` → `PlanDocumentResponseDto` (includes `body`)
-- `404 not_found` — no document exists at that slug
-
-### GET /roots/{rootId}/plans
-
-Lists metadata-only summaries (never the body) for every document under `{rootId}`. Requires `READ`.
-
-**Query parameter:** `status` (optional, `pending` | `adopted`) — filters the list to a single status.
-`400 bad_request` on any other value.
-
-**Responses:**
-- `200 OK` → `PlanDocumentListResponseDto` — `plans` ordered by `slug` ascending
+Behaviour that changed: the `status` filter and field are gone (an adopted plan reports `adoptedBy`); a write over an
+adopted plan is `duplicate` (HTTP 409); `bodyFromFile` is not accepted over REST; `kind` is required. Every op checks the
+caller's root and tag scope on `rootId`. See `api-reference.md` (`docs_read`, `docs_write`).
 
 ---
 
@@ -1432,9 +1367,9 @@ Lists metadata-only summaries (never the body) for every document under `{rootId
 
 Read-only REST counterpart of the MCP `query_rules` tool's DIRECT (`rootId`+`key`) lookup -- git-
 tracked, client-neutral operating rules (the blind-authorship protocol, commit discipline,
-forbidden test patterns, review scoping, and so on), stored as `rule/<key>` plan documents (§19)
+forbidden test patterns, review scoping, and so on), stored as `rule` documents (§19)
 and served here verbatim. Both surfaces converge on the same `RuleService` -- a pure read-only view
-over the same `rule/<key>` rows `manage_plan_documents`/`PUT /roots/{rootId}/plans/{slug}` write, so
+over the same rule documents `docs_write` writes, so
 MCP and REST always agree on `rulesVersion` (the backing document's `contentHash`) and `body` for
 the same key. REST has **no item/skill-pointer mode** -- that mode resolves an item's effective
 (trait-merged) schema, which REST config-adjacent routes never read; use the MCP `query_rules` tool
@@ -1445,9 +1380,8 @@ otherwise. `{rootId}` must resolve to an existing, depth-0 WorkItem. `{key}` mus
 grammar `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; starting
 alphanumeric; max 100 characters; never `/`, uppercase, or `:` (see §8's `RuleResponseDto`). The
 route takes the BARE key, not a `rule/`-prefixed slug -- the server derives the `rule/<key>` slug
-internally; stashing or reading the underlying plan document directly still goes through §19's
-`{slug}` routes, which need a literal `%2F` in the path for a `rule/`-prefixed slug (e.g. `PUT
-/roots/{rootId}/plans/rule%2Fcommit-discipline`).
+internally; writing or reading the underlying document directly goes through `docs_write` and `docs_read` with
+`kind` `rule` and the bare key as `slug` (§19).
 
 **Validation/authorization order** (mirrors `EffectiveConfigRoutes`'s documented order, §18):
 parse `{rootId}` as a UUID (`400 bad_request`) → parse/validate `{key}` grammar, `{key}` route
@@ -1474,8 +1408,8 @@ Reads back one rule's body and `rulesVersion`. Requires `READ`.
 ### GET /roots/{rootId}/rules
 
 Lists `{key, rulesVersion, updatedAt}` for every valid rule key under `{rootId}`, sorted by key
-ascending, never the body. A `rule/<key>` document whose key fails the grammar (stashable via
-`manage_plan_documents`, which does not itself enforce it, but never served here) is silently
+ascending, never the body. A `rule/<key>` document whose key fails the grammar (writable via
+`docs_write`, which does not itself enforce it, but never served here) is silently
 excluded, as are non-`rule/` slugs. `status` (`pending` vs `adopted`) is ignored -- both are listed.
 Requires `READ`.
 

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -12,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
@@ -21,18 +18,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.request.put
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -46,7 +36,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -58,7 +47,6 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -71,11 +59,7 @@ import kotlin.test.assertTrue
  * document stays PENDING and re-stashable).
  *
  * Harness (contract "Public-API rule" / "Harness rule"): the `PlanDocumentService` leg calls the
- * public service directly (it has no route/tool wrapper of its own to prefer); the MCP/REST legs
- * of S11 run `ManagePlanDocumentsTool.execute` / the REST `PUT .../plans/{slug}` route through a
- * REAL [ServerComposition.build] + REAL [installRestApiRoutes] (mirrors
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.PlanDocumentRoutesTest]'s "over the
- * size cap returns 413" pattern, adapted to the rule/ boundary); S12 drives the REAL
+ * public service directly; S12 drives the REAL
  * [CreateWorkTreeTool] (`validateParams` for the guard itself, `execute` against a real SQLite-backed
  * `ToolExecutionContext` to confirm zero items created and the document's PENDING status
  * survives), mirroring [io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeToolIntegrationTest]'s
@@ -217,75 +201,6 @@ class RuleBudgetStashTest {
             "20000 bytes must succeed for a non-rule/ slug (well over the 16384 rule budget, well under the 64 KiB plan cap): $result",
         )
     }
-
-    @Test
-    fun `S11 MCP - manage_plan_documents stash for a rule slug over 16384 bytes returns VALIDATION_ERROR naming 16384`(
-        @TempDir tempDir: Path,
-    ) {
-        val composition = buildComposition(tempDir)
-        val root =
-            runBlocking {
-                composition.toolContext.repositoryProvider
-                    .workItemRepository()
-                    .create(
-                        WorkItem(title = "S11 MCP Root", depth = 0)
-                    )!!
-            }
-        val result =
-            runBlocking {
-                ManagePlanDocumentsTool().execute(
-                    params(
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "slug" to JsonPrimitive("rule/mcp-over-limit"),
-                        "body" to JsonPrimitive("x".repeat(16385)),
-                    ),
-                    composition.toolContext,
-                )
-            } as JsonObject
-        assertFalse(result["success"]!!.jsonPrimitive.boolean, "expected failure: $result")
-        val error = result["error"] as JsonObject
-        assertEquals(
-            io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes.VALIDATION_ERROR,
-            error["code"]!!.jsonPrimitive.content,
-        )
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("16384"), "message must name the 16384-byte limit: $error")
-    }
-
-    @Test
-    fun `S11 REST - PUT roots rootId plans rule slug over 16384 bytes returns 413 payload_too_large`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir)
-            val root =
-                runBlocking {
-                    composition.toolContext.repositoryProvider
-                        .workItemRepository()
-                        .create(
-                            WorkItem(title = "S11 REST Root", depth = 0)
-                        )!!
-                }
-            application { configureProductionApp(composition, makeWriteAuthConfig()) }
-
-            val response =
-                client.put("/api/v1/roots/${root.id}/plans/rule%2Frest-over-limit") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("x".repeat(16385))
-                }
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"), "body: ${response.bodyAsText()}")
-
-            // Sanity: the same body, one byte shorter, at a DIFFERENT rule slug succeeds.
-            val okResponse =
-                client.put("/api/v1/roots/${root.id}/plans/rule%2Frest-at-limit") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("x".repeat(16384))
-                }
-            assertEquals(HttpStatusCode.OK, okResponse.status, "16384 bytes must succeed: ${okResponse.bodyAsText()}")
-        }
 
     // =========================================================================================
     // S12 -- D1: create_work_tree docRef.slug rule/x is rejected; zero items, doc stays pending

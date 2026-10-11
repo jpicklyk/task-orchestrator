@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -651,7 +650,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S6 manage_project_config push and manage_plan_documents stash record config and plan document rows`(
+    fun `S6 manage_project_config push and a plan document stash record config and plan document rows`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -676,13 +675,7 @@ class EventCoverageTest {
 
             val (_, plans) =
                 rig.written {
-                    rig.callOk(
-                        ManagePlanDocumentsTool(),
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "slug" to JsonPrimitive("p8-plan"),
-                        "body" to JsonPrimitive("A plan body."),
-                    )
+                    rig.ctx.planDocumentService.stash(root.id, "p8-plan", "A plan body.")
                 }
             val stashed = plans.single()
             assertEquals("document.created", stashed.type)
@@ -901,13 +894,7 @@ class EventCoverageTest {
             val project = rig.seed("adoption project root")
             val (_, stashRows) =
                 rig.written {
-                    rig.callOk(
-                        ManagePlanDocumentsTool(),
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(project.id.toString()),
-                        "slug" to JsonPrimitive("r2-plan"),
-                        "body" to JsonPrimitive("# Overview - a plan body."),
-                    )
+                    rig.ctx.planDocumentService.stash(project.id, "r2-plan", "# Overview - a plan body.")
                 }
             val stashed = stashRows.single { it.type == "document.created" }
 
@@ -1086,6 +1073,7 @@ class EventCoverageTest {
                     "notes_write" to emptyArray(),
                     "deps_write" to emptyArray(),
                     "advance" to emptyArray(),
+                    "docs_write" to emptyArray(),
                     "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
                     "create_work_tree" to
                         arrayOf(
@@ -1101,13 +1089,6 @@ class EventCoverageTest {
                             "rootId" to JsonPrimitive(root.id.toString()),
                             "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
                         ),
-                    "manage_plan_documents" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("stash"),
-                            "rootId" to JsonPrimitive(root.id.toString()),
-                            "slug" to JsonPrimitive("s17"),
-                            "body" to JsonPrimitive("s17 body"),
-                        ),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
@@ -1118,6 +1099,7 @@ class EventCoverageTest {
                             "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
                             "deps_write" -> rig.ctx.callTool("deps_write", depsCreate(child.id, depTarget.id))
                             "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
+                            "docs_write" -> rig.ctx.callTool("docs_write", docsUpsert(root.id))
                             else -> rig.call(tools.getValue(name), *params)
                         }
                     }
@@ -1137,6 +1119,7 @@ class EventCoverageTest {
                     "notes_read" to emptyArray(),
                     "deps_read" to emptyArray(),
                     "items_read" to emptyArray(),
+                    "docs_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
@@ -1145,6 +1128,7 @@ class EventCoverageTest {
                         "notes_read" -> rig.ctx.listNotesVia(child.id)
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
                         "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
+                        "docs_read" -> rig.ctx.callTool("docs_read", docsGet(root.id))
                         else -> rig.call(tools.getValue(name), *params)
                     }
                 assertTrue(
@@ -1187,10 +1171,10 @@ class EventCoverageTest {
                 "notes_write" to setOf("note.upserted"),
                 "deps_write" to setOf("dependency.added"),
                 "advance" to setOf("item.transitioned"),
+                "docs_write" to setOf("document.created"),
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("config.version_created"),
-                "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */
@@ -1200,6 +1184,7 @@ class EventCoverageTest {
                 "notes_read",
                 "deps_read",
                 "items_read",
+                "docs_read",
             )
 
         /** An `advance` call starting [id] (queue -> work). */
@@ -1244,6 +1229,34 @@ class EventCoverageTest {
             buildJsonObject {
                 put("select", "list")
                 put("item", item.toString())
+            }
+
+        /** A `docs_write` upsert creating the S17 plan document under [root]. */
+        fun docsUpsert(root: UUID): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "upsert")
+                                put("rootId", root.toString())
+                                put("kind", "plan")
+                                put("slug", "s17-plan")
+                                put("body", "b")
+                            }
+                        )
+                    }
+                )
+            }
+
+        /** A `docs_read` get of the S17 plan document under [root]. */
+        fun docsGet(root: UUID): JsonObject =
+            buildJsonObject {
+                put("select", "get")
+                put("rootId", root.toString())
+                put("kind", "plan")
+                put("slug", "s17-plan")
             }
 
         /** An `items_read` get of [item]. */
