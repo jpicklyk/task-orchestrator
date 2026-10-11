@@ -28,8 +28,8 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
 | `query_notes` | Notes | Read | FTS5-search note bodies |
-| `manage_dependencies` | Dependencies | Write | Create or delete dependency edges |
-| `query_dependencies` | Dependencies | Read | Query deps with direction filter, optional BFS traversal, or backlinks lookup |
+| `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
+| `deps_read` | Dependencies | Read | List an item's edges by direction, or walk its blocking graph in topological order (4.0 envelope) |
 | `advance_item` | Workflow | Write | Trigger-based role transitions with cascade and gate enforcement |
 | `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
@@ -520,7 +520,7 @@ the document stays PENDING.
 
 **Purpose.** Atomically create a root WorkItem, optional child items, optional dependency edges
 between them, and optional blank notes — all in a single call. Eliminates the round-trips required
-when calling `manage_items`, `manage_dependencies`, and `notes_write` separately.
+when calling `manage_items`, `deps_write`, and `notes_write` separately.
 
 **Attach mode.** Pass `root.id` (UUID or hex prefix of an existing item) instead of `root.title` to
 attach children, deps, and notes directly to an existing item. When `root.id` is provided, `root.title`
@@ -948,209 +948,89 @@ the same as `query_items.search`.
 
 ## Category: Dependencies
 
-### manage_dependencies
+### deps_read
 
-**Purpose.** Create or delete dependency edges between WorkItems. Create supports an explicit
-`dependencies` array (atomic batch) or topology pattern shortcuts (`linear`, `fan-out`, `fan-in`).
+**Purpose.** Read dependency edges: `list` the edges touching one item, or walk the `graph` of
+`blocks` edges around it. A 4.0 registry tool: the request is the envelope request (`select` plus the
+select's fields) and every answer is the response envelope. The same tool is served over MCP and over
+REST `POST /api/v1/ops/deps_read`. Replaces `query_dependencies` (its backlinks lookup is
+`list` with `direction: incoming`). Each field is documented once in the tool's own schema
+(`describe: true`).
 
-**Operations.** `create`, `delete`
+**Selects.** `list`, `graph`. Both need the `READ` capability and honor the caller's root and tag
+scope: a subject `item` outside the scope is `forbidden`. Scope is checked before existence for a full
+UUID, so an unknown full UUID is `forbidden` to a restricted caller; a short hex prefix is resolved
+before the scope check, so a prefix that matches nothing can answer `not_found` to a restricted caller.
 
-#### Key Parameters
+| Select | Fields | Answer (`data`) |
+|---|---|---|
+| `list` | `item`, `direction?` (`incoming`, `outgoing`, `all`; default `all`), `type?` (`blocks`, `relates_to`), `limit?` (1-200, default 50), `cursor?` | `{items: [{id, from, to, type, unblockAt?}], page: {total, truncated, next?}}` ordered by creation time then id |
+| `graph` | `item`, `limit?`, `cursor?` | `{items: [{id, level} or {id, cyclic: true}], page: {total, truncated, next?, capped?}}` |
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | One of: `create`, `delete` |
-| `dependencies` | array | Cond. (create) | Explicit deps: `[{ fromItemId, toItemId, type?, unblockAt? }]`. Mutually exclusive with `pattern`. |
-| `pattern` | string | Cond. (create) | Shortcut: `linear`, `fan-out`, or `fan-in`. Mutually exclusive with `dependencies`. |
-| `type` | string | No | Create: shared default type — `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO`. `IS_BLOCKED_BY` is an input alias: `a IS_BLOCKED_BY b` is stored as `b BLOCKS a`, and the response carries the stored row. Delete-by-relationship: optional filter — delete only edges of this type; `IS_BLOCKED_BY` deletes the stored `BLOCKS` row from `toItemId` to `fromItemId`, and with no `type` only stored rows from `fromItemId` to `toItemId` are matched. |
-| `unblockAt` | string | No | Shared default threshold: `queue`, `work`, `review`, `terminal` (default: terminal) |
-| `itemIds` | array | Yes (linear) | Ordered UUIDs: A→B, B→C, C→D |
-| `fromItemId` | string (UUID) | Yes (fan-out); Cond. (delete) | Fan-out: single source item. Delete-by-relationship: source side. |
-| `toItemIds` | array | Yes (fan-out) | Target item UUIDs |
-| `fromItemIds` | array | Yes (fan-in) | Source item UUIDs |
-| `toItemId` | string (UUID) | Yes (fan-in); Cond. (delete) | Fan-in: single target item. Delete-by-relationship: target side. |
-| `dependencyId` | string (UUID) | Cond. (delete) | Delete a single dependency by its UUID |
-| `deleteAll` | boolean | No (delete) | Delete ALL deps for `fromItemId` or `toItemId` |
-| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
-
-The `dependencies` array create is atomic: all succeed or all fail (cycle and duplicate detection
-spans the entire batch).
-
-**Examples.**
+- `item` is a full UUID or 8 to 32 hex characters of one (`ambiguous_id` when a prefix matches more
+  than one item). Every id in an answer is a full UUID.
+- `incoming` is the edges whose `to` is `item` (what blocks it); `outgoing` the edges whose `from` is
+  `item`. An edge whose other end is outside the caller's scope is left out and not counted.
+- `graph` walks `blocks` edges in both directions from `item` (`relates_to` is ignored) and does not
+  list or expand a node outside the caller's scope. Nodes come in topological order with `level` = the
+  longest blocker path from a node with no blocker in the graph (sources are 0); nodes on a cycle
+  follow with `cyclic: true`. The walk stops at 1000 nodes: then `page.capped` is true and `total` is a
+  lower bound.
+- Paging follows the envelope's list rules (amendment U22): `page.total` is the full count on every
+  page, `truncated` is true exactly when items exist after this page, and `next` is present exactly
+  when `truncated`.
 
 ```json
-// Explicit batch with unblockAt
-{
-  "operation": "create",
-  "dependencies": [
-    { "fromItemId": "uuid-a", "toItemId": "uuid-b", "type": "BLOCKS", "unblockAt": "terminal" }
-  ]
-}
-
-// Linear chain shortcut
-{
-  "operation": "create",
-  "pattern": "linear",
-  "itemIds": ["uuid-a", "uuid-b", "uuid-c"]
-}
-
-// Delete by relationship
-{
-  "operation": "delete",
-  "fromItemId": "uuid-a",
-  "toItemId": "uuid-b"
-}
+{ "select": "list", "item": "550e8400", "direction": "incoming" }
+{ "select": "graph", "item": "550e8400-e29b-41d4-a716-446655440001", "limit": 100 }
 ```
 
-**Response (create).**
+### deps_write
+
+**Purpose.** Create or delete dependency edges. Replaces `manage_dependencies`. A request is
+`{ops: [...], atomic?}`; each `ops[i]` names its `op` and may carry an `idempotencyKey`. Every element
+commits on its own unless `atomic` is true; the answer is a batch result (`results[i]` with `ok`, and
+`207 partial_failure` over REST when some elements failed). Every op needs the `MANAGE_DEPENDENCIES`
+capability (`manage-dependencies`); `delete` is destructive.
+
+| Op | Fields | Result (`results[i]`) |
+|---|---|---|
+| `create` | `from`, `to`, `type?`, `unblockAt?` | `{id, from, to, type, unblockAt?}` |
+| `delete` | exactly one of `{id}`, `{from, to, type?}`, `{item}` | `{deleted: n}` |
+| `linear` | `ids` (at least 2, each blocks the next), `type?`, `unblockAt?` | `{created: [edge, ...]}` |
+| `fan_out` | `from`, `toIds` (at least 1), `type?`, `unblockAt?` | `{created: [edge, ...]}` |
+| `fan_in` | `fromIds` (at least 1), `to`, `type?`, `unblockAt?` | `{created: [edge, ...]}` |
+
+- `type` is `blocks` (applied when absent on create) or `relates_to`. `unblockAt` is `queue`, `work`,
+  `review` or `terminal` (absent means `terminal`) and is rejected on a `relates_to` edge. A self-edge
+  is `invalid_request`. The 3.x `is_blocked_by` alias is not accepted: name the blocker as `from`.
+- **Patterns are one element.** `linear`, `fan_out` and `fan_in` create all their edges in one unit or
+  none: a duplicate edge (`duplicate`) or a cycle (`cycle_detected`, with the cycle path) anywhere in
+  the pattern leaves nothing written.
+- **Scope.** Every named item must be inside the caller's scope; `delete {id}` checks both stored ends,
+  `delete {item}` the item and every counterparty of its edges. A miss is `forbidden` and nothing is
+  written. Under a restricted scope, a `cycle_detected` `path` lists only the items the scope admits, in
+  path order: a hop through an out-of-scope item is omitted.
+- **Delete matching.** `{id}` takes a full dependency UUID; an unknown one is `not_found`. `{from, to}`
+  without `type` matches edges of either type; `{from, to}` or `{item}` that matches nothing is
+  `deleted: 0`.
+- **Attribution.** `dependency.added` and `dependency.removed` events carry the call principal: over
+  MCP the body `actor`, over REST `/ops` the bearer token.
 
 ```json
 {
-  "dependencies": [
-    { "id": "uuid", "fromItemId": "uuid-a", "toItemId": "uuid-b", "type": "BLOCKS", "unblockAt": "terminal" }
+  "ops": [
+    { "op": "create", "from": "550e8400", "to": "7c9e6679", "idempotencyKey": "k-1" },
+    { "op": "linear", "ids": ["a1b2c3d4", "b2c3d4e5", "c3d4e5f6"] },
+    { "op": "delete", "from": "550e8400", "to": "7c9e6679", "type": "relates_to" }
   ],
-  "created": 1
+  "atomic": true
 }
 ```
 
-`unblockAt` is only included in the response when it was explicitly set. When `unblockAt` is null (the default), it is omitted from each dependency object in the response. All pattern shortcuts (`linear`, `fan-out`, `fan-in`) return the same `dependencies` array response shape as the explicit array create.
-
-**Validation Failure Response** (any validation error: self-dependency, cycle, RELATES_TO+unblockAt, invalid threshold, etc.):
-
-```json
-{
-  "dependencies": [],
-  "created": 0,
-  "failed": 2,
-  "failures": [
-    { "index": 0, "error": "Dependency at index 0: invalid type 'FOO'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO" },
-    { "index": 2, "error": "Dependency at index 2: 'fromItemId' could not be resolved: not-a-uuid" }
-  ]
-}
-```
-
-Note: atomicity is preserved — either all dependencies are created or none. On any validation failure, `created` is always 0 and `failed` **always equals `failures.length`**. Every element of the `dependencies` array is validated independently, so `failures` reports **one entry per invalid element**, each carrying that element's 0-based `index` — a batch with three specs where the first and third are malformed returns two failures at indices 0 and 2 (the valid middle element is still not created). A batch-level rejection that is a property of the whole batch rather than one element — a cycle formed across multiple specs, or a duplicate of an existing dependency — is reported as a single failure entry.
-
-**Constraint: `RELATES_TO` and `unblockAt`.** Specifying `unblockAt` on a `RELATES_TO` dependency is a validation error. `RELATES_TO` dependencies have no blocking semantics and do not support an unblock threshold; providing one will return a validation failure response.
-
-**Direction is normalized on write.** `IS_BLOCKED_BY` is an input alias only: `a IS_BLOCKED_BY b` is stored as `b BLOCKS a` (same `unblockAt`), and the create response lists the stored rows, so no `IS_BLOCKED_BY` row is ever stored or returned. The write policy runs in this order: normalize, duplicates within the batch, duplicates against stored rows, then cycles over the blocker→blocked graph. Two edges are duplicates when they share the same normalized `(fromItemId, toItemId, type)`, whatever their `unblockAt`; a restatement (`B BLOCKS A` already exists, then `A IS_BLOCKED_BY B` is added, or both in one batch, in either order) is therefore rejected as a duplicate, never as a cycle. A batch that would close a cycle — whether every edge is `BLOCKS`, every edge is `IS_BLOCKED_BY`, or the batch mixes both types — is rejected. A rejection stores nothing. `RELATES_TO` edges are never part of cycle detection. For an `IS_BLOCKED_BY` input, the duplicate and cycle messages name the normalized (swapped) ids and type `BLOCKS`, not the ids and type as given.
-
-**Response (delete by relationship).**
-
-```json
-{
-  "fromItemId": "uuid-a",
-  "toItemId": "uuid-b",
-  "deleted": 1
-}
-```
-
-Optionally pass `type` to delete only edges of that type between the two items; omit it to delete all edges between them regardless of type.
-
-**Response (delete all by item).**
-
-```json
-{
-  "itemId": "uuid-a",
-  "deleted": 3
-}
-```
-
-When `deleteAll=true`, provide either `fromItemId` or `toItemId` (not both required). All dependencies attached to that item (in either direction) are deleted, and the response contains the `itemId` and `deleted` count.
-
----
-
-### query_dependencies
-
-**Purpose.** Read-only dependency queries with direction and type filtering, optional WorkItem
-detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
-
-**Operations.** `get` (default), `backlinks`
-
-#### Key Parameters — get (default)
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"get"` |
-| `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem to query dependencies for |
-| `direction` | string | No | `incoming`, `outgoing`, or `all` (default: `all`). Incoming = things that block this item; outgoing = things this item blocks. |
-| `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO`. `IS_BLOCKED_BY` is the blocked-side view: the `BLOCKS` rows whose `toItemId` is `itemId` (rows read back as `BLOCKS`); with `direction=outgoing` it is a validation error. Paging and `total` apply after the filter. |
-| `includeItemInfo` | boolean | No | Include title, role, priority for related items (default: false) |
-| `neighborsOnly` | boolean | No | When false, perform BFS graph traversal returning a topologically-ordered chain and max depth (default: true) |
-| `limit` | integer | No | Max dependency edges to return, applied after type filtering (default: unbounded — all matching edges returned). Must be >= 1. |
-| `offset` | integer | No | Number of matching edges to skip before applying `limit` (default: 0). Must be >= 0. |
-
-#### Key Parameters — backlinks
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"backlinks"` |
-| `itemId` | string (UUID or 4+ char prefix) | Yes | The item whose incoming edges you want to find — i.e., other items that point AT this item |
-| `type` | string | No | Narrow to one dependency type: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO`. `IS_BLOCKED_BY` returns the same rows as `BLOCKS` (stored dependencies are always `BLOCKS` from the blocker). |
-
-**Examples.**
-
-```json
-// Incoming blocking dependencies (get operation)
-{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "direction": "incoming", "includeItemInfo": true }
-
-// Full dependency graph traversal
-{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "neighborsOnly": false }
-
-// Find all items that block REQ-42
-{ "operation": "backlinks", "itemId": "550e8400-e29b-41d4-a716-446655440042", "type": "BLOCKS" }
-
-// Find all items that reference FEAT-7
-{ "operation": "backlinks", "itemId": "550e8400-e29b-41d4-a716-446655440007" }
-```
-
-**Response (get).**
-
-```json
-{
-  "dependencies": [
-    {
-      "id": "uuid",
-      "fromItemId": "uuid-a",
-      "toItemId": "uuid-b",
-      "type": "BLOCKS",
-      "unblockAt": "terminal",
-      "effectiveUnblockRole": "terminal",
-      "fromItem": { "title": "Design API", "role": "terminal", "priority": "high" },
-      "toItem": { "title": "Implement API", "role": "work", "priority": "high" }
-    }
-  ],
-  "counts": { "incoming": 1, "outgoing": 0, "relatesTo": 0 },
-  "total": 5,
-  "limit": 1,
-  "offset": 0,
-  "graph": { "chain": ["uuid-a", "uuid-b"], "depth": 1, "truncated": false }
-}
-```
-
-`graph` is only included when `neighborsOnly=false`; its BFS traversal stops after visiting
-`MAX_DEPENDENCY_GRAPH_NODES` (1000) nodes, at which point `truncated` is `true` and `chain`/`depth`
-describe only the visited portion. `fromItem` and `toItem` are included only when
-`includeItemInfo=true`, and each is present only if the referenced item still exists. `total`
-(post type-filter, pre-page edge count) and `limit`/`offset` are included only when `limit` or
-`offset` was supplied on the request — omitting both keeps the response byte-identical to the
-unbounded, pre-paging form; `limit` is `null` when only `offset` was given.
-
-**Response (backlinks).**
-
-```json
-{
-  "backlinks": [
-    { "fromItemId": "uuid-a", "type": "BLOCKS", "fromTitle": "Implement auth service" },
-    { "fromItemId": "uuid-b", "type": "RELATES_TO", "fromTitle": "Auth design doc" }
-  ],
-  "total": 2
-}
-```
-
-Each backlink entry represents another item that holds a dependency edge pointing at your `itemId`.
-`fromTitle` is JOIN-fetched for convenience. Uses the existing `to_item_id` index — no full table scan.
+`manage_dependencies` and `query_dependencies` are removed. Their `counts`, `includeItemInfo` and
+`limit`/`offset` have no replacement: use `page.total`, the `direction` and `type` filters, and
+`query_items` for titles.
 
 ---
 
@@ -2635,11 +2515,11 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ## Idempotency
 
-The mutating tools `manage_items`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency. The 4.0 tools (`notes_write`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write).
+The mutating tools `manage_items`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency. The 4.0 tools (`notes_write`, `deps_write`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write).
 
 **`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
 
-**The rest keep `requestId` optional.** `manage_items`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+**The rest keep `requestId` optional.** `manage_items`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
 **How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
 
@@ -2651,8 +2531,8 @@ The mutating tools `manage_items`, `manage_dependencies`, `advance_item`, `creat
 
 **Constraints:**
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
-- For `manage_items`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- `manage_dependencies` create, `create_work_tree`, and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
+- For `manage_items`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
+- `create_work_tree` and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
 - A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
 
 **Usage.** Generate a fresh UUID per logical operation:
@@ -2716,7 +2596,7 @@ or `contendedItemId` where they apply:
 ```
 
 **Per-element failure entries.** A failed element of a batch call (`manage_items` create, update and
-delete; `manage_dependencies` create; every `complete_tree` item that was
+delete; every `complete_tree` item that was
 not applied, including a skipped dependent and an already-terminal item) carries `errorCode` and
 `errorKind` next to `error`. `errorCode` is the error catalog's wire code (`invalid_request`,
 `not_found`, `ambiguous_id`, `version_conflict`, `duplicate`, `cycle_detected`, `idempotency_mismatch`,

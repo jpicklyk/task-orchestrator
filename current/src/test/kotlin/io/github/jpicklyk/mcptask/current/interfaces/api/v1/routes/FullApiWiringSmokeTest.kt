@@ -95,7 +95,6 @@ abstract class FullApiWiringSmokeScenarios(
                 // Phase 3 read
                 itemRoutes(decorated)
                 noteRoutes(decorated)
-                dependencyRoutes(decorated)
                 transitionRoutes(decorated)
                 searchRoutes(decorated)
                 // Phase 4 config
@@ -115,7 +114,6 @@ abstract class FullApiWiringSmokeScenarios(
                     toolContext.advanceServiceFactory(),
                     db.unitOfWork(),
                 )
-                dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
                 projectConfigRoutes(decorated, ConfigService(decorated, YamlConfigDocumentParser, db.unitOfWork()))
             }

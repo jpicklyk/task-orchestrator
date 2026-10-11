@@ -300,33 +300,6 @@ class EventRestCoverageTest {
     // Dependencies
     // ---------------------------------------------------------------------------------------------
 
-    @Test
-    fun `REST dependency create and delete record dependency added and removed`(
-        @TempDir dir: Path,
-    ): Unit =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            application { configureProductionApp(rig.composition) }
-            val a = rig.seed("rest dep A")
-            val b = rig.seed("rest dep B")
-
-            val created = client.send("POST", "/dependencies", """{"fromItemId":"${a.id}","toItemId":"${b.id}","type":"blocks"}""")
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-            val added = rig.rows()
-            assertEquals(listOf("dependency.added"), added.types())
-            assertEquals(a.id.toString(), added.single().str("fromItemId"))
-            assertEquals(b.id.toString(), added.single().str("toItemId"))
-            assertEquals(apiActor(), added.single().principalId)
-
-            val depId = UUID.fromString(idOf(created.bodyAsText()))
-            val mark = rig.maxSeq()
-            val deleted = client.send("DELETE", "/dependencies/$depId")
-            assertEquals(HttpStatusCode.NoContent, deleted.status)
-            val removed = rig.rowsAfter(mark)
-            assertEquals(listOf("dependency.removed"), removed.types())
-            assertEquals(depId, removed.single().entityId)
-        }
-
     // ---------------------------------------------------------------------------------------------
     // Plan documents, project config, leases
     // ---------------------------------------------------------------------------------------------

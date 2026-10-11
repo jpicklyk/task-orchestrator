@@ -19,9 +19,7 @@ import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
@@ -171,33 +169,6 @@ class WriteRoutesBodyLimitTest {
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(Role.QUEUE, persisted!!.role, "advance must never have been applied")
-        }
-
-    @Test
-    fun `POST dependencies with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val from = runBlocking { repo.workItemRepository().create(WorkItem(title = "From", depth = 0))!! }
-            runBlocking { repo.workItemRepository().create(WorkItem(title = "To", depth = 0))!! }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_JSON_WRITE_BODY_BYTES + 1L,
-                            contentType = ContentType.Application.Json,
-                            actualBytes = byteArrayOf('{'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"))
-
-            val deps = runBlocking { withContext(Dispatchers.IO) { repo.dependencyRepository().findByItemId(from.id) } }
-            assertTrue(deps.isEmpty(), "no dependency should be created on 413")
         }
 
     // S6 regression, folded into the same wiring proof: the 2 ALREADY-capped routes keep their

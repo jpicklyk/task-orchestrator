@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.seedDependencies
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -21,7 +21,6 @@ class GetBlockedItemsToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: GetBlockedItemsTool
     private lateinit var manageTool: ManageItemsTool
-    private lateinit var depTool: ManageDependenciesTool
 
     @BeforeEach
     fun setUp() {
@@ -29,7 +28,6 @@ class GetBlockedItemsToolTest {
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = GetBlockedItemsTool()
         manageTool = ManageItemsTool()
-        depTool = ManageDependenciesTool()
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -116,13 +114,7 @@ class GetBlockedItemsToolTest {
                 unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
             }
         runBlocking {
-            depTool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "dependencies" to JsonArray(listOf(depObj))
-                ),
-                context
-            )
+            context.seedDependencies(JsonArray(listOf(depObj)))
         }
     }
 

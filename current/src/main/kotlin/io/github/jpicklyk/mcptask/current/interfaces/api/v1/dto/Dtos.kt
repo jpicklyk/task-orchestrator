@@ -130,14 +130,6 @@ data class DependenciesDto(
     val related: List<DependencyEdgeDto>,
 )
 
-/** DTO for a single backlink entry — another item referencing this one via a dependency edge. */
-@Serializable
-data class BacklinkDto(
-    val fromItemId: String,
-    val fromTitle: String,
-    val type: String,
-)
-
 /** DTO for a single dependency edge. */
 @Serializable
 data class DependencyEdgeDto(
@@ -423,21 +415,6 @@ data class ItemPatchDto(
     val parentId: String? = null,
     /** The FINAL trait list; `{"traits": null}` (the RFC 7396 delete) clears it. */
     val traits: List<String>? = null,
-)
-
-/**
- * Request DTO for `POST /api/v1/dependencies`.
- *
- * `type` must be one of "blocks" or "relates_to" (case-insensitive).
- * `unblockAt` may be one of "queue", "work", "review", "terminal"; null defaults to "terminal"
- * for BLOCKS edges and must be absent for RELATES_TO edges.
- */
-@Serializable
-data class DependencyCreateDto(
-    val fromItemId: String,
-    val toItemId: String,
-    val type: String,
-    val unblockAt: String? = null,
 )
 
 /**
