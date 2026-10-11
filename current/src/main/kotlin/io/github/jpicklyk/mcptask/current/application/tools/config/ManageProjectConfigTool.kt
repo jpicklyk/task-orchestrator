@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -47,11 +48,14 @@ known-old (present in the root's fingerprint history but not current) is rejecte
 silently reverting a later push made from elsewhere. Pushing byte-identical content is naturally
 idempotent: the returned `fingerprint` is unchanged, so callers can `get` first and skip the push
 when fingerprints match. A pushed document may set `note_limits`/`status_labels` to override the
-global config for this root's items alongside `work_item_schemas`/`note_schemas`/`traits`/`project`;
-any other top-level key (e.g. `actor_authentication`, which stays global-only) is reported back in
-an additive `ignoredSections` array, present only when non-empty. Soft schema parse problems (invalid
-note `role`, missing `key`) do not fail the push; they are returned in an additive `schemaWarnings`
-array, present only when non-empty (distinct from the `warning` field above).
+global config for this root's items alongside `work_item_schemas`/`note_schemas`/`traits`/`project`.
+Validation is strict: a document with an unknown key (including the server-only `resources` and
+`actor_authentication`, or a plugin section that belongs under `extensions`), an invalid note, lifecycle or
+seat, a trait or resource the server does not know, or any other problem the 3.x parser used to skip softly,
+is rejected with VALIDATION_ERROR and never stored; its `details` and `data.errors` list every
+problem as an RFC 6901 `path` plus a `reason`. Advisory findings (resource fan-out, a required note no seat
+owns) do not reject; they are returned in an additive `schemaWarnings` array, present only when non-empty
+(distinct from the `warning` field above). `force` bypasses the rootId and superseded guards, never validation.
 
 **get** — returns the stored `configYaml` + `fingerprint` + `updatedAt` for a root, or a
 not-found error when no config has been pushed for it. When `fingerprint` is supplied, the response
@@ -197,9 +201,6 @@ the root's stored fingerprint history.
                         put("fingerprint", JsonPrimitive(result.fingerprint))
                         put("updatedAt", JsonPrimitive(result.updatedAt.toString()))
                         result.warning?.let { put("warning", JsonPrimitive(it)) }
-                        if (result.ignoredSections.isNotEmpty()) {
-                            put("ignoredSections", JsonArray(result.ignoredSections.map { JsonPrimitive(it) }))
-                        }
                         if (result.schemaWarnings.isNotEmpty()) {
                             put("schemaWarnings", JsonArray(result.schemaWarnings.map { JsonPrimitive(it) }))
                         }
@@ -225,7 +226,15 @@ the root's stored fingerprint history.
                 errorResponse(
                     "configYaml failed to parse: ${result.detail}",
                     LegacyMcpCode.VALIDATION_ERROR,
-                    details = result.detail
+                    details = result.detail,
+                    additionalData = result.violations.takeIf { it.isNotEmpty() }?.let { violationsJson(it, emptyList()) }
+                )
+            is ConfigPushResult.Invalid ->
+                errorResponse(
+                    "configYaml failed validation with ${result.errors.size} error(s); nothing was stored",
+                    LegacyMcpCode.VALIDATION_ERROR,
+                    details = result.errors.joinToString("; ") { "${it.path}: ${it.reason}" },
+                    additionalData = violationsJson(result.errors, result.warnings)
                 )
             is ConfigPushResult.RootIdMismatch ->
                 errorResponse(
@@ -293,6 +302,21 @@ the root's stored fingerprint history.
             }
         }
     }
+
+    private fun violationsJson(
+        errors: List<ConfigViolation>,
+        warnings: List<ConfigViolation>
+    ): JsonObject =
+        buildJsonObject {
+            put("errors", JsonArray(errors.map(::violationJson)))
+            if (warnings.isNotEmpty()) put("warnings", JsonArray(warnings.map(::violationJson)))
+        }
+
+    private fun violationJson(violation: ConfigViolation): JsonObject =
+        buildJsonObject {
+            put("path", JsonPrimitive(violation.path))
+            put("reason", JsonPrimitive(violation.reason))
+        }
 
     /** The shared service wired at composition, or one built over the context's own stores (tests). */
     private fun configService(context: ToolExecutionContext): ConfigService =

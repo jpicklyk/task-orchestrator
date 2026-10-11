@@ -65,6 +65,11 @@ class ConfigServiceVersioningTest {
     private val baseCanonical =
         "{\"work_item_schemas\":{\"feature-task\":{\"notes\":[{\"key\":\"spec\",\"required\":true,\"role\":\"queue\"}]}}}"
 
+    /** [base] plus a seat-aware schema with a required note no seat owns: one advisory warning, no error. */
+    private val withAdvisoryWarning =
+        base + "  seated:\n    seats:\n      - { name: impl, phase: work, enters: true }\n" +
+            "    notes:\n      - key: unowned\n        role: work\n        required: true\n"
+
     /** Revision [n] of the base document: same data, a distinct trailing comment, therefore a distinct fingerprint. */
     private fun rev(n: Int) = "$base# rev $n\n"
 
@@ -196,9 +201,9 @@ class ConfigServiceVersioningTest {
         runBlocking {
             val root = newRoot()
 
-            val (success, rows) = written { pushOk(root, "${base}schema_resolution: bogus\n") }
+            val (success, rows) = written { pushOk(root, withAdvisoryWarning) }
 
-            assertTrue(success.schemaWarnings.isNotEmpty(), "fixture: an invalid schema_resolution value must warn")
+            assertTrue(success.schemaWarnings.isNotEmpty(), "fixture: a required note no seat owns must warn")
             val v = versionAt(root, 1)
             assertEquals(success.schemaWarnings, v.warnings)
             assertEquals(
@@ -254,7 +259,8 @@ class ConfigServiceVersioningTest {
         runBlocking {
             val root = newRoot()
             val max = ConfigService.MAX_CONFIG_YAML_BYTES
-            val atCap = "a: 1\n#" + "x".repeat(max - "a: 1\n#".length)
+            val head = "note_limits:\n  mode: warn\n#"
+            val atCap = head + "x".repeat(max - head.length)
             assertEquals(max, atCap.toByteArray(Charsets.UTF_8).size, "fixture: exactly at the cap")
 
             assertIs<ConfigPushResult.Success>(service.push(root, atCap))
@@ -549,7 +555,14 @@ class ConfigServiceVersioningTest {
     fun `S10 rollback copies the target as a new head with source rollback and records an event`(): Unit =
         runBlocking {
             val root = newRoot()
-            pushOk(root, "${rev(1)}schema_resolution: bogus\n")
+            pushOk(
+                root,
+                "${rev(
+                    1
+                ).removeSuffix(
+                    "# rev 1\n"
+                )}  seated:\n    seats:\n      - { name: impl, phase: work, enters: true }\n    notes:\n      - key: unowned\n        role: work\n        required: true\n# rev 1\n"
+            )
             pushOk(root, rev(2))
             val v1 = versionAt(root, 1)
             assertTrue(v1.warnings.isNotEmpty(), "fixture: the target carries warnings that must be copied")

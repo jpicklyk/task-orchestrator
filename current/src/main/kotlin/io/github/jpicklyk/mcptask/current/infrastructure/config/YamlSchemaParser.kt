@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -29,10 +32,101 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * On the per-root push path, [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser]
  * catches every [Exception] generically and turns it into a parse-failure outcome (nothing stored),
  * so this type needs no special handling there either.
+ *
+ * [path] is the JSON Pointer of the offending `seats` list, so a push rejected for it can name where the error is.
  */
 class ConfigStructureException(
-    message: String
+    message: String,
+    val path: String = "",
 ) : RuntimeException(message)
+
+/**
+ * The key sets the parser recognizes at each level of a config document. The JSON Schema
+ * (`config/config.schema.json`) lists the same keys as `properties`; a parity test reads these sets and the schema
+ * and fails when they differ, so the parser and the published schema cannot drift apart silently.
+ */
+internal object ConfigKeyCatalog {
+    /** Top-level keys the strict parser accepts. */
+    val TOP_LEVEL: Set<String> =
+        setOf(
+            "work_item_schemas",
+            "note_schemas",
+            "traits",
+            "resources",
+            "note_limits",
+            "status_labels",
+            "actor_authentication",
+            "project",
+            "independence",
+            "extensions",
+        )
+
+    /**
+     * Top-level keys that only migration-mode reading still accepts: 3.x config carried plugin settings at the top
+     * level, and the removed `schema_resolution` key gets its own finding instead of an unknown-key one.
+     */
+    val TOP_LEVEL_MIGRATION_ONLY: Set<String> =
+        setOf("schema_resolution", "retrospective", "actor_attribution", "orchestration")
+
+    val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
+    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats")
+    val NOTE_ENTRY: Set<String> =
+        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude")
+    val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
+    val NOTE_LIMITS: Set<String> = setOf("mode")
+    val RESOURCE_DEFINITION: Set<String> = setOf("description", "maxHolders", "defaultTtlSeconds")
+    val RESOURCE_REQUIREMENT: Set<String> = setOf("key", "mode", "ttlSeconds")
+    val DISPATCH_PROFILE: Set<String> = setOf("agent", "model", "effort")
+    val DISPATCH_PHASE: Set<String> = DISPATCH_PROFILE + "seats"
+    val SEAT_DISPATCH_OVERRIDE: Set<String> = DISPATCH_PROFILE
+}
+
+/**
+ * Collects what the parser finds wrong in a document, each with a JSON Pointer path. A finding is one of:
+ * - [Kind.SOFT]: something the 3.x parser skipped with a warning (an error in [ParseMode.STRICT], a warning in
+ *   [ParseMode.MIGRATION]);
+ * - [Kind.ADVISORY]: worth saying but never an error (resource fan-out, a required note no seat owns);
+ * - [Kind.DEFERRED]: a check the validator redoes against the server layer (an undeclared resource), so only the
+ *   migration parse reports it.
+ */
+internal class ParseFindings {
+    enum class Kind { SOFT, ADVISORY, DEFERRED }
+
+    data class Finding(
+        val path: String,
+        val reason: String,
+        val kind: Kind,
+    )
+
+    private val items = mutableListOf<Finding>()
+
+    fun soft(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.SOFT))
+    }
+
+    fun advisory(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.ADVISORY))
+    }
+
+    fun deferred(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.DEFERRED))
+    }
+
+    fun all(): List<Finding> = items
+}
+
+/** Builds an RFC 6901 JSON Pointer from path segments (each is escaped). */
+private fun ptr(vararg segments: Any): String = ConfigValidator.pointer(*segments.map { it.toString() }.toTypedArray())
 
 /**
  * Parses a already-YAML-deserialized config root map (`work_item_schemas:` / `note_schemas:` /
@@ -70,7 +164,7 @@ internal object YamlSchemaParser {
     private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
 
     /** Known keys on a top-level `independence:` map (A2). */
-    private val KNOWN_INDEPENDENCE_KEYS = setOf("mode", "require_verified")
+    private val KNOWN_INDEPENDENCE_KEYS = ConfigKeyCatalog.INDEPENDENCE
 
     /** Resource keys (`traits.<name>.resources[].key` / top-level `resources:` keys) must match this shape. */
     private val RESOURCE_KEY_REGEX = Regex("^[a-z0-9][a-z0-9\\-_./]*$")
@@ -103,45 +197,29 @@ internal object YamlSchemaParser {
     private val VALID_DISPATCH_EFFORTS = setOf("low", "medium", "high", "xhigh", "max")
 
     /** Recognized fields on a `traits.<name>.dispatch.<phase>:` profile map. */
-    private val VALID_DISPATCH_FIELDS = setOf("agent", "model", "effort")
+    private val VALID_DISPATCH_FIELDS = ConfigKeyCatalog.DISPATCH_PROFILE
 
     /**
      * Recognized keys on a `dispatch.<phase>:` map, INCLUDING `seats` (A1a) — used only for the
      * unknown-field warning; [VALID_DISPATCH_FIELDS] (which does not include `seats`) still governs
      * what [parseDispatchProfile] reads into a phase-level [DispatchProfile].
      */
-    private val VALID_DISPATCH_PHASE_KEYS = VALID_DISPATCH_FIELDS + "seats"
+    private val VALID_DISPATCH_PHASE_KEYS = ConfigKeyCatalog.DISPATCH_PHASE
 
-    /** Known top-level `config.yaml` sections (A1a W2): anything else warns, never fails. */
-    private val KNOWN_TOP_LEVEL_SECTIONS =
-        setOf(
-            "work_item_schemas",
-            "note_schemas",
-            "traits",
-            "resources",
-            "note_limits",
-            "status_labels",
-            "schema_resolution",
-            "actor_authentication",
-            "project",
-            "retrospective",
-            "actor_attribution",
-            "orchestration",
-            "independence",
-        )
+    /** Known top-level sections when reading existing config: the strict set plus what 3.x config still carries. */
+    private val KNOWN_TOP_LEVEL_SECTIONS_MIGRATION = ConfigKeyCatalog.TOP_LEVEL + ConfigKeyCatalog.TOP_LEVEL_MIGRATION_ONLY
 
     /** Known keys on a `work_item_schemas.<name>:` map (A1a W3). */
-    private val KNOWN_SCHEMA_LEVEL_KEYS = setOf("lifecycle", "default_traits", "notes", "seats")
+    private val KNOWN_SCHEMA_LEVEL_KEYS = ConfigKeyCatalog.SCHEMA_LEVEL
 
     /** Known keys on a `traits.<name>:` map (A1a W3). */
-    private val KNOWN_TRAIT_LEVEL_KEYS = setOf("notes", "resources", "dispatch", "seats")
+    private val KNOWN_TRAIT_LEVEL_KEYS = ConfigKeyCatalog.TRAIT_LEVEL
 
     /** Known keys on a note-schema entry map (A1a W1; `seat`/`independent_of` are new). */
-    private val KNOWN_NOTE_ENTRY_KEYS =
-        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of")
+    private val KNOWN_NOTE_ENTRY_KEYS = ConfigKeyCatalog.NOTE_ENTRY
 
     /** Known keys on a `seats[]` entry map (A1a W4). */
-    private val VALID_SEAT_ENTRY_KEYS = setOf("name", "phase", "enters", "after", "reads_exclude")
+    private val VALID_SEAT_ENTRY_KEYS = ConfigKeyCatalog.SEAT_ENTRY
 
     /** Reserved seat name: the `missingBySeat`/served-schema "unowned" bucket (DEC-11, A1a F3). Exact match only. */
     private const val UNOWNED_RESERVED_SEAT_NAME = "unowned"
@@ -189,17 +267,23 @@ internal object YamlSchemaParser {
      * (map, scalar, or explicit YAML `null`), or Kotlin `null` when the key is absent entirely.
      * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
      * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
+     *
+     * [mode] only classifies findings; see [ParseMode]. In [ParseMode.STRICT] a former soft skip lands in
+     * [ConfigDocument.errors] and an unknown top-level key (including the 3.x plugin sections) is one of them; in
+     * [ParseMode.MIGRATION] every finding is a warning, exactly as before.
      */
     @Suppress("UNCHECKED_CAST")
     fun parseRoot(
         root: Map<String, Any>,
-        warnOnMissingSchemas: Boolean = true
+        warnOnMissingSchemas: Boolean = true,
+        mode: ParseMode = ParseMode.MIGRATION,
     ): ConfigDocument {
-        val warnings = mutableListOf<String>()
+        val warnings = ParseFindings()
 
+        val knownTopLevel = if (mode == ParseMode.STRICT) ConfigKeyCatalog.TOP_LEVEL else KNOWN_TOP_LEVEL_SECTIONS_MIGRATION
         for (key in root.keys) {
-            if (key !in KNOWN_TOP_LEVEL_SECTIONS) {
-                warnings.add("Unknown top-level section '$key'; ignoring")
+            if (key !in knownTopLevel && key != "schema_resolution") {
+                warnings.soft(ptr(key), "Unknown top-level section '$key'; ignoring")
             }
         }
 
@@ -213,7 +297,7 @@ internal object YamlSchemaParser {
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
         val (traitDispatch, traitDispatchBySeat) = parseTraitDispatchAndBySeat(root, warnings)
         if (root.containsKey("schema_resolution")) {
-            warnings.add(SCHEMA_RESOLUTION_REMOVED_WARNING)
+            warnings.soft(ptr("schema_resolution"), SCHEMA_RESOLUTION_REMOVED_WARNING)
         }
         val actorAuthenticationSection = root["actor_authentication"]
         val presentSections: Set<String> = LinkedHashSet(root.keys)
@@ -224,15 +308,28 @@ internal object YamlSchemaParser {
                 root.containsKey("note_schemas") -> parseLegacyNoteSchemas(root, warnings)
                 else -> {
                     if (warnOnMissingSchemas) {
-                        warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
+                        warnings.advisory("", "Config file is missing 'note_schemas' key; no schemas loaded")
                     }
                     ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
                 }
             }
 
+        val findings = warnings.all()
+        val errors: List<ConfigViolation>
+        val warningViolations: List<ConfigViolation>
+        if (mode == ParseMode.STRICT) {
+            errors = findings.filter { it.kind == ParseFindings.Kind.SOFT }.map { ConfigViolation(it.path, it.reason) }
+            warningViolations = findings.filter { it.kind == ParseFindings.Kind.ADVISORY }.map { ConfigViolation(it.path, it.reason) }
+        } else {
+            errors = emptyList()
+            warningViolations = findings.map { ConfigViolation(it.path, it.reason) }
+        }
+
         return base.copy(
             traits = parsedTraits,
-            warnings = warnings,
+            warnings = warningViolations.map { it.reason },
+            errors = errors,
+            warningViolations = warningViolations,
             noteLimitsMode = noteLimitsMode,
             independence = independence,
             statusLabels = parsedStatusLabels,
@@ -251,7 +348,7 @@ internal object YamlSchemaParser {
         root: Map<String, Any>,
         traitSeatsMap: Map<String, List<SeatDefinition>>,
         traitNotesMap: Map<String, List<NoteSchemaEntry>>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): ConfigDocument {
         val rawSchemas =
             root["work_item_schemas"] as? Map<String, Any>
@@ -261,10 +358,11 @@ internal object YamlSchemaParser {
 
         for ((schemaName, rawValue) in rawSchemas) {
             val schemaMap = rawValue as? Map<String, Any> ?: continue
+            val schemaPath = ptr("work_item_schemas", schemaName)
 
             for (key in schemaMap.keys) {
                 if (key !in KNOWN_SCHEMA_LEVEL_KEYS) {
-                    warnings.add("Schema '$schemaName' has unknown key '$key'; ignoring")
+                    warnings.soft("$schemaPath/${ConfigValidator.escape(key)}", "Schema '$schemaName' has unknown key '$key'; ignoring")
                 }
             }
 
@@ -273,7 +371,8 @@ internal object YamlSchemaParser {
                 if (lifecycleRaw != null) {
                     val normalized = lifecycleRaw.trim().uppercase().replace('-', '_')
                     if (normalized == "AUTO_REOPEN") {
-                        warnings.add(
+                        warnings.soft(
+                            "$schemaPath/lifecycle",
                             "Schema '$schemaName': lifecycle 'auto-reopen' was removed (it behaved exactly like " +
                                 "'auto'); treating as 'auto'"
                         )
@@ -281,7 +380,8 @@ internal object YamlSchemaParser {
                     } else {
                         val parsed = LifecycleMode.fromString(lifecycleRaw)
                         if (parsed == null) {
-                            warnings.add(
+                            warnings.soft(
+                                "$schemaPath/lifecycle",
                                 "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
                             )
                             LifecycleMode.AUTO
@@ -299,11 +399,11 @@ internal object YamlSchemaParser {
             val rawNotes = schemaMap["notes"] as? List<Map<String, Any>> ?: emptyList()
             val entries =
                 rawNotes.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, schemaName, index, warnings)
+                    parseEntry(raw, schemaName, index, "$schemaPath/notes/$index", warnings)
                 }
 
-            val seats = parseSeatEntries(schemaMap["seats"], "Schema '$schemaName'", warnings)
-            validateSeatScope("Schema '$schemaName'", seats)
+            val seats = parseSeatEntries(schemaMap["seats"], "Schema '$schemaName'", "$schemaPath/seats", warnings)
+            validateSeatScope("Schema '$schemaName'", seats, "$schemaPath/seats")
 
             val effectiveSeats = mutableListOf<SeatDefinition>()
             effectiveSeats.addAll(seats)
@@ -313,10 +413,10 @@ internal object YamlSchemaParser {
                 traitSeatsMap[trait]?.let { effectiveSeats.addAll(it) }
             }
             if (effectiveSeats.size != seats.size) {
-                validateSeatScope("Schema '$schemaName'", effectiveSeats)
+                validateSeatScope("Schema '$schemaName'", effectiveSeats, "$schemaPath/seats")
             }
 
-            warnUnownedRequiredNotes(schemaName, entries, defaultTraits, traitNotesMap, effectiveSeats, warnings)
+            warnUnownedRequiredNotes(schemaName, schemaPath, entries, defaultTraits, traitNotesMap, effectiveSeats, warnings)
 
             workItemSchemasMap[schemaName] =
                 WorkItemSchema(
@@ -328,17 +428,17 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap(), warnings = warnings)
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap())
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseLegacyNoteSchemas(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): ConfigDocument {
         val noteSchemas =
             root["note_schemas"] as? Map<String, Any>
-                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = warnings)
+                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
 
         val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
 
@@ -346,7 +446,7 @@ internal object YamlSchemaParser {
             val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
             val entries =
                 entryList.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, schemaName, index, warnings)
+                    parseEntry(raw, schemaName, index, ptr("note_schemas", schemaName, index), warnings)
                 }
             // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
             workItemSchemasMap[schemaName] =
@@ -357,26 +457,27 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap(), warnings = warnings)
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap())
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseTraits(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Map<String, List<NoteSchemaEntry>> {
         val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
         return traitsRaw.entries.associate { (traitName, rawValue) ->
             val rawMap = rawValue as? Map<String, Any> ?: emptyMap()
+            val traitPath = ptr("traits", traitName)
             for (key in rawMap.keys) {
                 if (key !in KNOWN_TRAIT_LEVEL_KEYS) {
-                    warnings.add("Trait '$traitName' has unknown key '$key'; ignoring")
+                    warnings.soft("$traitPath/${ConfigValidator.escape(key)}", "Trait '$traitName' has unknown key '$key'; ignoring")
                 }
             }
             val notesList = rawMap["notes"] as? List<Map<String, Any>> ?: emptyList()
             val entries =
                 notesList.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, "trait:$traitName", index, warnings)
+                    parseEntry(raw, "trait:$traitName", index, "$traitPath/notes/$index", warnings)
                 }
             traitName to entries
         }
@@ -393,15 +494,16 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseTraitSeatsMap(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Map<String, List<SeatDefinition>> {
         val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
         val result = mutableMapOf<String, List<SeatDefinition>>()
         for ((traitName, rawValue) in traitsRaw) {
             val rawMap = rawValue as? Map<String, Any> ?: continue
             if (!rawMap.containsKey("seats")) continue
-            val seats = parseSeatEntries(rawMap["seats"], "Trait '$traitName'", warnings)
-            validateSeatScope("Trait '$traitName'", seats)
+            val seatsPath = ptr("traits", traitName, "seats")
+            val seats = parseSeatEntries(rawMap["seats"], "Trait '$traitName'", seatsPath, warnings)
+            validateSeatScope("Trait '$traitName'", seats, seatsPath)
             result[traitName] = seats
         }
         return result
@@ -417,34 +519,37 @@ internal object YamlSchemaParser {
     private fun parseSeatEntries(
         rawSeats: Any?,
         context: String,
-        warnings: MutableList<String>
+        seatsPath: String,
+        warnings: ParseFindings
     ): List<SeatDefinition> {
         if (rawSeats == null) return emptyList()
         val list =
             rawSeats as? List<Any?> ?: run {
-                warnings.add("$context has a malformed 'seats' section (expected a list); ignoring")
+                warnings.soft(seatsPath, "$context has a malformed 'seats' section (expected a list); ignoring")
                 return emptyList()
             }
 
         val result = mutableListOf<SeatDefinition>()
         for ((index, rawEntry) in list.withIndex()) {
+            val entryPath = "$seatsPath/$index"
             val entryMap =
                 rawEntry as? Map<String, Any> ?: run {
-                    warnings.add("$context seats[$index] is not a map; skipping")
+                    warnings.soft(entryPath, "$context seats[$index] is not a map; skipping")
                     continue
                 }
 
             val nameRaw = entryMap["name"] as? String
             val name = nameRaw?.trim()
             if (name.isNullOrBlank()) {
-                warnings.add("$context seats[$index] is missing required field 'name'; skipping")
+                warnings.soft(entryPath, "$context seats[$index] is missing required field 'name'; skipping")
                 continue
             }
 
             val phaseRaw = entryMap["phase"] as? String
             val phase = phaseRaw?.let { VALID_SCHEMA_ROLES[it] }
             if (phase == null) {
-                warnings.add(
+                warnings.soft(
+                    "$entryPath/phase",
                     "$context seats[$index] (name='$name') has invalid or missing 'phase' value '$phaseRaw' " +
                         "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
                 )
@@ -457,7 +562,8 @@ internal object YamlSchemaParser {
                     null -> false
                     is Boolean -> entersRaw
                     else -> {
-                        warnings.add(
+                        warnings.soft(
+                            "$entryPath/enters",
                             "$context seats[$index] (name='$name') has non-boolean 'enters' value '$entersRaw'; " +
                                 "defaulting to false"
                         )
@@ -465,12 +571,15 @@ internal object YamlSchemaParser {
                     }
                 }
 
-            val after = parseSeatStringListField(entryMap, "after", context, name, warnings)
-            val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, warnings)
+            val after = parseSeatStringListField(entryMap, "after", context, name, entryPath, warnings)
+            val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
-                    warnings.add("$context seats[$index] (name='$name') has unknown key '$key'; ignoring")
+                    warnings.soft(
+                        "$entryPath/${ConfigValidator.escape(key)}",
+                        "$context seats[$index] (name='$name') has unknown key '$key'; ignoring"
+                    )
                 }
             }
 
@@ -490,11 +599,12 @@ internal object YamlSchemaParser {
      */
     private fun warnUnownedRequiredNotes(
         schemaName: String,
+        schemaPath: String,
         baseNotes: List<NoteSchemaEntry>,
         defaultTraits: List<String>,
         traitNotesMap: Map<String, List<NoteSchemaEntry>>,
         effectiveSeats: List<SeatDefinition>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ) {
         if (effectiveSeats.isEmpty()) return
 
@@ -514,7 +624,8 @@ internal object YamlSchemaParser {
             if (!note.required) continue
             val owned = effectiveSeats.any { it.name == note.seat && it.phase == note.role }
             if (!owned) {
-                warnings.add(
+                warnings.advisory(
+                    schemaPath,
                     "Schema '$schemaName': required note '${note.key}' (role '${note.role.name.lowercase()}') is " +
                         "not owned by any declared seat; listed under 'unowned' in missingBySeat"
                 )
@@ -527,13 +638,14 @@ internal object YamlSchemaParser {
         field: String,
         context: String,
         seatName: String,
-        warnings: MutableList<String>
+        entryPath: String,
+        warnings: ParseFindings
     ): List<String> {
         if (!entryMap.containsKey(field)) return emptyList()
         val raw = entryMap[field]
         val list =
             raw as? List<*> ?: run {
-                warnings.add("$context seats (name='$seatName') has non-list '$field' value '$raw'; ignoring")
+                warnings.soft("$entryPath/$field", "$context seats (name='$seatName') has non-list '$field' value '$raw'; ignoring")
                 return emptyList()
             }
         return list.filterIsInstance<String>()
@@ -551,21 +663,23 @@ internal object YamlSchemaParser {
      */
     private fun validateSeatScope(
         context: String,
-        seats: List<SeatDefinition>
+        seats: List<SeatDefinition>,
+        path: String
     ) {
         if (seats.isEmpty()) return
 
         seats.firstOrNull { it.name == UNOWNED_RESERVED_SEAT_NAME }?.let {
             throw ConfigStructureException(
                 "$context declares a seat named '$UNOWNED_RESERVED_SEAT_NAME', which is reserved for the " +
-                    "unowned-notes bucket"
+                    "unowned-notes bucket",
+                path
             )
         }
 
         val seenNames = mutableSetOf<String>()
         for (seat in seats) {
             if (!seenNames.add(seat.name)) {
-                throw ConfigStructureException("$context declares duplicate seat name '${seat.name}'")
+                throw ConfigStructureException("$context declares duplicate seat name '${seat.name}'", path)
             }
         }
 
@@ -576,7 +690,8 @@ internal object YamlSchemaParser {
             if (existing != null) {
                 throw ConfigStructureException(
                     "$context has two seats entering phase '${seat.phase.name.lowercase()}' " +
-                        "('$existing' and '${seat.name}')"
+                        "('$existing' and '${seat.name}')",
+                    path
                 )
             }
             entersByPhase[seat.phase] = seat.name
@@ -589,7 +704,7 @@ internal object YamlSchemaParser {
         fun visit(name: String) {
             if (name in visited) return
             if (!visiting.add(name)) {
-                throw ConfigStructureException("$context has a seat 'after' cycle involving '$name'")
+                throw ConfigStructureException("$context has a seat 'after' cycle involving '$name'", path)
             }
             byName[name]?.after?.forEach { dep -> if (dep in byName) visit(dep) }
             visiting.remove(name)
@@ -607,19 +722,21 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseResourceRegistry(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Map<String, ResourceDefinition> {
         val raw = root["resources"] ?: return emptyMap()
         val rawMap =
             raw as? Map<String, Any> ?: run {
-                warnings.add("Top-level 'resources' section is not a map; ignoring")
+                warnings.soft(ptr("resources"), "Top-level 'resources' section is not a map; ignoring")
                 return emptyMap()
             }
 
         val registry = mutableMapOf<String, ResourceDefinition>()
         for ((key, rawValue) in rawMap) {
+            val entryPath = ptr("resources", key)
             if (!isValidResourceKey(key)) {
-                warnings.add(
+                warnings.soft(
+                    entryPath,
                     "Resource registry key '$key' is invalid (must match '${RESOURCE_KEY_REGEX.pattern}', " +
                         "max $RESOURCE_KEY_MAX_LENGTH chars); skipping"
                 )
@@ -628,11 +745,11 @@ internal object YamlSchemaParser {
 
             val entryMap = rawValue as? Map<String, Any>
             if (entryMap == null) {
-                warnings.add("Resource registry entry '$key' is not a map; skipping")
+                warnings.soft(entryPath, "Resource registry entry '$key' is not a map; skipping")
                 continue
             }
 
-            warnReservedBudgetKeys(entryMap, "Resource registry entry '$key'", warnings)
+            warnReservedBudgetKeys(entryMap, "Resource registry entry '$key'", entryPath, warnings)
 
             val description = entryMap["description"] as? String ?: ""
 
@@ -642,18 +759,22 @@ internal object YamlSchemaParser {
                     null -> 1
                     is Number -> maxHoldersRaw.toInt()
                     else -> {
-                        warnings.add(
+                        warnings.soft(
+                            "$entryPath/maxHolders",
                             "Resource registry entry '$key' has non-numeric 'maxHolders' value '$maxHoldersRaw'; defaulting to 1"
                         )
                         1
                     }
                 }
             if (maxHolders > 1) {
-                warnings.add("Resource registry entry '$key': maxHolders > 1 not yet supported; skipping entry")
+                warnings.soft("$entryPath/maxHolders", "Resource registry entry '$key': maxHolders > 1 not yet supported; skipping entry")
                 continue
             }
             if (maxHolders < 1) {
-                warnings.add("Resource registry entry '$key' has maxHolders '$maxHolders' below 1; defaulting to 1")
+                warnings.soft(
+                    "$entryPath/maxHolders",
+                    "Resource registry entry '$key' has maxHolders '$maxHolders' below 1; defaulting to 1"
+                )
             }
 
             val ttlRaw = entryMap["defaultTtlSeconds"]
@@ -665,7 +786,8 @@ internal object YamlSchemaParser {
                         if (ttl in MIN_RESOURCE_TTL_SECONDS..MAX_RESOURCE_TTL_SECONDS) {
                             ttl
                         } else {
-                            warnings.add(
+                            warnings.soft(
+                                "$entryPath/defaultTtlSeconds",
                                 "Resource registry entry '$key' has defaultTtlSeconds '$ttl' out of bounds " +
                                     "($MIN_RESOURCE_TTL_SECONDS..$MAX_RESOURCE_TTL_SECONDS); defaulting to ${DEFAULT_RESOURCE_TTL_SECONDS}s"
                             )
@@ -673,7 +795,8 @@ internal object YamlSchemaParser {
                         }
                     }
                     else -> {
-                        warnings.add(
+                        warnings.soft(
+                            "$entryPath/defaultTtlSeconds",
                             "Resource registry entry '$key' has non-numeric 'defaultTtlSeconds' value '$ttlRaw'; " +
                                 "defaulting to ${DEFAULT_RESOURCE_TTL_SECONDS}s"
                         )
@@ -704,7 +827,7 @@ internal object YamlSchemaParser {
     private fun parseTraitResources(
         root: Map<String, Any>,
         registry: Map<String, ResourceDefinition>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Map<String, List<ResourceRequirement>> {
         val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
 
@@ -722,7 +845,9 @@ internal object YamlSchemaParser {
             for (req in requirements) {
                 keyCounts[req.key] = (keyCounts[req.key] ?: 0) + 1
                 if (req.key !in registry) {
-                    warnings.add(
+                    // Deferred: the strict validator checks the key against the SERVER registry, not this document's.
+                    warnings.deferred(
+                        ptr("traits", traitName, "resources"),
                         "Trait '$traitName' references undeclared resource '${req.key}'; enforcing with defaults " +
                             "(ttl ${DEFAULT_RESOURCE_TTL_SECONDS}s)"
                     )
@@ -733,7 +858,7 @@ internal object YamlSchemaParser {
         keyCounts
             .filterValues { it >= RESOURCE_FANOUT_WARNING_THRESHOLD }
             .forEach { (key, count) ->
-                warnings.add("Resource '$key' is declared by $count traits (fan-out); contention is likely")
+                warnings.advisory(ptr("traits"), "Resource '$key' is declared by $count traits (fan-out); contention is likely")
             }
 
         return result
@@ -750,20 +875,22 @@ internal object YamlSchemaParser {
     private fun parseResourceRequirementList(
         resourcesRaw: Any,
         traitName: String,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): List<ResourceRequirement> {
+        val resourcesPath = ptr("traits", traitName, "resources")
         val list =
             resourcesRaw as? List<Any?> ?: run {
-                warnings.add("Trait '$traitName' has a malformed 'resources' section (expected a list); skipping")
+                warnings.soft(resourcesPath, "Trait '$traitName' has a malformed 'resources' section (expected a list); skipping")
                 return emptyList()
             }
 
         val result = mutableListOf<ResourceRequirement>()
         for ((index, rawEntry) in list.withIndex()) {
+            val entryPath = "$resourcesPath/$index"
             when (rawEntry) {
                 is String -> {
                     if (!isValidResourceKey(rawEntry)) {
-                        warnings.add("Trait '$traitName' resources[$index] has invalid key '$rawEntry'; skipping")
+                        warnings.soft(entryPath, "Trait '$traitName' resources[$index] has invalid key '$rawEntry'; skipping")
                         continue
                     }
                     result.add(ResourceRequirement(key = rawEntry))
@@ -773,15 +900,15 @@ internal object YamlSchemaParser {
                     val entryMap = rawEntry as Map<String, Any>
                     val key = entryMap["key"] as? String
                     if (key == null) {
-                        warnings.add("Trait '$traitName' resources[$index] is missing required field 'key'; skipping")
+                        warnings.soft(entryPath, "Trait '$traitName' resources[$index] is missing required field 'key'; skipping")
                         continue
                     }
                     if (!isValidResourceKey(key)) {
-                        warnings.add("Trait '$traitName' resources[$index] has invalid key '$key'; skipping")
+                        warnings.soft("$entryPath/key", "Trait '$traitName' resources[$index] has invalid key '$key'; skipping")
                         continue
                     }
 
-                    warnReservedBudgetKeys(entryMap, "Trait '$traitName' resources[$index] (key='$key')", warnings)
+                    warnReservedBudgetKeys(entryMap, "Trait '$traitName' resources[$index] (key='$key')", entryPath, warnings)
 
                     val modeRaw = entryMap["mode"] as? String
                     val mode =
@@ -789,7 +916,8 @@ internal object YamlSchemaParser {
                             ResourceMode.EXCLUSIVE
                         } else {
                             VALID_RESOURCE_MODES[modeRaw.lowercase()] ?: run {
-                                warnings.add(
+                                warnings.soft(
+                                    "$entryPath/mode",
                                     "Trait '$traitName' resources[$index] (key='$key') has unknown mode '$modeRaw'; " +
                                         "defaulting to exclusive"
                                 )
@@ -803,7 +931,8 @@ internal object YamlSchemaParser {
                             null -> null
                             is Number -> ttlRaw.toInt()
                             else -> {
-                                warnings.add(
+                                warnings.soft(
+                                    "$entryPath/ttlSeconds",
                                     "Trait '$traitName' resources[$index] (key='$key') has non-numeric 'ttlSeconds' " +
                                         "value '$ttlRaw'; ignoring"
                                 )
@@ -815,7 +944,7 @@ internal object YamlSchemaParser {
                 }
 
                 else -> {
-                    warnings.add("Trait '$traitName' resources[$index] is neither a string nor a map; skipping")
+                    warnings.soft(entryPath, "Trait '$traitName' resources[$index] is neither a string nor a map; skipping")
                 }
             }
         }
@@ -835,7 +964,7 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseTraitDispatchAndBySeat(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Pair<Map<String, Map<Role, DispatchProfile>>, Map<String, Map<Role, Map<String, SeatDispatchOverride>>>> {
         val traitsRaw =
             root["traits"] as? Map<String, Any>
@@ -848,9 +977,10 @@ internal object YamlSchemaParser {
             val rawMap = rawValue as? Map<String, Any> ?: continue
             val dispatchRaw = rawMap["dispatch"] ?: continue
 
+            val dispatchPath = ptr("traits", traitName, "dispatch")
             val dispatchMap =
                 dispatchRaw as? Map<String, Any> ?: run {
-                    warnings.add("Trait '$traitName' has a malformed 'dispatch' section (expected a map); skipping")
+                    warnings.soft(dispatchPath, "Trait '$traitName' has a malformed 'dispatch' section (expected a map); skipping")
                     continue
                 }
 
@@ -860,9 +990,11 @@ internal object YamlSchemaParser {
             val phasesBySeat: MutableMap<Role, Map<String, SeatDispatchOverride>> = java.util.EnumMap(Role::class.java)
 
             for ((phaseKey, phaseRaw) in dispatchMap) {
+                val phasePath = "$dispatchPath/${ConfigValidator.escape(phaseKey)}"
                 val role = VALID_SCHEMA_ROLES[phaseKey]
                 if (role == null) {
-                    warnings.add(
+                    warnings.soft(
+                        phasePath,
                         "Trait '$traitName' dispatch has invalid phase '$phaseKey' " +
                             "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
                     )
@@ -871,17 +1003,17 @@ internal object YamlSchemaParser {
 
                 val phaseMap =
                     phaseRaw as? Map<String, Any> ?: run {
-                        warnings.add("Trait '$traitName' dispatch.$phaseKey is not a map; skipping")
+                        warnings.soft(phasePath, "Trait '$traitName' dispatch.$phaseKey is not a map; skipping")
                         continue
                     }
 
-                val profile = parseDispatchProfile(phaseMap, traitName, phaseKey, warnings)
+                val profile = parseDispatchProfile(phaseMap, traitName, phaseKey, phasePath, warnings)
                 if (profile != null) {
                     phases[role] = profile
                 }
 
                 if (phaseMap.containsKey("seats")) {
-                    val seatOverrides = parseSeatDispatchOverrides(phaseMap["seats"], traitName, phaseKey, warnings)
+                    val seatOverrides = parseSeatDispatchOverrides(phaseMap["seats"], traitName, phaseKey, "$phasePath/seats", warnings)
                     if (seatOverrides.isNotEmpty()) {
                         phasesBySeat[role] = seatOverrides
                     }
@@ -909,21 +1041,23 @@ internal object YamlSchemaParser {
         rawSeats: Any?,
         traitName: String,
         phaseKey: String,
-        warnings: MutableList<String>
+        seatsPath: String,
+        warnings: ParseFindings
     ): Map<String, SeatDispatchOverride> {
         val seatsMap =
             rawSeats as? Map<String, Any?> ?: run {
-                warnings.add("Trait '$traitName' dispatch.$phaseKey.seats is not a map; ignoring")
+                warnings.soft(seatsPath, "Trait '$traitName' dispatch.$phaseKey.seats is not a map; ignoring")
                 return emptyMap()
             }
         val result = mutableMapOf<String, SeatDispatchOverride>()
         for ((seatName, overrideRaw) in seatsMap) {
+            val overridePath = "$seatsPath/${ConfigValidator.escape(seatName)}"
             val overrideMap =
                 overrideRaw as? Map<String, Any?> ?: run {
-                    warnings.add("Trait '$traitName' dispatch.$phaseKey.seats.$seatName is not a map; skipping")
+                    warnings.soft(overridePath, "Trait '$traitName' dispatch.$phaseKey.seats.$seatName is not a map; skipping")
                     continue
                 }
-            parseSeatDispatchOverride(overrideMap, traitName, phaseKey, seatName, warnings)?.let {
+            parseSeatDispatchOverride(overrideMap, traitName, phaseKey, seatName, overridePath, warnings)?.let {
                 result[seatName] = it
             }
         }
@@ -943,7 +1077,8 @@ internal object YamlSchemaParser {
         traitName: String,
         phaseKey: String,
         seatName: String,
-        warnings: MutableList<String>
+        overridePath: String,
+        warnings: ParseFindings
     ): SeatDispatchOverride? {
         var agent: String? = null
         var model: String? = null
@@ -959,17 +1094,19 @@ internal object YamlSchemaParser {
             }
             val value = raw as? String
             if (value == null) {
-                warnings.add(
+                warnings.soft(
+                    "$overridePath/$field",
                     "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.$field has non-string value '$raw'; dropping"
                 )
                 continue
             }
             if (value.isBlank()) {
-                warnings.add("Trait '$traitName' dispatch.$phaseKey.seats.$seatName.$field is blank; dropping")
+                warnings.soft("$overridePath/$field", "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.$field is blank; dropping")
                 continue
             }
             if (field == "effort" && value !in VALID_DISPATCH_EFFORTS) {
-                warnings.add(
+                warnings.soft(
+                    "$overridePath/effort",
                     "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.effort has invalid value '$value' " +
                         "(valid: $VALID_DISPATCH_EFFORTS); dropping"
                 )
@@ -984,12 +1121,15 @@ internal object YamlSchemaParser {
 
         for (key in overrideMap.keys) {
             if (key !in VALID_DISPATCH_FIELDS) {
-                warnings.add("Trait '$traitName' dispatch.$phaseKey.seats.$seatName has unknown field '$key'; ignoring")
+                warnings.soft(
+                    "$overridePath/${ConfigValidator.escape(key)}",
+                    "Trait '$traitName' dispatch.$phaseKey.seats.$seatName has unknown field '$key'; ignoring"
+                )
             }
         }
 
         if (agent == null && model == null && effort == null && cleared.isEmpty()) {
-            warnings.add("Trait '$traitName' dispatch.$phaseKey.seats.$seatName has no valid fields; skipping")
+            warnings.soft(overridePath, "Trait '$traitName' dispatch.$phaseKey.seats.$seatName has no valid fields; skipping")
             return null
         }
         return SeatDispatchOverride(agent = agent, model = model, effort = effort, cleared = cleared)
@@ -1004,13 +1144,15 @@ internal object YamlSchemaParser {
         phaseMap: Map<String, Any>,
         traitName: String,
         phaseKey: String,
-        warnings: MutableList<String>
+        phasePath: String,
+        warnings: ParseFindings
     ): DispatchProfile? {
-        val agent = parseDispatchField(phaseMap, "agent", traitName, phaseKey, warnings)
-        val model = parseDispatchField(phaseMap, "model", traitName, phaseKey, warnings)
-        var effort = parseDispatchField(phaseMap, "effort", traitName, phaseKey, warnings)
+        val agent = parseDispatchField(phaseMap, "agent", traitName, phaseKey, phasePath, warnings)
+        val model = parseDispatchField(phaseMap, "model", traitName, phaseKey, phasePath, warnings)
+        var effort = parseDispatchField(phaseMap, "effort", traitName, phaseKey, phasePath, warnings)
         if (effort != null && effort !in VALID_DISPATCH_EFFORTS) {
-            warnings.add(
+            warnings.soft(
+                "$phasePath/effort",
                 "Trait '$traitName' dispatch.$phaseKey.effort has invalid value '$effort' " +
                     "(valid: $VALID_DISPATCH_EFFORTS); dropping"
             )
@@ -1019,7 +1161,10 @@ internal object YamlSchemaParser {
 
         for (key in phaseMap.keys) {
             if (key !in VALID_DISPATCH_PHASE_KEYS) {
-                warnings.add("Trait '$traitName' dispatch.$phaseKey has unknown field '$key'; ignoring")
+                warnings.soft(
+                    "$phasePath/${ConfigValidator.escape(key)}",
+                    "Trait '$traitName' dispatch.$phaseKey has unknown field '$key'; ignoring"
+                )
             }
         }
 
@@ -1027,7 +1172,7 @@ internal object YamlSchemaParser {
             // A phase map carrying ONLY `seats:` (A1a) is valid — no phase-level profile, but not
             // a "no valid fields" warning either; parseSeatDispatchOverrides handles its content.
             if (!phaseMap.containsKey("seats")) {
-                warnings.add("Trait '$traitName' dispatch.$phaseKey has no valid fields; skipping")
+                warnings.soft(phasePath, "Trait '$traitName' dispatch.$phaseKey has no valid fields; skipping")
             }
             return null
         }
@@ -1044,17 +1189,18 @@ internal object YamlSchemaParser {
         field: String,
         traitName: String,
         phaseKey: String,
-        warnings: MutableList<String>
+        phasePath: String,
+        warnings: ParseFindings
     ): String? {
         if (!phaseMap.containsKey(field)) return null
         val raw = phaseMap[field]
         val value = raw as? String
         if (value == null) {
-            warnings.add("Trait '$traitName' dispatch.$phaseKey.$field has non-string value '$raw'; dropping")
+            warnings.soft("$phasePath/$field", "Trait '$traitName' dispatch.$phaseKey.$field has non-string value '$raw'; dropping")
             return null
         }
         if (value.isBlank()) {
-            warnings.add("Trait '$traitName' dispatch.$phaseKey.$field is blank; dropping")
+            warnings.soft("$phasePath/$field", "Trait '$traitName' dispatch.$phaseKey.$field is blank; dropping")
             return null
         }
         return value
@@ -1068,11 +1214,12 @@ internal object YamlSchemaParser {
     private fun warnReservedBudgetKeys(
         entryMap: Map<String, Any>,
         context: String,
-        warnings: MutableList<String>
+        entryPath: String,
+        warnings: ParseFindings
     ) {
         for (budgetKey in RESERVED_BUDGET_KEYS) {
             if (entryMap.containsKey(budgetKey)) {
-                warnings.add("$context uses '$budgetKey', which is reserved for future use; ignoring")
+                warnings.soft("$entryPath/$budgetKey", "$context uses '$budgetKey', which is reserved for future use; ignoring")
             }
         }
     }
@@ -1081,23 +1228,25 @@ internal object YamlSchemaParser {
         raw: Map<String, Any>,
         schemaName: String,
         index: Int,
-        warnings: MutableList<String>
+        entryPath: String,
+        warnings: ParseFindings
     ): NoteSchemaEntry? {
         val key = raw["key"] as? String
         if (key == null) {
-            warnings.add("Schema '$schemaName' entry[$index] is missing required field 'key'; skipping")
+            warnings.soft(entryPath, "Schema '$schemaName' entry[$index] is missing required field 'key'; skipping")
             return null
         }
 
         val roleRaw = raw["role"] as? String
         if (roleRaw == null) {
-            warnings.add("Schema '$schemaName' entry[$index] (key='$key') is missing required field 'role'; skipping")
+            warnings.soft(entryPath, "Schema '$schemaName' entry[$index] (key='$key') is missing required field 'role'; skipping")
             return null
         }
 
         val parsedRole = VALID_SCHEMA_ROLES[roleRaw]
         if (parsedRole == null) {
-            warnings.add(
+            warnings.soft(
+                "$entryPath/role",
                 "Schema '$schemaName' entry[$index] (key='$key') has invalid role '$roleRaw' " +
                     "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
             )
@@ -1107,7 +1256,8 @@ internal object YamlSchemaParser {
         val requiredRaw = raw["required"]
         val required =
             if (requiredRaw != null && requiredRaw !is Boolean) {
-                warnings.add(
+                warnings.soft(
+                    "$entryPath/required",
                     "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
                 )
                 false
@@ -1122,7 +1272,8 @@ internal object YamlSchemaParser {
         val maxLengthRaw = raw["maxLength"]
         val maxLength =
             if (maxLengthRaw != null && maxLengthRaw !is Number) {
-                warnings.add(
+                warnings.soft(
+                    "$entryPath/maxLength",
                     "Schema '$schemaName' entry (key='$key') has non-numeric 'maxLength' value '$maxLengthRaw'; ignoring"
                 )
                 null
@@ -1138,7 +1289,8 @@ internal object YamlSchemaParser {
                 null -> emptyList()
                 is List<*> -> independentOfRaw.filterIsInstance<String>()
                 else -> {
-                    warnings.add(
+                    warnings.soft(
+                        "$entryPath/independent_of",
                         "Schema '$schemaName' entry (key='$key') has non-list 'independent_of' value " +
                             "'$independentOfRaw'; ignoring"
                     )
@@ -1148,7 +1300,10 @@ internal object YamlSchemaParser {
 
         for (rawKey in raw.keys) {
             if (rawKey !in KNOWN_NOTE_ENTRY_KEYS) {
-                warnings.add("Schema '$schemaName' entry (key='$key') has unknown key '$rawKey'; ignoring")
+                warnings.soft(
+                    "$entryPath/${ConfigValidator.escape(rawKey)}",
+                    "Schema '$schemaName' entry (key='$key') has unknown key '$rawKey'; ignoring"
+                )
             }
         }
 
@@ -1173,12 +1328,13 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseNoteLimitsMode(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): String {
         val noteLimits = root["note_limits"] as? Map<String, Any> ?: return DEFAULT_NOTE_LIMITS_MODE
         val modeRaw = noteLimits["mode"] as? String ?: return DEFAULT_NOTE_LIMITS_MODE
         if (modeRaw !in VALID_NOTE_LIMITS_MODES) {
-            warnings.add(
+            warnings.soft(
+                ptr("note_limits", "mode"),
                 "Invalid note_limits.mode value '$modeRaw'; defaulting to '$DEFAULT_NOTE_LIMITS_MODE' " +
                     "(valid: $VALID_NOTE_LIMITS_MODES)"
             )
@@ -1197,19 +1353,19 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseIndependencePolicy(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): IndependencePolicy? {
         if (!root.containsKey("independence")) return null
         val raw = root["independence"]
         val independenceMap = raw as? Map<String, Any>
         if (independenceMap == null) {
-            warnings.add("Top-level 'independence' section is not a map; treating as present with defaults")
+            warnings.soft(ptr("independence"), "Top-level 'independence' section is not a map; treating as present with defaults")
             return IndependencePolicy.DEFAULT
         }
 
         for (key in independenceMap.keys) {
             if (key !in KNOWN_INDEPENDENCE_KEYS) {
-                warnings.add("Unknown key 'independence.$key'; ignoring")
+                warnings.soft(ptr("independence", key), "Unknown key 'independence.$key'; ignoring")
             }
         }
 
@@ -1221,14 +1377,16 @@ internal object YamlSchemaParser {
                 null -> IndependenceMode.WARN
                 is String ->
                     IndependenceMode.fromConfigString(modeValue) ?: run {
-                        warnings.add(
+                        warnings.soft(
+                            ptr("independence", "mode"),
                             "Invalid independence.mode value '$modeValue'; defaulting to 'warn' " +
                                 "(valid: off, warn, reject)"
                         )
                         IndependenceMode.WARN
                     }
                 else -> {
-                    warnings.add(
+                    warnings.soft(
+                        ptr("independence", "mode"),
                         "Invalid independence.mode value '$modeValue' (not a string); defaulting to 'warn' " +
                             "(valid: off, warn, reject -- quote \"off\": unquoted off is a YAML boolean)"
                     )
@@ -1242,7 +1400,8 @@ internal object YamlSchemaParser {
                 null -> false
                 is Boolean -> requireVerifiedRaw
                 else -> {
-                    warnings.add(
+                    warnings.soft(
+                        ptr("independence", "require_verified"),
                         "Invalid independence.require_verified value '$requireVerifiedRaw'; defaulting to false"
                     )
                     false
@@ -1265,12 +1424,12 @@ internal object YamlSchemaParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseStatusLabels(
         root: Map<String, Any>,
-        warnings: MutableList<String>
+        warnings: ParseFindings
     ): Map<String, String?>? {
         if (!root.containsKey("status_labels")) return null
         val raw = root["status_labels"] as? Map<String, Any?>
         if (raw == null) {
-            warnings.add("status_labels section is not a map; ignoring")
+            warnings.soft(ptr("status_labels"), "status_labels section is not a map; ignoring")
             return null
         }
         return raw.entries.associate { (trigger, label) -> trigger to label?.toString() }

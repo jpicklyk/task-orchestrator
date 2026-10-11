@@ -20,7 +20,6 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -725,14 +724,14 @@ class ConfigVersionRoutesTest {
         }
 
     @Test
-    fun `AC13 the response JSON arrays and keys of the 3x fields are still present on PUT and GET`(): Unit =
+    fun `AC13 the response JSON keys of the 3x fields are still present on PUT and GET, minus the removed ignoredSections`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root = makeRoot(repo)
             application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
-            val put = client.putConfig(root, "$base" + "actor_authentication:\n  mode: jwks\n").json()
-            assertEquals(listOf("actor_authentication"), (put["ignoredSections"] as JsonArray).map { it.jsonPrimitive.content })
+            val put = client.putConfig(root, base).json()
+            assertNull(put["ignoredSections"], "ignoredSections was removed in 4.0")
             assertTrue(!put.str("updatedAt").isNullOrBlank())
 
             val get = client.getConfig(root).json()

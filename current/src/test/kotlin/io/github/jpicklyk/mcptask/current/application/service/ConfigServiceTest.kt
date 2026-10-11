@@ -199,11 +199,11 @@ class ConfigServiceTest {
         }
 
     // ──────────────────────────────────────────────
-    // t3: ignoredSections
+    // t3: strict validation of the top-level keys
     // ──────────────────────────────────────────────
 
     @Test
-    fun `push reports ignoredSections when the doc has a top-level key not honored per-root`() =
+    fun `push rejects a server-only top-level key with its path`() =
         runBlocking {
             val yaml =
                 """
@@ -216,19 +216,19 @@ class ConfigServiceTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ConfigPushResult.Success)
-            assertEquals(listOf("actor_authentication"), (result as ConfigPushResult.Success).ignoredSections)
+            assertTrue(result is ConfigPushResult.Invalid, "a server-only key must reject the push: $result")
+            assertEquals(listOf("/actor_authentication"), (result as ConfigPushResult.Invalid).errors.map { it.path })
+            assertEquals(null, projectConfigRepository.get(rootId), "nothing is stored for a rejected push")
         }
 
     @Test
-    fun `push omits ignoredSections when the doc only uses honored top-level keys`() =
+    fun `push accepts a document that only uses per-root top-level keys`() =
         runBlocking {
             val yaml =
                 """
                 work_item_schemas:
                   feature-task:
                     notes: []
-                note_schemas: {}
                 traits: {}
                 project:
                   name: "Some Project"
@@ -242,19 +242,15 @@ class ConfigServiceTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ConfigPushResult.Success)
-            assertTrue(
-                (result as ConfigPushResult.Success).ignoredSections.isEmpty(),
-                "A document that only uses honored keys must report no ignored sections"
-            )
+            assertTrue(result is ConfigPushResult.Success, "a document of per-root keys is accepted: $result")
         }
 
     @Test
-    fun `push reports an empty ignoredSections list for an empty document`() =
+    fun `push accepts an empty document`() =
         runBlocking {
             val result = service.push(rootId, "")
 
             assertTrue(result is ConfigPushResult.Success)
-            assertTrue((result as ConfigPushResult.Success).ignoredSections.isEmpty())
+            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
         }
 }

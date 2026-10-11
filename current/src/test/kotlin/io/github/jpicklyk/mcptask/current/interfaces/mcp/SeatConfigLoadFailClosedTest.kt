@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -434,14 +435,15 @@ class SeatConfigLoadFailClosedTest {
     }
 
     @Test
-    fun `S4 W1-W6 push succeeds with schemaWarnings naming each offending key, and hook-local sections warn nothing`() {
+    fun `S4 W1-W6 push is rejected with errors naming each offending key, and the 3x hook-local sections are errors too`() {
         val (context, rootId) = buildContext()
 
         val result = push(context, rootId.toString(), warningsYaml)
 
-        assertTrue(isSuccess(result), "a soft schema warning must never reject the push: $result")
-        val schemaWarnings = dataOf(result)["schemaWarnings"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertTrue(schemaWarnings.size >= 5, "expected at least 5 warnings (W1,W2,W3x2,W4,W6): $schemaWarnings")
+        assertTrue(!isSuccess(result), "former soft skips must reject the push: $result")
+        val errors = dataOf(result)["errors"]!!.jsonArray.map { it.jsonObject }
+        val schemaWarnings = errors.map { it["reason"]!!.jsonPrimitive.content }
+        assertTrue(schemaWarnings.size >= 5, "expected at least 5 errors (W1,W2,W3x2,W4,W6): $schemaWarnings")
 
         val joined = schemaWarnings.joinToString("\n")
         assertTrue(joined.contains("foo"), "W1 unknown note-entry key 'foo' must be named: $schemaWarnings")
@@ -451,12 +453,11 @@ class SeatConfigLoadFailClosedTest {
         assertTrue(joined.contains("zzseat"), "W4 unknown seat-entry key 'zzseat' must be named: $schemaWarnings")
         assertTrue(joined.contains("colour"), "W6 unknown dispatch seat override field 'colour' must be named: $schemaWarnings")
 
-        assertTrue(
-            schemaWarnings.none {
-                it.contains("project") || it.contains("retrospective") || it.contains("actor_attribution") || it.contains("orchestration")
-            },
-            "hook-local sections must produce NO warning: $schemaWarnings",
-        )
+        val paths = errors.map { it["path"]!!.jsonPrimitive.content }
+        for (section in listOf("/retrospective", "/actor_attribution", "/orchestration")) {
+            assertTrue(section in paths, "the 3.x top-level section $section belongs under extensions and is an error now: $paths")
+        }
+        assertTrue("/project" !in paths && paths.none { it.startsWith("/project/") }, "project is a per-root section: $paths")
     }
 
     // N4 -- push W4: a seat entry with a missing name warns at push time too (not just at global load).
@@ -475,16 +476,19 @@ class SeatConfigLoadFailClosedTest {
         """.trimIndent()
 
     @Test
-    fun `N4 W4 push of a seat entry with a missing name succeeds with a schemaWarning naming the offending field`() {
+    fun `N4 W4 push of a seat entry with a missing name is rejected with an error naming the offending field`() {
         val (context, rootId) = buildContext()
 
         val result = push(context, rootId.toString(), warnMissingSeatNameYaml)
 
-        assertTrue(isSuccess(result), "a missing seat name is a soft warning, never a push rejection: $result")
-        val schemaWarnings = dataOf(result)["schemaWarnings"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(!isSuccess(result), "a missing seat name is a former soft skip and rejects the push: $result")
+        val errors = dataOf(result)["errors"]!!.jsonArray.map { it.jsonObject }
         assertTrue(
-            schemaWarnings.any { it.contains("name") },
-            "N4: push must surface a schemaWarning naming the offending field 'name': $schemaWarnings",
+            errors.any {
+                it["path"]!!.jsonPrimitive.content == "/work_item_schemas/warn-missing-seat-name/seats/0" &&
+                    it["reason"]!!.jsonPrimitive.content.contains("name")
+            },
+            "N4: push must name the seat entry and the offending field 'name': $errors",
         )
     }
 

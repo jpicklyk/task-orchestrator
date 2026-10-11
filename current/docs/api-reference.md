@@ -2255,6 +2255,8 @@ Validates, in order:
 6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
    from `rootId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
    below) — unless `force: true` is passed.
+6a. The document is validated strictly (see **Strict validation** below). Any error rejects the push
+   and `force: true` does not bypass it.
 7. If the incoming document's fingerprint is **superseded** — it appears in the root's fingerprint
    history but is not the current fingerprint (i.e. the server has already moved past this exact
    content) — the push is rejected as stale (see **Fast-forward guard** below) — unless
@@ -2268,9 +2270,9 @@ fingerprint is computed after stripping one leading UTF-8 BOM and normalizing CR
 else) — content that differs only by line-ending style or a leading BOM fingerprints identically;
 the stored `configYaml` itself is never rewritten by this normalization.
 
-**Which sections are honored per-root.** Only a subset of top-level `configYaml` keys are resolved
-per-root; everything else stays global-only and is reported back via `ignoredSections` (see below)
-so a push is never silently partial:
+**Which sections a per-root document may carry.** Only a subset of top-level `configYaml` keys belong in
+a per-root document; any other key is rejected (see **Strict validation** below), so a push is never
+silently partial:
 
 | Top-level key | Honored per-root? | Layered by |
 |---|---|---|
@@ -2280,11 +2282,12 @@ so a push is never silently partial:
 | `project` | Yes | `ConfigService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
-| `resources` | No — the resource registry is server-only | n/a |
-| `schema_resolution` | No — removed in 4.0 (parses with one warning, no effect) | n/a |
+| `resources` | No — the resource registry is server-only (rejected) | n/a |
+| `schema_resolution` | No — removed in 4.0 (rejected) | n/a |
+| `extensions` | Stored, never read — an opaque mapping of namespaces for plugin and hook settings | n/a |
 | `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()` (A2) — a per-root block replaces the global one wholesale; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" |
-| `actor_authentication` | No — global-only | n/a |
-| any other key | No | n/a |
+| `actor_authentication` | No — global-only (rejected) | n/a |
+| any other key | No (rejected) | n/a |
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -2299,6 +2302,17 @@ the push is rejected before any write — this catches a config document synced 
 against the wrong project root before it silently overwrites the target root's gates. An absent or
 non-UUID `project.rootId` is not an error; the push proceeds as if it were absent. Pass
 `force: true` to push anyway.
+
+**Strict validation.** A push is validated before anything is stored: the document is checked against the
+published JSON Schema (`GET /api/v1/config/schema`), everything the 3.x parser used to skip with a warning is
+an error (an unknown key, a note with no or an invalid `role`, an invalid `lifecycle`, a seat with no `name`,
+an invalid dispatch `effort`, ...), and semantic rules apply: `resources` and `actor_authentication` are
+server-only, `work_item_schemas` and `note_schemas` cannot be combined, every `default_traits` entry must name
+a trait defined in the document or the server config, and every trait `resources[].key` must be declared in
+the server resource registry. Plugin and hook settings (the 3.x top-level `orchestration`, `retrospective`
+and `actor_attribution`) go under `extensions.claude-code`. The rejection is `VALIDATION_ERROR`; `details`
+(text) and `data.errors` list every problem as `{path, reason}` with an RFC 6901 JSON Pointer
+`path`. See the [config reference](config-reference.md).
 
 **Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
 `Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
@@ -2328,21 +2342,16 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
   "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
-  "ignoredSections": ["actor_authentication"],
-  "schemaWarnings": ["Schema 'feature-task' entry[2] (key='spec') has invalid role 'plan' (valid: queue, work, review); skipping"]
+  "schemaWarnings": ["Schema 'feature-task': required note 'spec' (role 'work') is not owned by any declared seat; listed under 'unowned' in missingBySeat"]
 }
 ```
 
-`warning` is only present when the root's `type` is not `"project"`. `ignoredSections` is only
-present (and non-empty) when the pushed document contains top-level keys outside the honored
-allowlist above — e.g. `actor_authentication`. `schemaWarnings` is only present (and non-empty)
-when `YamlSchemaParser` emitted per-entry warnings while parsing the pushed document — e.g. a note
-schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push,
-or a top-level `schema_resolution` key (removed in 4.0), which has no effect and adds one
-`schemaWarnings` entry saying the key was removed.
-The push still succeeds and the document is still stored regardless of `schemaWarnings` — these are
-advisory, not validation failures (contrast with the `VALIDATION_ERROR` cases below, which reject
-the push outright).
+`warning` is only present when the root's `type` is not `"project"`. `schemaWarnings` is only present
+(and non-empty) for advisory findings: a resource key declared by three or more traits, or a required
+note no declared seat owns. The push still succeeds and the document is still stored regardless of
+`schemaWarnings` — these are advisory, not validation failures (contrast with the `VALIDATION_ERROR`
+cases below, which reject the push outright). The 3.x `ignoredSections` field was removed in 4.0: a key
+the per-root layer does not honor is now rejected, not ignored.
 
 **Error cases.**
 
@@ -2352,6 +2361,7 @@ the push outright).
 | `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
+| `configYaml` fails strict validation (see **Strict validation** above) | `VALIDATION_ERROR` (message gives the error count; `data.errors` lists `{path, reason}`; nothing is stored) |
 | `configYaml` embeds a `project.rootId` that differs from `rootId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
 | `configYaml`'s fingerprint is superseded — in the root's history but not current (and `force` was not `true`) | `VALIDATION_ERROR` (message: local config is older than the server's, with the server row's `updatedAt`) |
 | Storage failure | `DATABASE_ERROR` |

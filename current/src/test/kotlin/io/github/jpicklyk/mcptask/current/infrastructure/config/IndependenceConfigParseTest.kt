@@ -277,8 +277,6 @@ class IndependenceConfigParseTest {
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
             assertTrue(result is ConfigPushResult.Success, "push result: $result")
-            val success = result as ConfigPushResult.Success
-            assertFalse(success.ignoredSections.contains("independence"), "ignoredSections: ${success.ignoredSections}")
         }
 
     // ──────────────────────────────────────────────
@@ -286,7 +284,7 @@ class IndependenceConfigParseTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S12d a pushed independence block with an unknown sub-key still warns, naming the key`(): Unit =
+    fun `S12d a pushed independence block with an unknown sub-key is rejected at the key's path`(): Unit =
         runBlocking {
             val databaseManager = sqliteDb.databaseManager
             val workItemRepository = SQLiteWorkItemRepository(databaseManager)
@@ -299,9 +297,8 @@ class IndependenceConfigParseTest {
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
-            assertTrue(result is ConfigPushResult.Success, "push result: $result")
-            val success = result as ConfigPushResult.Success
-            assertFalse(success.ignoredSections.contains("independence"), "the section itself is honored: ${success.ignoredSections}")
-            assertTrue(success.schemaWarnings.any { it.contains("colour") }, "schemaWarnings: ${success.schemaWarnings}")
+            assertTrue(result is ConfigPushResult.Invalid, "push result: $result")
+            val errors = (result as ConfigPushResult.Invalid).errors
+            assertTrue(errors.any { it.path == "/independence/colour" && it.reason.contains("colour") }, "errors: $errors")
         }
 }

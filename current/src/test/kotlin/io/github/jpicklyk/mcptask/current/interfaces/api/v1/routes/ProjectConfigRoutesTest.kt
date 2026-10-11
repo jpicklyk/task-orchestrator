@@ -131,7 +131,7 @@ class ProjectConfigPutRouteTest {
         }
 
     @Test
-    fun `PUT roots rootId config surfaces ignoredSections when the doc has an unhonored top-level key`(): Unit =
+    fun `PUT roots rootId config rejects a server-only top-level key with 422 and the error path`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
@@ -144,14 +144,14 @@ class ProjectConfigPutRouteTest {
                     setBody("$VALID_YAML\nactor_authentication:\n  mode: jwks\n")
                 }
 
-            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
             val body = response.bodyAsText()
-            assertTrue(body.contains("ignoredSections"), "Response should surface ignoredSections: $body")
-            assertTrue(body.contains("actor_authentication"), "ignoredSections should name actor_authentication: $body")
+            assertTrue(body.contains("parse_error"), "the rejection is a parse_error: $body")
+            assertTrue(body.contains("\"path\":\"/actor_authentication\""), "details.errors should name /actor_authentication: $body")
         }
 
     @Test
-    fun `PUT roots rootId config omits ignoredSections when the doc only uses honored keys`(): Unit =
+    fun `PUT roots rootId config never carries ignoredSections`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
@@ -166,7 +166,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertFalse(body.contains("ignoredSections"), "ignoredSections must be omitted entirely when empty: $body")
+            assertFalse(body.contains("ignoredSections"), "ignoredSections was removed in 4.0: $body")
         }
 
     @Test

@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
@@ -26,15 +28,21 @@ object YamlConfigDocumentParser : ConfigDocumentParser {
     override fun parse(
         yaml: String,
         warnOnMissingSchemas: Boolean,
+        mode: ParseMode,
     ): ConfigDocumentParser.Outcome =
         try {
             val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(yaml)
             if (root == null) {
                 ConfigDocumentParser.Outcome.Parsed(document = ConfigDocument.EMPTY, rawRoot = null)
             } else {
-                val document = YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas)
+                val document = YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas, mode = mode)
                 ConfigDocumentParser.Outcome.Parsed(document = document, rawRoot = root)
             }
+        } catch (e: ConfigStructureException) {
+            ConfigDocumentParser.Outcome.Failed(
+                detail = e.message ?: e.javaClass.simpleName,
+                violations = listOf(ConfigViolation(e.path, e.message ?: e.javaClass.simpleName)),
+            )
         } catch (e: Exception) {
             ConfigDocumentParser.Outcome.Failed(e.message ?: e.javaClass.simpleName)
         }
@@ -42,6 +50,11 @@ object YamlConfigDocumentParser : ConfigDocumentParser {
     override fun fromRoot(
         root: Map<String, Any>?,
         warnOnMissingSchemas: Boolean,
+        mode: ParseMode,
     ): ConfigDocument =
-        if (root == null) ConfigDocument.EMPTY else YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas)
+        if (root == null) {
+            ConfigDocument.EMPTY
+        } else {
+            YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas, mode = mode)
+        }
 }

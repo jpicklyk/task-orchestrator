@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jpicklyk/task-orchestrator/config.schema.json",
+  "title": "Task Orchestrator config document",
+  "description": "The structure of a Task Orchestrator config document (a per-root pushed config or the server-wide floor). Server-only top-level keys (resources, actor_authentication) are rejected in a per-root document by the semantic validator, not by this schema. Plugin and hook settings live under extensions, whose contents are opaque.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": { "$ref": "#/$defs/project" },
+    "work_item_schemas": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/workItemSchema" }
+    },
+    "note_schemas": {
+      "description": "Legacy 3.x format: a type name mapped to its note entries. Cannot be combined with work_item_schemas.",
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } }
+    },
+    "traits": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/trait" }
+    },
+    "resources": {
+      "description": "Server-only resource registry; rejected in a per-root document.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/resourceKey" },
+      "additionalProperties": { "$ref": "#/$defs/resourceDefinition" }
+    },
+    "note_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["warn", "reject"] } }
+    },
+    "status_labels": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "null"] }
+    },
+    "independence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["off", "warn", "reject"] },
+        "require_verified": { "type": "boolean" }
+      }
+    },
+    "actor_authentication": {
+      "description": "Server-only; contents are validated by the actor-authentication service. Rejected in a per-root document.",
+      "type": ["object", "null"]
+    },
+    "extensions": {
+      "description": "Opaque, namespaced settings owned by other tools (for example extensions.claude-code). The server stores them and never reads them.",
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rootId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" }
+      }
+    },
+    "role": { "enum": ["queue", "work", "review"] },
+    "effort": { "enum": ["low", "medium", "high", "xhigh", "max"] },
+    "resourceKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9\\-_./]*$"
+    },
+    "workItemSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": { "enum": ["auto", "manual", "permanent"] },
+        "default_traits": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
+        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }
+      }
+    },
+    "trait": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/resourceRequirement" } },
+        "dispatch": { "$ref": "#/$defs/dispatch" },
+        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }
+      }
+    },
+    "noteEntry": {
+      "type": "object",
+      "required": ["key", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "role": { "$ref": "#/$defs/role" },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" },
+        "guidance": { "type": "string" },
+        "skill": { "type": "string" },
+        "maxLength": { "type": "integer", "minimum": 1 },
+        "seat": { "type": "string" },
+        "independent_of": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "seat": {
+      "type": "object",
+      "required": ["name", "phase"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "phase": { "$ref": "#/$defs/role" },
+        "enters": { "type": "boolean" },
+        "after": { "type": "array", "items": { "type": "string" } },
+        "reads_exclude": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "resourceDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "maxHolders": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "defaultTtlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 }
+      }
+    },
+    "resourceRequirement": {
+      "oneOf": [
+        { "$ref": "#/$defs/resourceKey" },
+        {
+          "type": "object",
+          "required": ["key"],
+          "additionalProperties": false,
+          "properties": {
+            "key": { "$ref": "#/$defs/resourceKey" },
+            "mode": { "enum": ["exclusive", "advisory"] },
+            "ttlSeconds": { "type": "integer" }
+          }
+        }
+      ]
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "queue": { "$ref": "#/$defs/dispatchProfile" },
+        "work": { "$ref": "#/$defs/dispatchProfile" },
+        "review": { "$ref": "#/$defs/dispatchProfile" }
+      }
+    },
+    "dispatchProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "effort": { "$ref": "#/$defs/effort" },
+        "seats": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/seatDispatchOverride" }
+        }
+      }
+    },
+    "seatDispatchOverride": {
+      "description": "A field set to null clears the phase default for that seat.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "type": ["string", "null"], "minLength": 1 },
+        "model": { "type": ["string", "null"], "minLength": 1 },
+        "effort": { "oneOf": [{ "$ref": "#/$defs/effort" }, { "type": "null" }] }
+      }
+    }
+  }
+}
