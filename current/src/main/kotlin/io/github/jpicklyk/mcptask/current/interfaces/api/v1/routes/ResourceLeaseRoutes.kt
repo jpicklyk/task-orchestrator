@@ -1,28 +1,35 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseHistoryResponseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseListResponseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseReleaseResponseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.grants
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -32,153 +39,209 @@ private val resourceLeaseLogger = LoggerFactory.getLogger("ResourceLeaseRoutes")
 /** Lowercase-slug-like resource key pattern, matching [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition.key]. */
 private val RESOURCE_KEY_PATTERN = Regex("^[a-z0-9][a-z0-9\\-_./]*$")
 private const val RESOURCE_KEY_MAX_LENGTH = 128
-private const val HISTORY_DEFAULT_LIMIT = 100
-private const val HISTORY_MAX_LIMIT = 500
+private const val HISTORY_DEFAULT_LIMIT = 50
+private const val HISTORY_MAX_LIMIT = 200
 
 /**
- * Registers the operator-facing resource-lease read/force-release routes under
- * `/api/v1/resources/leases`.
+ * Registers the operator-facing resource-lease read/force-release routes under `/api/v1/resources/leases`.
+ * Every answer is the 4.0 envelope with the status of its error code; a missing capability is `forbidden`
+ * (`scope: capability`, `required` the capability name). A 401 from the authentication plugin keeps its legacy
+ * body until Q32.
  *
  * Endpoints:
- * - `GET    /resources/leases`      — list every currently active (non-expired) lease across all
- *   keys and holders ([ApiCapability.READ]). `acquiredByActorId` (holder-identity) is included only
- *   for callers with [ApiCapability.ADMIN]; non-admin callers get it omitted, mirroring the
- *   [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] admin-gating
- *   pattern used for note attribution (leases have no note/verification shape, so that class itself
- *   isn't reused — the same admin-only rule is applied inline here instead).
- * - `DELETE /resources/leases/{key}` — administrative override: force-releases every row (any
- *   holder) for `{key}`, bypassing its TTL ([ApiCapability.ADMIN] — never granted by [ApiCapability.READ]
- *   alone). `{key}` is validated against the same resource-key pattern used at config-parse time
- *   (`^[a-z0-9][a-z0-9\-_./]*$`, max 128 chars) before touching the repository (400 on mismatch).
- *   Returns 404 when no active lease was released (`releasedCount == 0` is not itself an error at
- *   the repository layer, but this operator surface treats "nothing to release" as not-found), 200
- *   with `{resourceKey, releasedCount}` otherwise. Every successful force-release is logged at WARN
- *   naming the acting principal and the key — this bypasses normal TTL-based mutual exclusion, so it
- *   must be auditable from logs alone. The acting principal's token id is also threaded through as
- *   `released_by_actor_id` on the closed `resource_lease_history` interval(s) — see
- *   `GET /resources/leases/history` below.
- * - `GET    /resources/leases/history` — append-only lease-interval audit log, answering "who held
- *   resource R at time T" ([ApiCapability.READ]). Optional `key` (validated like the DELETE route's
- *   `{key}`, 400 on mismatch), `at` (ISO-8601 instant — when present, returns every interval held at
- *   that instant; 400 `validation_error` if unparseable), and `limit` (default 100, clamped to
- *   [1, 500]). Without `at`, returns the most recent intervals (open or closed), newest-first.
- *   `acquiredByActorId` / `releasedByActorId` are ADMIN-only, same inline redaction as the list
- *   route above.
+ * - `GET    /resources/leases`: every currently active (non-expired) lease, as a list page ordered by
+ *   (`resourceKey`, `holderItemId`) with `page.total == items.size` ([ApiCapability.READ]). Items are
+ *   `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, originalAcquiredAt}`;
+ *   `acquiredByActorId` (holder identity) is present only for [ApiCapability.ADMIN].
+ * - `GET    /resources/leases/history?key&at&limit`: the append-only lease-interval log, newest-first, as a list
+ *   page ([ApiCapability.READ]). `key` is validated like the DELETE key (`invalid_request` field `key`), `at` is
+ *   an ISO-8601 instant (field `at`) answering "who held this at that time", `limit` is 1..200 (default 50;
+ *   field `limit`). Items are `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,
+ *   releasedAt?, releaseReason?, releasedByActorId?}`; the two actor ids are ADMIN-only.
+ * - `DELETE /resources/leases/{key}`: administrative override, force-releases every holder of `{key}` bypassing
+ *   its TTL ([ApiCapability.ADMIN]). `{ok: true, data: {resourceKey, releasedCount}}`; nothing released is
+ *   `not_found` with kind `lease`. Every successful force-release is logged at WARN naming the acting principal and
+ *   the key, and the principal's token id is recorded on the closed history interval(s).
  *
- * **No scope enforcement:** resource leases are a cross-project, server-wide concurrency primitive
- * (unlike per-root items/config/plans) — there is no `rootId` to scope against, so only capability
- * checks apply here.
- *
- * **REST-only:** registered on the authenticated `/api/v1` pipeline only, like the other
- * `/api/v1/resources` routes — never reachable on the unauthenticated `/mcp` transport.
+ * **No scope enforcement:** leases are a cross-project, server-wide concurrency primitive, so only capability
+ * checks apply. **REST-only:** registered on the authenticated `/api/v1` pipeline, never on the `/mcp` transport.
  */
-fun Route.resourceLeaseRoutes(
-    repositoryProvider: RepositoryProvider,
-    unitOfWork: UnitOfWork,
-) {
-    val leaseRepo = repositoryProvider.resourceLeaseRepository()
-    val claimService = ClaimService(repositoryProvider, unitOfWork)
-
+fun Route.resourceLeaseRoutes(claimService: ClaimService) {
     route("/resources/leases") {
-        // ─── GET /resources/leases ─────────────────────────────────────────────
-        requireCapability(ApiCapability.READ) {
-            get {
-                val isAdmin = hasCapability(call, ApiCapability.ADMIN)
-                val leases =
-                    leaseRepo.findAllActive().map { lease ->
-                        val dto = lease.toDto()
-                        if (isAdmin) dto else dto.copy(acquiredByActorId = null)
-                    }
-                call.respond(HttpStatusCode.OK, ResourceLeaseListResponseDto(leases = leases))
-            }
+        // GET /resources/leases
+        get {
+            val reqId = reqId(call)
+            val principal = authorize(call, reqId, ApiCapability.READ) ?: return@get
+            val isAdmin = principal.capabilities.grants(ApiCapability.ADMIN)
+            val leases = claimService.activeLeases()
+            val page = ListPage(leases, total = leases.size, truncated = false)
+            call.respondEnvelope(EnvelopeEncoder.page(page, reqId) { leaseJson(it, isAdmin) })
         }
 
-        // ─── DELETE /resources/leases/{key} ────────────────────────────────────
-        requireCapability(ApiCapability.ADMIN) {
-            delete("/{key}") {
-                val key = call.parameters["key"]
-                if (key.isNullOrBlank() || key.length > RESOURCE_KEY_MAX_LENGTH || !RESOURCE_KEY_PATTERN.matches(key)) {
-                    call.respondError(
-                        LegacyRestCode.VALIDATION_ERROR,
-                        "resourceKey must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
-                            "^[a-z0-9][a-z0-9\\-_./]*$"
-                    )
-                    return@delete
-                }
-
-                val principal = call.attributes.getOrNull(ApiPrincipalKey)
-                val released: Any =
-                    when (val outcome = claimService.forceReleaseLease(key, principal?.tokenId)) {
-                        is Outcome.Ok -> outcome.value
-                        is Outcome.Err -> LegacyFaults.message(outcome.error)
-                    }
-                when (val result = released) {
-                    is LeaseReleaseResult.Success -> {
-                        if (result.releasedCount == 0) {
-                            call.respondError(LegacyRestCode.NOT_FOUND, "No active lease found for key '$key'")
-                            return@delete
-                        }
-
-                        resourceLeaseLogger.warn(
-                            "Operator force-release: {} lease row(s) released for resourceKey='{}' by principal tokenId='{}'",
-                            result.releasedCount,
-                            key,
-                            principal?.tokenId ?: "unknown",
-                        )
-
-                        call.respond(
-                            HttpStatusCode.OK,
-                            ResourceLeaseReleaseResponseDto(resourceKey = key, releasedCount = result.releasedCount),
-                        )
-                    }
-                    else -> {
-                        resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result)
-                        call.respondError(LegacyRestCode.DB_ERROR, "Failed to force-release lease")
-                    }
-                }
+        // DELETE /resources/leases/{key}
+        delete("/{key}") {
+            val reqId = reqId(call)
+            val principal = authorize(call, reqId, ApiCapability.ADMIN) ?: return@delete
+            val key = call.parameters["key"].orEmpty()
+            if (!validKey(key)) {
+                call.respondEnvelope(EnvelopeEncoder.error(invalid("key", keyReason(), key.take(MAX_RECEIVED)), reqId))
+                return@delete
             }
+            val released =
+                when (val outcome = claimService.forceReleaseLease(key, principal.tokenId)) {
+                    is Outcome.Err -> {
+                        resourceLeaseLogger.warn("DELETE /resources/leases/{} failed: {}", key, outcome.error.message)
+                        call.respondEnvelope(EnvelopeEncoder.error(outcome.error, reqId))
+                        return@delete
+                    }
+                    is Outcome.Ok -> (outcome.value as LeaseReleaseResult.Success).releasedCount
+                }
+            if (released == 0) {
+                call.respondEnvelope(EnvelopeEncoder.error(leaseNotFound(key), reqId))
+                return@delete
+            }
+            resourceLeaseLogger.warn(
+                "Operator force-release: {} lease row(s) released for resourceKey='{}' by principal tokenId='{}'",
+                released,
+                key,
+                principal.tokenId
+            )
+            call.respondEnvelope(
+                EnvelopeEncoder.outcome(Outcome.Ok(released), reqId) {
+                    buildJsonObject {
+                        put("resourceKey", key)
+                        put("releasedCount", it)
+                    }
+                }
+            )
         }
 
-        // ─── GET /resources/leases/history ─────────────────────────────────────
-        requireCapability(ApiCapability.READ) {
-            get("/history") {
-                val isAdmin = hasCapability(call, ApiCapability.ADMIN)
+        // GET /resources/leases/history
+        get("/history") {
+            val reqId = reqId(call)
+            val principal = authorize(call, reqId, ApiCapability.READ) ?: return@get
+            val isAdmin = principal.capabilities.grants(ApiCapability.ADMIN)
+            val query = call.request.queryParameters
 
-                val key = call.request.queryParameters["key"]
-                if (key != null && (key.isBlank() || key.length > RESOURCE_KEY_MAX_LENGTH || !RESOURCE_KEY_PATTERN.matches(key))) {
-                    call.respondError(
-                        LegacyRestCode.VALIDATION_ERROR,
-                        "key must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
-                            "^[a-z0-9][a-z0-9\\-_./]*$"
-                    )
-                    return@get
-                }
-
-                val atParam = call.request.queryParameters["at"]
-                val at =
-                    if (atParam != null) {
-                        try {
-                            Instant.parse(atParam)
-                        } catch (e: DateTimeParseException) {
-                            call.respondError(LegacyRestCode.VALIDATION_ERROR, "at must be a valid ISO-8601 instant")
-                            return@get
-                        }
-                    } else {
+            val key = query["key"]
+            val atRaw = query["at"]
+            val limitRaw = query["limit"]
+            val faults = ArrayList<FieldViolation>()
+            if (key != null && !validKey(key)) faults.add(FieldViolation("key", keyReason(), key.take(MAX_RECEIVED)))
+            val at =
+                atRaw?.let {
+                    try {
+                        Instant.parse(it)
+                    } catch (e: DateTimeParseException) {
+                        faults.add(FieldViolation("at", "must be an ISO-8601 instant", it.take(MAX_RECEIVED)))
                         null
                     }
-
-                val limit =
-                    (call.request.queryParameters["limit"]?.toIntOrNull() ?: HISTORY_DEFAULT_LIMIT)
-                        .coerceIn(1, HISTORY_MAX_LIMIT)
-
-                val found = if (at != null) leaseRepo.findHoldersAt(key, at, limit) else leaseRepo.findRecentIntervals(key, limit)
-                val intervals =
-                    found.map { interval ->
-                        val dto = interval.toDto()
-                        if (isAdmin) dto else dto.copy(acquiredByActorId = null, releasedByActorId = null)
-                    }
-                call.respond(HttpStatusCode.OK, ResourceLeaseHistoryResponseDto(intervals = intervals))
+                }
+            val limit =
+                if (limitRaw == null) {
+                    HISTORY_DEFAULT_LIMIT
+                } else {
+                    limitRaw.toIntOrNull()?.takeIf { it in 1..HISTORY_MAX_LIMIT }
+                        ?: HISTORY_DEFAULT_LIMIT.also {
+                            faults.add(
+                                FieldViolation("limit", "must be an integer from 1 to $HISTORY_MAX_LIMIT", limitRaw.take(MAX_RECEIVED))
+                            )
+                        }
+                }
+            if (faults.isNotEmpty()) {
+                call.respondEnvelope(EnvelopeEncoder.error(invalid(faults.sortedBy { it.field }), reqId))
+                return@get
             }
+
+            val intervals = claimService.leaseHistory(key, at, limit)
+            val page = ListPage(intervals, total = intervals.size, truncated = false)
+            call.respondEnvelope(EnvelopeEncoder.page(page, reqId) { intervalJson(it, isAdmin) })
         }
     }
 }
+
+private const val MAX_RECEIVED = 100
+
+private fun reqId(call: ApplicationCall): String = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
+
+/**
+ * The authenticated principal when it grants [required]; otherwise the envelope answer is sent here and null is
+ * returned (no principal is `unauthenticated`, a missing capability is `forbidden`).
+ */
+private suspend fun authorize(
+    call: ApplicationCall,
+    reqId: String,
+    required: ApiCapability
+): ApiPrincipal? {
+    val principal = call.attributes.getOrNull(ApiPrincipalKey)
+    val error =
+        when {
+            principal == null -> DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal.")
+            !principal.capabilities.grants(required) ->
+                DomainError(
+                    code = ErrorCode.FORBIDDEN,
+                    message = "The credential does not grant ${required.configName()} for the capability scope.",
+                    detail = ErrorDetail.Forbidden(ForbiddenScope.CAPABILITY, required.configName()),
+                    fixArgs = mapOf("scope" to "capability", "required" to required.configName())
+                )
+            else -> null
+        }
+    if (error != null) {
+        call.respondEnvelope(EnvelopeEncoder.error(error, reqId))
+        return null
+    }
+    return principal
+}
+
+private fun validKey(key: String): Boolean = key.isNotBlank() && key.length <= RESOURCE_KEY_MAX_LENGTH && RESOURCE_KEY_PATTERN.matches(key)
+
+private fun keyReason(): String = "must be 1 to $RESOURCE_KEY_MAX_LENGTH characters matching ^[a-z0-9][a-z0-9\\-_./]*$"
+
+private fun invalid(
+    field: String,
+    reason: String,
+    received: String? = null
+): DomainError = invalid(listOf(FieldViolation(field, reason, received)))
+
+private fun invalid(fields: List<FieldViolation>): DomainError =
+    DomainError(
+        code = ErrorCode.INVALID_REQUEST,
+        message = "The request has ${fields.size} invalid field(s): ${fields.joinToString(", ") { it.field }}.",
+        detail = ErrorDetail.InvalidRequest(fields)
+    )
+
+private fun leaseNotFound(key: String): DomainError =
+    DomainError(
+        code = ErrorCode.NOT_FOUND,
+        message = "No active lease found for key '$key'.",
+        detail = ErrorDetail.NotFound(EntityKind.LEASE, key),
+        fixArgs = mapOf("kind" to "lease", "id" to key)
+    )
+
+private fun leaseJson(
+    lease: ResourceLease,
+    admin: Boolean
+): JsonObject =
+    buildJsonObject {
+        put("resourceKey", lease.resourceKey)
+        put("holderItemId", lease.holderItemId.toString())
+        if (admin) lease.acquiredByActorId?.let { put("acquiredByActorId", it) }
+        put("acquiredAt", lease.acquiredAt.toString())
+        put("expiresAt", lease.expiresAt.toString())
+        put("originalAcquiredAt", lease.originalAcquiredAt.toString())
+    }
+
+private fun intervalJson(
+    interval: ResourceLeaseInterval,
+    admin: Boolean
+): JsonObject =
+    buildJsonObject {
+        put("resourceKey", interval.resourceKey)
+        put("holderItemId", interval.holderItemId.toString())
+        if (admin) interval.acquiredByActorId?.let { put("acquiredByActorId", it) }
+        put("acquiredAt", interval.acquiredAt.toString())
+        put("expiresAt", interval.expiresAt.toString())
+        interval.releasedAt?.let { put("releasedAt", it.toString()) }
+        interval.releaseReason?.let { put("releaseReason", it) }
+        if (admin) interval.releasedByActorId?.let { put("releasedByActorId", it) }
+    }

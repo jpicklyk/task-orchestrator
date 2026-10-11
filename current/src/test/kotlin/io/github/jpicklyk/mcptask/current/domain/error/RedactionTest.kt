@@ -22,6 +22,8 @@ class RedactionTest {
     private val allowedNames =
         setOf(
             "fields",
+            "violations",
+            "gate",
             "field",
             "reason",
             "received",
@@ -149,7 +151,7 @@ class RedactionTest {
     fun `S15 walk covers all 23 detail classes and their nested value types`() {
         val owners = allFieldsWalked().map { it.first.simpleName }.toSet()
         assertEquals(23, allDetailClasses().size)
-        for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation")) {
+        for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation", "GateViolation")) {
             assertTrue(nested in owners, "nested value type $nested was not walked")
         }
         assertTrue(allFieldsWalked().size >= 40, "walk looks too small: ${allFieldsWalked().size}")

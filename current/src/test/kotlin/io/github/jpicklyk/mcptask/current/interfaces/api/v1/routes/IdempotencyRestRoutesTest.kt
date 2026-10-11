@@ -160,25 +160,6 @@ class IdempotencyRestRoutesTest {
         }
 
     @Test
-    fun `S4 POST advance honours the key - one transition and a verbatim replay`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance me", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val path = "/api/v1/items/${item.id}/advance"
-
-            val first = send("POST", path, """{"trigger":"start"}""", key)
-            val firstBody = first.bodyAsText()
-            val second = send("POST", path, """{"trigger":"start"}""", key)
-
-            assertEquals(HttpStatusCode.OK, first.status)
-            assertVerbatimReplay(first, firstBody, second)
-            assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"), "the replay must not transition again")
-            assertEquals(1, records())
-        }
-
-    @Test
     fun `S4 POST dependencies honours the key - one edge and a verbatim replay`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
@@ -202,25 +183,6 @@ class IdempotencyRestRoutesTest {
         }
 
     // ---------------------------------------------------------------- S6: mismatch
-
-    @Test
-    fun `S6 POST advance with the same key and another trigger is a 409 idempotency_mismatch and does not transition`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance me", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val path = "/api/v1/items/${item.id}/advance"
-
-            val first = send("POST", path, """{"trigger":"start"}""", key)
-            val mismatch = send("POST", path, """{"trigger":"cancel"}""", key)
-
-            assertEquals(HttpStatusCode.OK, first.status)
-            assertEquals(HttpStatusCode.Conflict, mismatch.status)
-            assertTrue("idempotency_mismatch" in mismatch.bodyAsText())
-            assertNull(mismatch.headers[replayedHeader], "a mismatch is not a replay")
-            assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"), "the mismatched request must not execute")
-        }
 
     @Test
     fun `S6 POST dependencies with the same key and another target is a 409 idempotency_mismatch`(): Unit =
@@ -320,22 +282,6 @@ class IdempotencyRestRoutesTest {
     // ---------------------------------------------------------------- S11 / S15: isolation
 
     @Test
-    fun `S11 requests without an Idempotency-Key execute every time and write no record`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Two creates", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            send("POST", "/api/v1/items", """{"type":"test-item","title":"Unkeyed"}""")
-            send("POST", "/api/v1/items", """{"type":"test-item","title":"Unkeyed"}""")
-            val advance = send("POST", "/api/v1/items/${item.id}/advance", """{"trigger":"start"}""")
-
-            assertEquals(HttpStatusCode.OK, advance.status)
-            assertEquals(3, rawInt("SELECT count(*) FROM work_items"))
-            assertEquals(0, records())
-        }
-
-    @Test
     fun `S15 the same key on two different routes executes both`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
@@ -355,22 +301,5 @@ class IdempotencyRestRoutesTest {
             assertEquals(HttpStatusCode.Created, dependency.status, "another route is another operation: no mismatch, no replay")
             assertNotEquals("true", dependency.headers[replayedHeader])
             assertEquals(2, records())
-        }
-
-    @Test
-    fun `S1 probe - a mixed-case Idempotency-Key is the same key for advance`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Cased", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID()
-            val path = "/api/v1/items/${item.id}/advance"
-
-            val first = send("POST", path, """{"trigger":"start"}""", key.toString().lowercase())
-            val second = send("POST", path, """{"trigger":"start"}""", key.toString().uppercase())
-
-            assertEquals(HttpStatusCode.OK, first.status)
-            assertEquals("true", second.headers[replayedHeader], "a case-only difference must resolve to the same record")
-            assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"))
         }
 }

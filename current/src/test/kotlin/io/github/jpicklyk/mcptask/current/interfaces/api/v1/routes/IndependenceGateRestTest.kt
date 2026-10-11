@@ -302,105 +302,14 @@ work_item_schemas:
     // R1 (S7 vii/viii) -- REST /gate canAdvance + REST advance 422 details.violations, REJECT mode.
     // ─────────────────────────────────────────────────────────────────────
 
-    @Test
-    fun `R1 REST gate reports canAdvance false and violations, REST advance 422 carries the same violations in REJECT mode`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-r1") }
-
-            val (root, item) =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = SENTINEL_ACTOR)
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = SENTINEL_ACTOR)
-                    r to i
-                }
-
-            val gateResponse =
-                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(HttpStatusCode.OK, gateResponse.status)
-            val gateJson = parseJson(gateResponse.bodyAsText())
-            val gateStatus = gateJson["gateStatus"]!!.jsonObject
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "gateStatus: $gateStatus")
-            val gateViolations = gateStatus["violations"]!!.jsonArray
-            assertEquals(1, gateViolations.size, "violations: $gateViolations")
-            val gateEntry = gateViolations[0].jsonObject
-            assertEquals("test-manifest", gateEntry["key"]!!.jsonPrimitive.content)
-            assertEquals("same_actor", gateEntry["constraint"]!!.jsonPrimitive.content)
-            assertEquals("implementer", gateEntry["conflictingSeat"]!!.jsonPrimitive.content)
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, advanceResponse.status)
-            val advanceJson = parseJson(advanceResponse.bodyAsText())
-            assertEquals("gate_blocked", advanceJson["error"]!!.jsonPrimitive.content, "body: $advanceJson")
-            val details = advanceJson["details"]!!.jsonObject
-            assertEquals(gateViolations, details["violations"]!!.jsonArray, "REST advance 422 details.violations must match REST /gate")
-
-            assertTrue(root == item.rootId, "sanity: fixture item's rootId is the created root")
-        }
-
     // ─────────────────────────────────────────────────────────────────────
     // R2 (S7 warn / S2) -- REST advance 200 success carries `violations` in WARN mode.
     // ─────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `R2 REST advance 200 success carries violations when WARN mode applies the transition despite same-actor notes`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("warn"))
-            application { configureProductionRestApp(composition, "indep-rest-r2") }
-
-            val item =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = SENTINEL_ACTOR)
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = SENTINEL_ACTOR)
-                    i
-                }
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, advanceResponse.status, "WARN must still apply: ${advanceResponse.bodyAsText()}")
-            val advanceJson = parseJson(advanceResponse.bodyAsText())
-            val violations = advanceJson["violations"]!!.jsonArray
-            assertEquals(1, violations.size, "violations: $violations")
-            val entry = violations[0].jsonObject
-            assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
-            assertEquals("same_actor", entry["constraint"]!!.jsonPrimitive.content)
-            assertEquals("implementer", entry["conflictingSeat"]!!.jsonPrimitive.content)
-        }
 
     // ─────────────────────────────────────────────────────────────────────
     // R3 (S9) -- MCP<->REST parity: get_context, REST /gate, advance_item(start), REST advance all
     // agree on the identical violations array for the same fixture state, in both WARN and REJECT.
     // ─────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `R3 get_context, REST gate, advance_item start, and REST advance all report identical violations -- WARN and REJECT`(
-        @TempDir tempDir: Path,
-    ) {
-        // Each mode runs its OWN testApplication: Ktor's TestApplication only accepts a single
-        // `application { }` configuration per instance (a second call after the server has
-        // already started throws IllegalStateException, confirmed empirically this round after
-        // the shared-testApplication-with-two-application-calls version failed compile-green but
-        // red at runtime) -- so WARN and REJECT each get a fresh instance rather than sharing one
-        // across a loop.
-        listOf("warn", "reject").forEach { mode -> runR3(mode, tempDir.resolve(mode)) }
-    }
 
     private fun runR3(
         mode: String,
@@ -481,76 +390,6 @@ work_item_schemas:
     // parent's own violation; WARN lets it proceed while reporting violations on the cascade event.
     // ─────────────────────────────────────────────────────────────────────
 
-    @Test
-    fun `R4a REST advance start cascade -- REJECT suppresses the parent cascade, cascadeEvents violations populated`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-r4a") }
-
-            val child =
-                runBlocking {
-                    val root = createRoot(composition)
-                    val parent = createChild(composition, root, root, "indep-cascade", Role.QUEUE, depth = 1)
-                    upsertNote(composition, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
-                    upsertNote(composition, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
-                    val c = createChild(composition, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
-                    upsertNote(composition, c.id, "spec-a", "queue", "a", actorId = "c-agent-1")
-                    upsertNote(composition, c.id, "spec-b", "queue", "b", actorId = "c-agent-2")
-                    c
-                }
-
-            val response =
-                client.post("/api/v1/items/${child.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, "the child's own advance must stand: ${response.bodyAsText()}")
-            val json = parseJson(response.bodyAsText())
-            val cascades = json["cascadeEvents"]!!.jsonArray
-            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
-            val cascade = cascades[0].jsonObject
-            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "the parent cascade must be suppressed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
-            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
-            assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
-        }
-
-    @Test
-    fun `R4b REST advance start cascade -- WARN lets the parent cascade proceed, reporting violations on the cascade event`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("warn"))
-            application { configureProductionRestApp(composition, "indep-rest-r4b") }
-
-            val child =
-                runBlocking {
-                    val root = createRoot(composition)
-                    val parent = createChild(composition, root, root, "indep-cascade", Role.QUEUE, depth = 1)
-                    upsertNote(composition, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
-                    upsertNote(composition, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
-                    val c = createChild(composition, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
-                    upsertNote(composition, c.id, "spec-a", "queue", "a", actorId = "c-agent-1")
-                    upsertNote(composition, c.id, "spec-b", "queue", "b", actorId = "c-agent-2")
-                    c
-                }
-
-            val response =
-                client.post("/api/v1/items/${child.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val cascade = parseJson(response.bodyAsText())["cascadeEvents"]!!.jsonArray[0].jsonObject
-            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent cascade proceed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
-            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
-        }
-
     // ─────────────────────────────────────────────────────────────────────
     // R5 (S10) -- REST redaction: violations carry seat names only, never an actor id; identical
     // for admin and non-admin callers.
@@ -594,76 +433,10 @@ work_item_schemas:
             assertEquals("implementer", nonAdminViolations[0].jsonObject["conflictingSeat"]!!.jsonPrimitive.content)
         }
 
-    @Test
-    fun `R5b REST advance 200 success body never contains the actor id`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("warn"))
-            application { configureProductionRestApp(composition, "indep-rest-r5b") }
-
-            val item =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = SENTINEL_ACTOR)
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = SENTINEL_ACTOR)
-                    i
-                }
-
-            val response =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val body = response.bodyAsText()
-            assertFalse(body.contains(SENTINEL_ACTOR), "REST advance success body must never contain the actor id: $body")
-            assertEquals(1, parseJson(body)["violations"]!!.jsonArray.size)
-        }
-
     // ─────────────────────────────────────────────────────────────────────
     // R6 (S1 addendum) -- a schema with no `independent_of` anywhere: REST /gate and REST advance
     // carry no `violations` key at all, even in REJECT mode, even with a same-actor fixture.
     // ─────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `R6 REST gate and REST advance omit the violations key entirely for a schema with no independent_of, REJECT mode`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-r6") }
-
-            val item =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "plain-work")
-                    upsertNote(composition, i.id, "only-note", "work", "filled", actorId = "same-agent")
-                    i
-                }
-
-            val gateResponse =
-                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(HttpStatusCode.OK, gateResponse.status)
-            val gateJson = parseJson(gateResponse.bodyAsText())
-            assertFalse(gateJson["gateStatus"]!!.jsonObject.containsKey("violations"), "gateStatus: ${gateJson["gateStatus"]}")
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(
-                HttpStatusCode.OK,
-                advanceResponse.status,
-                "no independent_of anywhere -> nothing to block on: ${advanceResponse.bodyAsText()}",
-            )
-            val advanceJson = parseJson(advanceResponse.bodyAsText())
-            assertFalse(advanceJson.containsKey("violations"), "advance response: $advanceJson")
-        }
 
     // ─────────────────────────────────────────────────────────────────────
     // F1 (orchestrator review follow-up, 2026-09-28, HEAD 0b2633ac) -- JSON emission rule per the
@@ -676,123 +449,6 @@ work_item_schemas:
     // (violations is null there, not an empty list) -- neither covers "computed to [] " on the
     // clean/distinct branch.
     // ─────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `F1 REST gate emits an empty violations array for a clean distinct-actor fixture, REST advance 200 omits it entirely`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-f1") }
-
-            val item =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "agent-s")
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = "agent-n")
-                    i
-                }
-
-            val gateResponse =
-                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(HttpStatusCode.OK, gateResponse.status)
-            val gateStatus = parseJson(gateResponse.bodyAsText())["gateStatus"]!!.jsonObject
-            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "gateStatus: $gateStatus")
-            assertTrue(gateStatus.containsKey("violations"), "gateStatus must carry the key even when empty: $gateStatus")
-            assertEquals(0, gateStatus["violations"]!!.jsonArray.size, "violations: ${gateStatus["violations"]}")
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, advanceResponse.status, "clean fixture must apply: ${advanceResponse.bodyAsText()}")
-            val advanceJson = parseJson(advanceResponse.bodyAsText())
-            assertFalse(
-                advanceJson.containsKey("violations"),
-                "REST advance 200 must OMIT violations when the computed list is empty: $advanceJson",
-            )
-        }
-
-    @Test
-    fun `F1b a 422 caused by missing notes only, independence clean -- details omits violations entirely`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-f1b") }
-
-            val item =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    // Only implementation-notes filled; test-manifest (the N note declaring
-                    // independent_of) is left UNFILLED, so the missing-notes gate blocks the
-                    // transition while the independence check never evaluates the unfilled N at
-                    // all (task-scope-addendum: "Unfilled N is never evaluated").
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "agent-s")
-                    i
-                }
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, advanceResponse.status)
-            val advanceJson = parseJson(advanceResponse.bodyAsText())
-            assertEquals("gate_blocked", advanceJson["error"]!!.jsonPrimitive.content, "body: $advanceJson")
-            val details = advanceJson["details"]!!.jsonObject
-            assertTrue(
-                details["missingNotes"]!!.jsonArray.isNotEmpty(),
-                "sanity: this 422 must be caused by missing notes, not independence: $details",
-            )
-            assertFalse(
-                details.containsKey("violations"),
-                "a 422 with an empty computed violations list must OMIT the key entirely: $details",
-            )
-        }
-
-    @Test
-    fun `F1c a clean start cascade omits violations on the cascade event entirely`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig("reject"))
-            application { configureProductionRestApp(composition, "indep-rest-f1c") }
-
-            val child =
-                runBlocking {
-                    val root = createRoot(composition)
-                    val parent = createChild(composition, root, root, "indep-cascade", Role.QUEUE, depth = 1)
-                    upsertNote(composition, parent.id, "spec-a", "queue", "a", actorId = "p-agent-alpha")
-                    upsertNote(composition, parent.id, "spec-b", "queue", "b", actorId = "p-agent-beta")
-                    val c = createChild(composition, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
-                    upsertNote(composition, c.id, "spec-a", "queue", "a", actorId = "c-agent-1")
-                    upsertNote(composition, c.id, "spec-b", "queue", "b", actorId = "c-agent-2")
-                    c
-                }
-
-            val response =
-                client.post("/api/v1/items/${child.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, "the child's own advance must stand: ${response.bodyAsText()}")
-            val json = parseJson(response.bodyAsText())
-            val cascades = json["cascadeEvents"]!!.jsonArray
-            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
-            val cascade = cascades[0].jsonObject
-            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "a clean parent cascade must apply: $cascade")
-            assertFalse(
-                cascade.containsKey("violations"),
-                "a clean cascade event must OMIT violations entirely, not report an empty array: $cascade",
-            )
-        }
 
     // ─────────────────────────────────────────────────────────────────────
     // R5 (S10 continued) -- redaction structural guarantee: since violations never carry an actor

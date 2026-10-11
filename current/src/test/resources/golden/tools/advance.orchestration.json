@@ -1,0 +1,159 @@
+{
+  "name": "advance",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "transition",
+                "claim",
+                "release",
+                "heartbeat"
+              ]
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Item id: a UUID or a dash-free hex prefix of 8 to 32 characters."
+            },
+            "trigger": {
+              "type": "string",
+              "description": "The trigger to apply: start, complete, block, hold, resume, cancel or reopen. [ops: transition]",
+              "enum": [
+                "start",
+                "complete",
+                "block",
+                "hold",
+                "resume",
+                "cancel",
+                "reopen"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "description": "Optional human-readable summary recorded on the transition. [ops: transition]"
+            },
+            "credentialRefs": {
+              "type": "array",
+              "description": "Audit labels of the credentials this transition consumed (opaque labels, never secret values): at most 8, each 1 to 128 characters matching ^[a-z0-9][a-z0-9\\-_./]*$. [ops: transition]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "select": {
+              "type": "object",
+              "description": "Find-and-claim: claim the best eligible item matching these filters. [ops: claim]",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "Role to look in; default queue.",
+                  "enum": [
+                    "queue",
+                    "work",
+                    "review",
+                    "blocked",
+                    "terminal"
+                  ]
+                },
+                "parentId": {
+                  "type": "string",
+                  "description": "Only direct children of this item."
+                },
+                "tags": {
+                  "type": "array",
+                  "description": "Match items carrying any of these tags.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "priority": {
+                  "type": "string",
+                  "description": "Only items of this priority.",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Only items of this type."
+                },
+                "complexityMax": {
+                  "type": "integer",
+                  "description": "Only items with a complexity of at most this value."
+                },
+                "createdAfter": {
+                  "type": "string",
+                  "description": "Only items created at or after this instant.",
+                  "format": "date-time"
+                },
+                "createdBefore": {
+                  "type": "string",
+                  "description": "Only items created at or before this instant.",
+                  "format": "date-time"
+                },
+                "roleChangedAfter": {
+                  "type": "string",
+                  "description": "Only items whose role changed at or after this instant.",
+                  "format": "date-time"
+                },
+                "roleChangedBefore": {
+                  "type": "string",
+                  "description": "Only items whose role changed at or before this instant.",
+                  "format": "date-time"
+                },
+                "orderBy": {
+                  "type": "string",
+                  "description": "Ranking of the matches: priority (default), oldest or newest.",
+                  "enum": [
+                    "priority",
+                    "oldest",
+                    "newest"
+                  ]
+                }
+              }
+            },
+            "ttlSeconds": {
+              "type": "integer",
+              "description": "Claim lifetime in seconds, 1 to 86400; default 900. [ops: claim, heartbeat]"
+            },
+            "claimRef": {
+              "type": "string",
+              "description": "Opaque caller reference (at most 64 characters), echoed in the result. [ops: claim]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Move items through their phases and manage who owns them. Each ops[] element has an op: transition (apply a trigger), claim (take an item by id or by selector), release, or heartbeat (extend a held claim). A transition on an item claimed by someone else is not_claim_holder. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

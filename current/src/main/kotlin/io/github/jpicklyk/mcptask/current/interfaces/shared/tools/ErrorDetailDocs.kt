@@ -7,12 +7,12 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * The published `detail` shape of each error code, as `describe` lists it: member name to a short type
  * text. The member set is the envelope design's catalog (section 4) as `EnvelopeEncoder.detail` emits
- * it: `config_invalid` is `{errors}` (Q1a naming) and `gate_blocked` has no `violations` until Q13/U19.
+ * it: `config_invalid` is `{errors}` (Q1a naming).
  * A code with no detail (`invalid_cursor`, `unauthenticated`, `partial_failure`, `internal`) has none.
  */
 object ErrorDetailDocs {
     private const val ID = "string (UUID)"
-    private const val ENTITY_KIND = "string: item | note | dependency | document | run | root"
+    private const val ENTITY_KIND = "string: item | note | dependency | document | run | root | lease"
 
     private val docs: Map<ErrorCode, LinkedHashMap<String, String>> =
         mapOf(
@@ -29,7 +29,12 @@ object ErrorDetailDocs {
             ErrorCode.INVALID_TRANSITION to
                 linkedMapOf("itemId" to ID, "fromRole" to "string", "trigger" to "string", "allowed" to "array of string"),
             ErrorCode.GATE_BLOCKED to
-                linkedMapOf("itemId" to ID, "role" to "string", "missing" to "array of {key: string, role: string, seat?: string}"),
+                linkedMapOf(
+                    "itemId" to ID,
+                    "role" to "string",
+                    "missing" to "array of {key: string, role: string, seat?: string}, empty when only violations block",
+                    "violations" to "array of {gate: string, reason: string}, optional"
+                ),
             ErrorCode.DEPENDENCY_UNMET to linkedMapOf("itemId" to ID, "blockers" to "array of {id: $ID, role: string}"),
             ErrorCode.CYCLE_DETECTED to linkedMapOf("path" to "array of $ID"),
             ErrorCode.CLAIM_HELD to

@@ -37,4 +37,10 @@ data class ResourceRequirement(
  *   implemented by a follow-on task).
  * - [ADVISORY]: audit-only — recorded but never enforced or leased.
  */
-enum class ResourceMode { EXCLUSIVE, ADVISORY }
+enum class ResourceMode {
+    EXCLUSIVE,
+    ADVISORY;
+
+    /** The lowercase wire name (`exclusive`, `advisory`) error details report. */
+    val wire: String get() = name.lowercase()
+}

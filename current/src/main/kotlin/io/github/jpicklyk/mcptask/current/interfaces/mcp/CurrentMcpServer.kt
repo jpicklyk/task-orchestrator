@@ -20,8 +20,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsToo
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
@@ -613,8 +611,6 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         ManageDependenciesTool(),
         QueryDependenciesTool(),
         // Phase 2: Workflow
-        AdvanceItemTool(),
-        ClaimItemTool(),
         GetNextStatusTool(),
         GetNextItemTool(),
         GetBlockedItemsTool(),
@@ -780,15 +776,13 @@ internal fun Application.installRestApiRoutes(
             searchRoutes(effectiveProvider, toolContext.unitOfWork)
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
-            // Phase 5: write API — items, notes, dependencies, advance
+            // Phase 5: write API — items, notes, dependencies
             itemWriteRoutes(
                 effectiveProvider,
                 degradedModePolicy,
                 toolContext.idempotency,
-                toolContext.advanceServiceFactory(),
                 toolContext.unitOfWork,
                 toolContext.itemCommandService,
-                warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
             )
             noteWriteRoutes(
@@ -827,7 +821,7 @@ internal fun Application.installRestApiRoutes(
             // the same RuleService the query_rules MCP tool uses (A3, 840e700a).
             ruleRoutes(effectiveProvider)
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
-            resourceLeaseRoutes(effectiveProvider, toolContext.unitOfWork)
+            resourceLeaseRoutes(toolContext.claimService)
             // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced
             // by the dispatcher from the bearer principal; mounted last so it never shadows a resource route.
             opsRoutes(toolRegistry, toolDispatcher)

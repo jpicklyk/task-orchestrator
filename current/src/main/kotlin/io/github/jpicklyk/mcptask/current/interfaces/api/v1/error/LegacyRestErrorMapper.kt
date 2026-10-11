@@ -1,22 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.error
 
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
-import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.CachedHttpResponse
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /** The read-fault text the 3.x REST read routes already use for a `db_error`. */
 const val DB_QUERY_FAILED: String = "Database query failed"
@@ -103,106 +95,6 @@ object LegacyRestErrorMapper {
             etag = etag,
             extraHeaders = extraHeaders
         )
-
-    /**
-     * Maps a structured [AdvanceFailure] from the advance service to its HTTP error response:
-     *
-     * - [AdvanceFailure.GateBlocked] -> **422** `gate_blocked`, with the structured missing required notes in
-     *   `details.missingNotes` and, when the target schema is seat-aware, `details.missingBySeat`.
-     * - [AdvanceFailure.ValidationFailed] -> **422** `transition_blocked`, with the dependency blockers.
-     * - [AdvanceFailure.ResolutionFailed] / [AdvanceFailure.ApplyFailed] -> **422** `transition_failed`.
-     * - [AdvanceFailure.ResourceLeaseUnavailable] -> **409** `resource_unavailable`, with a `Retry-After`
-     *   header (whole seconds, rounded UP so a client never retries early) and `details.contendedResources` /
-     *   `details.retryAfterMs`. Resource KEYS only: never the holding item or actor.
-     * - [AdvanceFailure.PolicyRejected] -> **401** `verification_failed` (defensive: ownership is not enforced on REST).
-     * - [AdvanceFailure.OwnershipRejected] -> **409** `not_claim_holder` (defensive: same caveat).
-     */
-    fun advanceFailure(failure: AdvanceFailure): CachedHttpResponse =
-        when (failure) {
-            is AdvanceFailure.GateBlocked ->
-                captured(LegacyRestCode.GATE_BLOCKED, failure.message, gateBlockedDetails(failure))
-            is AdvanceFailure.ValidationFailed ->
-                captured(LegacyRestCode.TRANSITION_BLOCKED, failure.message, validationFailedDetails(failure))
-            is AdvanceFailure.ResourceLeaseUnavailable ->
-                captured(
-                    LegacyRestCode.RESOURCE_UNAVAILABLE,
-                    failure.message,
-                    resourceLeaseUnavailableDetails(failure),
-                    // Round UP to whole seconds: Retry-After has second granularity, and rounding down
-                    // would tell the client to retry before the lease can possibly have expired.
-                    failure.retryAfterMs?.let { ms -> mapOf(HttpHeaders.RetryAfter to ((ms + 999) / 1000).coerceAtLeast(1).toString()) }
-                        ?: emptyMap()
-                )
-            is AdvanceFailure.ResolutionFailed -> captured(LegacyRestCode.TRANSITION_FAILED, failure.message)
-            is AdvanceFailure.ApplyFailed -> captured(LegacyRestCode.TRANSITION_FAILED, failure.message)
-            is AdvanceFailure.PolicyRejected -> captured(LegacyRestCode.VERIFICATION_FAILED, failure.reason)
-            is AdvanceFailure.OwnershipRejected -> captured(LegacyRestCode.NOT_CLAIM_HOLDER, failure.message)
-        }
-
-    private fun gateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonObject =
-        buildJsonObject {
-            put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-            put(
-                "missingNotes",
-                kotlinx.serialization.json.buildJsonArray {
-                    failure.missingNotes.forEach { entry ->
-                        add(
-                            buildJsonObject {
-                                put("key", JsonPrimitive(entry.key))
-                                put("description", JsonPrimitive(entry.description))
-                                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                entry.skill?.let { put("skill", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-                }
-            )
-            // Mirrors get_context / REST /gate's missingBySeat: present only when AdvanceService computed it
-            // (seat-aware schema), absent otherwise.
-            failure.missingBySeat?.let { bySeat ->
-                put(
-                    "missingBySeat",
-                    buildJsonObject {
-                        bySeat.forEach { (seat, keys) ->
-                            put(seat, JsonArray(keys.map { JsonPrimitive(it) }))
-                        }
-                    }
-                )
-            }
-            // Independence-attestation findings: the same raw JSON shape MCP's advance_item gate_blocked
-            // details use (actor-free by construction); present only when the list is non-empty.
-            NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
-        }
-
-    private fun validationFailedDetails(failure: AdvanceFailure.ValidationFailed): JsonObject =
-        buildJsonObject {
-            put(
-                "blockers",
-                kotlinx.serialization.json.buildJsonArray {
-                    failure.blockers.forEach { blocker ->
-                        add(
-                            buildJsonObject {
-                                put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                put("currentRole", JsonPrimitive(blocker.currentRole?.name?.lowercase() ?: BlockerInfo.UNKNOWN_ROLE))
-                                put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                            }
-                        )
-                    }
-                }
-            )
-        }
-
-    private fun resourceLeaseUnavailableDetails(failure: AdvanceFailure.ResourceLeaseUnavailable): JsonObject =
-        buildJsonObject {
-            put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-            put(
-                "contendedResources",
-                kotlinx.serialization.json.buildJsonArray {
-                    failure.contendedResources.forEach { add(JsonPrimitive(it)) }
-                }
-            )
-            failure.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-        }
 }
 
 /** Responds with the error of [code] at its status: `{error, message, details?}`, plus [headers] when given. */

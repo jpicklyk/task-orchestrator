@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.test.get
@@ -145,32 +144,6 @@ class WriteRoutesBodyLimitTest {
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals("Patch Target", persisted!!.title, "PATCH body must never have been applied")
-        }
-
-    @Test
-    fun `POST items id advance with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance Target", depth = 0))!! }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_JSON_WRITE_BODY_BYTES + 1L,
-                            contentType = ContentType.Application.Json,
-                            actualBytes = byteArrayOf('{'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"))
-
-            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals(Role.QUEUE, persisted!!.role, "advance must never have been applied")
         }
 
     @Test

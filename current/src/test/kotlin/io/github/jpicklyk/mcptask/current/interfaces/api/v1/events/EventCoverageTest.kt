@@ -1183,13 +1183,6 @@ class EventCoverageTest {
                                     )
                                 },
                         ),
-                    "advance_item" to advance(other.id, "start"),
-                    "claim_item" to
-                        arrayOf(
-                            "claims" to buildJsonArray { add(buildJsonObject { put("itemId", child.id.toString()) }) },
-                            "actor" to actor,
-                            "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
-                        ),
                     "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
                     "create_work_tree" to
                         arrayOf(
@@ -1278,8 +1271,6 @@ class EventCoverageTest {
                 "manage_items" to setOf("item.created"),
                 "manage_notes" to setOf("note.upserted"),
                 "manage_dependencies" to setOf("dependency.added"),
-                "advance_item" to setOf("item.transitioned"),
-                "claim_item" to setOf("claim.acquired"),
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("config.version_created"),

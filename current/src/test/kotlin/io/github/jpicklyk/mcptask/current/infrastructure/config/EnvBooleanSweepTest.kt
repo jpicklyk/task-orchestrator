@@ -94,16 +94,15 @@ class EnvBooleanSweepTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `S7 unset yields the documented default for all 8 boolean env vars, with no WARN`() {
+    fun `S7 unset yields the documented default for all 7 boolean env vars, with no WARN`() {
         val warnings =
             captureWarnLogs {
                 val c = AppConfig.fromEnv { null }
-                // The 6 AppConfig-resident vars.
+                // The 5 AppConfig-resident vars.
                 assertFalse(c.databaseShowSql, "DATABASE_SHOW_SQL default is false")
                 assertFalse(c.flywayRepair, "FLYWAY_REPAIR default is false")
                 assertFalse(c.apiAllowQueryTokenForSse, "API_ALLOW_QUERY_TOKEN_FOR_SSE default is false")
                 assertTrue(c.apiRedactNoteAttribution, "API_REDACT_NOTE_ATTRIBUTION default is true")
-                assertTrue(c.apiWarnOnClaimedAdvance, "API_WARN_ON_CLAIMED_ADVANCE default is true")
 
                 // API_ENABLED default is false: an unset loader must resolve to Disabled.
                 val disabled = ApiAuthConfigLoader(envResolver = { null }).load()
@@ -119,7 +118,7 @@ class EnvBooleanSweepTest {
                 assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "message: ${ex.message}")
             }
 
-        assertEquals(0, warnings.size, "an unset variable must never warn, across all 8 vars")
+        assertEquals(0, warnings.size, "an unset variable must never warn, across all 7 vars")
     }
 
     // ------------------------------------------------------------------

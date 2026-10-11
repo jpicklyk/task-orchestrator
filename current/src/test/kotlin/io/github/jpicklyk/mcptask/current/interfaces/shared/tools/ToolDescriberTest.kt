@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
  * ops, narrowed by `only`; errors = declared plus common, sorted by wire; common = invalid_request, unknown_parameter,
  * unavailable, internal; plus invalid_cursor for a Paged select; plus partial_failure and idempotency_mismatch for ops;
  * `detail` = member name to non-blank type text, member set = the envelope section 4 detail column, config_invalid -> {errors},
- * gate_blocked without `violations`, absent for codes with no detail) and decision D7 (`describe` must be a boolean; `true`
+ * gate_blocked with `violations`, absent for codes with no detail) and decision D7 (`describe` must be a boolean; `true`
  * allows only `actor` and the selector to narrow, any other key is `invalid_request` at its pointer with reason "not allowed
  * with describe"; `false` is a normal call; call_log operation `describe`) and D2 (describe comes before the selector).
  * The wire name and kind of each error are recomputed from the declared `ErrorCode` entries, not from the describer.
@@ -246,7 +246,7 @@ class ToolDescriberTest {
                 ErrorCode.DUPLICATE to setOf("kind", "id", "existingId"),
                 ErrorCode.IDEMPOTENCY_MISMATCH to setOf("idempotencyKey"),
                 ErrorCode.INVALID_TRANSITION to setOf("itemId", "fromRole", "trigger", "allowed"),
-                ErrorCode.GATE_BLOCKED to setOf("itemId", "role", "missing"),
+                ErrorCode.GATE_BLOCKED to setOf("itemId", "role", "missing", "violations"),
                 ErrorCode.DEPENDENCY_UNMET to setOf("itemId", "blockers"),
                 ErrorCode.CYCLE_DETECTED to setOf("path"),
                 ErrorCode.CLAIM_HELD to setOf("itemId", "expiresAt", "retryAfterMs"),
@@ -265,7 +265,7 @@ class ToolDescriberTest {
         for ((code, members) in expected) {
             assertEquals(members, assertNotNull(ErrorDetailDocs.of(code), code.wire).keys, code.wire)
         }
-        assertFalse("violations" in assertNotNull(ErrorDetailDocs.of(ErrorCode.GATE_BLOCKED)), "violations waits for Q13/U19")
+        assertTrue("violations" in assertNotNull(ErrorDetailDocs.of(ErrorCode.GATE_BLOCKED)), "gate_blocked documents violations (Q13/U19)")
         val invalid = assertNotNull(ErrorDetailDocs.of(ErrorCode.INVALID_REQUEST))
         assertTrue(invalid.isNotEmpty(), "invalid_request documents its violation members")
     }

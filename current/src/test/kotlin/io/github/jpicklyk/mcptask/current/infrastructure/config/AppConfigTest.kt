@@ -57,9 +57,6 @@ class AppConfigTest {
         // Redaction defaults to true (redact).
         assertTrue(c.apiRedactNoteAttribution)
 
-        // Warn defaults to true.
-        assertTrue(c.apiWarnOnClaimedAdvance)
-
         assertEquals(emptyList(), c.corsAllowedOrigins)
         assertEquals(listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"), c.corsAllowedMethods)
         assertEquals(listOf("Authorization", "Content-Type", "If-Match", "X-Client-Host"), c.corsAllowedHeaders)
@@ -90,7 +87,6 @@ class AppConfigTest {
                     "API_SSE_AUTH_CHECK_INTERVAL_SECONDS" to "45",
                     "API_SSE_BUFFER_SIZE" to "2048",
                     "API_TOKENS_PATH" to "/secrets/custom.yaml",
-                    "API_WARN_ON_CLAIMED_ADVANCE" to "false",
                     "CORS_MAX_AGE_SECONDS" to "7200",
                 ),
             )
@@ -111,7 +107,6 @@ class AppConfigTest {
         assertEquals(45, c.apiSseAuthCheckIntervalSeconds)
         assertEquals(2048, c.apiSseBufferSize)
         assertEquals("/secrets/custom.yaml", c.apiTokensPath)
-        assertFalse(c.apiWarnOnClaimedAdvance)
         assertEquals(7200L, c.corsMaxAgeSeconds)
     }
 
@@ -169,13 +164,6 @@ class AppConfigTest {
         // Any non-"false" value keeps redaction on.
         assertTrue(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "true")).apiRedactNoteAttribution)
         assertFalse(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "0")).apiRedactNoteAttribution)
-    }
-
-    @Test
-    fun `warn on claimed advance only disabled by literal false`() {
-        assertFalse(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "false")).apiWarnOnClaimedAdvance)
-        assertFalse(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "FALSE")).apiWarnOnClaimedAdvance)
-        assertTrue(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "true")).apiWarnOnClaimedAdvance)
     }
 
     // ------------------------------------------------------------------

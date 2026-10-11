@@ -155,9 +155,9 @@ class SqliteClaimStore(
                         item.claimedBy == agentId -> ClaimResult.Success(item)
                         else -> {
                             // Held by someone else with an active claim: the hint is the time left, at least 1 ms.
-                            val retryAfterMs =
-                                ClaimState.of(item)?.let { maxOf(1L, it.expiresAt.toEpochMilli() - now.toEpochMilli()) }
-                            ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                            val held = checkNotNull(ClaimState.of(item)) { "A refused claim on $itemId has no active claim on the row" }
+                            val retryAfterMs = maxOf(1L, held.expiresAt.toEpochMilli() - now.toEpochMilli())
+                            ClaimResult.AlreadyClaimed(itemId, held.expiresAt, retryAfterMs)
                         }
                     }
                 }

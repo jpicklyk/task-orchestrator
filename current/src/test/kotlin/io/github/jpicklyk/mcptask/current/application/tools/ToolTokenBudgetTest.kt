@@ -74,11 +74,9 @@ class ToolTokenBudgetTest {
             "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "query_notes" to 2386,
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
-            "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
             "manage_notes" to 2057,
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
             "query_dependencies" to 2050, // was 1708; +333 chars, limit/offset params + graph.truncated (6e2d8fc2)
-            "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559
             "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
@@ -93,7 +91,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 50_450 // was 48_850; +1_600 for the new query_rules ceiling (measured 1384, A3 840e700a)
+    private val totalCeiling = 44_750 // was 50_450; -5_700 for the deleted advance_item (3_150) and claim_item (2_550) ceilings (Q13)
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

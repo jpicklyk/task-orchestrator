@@ -6,7 +6,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 **Companion docs:**
 - [REST API Reference](api-rest.md) — HTTP endpoint docs, DTOs, error codes, SSE
-- [API Reference — `claim_item`](api-reference.md#claim_item) — tool spec: parameters, outcome codes, examples
+- [API Reference — `advance`](api-reference.md#advance) — tool spec: ops, claim semantics, error codes
 - [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
 - [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) — agent-side model: exclusive vs advisory, contention/retry, guarantees vs non-guarantees
 - This guide — operator-side: identity policy, capacity, disclosure, observability, resource-lease TTL/runbook
@@ -287,7 +287,6 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
 | `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
 
 ### Bearer token secret file
@@ -337,9 +336,9 @@ evicting it, and logs a WARN naming the root and the error. Last-known-good has 
 next successful read refreshes it — and is held per service instance, so MCP and each REST route
 maintain their own independent cache. A root this instance has never successfully read before (a
 cold cache, e.g. right after a restart, before any request has resolved that root's config) has
-nothing to serve on a read error and fails closed: `advance_item`/`complete_tree` report a transient
-`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST `advance`
-and `gate` routes respond `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
+nothing to serve on a read error and fails closed: the `advance` tool fails the element with `unavailable` (`retryAfterMs` 1000) and `complete_tree` reports a transient
+`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST
+`gate` route responds `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
 Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is orthogonal to
 `config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
 back to when the DB itself is transiently unreachable.
@@ -1141,9 +1140,9 @@ curl -X DELETE https://orchestrator.internal:3001/api/v1/resources/leases/stagin
   -H "Authorization: Bearer <admin-token>"
 ```
 
-Requires `ADMIN` capability. Responses: `200` with `{ resourceKey, releasedCount }` on success;
-`404 not_found` if no active lease exists on that key (idempotent-safe — a repeat call after a
-successful release 404s rather than double-counting); `400 validation_error` if `{key}` fails the
+Requires `ADMIN` capability. Responses (all response envelopes): `200` with `data: { resourceKey, releasedCount }` on success;
+`404 not_found` (detail kind `lease`) if no active lease exists on that key (idempotent-safe — a repeat call after a
+successful release 404s rather than double-counting); `400 invalid_request` if `{key}` fails the
 `^[a-z0-9][a-z0-9\-_./]*$` / 128-char check. Every successful force-release is WARN-logged with the
 acting principal's token id — check server logs to attribute the override after the fact. The same
 token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`
