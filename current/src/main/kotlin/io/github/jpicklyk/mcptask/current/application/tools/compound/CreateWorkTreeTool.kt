@@ -33,7 +33,7 @@ import java.util.UUID
  *
  * Given a root item spec and optional child specs, creates all items plus optional
  * dependencies and notes in one atomic call. Eliminates the round-trips required
- * by calling manage_items + manage_dependencies + notes_write separately.
+ * by calling manage_items + deps_write + notes_write separately.
  *
  * No application-layer depth cap is enforced. Cycle protection is delegated to the
  * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
@@ -57,7 +57,7 @@ class CreateWorkTreeTool :
     override val description =
         """
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
-Eliminates the round-trips of calling manage_items + manage_dependencies + notes_write separately.
+Eliminates the round-trips of calling manage_items + deps_write + notes_write separately.
 
 **Attach mode:** pass `root.id` to attach children/deps/notes to an existing item instead of creating
 a new root; `root.title` is then optional. `root.id` and `parentId` cannot both be given (contradictory

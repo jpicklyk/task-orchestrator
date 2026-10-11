@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -119,29 +117,6 @@ class IdempotencyRestRoutesTest {
             assertEquals(1, records())
         }
 
-    @Test
-    fun `S4 POST dependencies honours the key - one edge and a verbatim replay`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "From", depth = 0)) to
-                        repo.workItemRepository().create(WorkItem(title = "To", depth = 0))
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val body = """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}"""
-
-            val first = send("POST", "/api/v1/dependencies", body, key)
-            val firstBody = first.bodyAsText()
-            val second = send("POST", "/api/v1/dependencies", body, key)
-
-            assertEquals(HttpStatusCode.Created, first.status)
-            assertVerbatimReplay(first, firstBody, second)
-            assertEquals(1, rawInt("SELECT count(*) FROM dependencies"))
-            assertEquals(1, records())
-        }
-
     // ---------------------------------------------------------------- S6: mismatch
 
     @Test
@@ -162,62 +137,6 @@ class IdempotencyRestRoutesTest {
             assertNull(mismatch.headers[replayedHeader], "a mismatch is not a replay")
             assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"), "the mismatched request must not execute")
         }
-
-    @Test
-    fun `S6 POST dependencies with the same key and another target is a 409 idempotency_mismatch`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to, other) =
-                runBlocking {
-                    Triple(
-                        repo.workItemRepository().create(WorkItem(title = "From", depth = 0)),
-                        repo.workItemRepository().create(WorkItem(title = "To", depth = 0)),
-                        repo.workItemRepository().create(WorkItem(title = "Other", depth = 0))
-                    )
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-
-            send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""", key)
-            val mismatch =
-                send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${other.id}","type":"blocks"}""", key)
-
-            assertEquals(HttpStatusCode.Conflict, mismatch.status)
-            assertTrue("idempotency_mismatch" in mismatch.bodyAsText())
-            assertEquals(1, rawInt("SELECT count(*) FROM dependencies"))
-        }
-
-    // ---------------------------------------------------------------- S7 / S8: what is recorded
-
-    @Test
-    fun `S7 a 400 cycle_detected is not recorded and the retry with the same key executes once the cycle is gone`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (a, b) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))
-                    val b = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))
-                    repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
-                    a to b
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val body = """{"fromItemId":"${b.id}","toItemId":"${a.id}","type":"blocks"}"""
-
-            val rejected = send("POST", "/api/v1/dependencies", body, key)
-            assertEquals(HttpStatusCode.BadRequest, rejected.status, "attempt 1 must fail")
-            assertTrue("cycle_detected" in rejected.bodyAsText())
-            assertEquals(0, records(), "a state failure is not recorded")
-
-            DriverManager.getConnection(db.jdbcUrl).use { c -> c.createStatement().use { it.executeUpdate("DELETE FROM dependencies") } }
-
-            val retry = send("POST", "/api/v1/dependencies", body, key)
-            assertEquals(HttpStatusCode.Created, retry.status, "the retry with the same key must execute")
-            assertNull(retry.headers[replayedHeader])
-            assertEquals(1, records(), "control: the successful execution is recorded")
-        }
-
-    // ---------------------------------------------------------------- S11 / S15: isolation
 
     @Test
     fun `S1 probe - a mixed-case Idempotency-Key is the same key for advance`(): Unit =

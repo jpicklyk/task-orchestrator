@@ -70,12 +70,10 @@ class ToolTokenBudgetTest {
             "query_items" to 7550, // was 7350; +163 chars, per-mode limit semantics (97aa5855)
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
-            "manage_dependencies" to 2585,
             "query_notes" to 2100, // was 2386; search only since Q11 moved get/list to notes_read, measured 1787
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
-            "query_dependencies" to 2050, // was 1708; +333 chars, limit/offset params + graph.truncated (6e2d8fc2)
             "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559
@@ -91,7 +89,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 46_250 // was 50_450; 49_200 after Q11 (manage_notes removed), -2_950 for Q18 (manage_items removed)
+    private val totalCeiling = 41_615 // was 50_450; 49_200 after Q11, -2_950 manage_items (Q18), -4_635 manage/query_dependencies (Q12)
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

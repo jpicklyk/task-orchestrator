@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -708,44 +707,6 @@ class EventActorRootIdTest {
             assertEquals(dtoPlainA(), a.actor)
             assertEquals(root.id.toString(), a.rootId)
             assertNull(events.one(ApiEventType.ITEM_CREATED, without.okId(0)).actor, "no actor supplied -> field absent")
-        }
-
-    @Test
-    fun `S11b manage_dependencies create with a top-level actor attributes dependency added`(): Unit =
-        runBlocking {
-            val bus = ApiEventBus()
-            val provider = decorated(bus)
-            val flow = bus.subscribe("s11b", emptySet(), lastEventId = null)
-            val ctx = toolContext(bus)
-            val root = provider.newRoot("R-s11b")
-            val a = provider.newChild("A-s11b", root)
-            val b = provider.newChild("B-s11b", root)
-
-            val result =
-                ManageDependenciesTool().execute(
-                    buildJsonObject {
-                        put("operation", "create")
-                        put(
-                            "dependencies",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", a.id.toString())
-                                        put("toItemId", b.id.toString())
-                                        put("type", "BLOCKS")
-                                    },
-                                )
-                            },
-                        )
-                        put("actor", actorJson("agent-a"))
-                    },
-                    ctx,
-                )
-            assertToolSuccess(result)
-
-            val ev = bus.drainDelivered("s11b", flow).one(ApiEventType.DEPENDENCY_ADDED, a.id)
-            assertEquals(dtoPlainA(), ev.actor)
-            assertEquals(root.id.toString(), ev.rootId)
         }
 
     @Test

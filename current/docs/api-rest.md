@@ -183,7 +183,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete) |
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | `POST /items/{id}/advance` |
-| `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /dependencies`, `DELETE /dependencies/{id}` |
+| `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `PUT /roots/{rootId}/plans/{slug}` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
@@ -218,11 +218,9 @@ drift apart.
   tag is checked on each note's owning item)
 - `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
   items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
-- `GET /items/{id}/dependencies` and `GET /items/{id}/backlinks` — the subject item's own scope
-  check is unchanged (`403 scope_forbidden` if the subject itself is out of scope); the
-  *counterparty* item on each edge/backlink is additionally checked against `root_ids` and
-  `tags_include`, and a row whose counterparty is out of scope is dropped from the response body
-  (`200 OK` with a filtered, possibly-empty collection — never `403` for the counterparty side)
+- `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
+  checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
+  and not counted; a write needs every named item (both stored ends for a delete) in scope
 - `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see §21)
 - `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
@@ -309,7 +307,7 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 ## 5. Idempotency
 
-`POST /items/{id}/advance` and `POST /dependencies` support idempotency via the `Idempotency-Key` header (`items_write` and `notes_write` elements use `idempotencyKey` instead, section 20a):
+`POST /items/{id}/advance` supports idempotency via the `Idempotency-Key` header (`items_write`, `notes_write` and `deps_write` elements use `idempotencyKey` instead, section 20a):
 
 ```
 Idempotency-Key: <UUID>
@@ -323,7 +321,7 @@ Idempotency-Key: <UUID>
 - **What is recorded.** Only a 2xx response and a pure payload rejection (a `400 validation_error` for a malformed body or value) are recorded. A response that depends on state or is transient (`404`, `403`, `409`, `412`, `500`, `503`) rolls the write back and is **not** recorded, so a retry with the same key runs again.
 - Concurrent requests with the same key serialize on the database writer: the first executes, the others replay its result.
 - The same record store backs the MCP tools (`requestId`, keyed per element — see `api-reference.md`); a REST key is `"<uuid>:0"` under the REST route, so the two surfaces never collide.
-- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items/{id}/advance` and `POST /dependencies` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
+- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items/{id}/advance` has a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
 
 ---
 
@@ -362,12 +360,10 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `not_found` | 404 | Item, note, or dependency not found |
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
-| `cycle_detected` | 400 | Dependency would create a cycle |
 | `idempotency_mismatch` | 409 | An `Idempotency-Key` was reused with a different request (see §5) |
-| `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
-| `unsupported_media_type` | 415 | A non-JSON `Content-Type` on `POST /items/{id}/advance` or `POST /dependencies` (see §5) |
+| `unsupported_media_type` | 415 | A non-JSON `Content-Type` on `POST /items/{id}/advance` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items/{id}/advance` and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items/{id}/advance` has a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -590,21 +586,10 @@ the field's purpose is external verifiability, so it is deliberately not redacte
 ```
 
 `type` is `blocks` or `relates_to`: blocking dependencies are stored in one orientation (`fromItemId`
-blocks `toItemId`), and `IS_BLOCKED_BY`, accepted as an input type by MCP `manage_dependencies`, is
-normalized to `blocks` with the ends swapped before it is stored. REST create only accepts
-`blocks`/`relates_to` — see POST /dependencies below. `unblockAt` is the effective unblock-role
+blocks `toItemId`); edges are written through `deps_write` (section 13), which accepts only
+`blocks`/`relates_to`. `unblockAt` is the effective unblock-role
 threshold: `null` only for `relates_to` (no blocking semantics); for `blocks` it is the stored value,
 defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
-
-### BacklinkDto
-
-```json
-{
-  "fromItemId": "<uuid>",
-  "fromTitle": "string",
-  "type": "blocks|relates_to"
-}
-```
 
 ### GateStatusDto
 
@@ -1411,61 +1396,24 @@ still run.
 
 ## 13. Endpoints — Dependencies
 
-### GET /items/{id}/dependencies
+The 3.x `GET /items/{id}/dependencies`, `GET /items/{id}/backlinks`, `POST /dependencies` and
+`DELETE /dependencies/{id}` routes are removed and no longer served. Dependencies are read and written
+through the 4.0 tools over `POST /api/v1/ops/{tool}` (section 20a):
 
-Returns the combined dependency view split by direction and type. Requires `READ`.
+- `POST /api/v1/ops/deps_read` - `select: list` (the edges touching an item, filtered by `direction`
+  `incoming` / `outgoing` / `all` and `type`; the old backlinks are `direction: incoming`) or
+  `select: graph` (the blocking graph around an item in topological order). Requires `READ`. A subject
+  item outside the token's scope is `403 forbidden`; an edge whose counterparty is out of scope is
+  dropped from the page and not counted.
+- `POST /api/v1/ops/deps_write` - `ops[]` elements `create`, `delete` (by `id`, by `from`/`to`, or every
+  edge of an `item`), and the patterns `linear`, `fan_out` and `fan_in`, each one element created all or
+  nothing. Requires `MANAGE_DEPENDENCIES`, checked per op. Every named item (both stored ends for a
+  delete) must be in scope, else the element is `forbidden` and nothing is written. A duplicate edge is
+  `duplicate`, a cycle `cycle_detected`; per-element `idempotencyKey` replaces the `Idempotency-Key`
+  header.
 
-**Response `200 OK`:** `DependenciesDto` with `blocks`, `blockedBy`, and `related` arrays.
-
-### GET /items/{id}/backlinks
-
-Items that reference this item via any dependency edge. Requires `READ`.
-
-**Response `200 OK`:** `List<BacklinkDto>`
-
-### POST /dependencies
-
-Create a dependency edge. Requires `MANAGE_DEPENDENCIES`.
-
-**Request body:** `DependencyCreateDto`
-```json
-{
-  "fromItemId": "<uuid>",
-  "toItemId": "<uuid>",
-  "type": "blocks|relates_to",
-  "unblockAt": "queue|work|review|terminal|null"
-}
-```
-
-Validation:
-- `fromItemId` ≠ `toItemId` — `400 validation_error`
-- `unblockAt` must be absent or null for `relates_to` edges — `400 validation_error`
-- Both items must exist — `400 not_found`
-- Both items must be in scope — `403 scope_forbidden`
-- Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`), over the normalized blocker-to-blocked graph (including edges created through MCP `manage_dependencies` with `IS_BLOCKED_BY`); `relates_to` has no blocking semantics and skips the check entirely.
-- Duplicate edge — `409 duplicate_dependency` when an edge with the same `fromItemId`/`toItemId`/`type` already exists. A `blocks` edge that restates a stored one the other way round (a former `IS_BLOCKED_BY` input) is the same stored edge and is rejected the same way.
-
-**Responses:**
-- `201 Created` → `DependencyEdgeDto`
-- `400 cycle_detected` / `validation_error` / `not_found`
-- `409 duplicate_dependency`
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
-- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
-
-Supports `Idempotency-Key` header (see [section 5](#5-idempotency)); the same key with a different body is `409 idempotency_mismatch`.
-
-### DELETE /dependencies/{id}
-
-Remove a dependency edge by its UUID. Requires `MANAGE_DEPENDENCIES`.
-
-Scope check: both `fromItemId` and `toItemId` of the edge must be accessible to the caller.
-
-**Responses:**
-- `204 No Content`
-- `404 not_found`
-- `403 scope_forbidden`
-- `500 db_error` - a store fault: `Database query failed` on the edge lookup, `Failed to delete
-  dependency` on the delete itself (the SQL text is logged, not returned)
+Fields, answers and error codes are described in `api-reference.md` -> `deps_read` and `deps_write`.
+`GET /items/{id}?include=deps` still returns the `DependenciesDto` view (section 8).
 
 ---
 

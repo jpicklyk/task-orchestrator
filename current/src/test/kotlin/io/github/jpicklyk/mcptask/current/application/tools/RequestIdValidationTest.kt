@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -29,9 +28,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the four 3.x mutating tools (manage_dependencies, advance_item,
- * complete_tree, create_work_tree; manage_items and manage_notes were replaced by items_write and notes_write, which
- * take a per-element idempotencyKey instead) must be rejected with a
+ * a malformed `requestId` on any of the three remaining 3.x mutating tools (advance_item, complete_tree,
+ * create_work_tree; manage_items, manage_notes and manage_dependencies were replaced by items_write, notes_write and
+ * deps_write, which take a per-element idempotencyKey instead) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
  * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
  * `create_work_tree` malformed-actor contract are UNCHANGED (guard regressions, not new gates).
@@ -43,8 +42,8 @@ import kotlin.test.assertTrue
  * - O5 `UUID.fromString` javadoc contract (8-4-4-4-12 hex, case-insensitive; rejects braces,
  *   `urn:` prefixes, and wrong lengths).
  *
- * Scenarios S1-S11 live here; S12 (REST `Idempotency-Key` parity) lives in
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.IdempotencyKeyRejectionTest].
+ * Scenarios S1-S10 live here. S11 needed an `operation` parameter, which no remaining 3.x write tool has; S12 (the REST
+ * `Idempotency-Key` parity) went with the removed REST item and note write routes.
  *
  * Per the test-author blindness rule, these tests drive the NEW
  * `BaseToolDefinition.validateRequestIdParam` exclusively through the public `validateParams` /
@@ -121,30 +120,6 @@ class RequestIdValidationTest {
 
     private fun toolCases(): List<ToolCase> =
         listOf(
-            ToolCase("manage_dependencies", ManageDependenciesTool()) { context, actorId ->
-                val from = createItem(context, "Dep From ${UUID.randomUUID()}")
-                val to = createItem(context, "Dep To ${UUID.randomUUID()}")
-                val params =
-                    buildJsonObject {
-                        put("operation", JsonPrimitive("create"))
-                        put(
-                            "dependencies",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from.toString()))
-                                        put("toItemId", JsonPrimitive(to.toString()))
-                                    }
-                                )
-                            )
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    context.dependencyRepository().findByFromItemId(from).isNotEmpty()
-                }
-                params to check
-            },
             ToolCase("advance_item", AdvanceItemTool()) { context, actorId ->
                 val itemId = createItem(context, "Advance Target ${UUID.randomUUID()}")
                 val params =
@@ -528,12 +503,12 @@ class RequestIdValidationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────
-    // S10 — edge (manage_dependencies): non-string JSON shapes for requestId are all rejected
+    // S10 — edge (advance_item): non-string JSON shapes for requestId are all rejected
     // ──────────────────────────────────────────────────────────────────
 
     @TestFactory
-    fun `S10 manage_dependencies rejects non-string requestId JSON shapes`(): List<DynamicTest> {
-        val case = toolCases().first { it.label == "manage_dependencies" }
+    fun `S10 advance_item rejects non-string requestId JSON shapes`(): List<DynamicTest> {
+        val case = toolCases().first { it.label == "advance_item" }
         val forms: List<Pair<String, JsonElement>> =
             listOf(
                 "number" to JsonPrimitive(123),
@@ -559,35 +534,4 @@ class RequestIdValidationTest {
             }
         }
     }
-
-    // ──────────────────────────────────────────────────────────────────
-    // S11 — edge (manage_dependencies): requestId is validated before operation (ordering)
-    // ──────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `S11 manage_dependencies validates requestId before operation`() =
-        runBlocking {
-            val case = toolCases().first { it.label == "manage_dependencies" }
-            val context = freshContext()
-            val (baseParams, mutated) = case.build(context, "agent-1")
-            val withBadOperation =
-                buildJsonObject {
-                    for ((k, v) in baseParams) {
-                        if (k != "operation") put(k, v)
-                    }
-                    put("operation", JsonPrimitive("not-a-real-operation"))
-                }
-            val params = withBadOperation.withRequestId(JsonPrimitive("not-a-uuid"))
-
-            val ex = assertThrows<ToolValidationException> { case.tool.validateParams(params) }
-            assertTrue(
-                ex.message!!.contains("requestId"),
-                "the requestId check must run before the operation check, got: ${ex.message}"
-            )
-            assertFalse(
-                ex.message!!.contains("Invalid operation"),
-                "must report the requestId error, not the operation error, got: ${ex.message}"
-            )
-            assertFalse(mutated(), "must not write when rejected")
-        }
 }

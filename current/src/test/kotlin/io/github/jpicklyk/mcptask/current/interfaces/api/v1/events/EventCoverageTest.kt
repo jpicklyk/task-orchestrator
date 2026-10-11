@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTre
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -36,6 +35,7 @@ import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
@@ -465,11 +465,11 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // manage_dependencies
+    // dependency writes
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `manage_dependencies create and delete record dependency added and removed`(
+    fun `dependency create and delete record dependency added and removed`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -480,19 +480,7 @@ class EventCoverageTest {
 
             val (_, added) =
                 rig.written {
-                    rig.callOk(
-                        ManageDependenciesTool(),
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", a.id.toString())
-                                        put("toItemId", b.id.toString())
-                                    },
-                                )
-                            },
-                    )
+                    (rig.ctx.dependencyCommandService.create(listOf(Dependency(fromItemId = a.id, toItemId = b.id))) as Outcome.Ok).value
                 }
             val add = added.single()
             assertEquals("dependency.added", add.type)
@@ -503,12 +491,7 @@ class EventCoverageTest {
 
             val (_, removed) =
                 rig.written {
-                    rig.callOk(
-                        ManageDependenciesTool(),
-                        "operation" to JsonPrimitive("delete"),
-                        "fromItemId" to JsonPrimitive(a.id.toString()),
-                        "toItemId" to JsonPrimitive(b.id.toString()),
-                    )
+                    (rig.ctx.dependencyCommandService.deleteByRelationship(a.id, b.id, null) as Outcome.Ok).value
                 }
             val rem = removed.single()
             assertEquals("dependency.removed", rem.type)
@@ -1106,19 +1089,7 @@ class EventCoverageTest {
                 mapOf(
                     "items_write" to emptyArray(),
                     "notes_write" to emptyArray(),
-                    "manage_dependencies" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("create"),
-                            "dependencies" to
-                                buildJsonArray {
-                                    add(
-                                        buildJsonObject {
-                                            put("fromItemId", child.id.toString())
-                                            put("toItemId", depTarget.id.toString())
-                                        },
-                                    )
-                                },
-                        ),
+                    "deps_write" to emptyArray(),
                     "advance_item" to advance(other.id, "start"),
                     "claim_item" to
                         arrayOf(
@@ -1156,6 +1127,7 @@ class EventCoverageTest {
                         when (name) {
                             "items_write" -> rig.itemsWrite(createOp("S17 created"))
                             "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
+                            "deps_write" -> rig.ctx.callTool("deps_write", depsCreate(child.id, depTarget.id))
                             else -> rig.call(tools.getValue(name), *params)
                         }
                     }
@@ -1174,16 +1146,21 @@ class EventCoverageTest {
                     "query_items" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(root.id.toString())),
                     "query_notes" to arrayOf("operation" to JsonPrimitive("search"), "query" to JsonPrimitive("anything")),
                     "get_context" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
-                    "query_dependencies" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(child.id.toString())),
                     "get_next_status" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "get_next_item" to emptyArray(),
                     "get_blocked_items" to emptyArray(),
                     "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
                     "notes_read" to emptyArray(),
+                    "deps_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
-                val result = if (name == "notes_read") rig.ctx.listNotesVia(child.id) else rig.call(tools.getValue(name), *params)
+                val result =
+                    when (name) {
+                        "notes_read" -> rig.ctx.listNotesVia(child.id)
+                        "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
+                        else -> rig.call(tools.getValue(name), *params)
+                    }
                 assertTrue(
                     (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean,
                     "read tool $name must succeed so its zero rows mean something: $result"
@@ -1222,7 +1199,7 @@ class EventCoverageTest {
             mapOf(
                 "items_write" to setOf("item.created"),
                 "notes_write" to setOf("note.upserted"),
-                "manage_dependencies" to setOf("dependency.added"),
+                "deps_write" to setOf("dependency.added"),
                 "advance_item" to setOf("item.transitioned"),
                 "claim_item" to setOf("claim.acquired"),
                 "complete_tree" to setOf("item.transitioned"),
@@ -1236,13 +1213,40 @@ class EventCoverageTest {
             setOf(
                 "query_items",
                 "query_notes",
-                "query_dependencies",
                 "get_next_status",
                 "get_next_item",
                 "get_blocked_items",
                 "get_context",
                 "query_rules",
                 "notes_read",
+                "deps_read",
             )
+
+        /** A `deps_write` call creating one BLOCKS edge [from] -> [to]. */
+        fun depsCreate(
+            from: UUID,
+            to: UUID,
+        ): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "create")
+                                put("from", from.toString())
+                                put("to", to.toString())
+                            },
+                        )
+                    },
+                )
+            }
+
+        /** A `deps_read` list call for [item]. */
+        fun depsList(item: UUID): JsonObject =
+            buildJsonObject {
+                put("select", "list")
+                put("item", item.toString())
+            }
     }
 }

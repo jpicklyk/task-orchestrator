@@ -131,15 +131,4 @@ class TransactionOpenerTest {
         val offending = lines.filter { !it.trim().startsWith("#") && "RepositoryProvider" in it }
         assertTrue(offending.isEmpty(), "RepositoryProvider violations were fixed by the move; delete: $offending")
     }
-
-    @Test
-    fun `S16 DependencyWriteRoutes imports no Exposed type`() {
-        val route = GuardSupport.productionSources().single { it.path == "interfaces/api/v1/routes/DependencyWriteRoutes.kt" }
-        val exposed =
-            route.text
-                .lineSequence()
-                .filter { it.trim().startsWith("import ") && "org.jetbrains.exposed" in it }
-                .toList()
-        assertTrue(exposed.isEmpty(), "DependencyWriteRoutes must go through UnitOfWork, found: $exposed")
-    }
 }
