@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
@@ -39,7 +40,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent P11 test (item 919d379e, re-pointed at the `advance` transition op by item 2cd17c00) for S12 on the REST surface:
- * `GET /items/{id}/gate` `gateStatus.canAdvance` and `blockedBy` must equal what `advance` op `transition` with trigger `start`
+ * `POST /ops/items_read` `select: context` `gateStatus.canAdvance` and `blockedBy` must equal what `advance` op `transition` with trigger `start`
  * does over the same generated states as the MCP parity test (every role x dependency x current-phase notes x exclusive-lease
  * combination).
  *
@@ -60,20 +61,20 @@ class PreviewAdvanceParityRestTest {
     private val token = ParityToken("preview-advance", setOf(ApiCapability.READ, ApiCapability.ADVANCE))
 
     @Test
-    fun `S12 REST gate canAdvance and blockedBy equal what advance transition start does, across every generated state`(
+    fun `S12 REST context canAdvance and blockedBy equal what advance transition start does, across every generated state`(
         @TempDir dir: Path
     ): Unit =
         testApplication {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
-            application { installParityRestApp(d.rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool()))) }
+            application { installParityRestApp(d.rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool(), ItemsReadTool.spec))) }
 
             for (state in P11MatrixState.all()) {
                 val (item, holder) = d.setup(state)
                 val label = state.label
 
-                val gateResponse = client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer ${token.raw}") }
+                val gateResponse = client.restContext(item.id, token.raw)
                 assertEquals(HttpStatusCode.OK, gateResponse.status, "$label: ${gateResponse.bodyAsText()}")
-                val gate = Json.parseToJsonElement(gateResponse.bodyAsText()).jsonObject["gateStatus"]!!.jsonObject
+                val gate = gateResponse.bodyAsText().contextGate()
                 val advance =
                     client.post("/api/v1/ops/advance") {
                         header("Authorization", "Bearer ${token.raw}")

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -11,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.IndependenceViolationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
@@ -221,22 +219,4 @@ fun RoleTransition.toDto(): RoleTransitionDto =
         actor = actorClaim?.toDto(),
         verification = verification?.toDto(),
         consumedCredentials = consumedCredentials.takeIf { it.isNotEmpty() },
-    )
-
-// ─────────────────────────────────────────────────────────────────────────────
-// IndependenceViolation → IndependenceViolationDto (gate status)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Maps a domain [IndependenceViolation] (A2) to its REST wire form. Field-for-field identical to
- * [io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers.buildViolationsArray]'s
- * MCP JSON shape -- actor-free by construction, never an actor id, proof, or claim.
- */
-fun IndependenceViolation.toDto(): IndependenceViolationDto =
-    IndependenceViolationDto(
-        key = key,
-        seat = seat,
-        constraint = constraint.toJsonString(),
-        conflictingSeat = conflictingSeat,
-        waived = if (waived) true else null,
     )

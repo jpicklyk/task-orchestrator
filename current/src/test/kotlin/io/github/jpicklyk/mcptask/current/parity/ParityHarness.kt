@@ -429,7 +429,8 @@ class ParityHarness(
     }
 
     companion object {
-        private val TABLES = listOf("work_items", "notes", "dependencies", "events", "config_versions", "config_heads")
+        private val TABLES =
+            listOf("work_items", "notes", "dependencies", "events", "documents", "document_versions", "links", "config_versions", "config_heads")
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
 

@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.contention
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.service.ok
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -143,7 +143,7 @@ class ClaimBoundaryTest {
             d.claimFor(item, "agent-a")
 
             suspend fun isExpired(): Boolean? {
-                val response = d.rig.callOk(GetContextTool(), "itemId" to JsonPrimitive(item.id.toString()))
+                val response = d.rig.callOk(ItemContextProbe(), "itemId" to JsonPrimitive(item.id.toString()))
                 val detail = response["data"]!!.jsonObject["claimDetail"]!!.jsonObject
                 return detail.flag("isExpired")
             }

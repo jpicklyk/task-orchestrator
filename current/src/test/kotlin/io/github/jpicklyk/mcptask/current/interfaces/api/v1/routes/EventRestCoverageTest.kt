@@ -194,7 +194,7 @@ class EventRestCoverageTest {
     // ---------------------------------------------------------------------------------------------
 
     // ---------------------------------------------------------------------------------------------
-    // Plan documents, project config, leases
+    // Project config, leases
     // ---------------------------------------------------------------------------------------------
 
     /** A `POST /ops/config` body with one [op] element for [root], plus string [fields]. */
@@ -219,25 +219,13 @@ class EventRestCoverageTest {
         }.toString()
 
     @Test
-    fun `REST plan document PUT and the config tool push and reset record their rows`(
+    fun `REST config tool push and reset record their rows`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             application { configureProductionApp(rig.composition) }
             val root = rig.seed("rest cfg root")
-
-            val plan =
-                client.put("/api/v1/roots/${root.id}/plans/rest-plan") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("A plan document.")
-                }
-            assertEquals(HttpStatusCode.OK, plan.status, plan.bodyAsText())
-            val planRows = rig.rows()
-            assertEquals(listOf("document.created"), planRows.types())
-            assertEquals("rest-plan", planRows.single().str("slug"))
-            assertEquals(root.id, planRows.single().rootId)
 
             val mark = rig.maxSeq()
             val config =

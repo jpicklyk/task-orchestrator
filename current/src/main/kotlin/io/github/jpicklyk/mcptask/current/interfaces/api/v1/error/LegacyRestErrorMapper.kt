@@ -43,7 +43,6 @@ enum class LegacyRestCode(
     ETAG_MISMATCH("etag_mismatch", HttpStatusCode.PreconditionFailed, ErrorCode.VERSION_CONFLICT),
     VERSION_CONFLICT("version_conflict", HttpStatusCode.Conflict, ErrorCode.VERSION_CONFLICT),
     SUPERSEDED("superseded", HttpStatusCode.Conflict, ErrorCode.VERSION_CONFLICT),
-    ADOPTED_CONFLICT("adopted_conflict", HttpStatusCode.Conflict, ErrorCode.INVALID_TRANSITION),
     HAS_CHILDREN("has_children", HttpStatusCode.Conflict, ErrorCode.INVALID_TRANSITION),
     INVALID_TRANSITION("invalid_transition", HttpStatusCode.Conflict, ErrorCode.INVALID_TRANSITION),
     TRANSITION_FAILED("transition_failed", HttpStatusCode.UnprocessableEntity, ErrorCode.INVALID_TRANSITION),

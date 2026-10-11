@@ -37,10 +37,37 @@ class WorkViewQueries(
         criteria: NextItemRecommender.Criteria,
         page: PageRequest = PageRequest(),
         includeClaimed: Boolean = false,
-    ): ListPage<WorkItem> =
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): ListPage<WorkItem> = nextView(criteria, page, includeClaimed, scope).page
+
+    /**
+     * [next] plus, when nothing is eligible at all, why ([NextView.emptyReason]) - decided in the same read unit by
+     * one more statement ([ClaimStore.explainIneligible]) that runs only for an empty answer. Only items visible under
+     * [scope] are listed, counted and explained; dependency and claim state are evaluated on the true rows.
+     */
+    suspend fun nextView(
+        criteria: NextItemRecommender.Criteria,
+        page: PageRequest = PageRequest(),
+        includeClaimed: Boolean = false,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): NextView =
         unitOfWork.read {
-            val slice = stores.claimStore().findEligible(criteria.toEligibilityQuery(includeClaimed), page.limit, page.offset)
-            pageOf(slice.items, slice.total, page)
+            val claims = stores.claimStore()
+            val query = criteria.toEligibilityQuery(includeClaimed)
+            val slice = claims.findEligible(query, page.limit, page.offset, scope)
+            val reason =
+                if (slice.total > 0) {
+                    null
+                } else {
+                    val breakdown = claims.explainIneligible(query, scope)
+                    val shielded = maxOf(0, breakdown.matched - breakdown.activelyClaimed - breakdown.dependencyBlocked)
+                    when {
+                        breakdown.matched == 0 -> null
+                        !includeClaimed && breakdown.activelyClaimed + shielded > 0 -> NextEmptyReason.CLAIM_HELD
+                        else -> NextEmptyReason.DEPENDENCY_UNMET
+                    }
+                }
+            NextView(pageOf(slice.items, slice.total, page), reason)
         }
 
     /**
@@ -48,21 +75,28 @@ class WorkViewQueries(
      * least one unsatisfied blocking dependency ([BlockType.DEPENDENCY]); never TERMINAL. Each entry lists every
      * blocking dependency into the item (satisfied ones too), ordered by blocker id. BLOCKED items come first,
      * then queue, work, review; ties by id.
+     *
+     * Only items visible under [scope] are listed and counted; blocked-ness and every blocker's satisfaction are
+     * decided on the true rows, and the blockers listed are the ones visible under [scope] (a blocker outside it is
+     * omitted from [BlockedEntry.blockers] while its item stays listed).
      */
     suspend fun blocked(
-        scope: BlockedScope = BlockedScope(),
+        filter: BlockedScope = BlockedScope(),
         page: PageRequest = PageRequest(),
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ListPage<BlockedEntry> =
         unitOfWork.read {
-            val slice = stores.itemStore().findBlocked(scope.parentId, scope.ancestorId, page.limit, page.offset)
+            val slice = stores.itemStore().findBlocked(filter.parentId, filter.ancestorId, page.limit, page.offset, scope)
             val ids = slice.items.map { it.id }.toSet()
             val edges = stores.dependencyRepository().blockingEdgesFor(ids)
             val blockers = stores.itemStore().findByIdSet(edges.map { it.blocker }.toSet()).associateBy { it.id }
+            val visibleBlockers = visibleIds(blockers.values, scope)
             val edgesByBlocked = edges.groupBy { it.blocked }
             val entries =
                 slice.items.map { item ->
                     val views =
                         (edgesByBlocked[item.id] ?: emptyList())
+                            .filter { visibleBlockers == null || it.blocker in visibleBlockers }
                             .map { edge ->
                                 val blocker = blockers[edge.blocker]
                                 BlockerView(
@@ -134,17 +168,20 @@ class WorkViewQueries(
      * The health / session-resume item data for [scope]: a page of the active (WORK, REVIEW) items, a page of the
      * role-BLOCKED items (both with exact totals), the claim summary over the scope, and the notes of every active
      * item on the page in one batched read. Stalled classification (which needs schemas) is left to the caller.
+     * The blocked page is the SAME set as [blocked] (explicit and dependency, within [filter]'s ancestor), so a
+     * health view and the blocked view never disagree. Only items visible under [scope] are listed and counted.
      */
     suspend fun context(
-        scope: ContextScope = ContextScope(),
+        filter: ContextScope = ContextScope(),
         page: PageRequest = PageRequest(),
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ContextView =
         unitOfWork.read {
             val items = stores.itemStore()
-            val rootIds = scope.ancestorId?.let { setOf(it) }
-            val active = items.findByRoles(setOf(Role.WORK, Role.REVIEW), rootIds, page.limit, page.offset)
-            val blocked = items.findByRoles(setOf(Role.BLOCKED), rootIds, page.limit, page.offset)
-            val claims = stores.claimStore().claimSummary(rootIds)
+            val rootIds = filter.ancestorId?.let { setOf(it) }
+            val active = items.findByRoles(setOf(Role.WORK, Role.REVIEW), rootIds, page.limit, page.offset, scope)
+            val blocked = items.findBlocked(null, filter.ancestorId, page.limit, page.offset, scope)
+            val claims = stores.claimStore().claimSummary(rootIds, scope)
             val activeIds = active.items.map { it.id }.toSet()
             val found = stores.noteRepository().findByItemIds(activeIds)
             val notes = activeIds.associateWith { found[it] ?: emptyList() }
@@ -193,6 +230,17 @@ class WorkViewQueries(
         val byParent: Map<UUID, List<WorkItem>>,
         val childIds: Set<UUID>,
     )
+
+    /**
+     * The ids of [items] visible under [scope] (one statement), or null when [scope] restricts nothing.
+     */
+    private suspend fun ReadScope.visibleIds(
+        items: Collection<WorkItem>,
+        scope: AccessScope,
+    ): Set<UUID>? {
+        if (scope.isUnrestricted || items.isEmpty()) return null
+        return stores.itemStore().filterVisible(items.map { it.id }.toSet(), scope)
+    }
 
     private fun page(
         slice: ItemSlice,

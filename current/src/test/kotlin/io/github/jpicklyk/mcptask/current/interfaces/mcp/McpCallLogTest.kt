@@ -126,24 +126,27 @@ class McpCallLogTest {
                     )
                 }
             },
+            // A 3.x-shaped read (an `operation` argument): every MCP-served 3.x read tool is gone, and the 4.0 tools run through
+            // McpOperationAdapter, which logs no per-call MDC line, so S2 exercises McpToolAdapter through this fixture.
+            probeTool("p10_list") {
+                buildJsonObject {
+                    put("status", "success")
+                    put("data", buildJsonObject { put("items", buildJsonArray { }) })
+                }
+            },
             probeTool("p10_boom") { throw IllegalStateException("kaboom") },
             probeTool("p10_cancel") { throw CancellationException("cancelled from inside") }
         )
 
     private suspend fun connect(
         adapter: McpToolAdapter,
-        tools: Collection<ToolDefinition>,
-        operationLog: CallLogSink? = null
+        tools: Collection<ToolDefinition>
     ): Pair<Client, Server> {
         val srv = Server(serverInfo = Implementation(name = "p10-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         adapter.registerToolsWithServer(srv, tools, rig.ctx)
-        // The 4.0 `config` tool is served by McpOperationAdapter (it has no per-call MDC log line), registered when asked.
-        operationLog?.let {
-            McpOperationAdapter(
-                buildToolDispatcher(rig.ctx),
-                callLog = it
-            ).register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
-        }
+        // The 4.0 tools (items_read ...) through the real operation adapter on the same server, writing the same call log.
+        McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+            .register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val cli =
             Client(
@@ -161,7 +164,7 @@ class McpCallLogTest {
             rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
             writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
             val pair =
-                connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools, operationLog = writer)
+                connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools)
             client = pair.first
             server = pair.second
         }
@@ -268,14 +271,14 @@ class McpCallLogTest {
             val capture = LogCapture().attach(McpToolAdapter::class.java.name)
             val args = arrayOf("operation" to jstr("list"), "rootId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("manage_plan_documents", *args)
+            val result = call("p10_list", *args)
             val after = Instant.now()
             capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
 
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "manage_plan_documents" }
+            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "p10_list" }
             assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
             assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
             assertTrue(
@@ -288,7 +291,7 @@ class McpCallLogTest {
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("manage_plan_documents", row["tool"])
+            assertEquals("p10_list", row["tool"])
             assertEquals("list", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
@@ -331,7 +334,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S6
 
     @Test
-    fun `S6 get_context in item mode records the item version`() =
+    fun `S6 items_read context in item mode records the item version`() =
         runBlocking {
             val item = rig.seed("S6 context")
             val version =
@@ -339,7 +342,7 @@ class McpCallLogTest {
                     .workItemRepository()
                     .getById(item.id)!!
                     .version
-            call("get_context", "itemId" to jstr(item.id.toString()))
+            call("items_read", "select" to jstr("context"), "itemId" to jstr(item.id.toString()))
             val row = flush().single()
             val versions = Json.parseToJsonElement(row["target_versions"] as String).jsonObject
             assertEquals(version.toLong(), versions[item.id.toString()]!!.jsonPrimitive.content.toLong())
@@ -397,7 +400,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 get_next_item over three dependency-blocked queue items records result 0 and eligible 0`() =
+    fun `S6 items_read next over three dependency-blocked queue items records result 0 and eligible 0`() =
         runBlocking {
             val blocker = rig.seed("S6 blocker", role = Role.WORK)
             val items = (1..3).map { rig.seed("S6 blocked $it") }
@@ -406,7 +409,7 @@ class McpCallLogTest {
                     Dependency(fromItemId = blocker.id, toItemId = it.id, type = DependencyType.BLOCKS)
                 )
             }
-            val result = call("get_next_item")
+            val result = call("items_read", "select" to jstr("next"))
             assertTrue(result.isError != true, "${result.content}")
             val row = flush().single()
             assertEquals(0L, row["result_count"], "every candidate is dependency-blocked")
@@ -414,10 +417,10 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 get_next_item with one unblocked item records result 1 of eligible 1`() =
+    fun `S6 items_read next with one unblocked item records result 1 of eligible 1`() =
         runBlocking {
             rig.seed("S6 free")
-            call("get_next_item")
+            call("items_read", "select" to jstr("next"))
             val row = flush().single()
             assertEquals(1L, row["result_count"])
             assertEquals(1L, row["eligible_count"])

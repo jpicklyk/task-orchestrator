@@ -317,11 +317,16 @@ interface ClaimStore {
      * Ordered by [EligibilityQuery.orderBy] (priority rank then complexity ascending with nulls
      * last; or `createdAt` ascending; or `createdAt` descending), then `id` ascending, so offset
      * pages are disjoint and stable. An empty (non-null) [EligibilityQuery.rootIds] selects nothing.
+     *
+     * Only items visible under [scope] are listed or counted (the predicates of `ItemStore.find`, in SQL, before paging);
+     * [scope] is separate from [EligibilityQuery.rootIds], which is a request filter. Dependency and claim state are
+     * evaluated on the true rows, never on the visible ones.
      */
     suspend fun findEligible(
         query: EligibilityQuery,
         limit: Int,
         offset: Int = 0,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ItemSlice
 
     /**
@@ -330,16 +335,22 @@ interface ClaimStore {
      * [EligibilityBreakdown.activelyClaimed] counts rows with an active claim (any holder, the
      * caller included); [EligibilityBreakdown.dependencyBlocked] counts rows with no active claim,
      * not shielded by an ancestor claim, and dependency-blocked. [EligibilityQuery.includeClaimed]
-     * is ignored here.
+     * is ignored here. Only rows visible under [scope] are counted.
      */
-    suspend fun explainIneligible(query: EligibilityQuery): EligibilityBreakdown
+    suspend fun explainIneligible(
+        query: EligibilityQuery,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): EligibilityBreakdown
 
     /**
      * Claim-status counts over the items within the subtree(s) of [rootIds] (roots included; all
      * items when null; all zeros for an empty set), in ONE `SUM(CASE ...)` statement built from
-     * the claim predicates.
+     * the claim predicates. Only items visible under [scope] are counted.
      */
-    suspend fun claimSummary(rootIds: Set<UUID>? = null): ClaimStatusCounts
+    suspend fun claimSummary(
+        rootIds: Set<UUID>? = null,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): ClaimStatusCounts
 
     /**
      * Claim-status counts over the DIRECT children of each parent in [parentIds], in ONE grouped

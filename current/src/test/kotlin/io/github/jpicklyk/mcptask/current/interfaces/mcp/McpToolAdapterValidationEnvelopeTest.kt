@@ -9,8 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.test.seedItem
+import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -22,11 +21,8 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -318,19 +314,17 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real get_context with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real create_work_tree with a non-boolean createNotes maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
-
-            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("S8 item")) })
+            adapter.registerToolWithServer(server, CreateWorkTreeTool(), dummyContext)
 
             val queryResult =
                 client.callTool(
-                    name = "get_context",
+                    name = "create_work_tree",
                     arguments =
                         mapOf(
-                            "itemId" to itemId,
-                            "includeAncestors" to 42
+                            "root" to mapOf("title" to "S8 item"),
+                            "createNotes" to 42
                         )
                 )
 
@@ -344,14 +338,14 @@ class McpToolAdapterValidationEnvelopeTest {
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                    .contains("includeAncestors"),
+                    .contains("createNotes"),
                 "Error message should name the offending parameter: ${error["message"]}"
             )
 
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'get_context':"),
+                textContent[0].text.startsWith("Validation error in 'create_work_tree':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }

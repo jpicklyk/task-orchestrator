@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search
 
+import io.github.jpicklyk.mcptask.current.application.port.TextOp
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 
 /**
@@ -28,9 +29,14 @@ import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 internal object Fts5QueryRenderer {
     private const val QUOTE = "\""
 
-    fun render(query: TextQuery): String = query.terms.joinToString(" ") { phrase(it) }
+    /** The phrases joined by a space (AND) for [TextOp.ALL], by `OR` ([renderAny]) for [TextOp.ANY]. */
+    fun render(query: TextQuery): String =
+        when (query.op) {
+            TextOp.ALL -> query.terms.joinToString(" ") { phrase(it) }
+            TextOp.ANY -> renderAny(query)
+        }
 
-    /** The same phrases joined with `OR`: a row matches when it contains ANY term (used under a column filter). */
+    /** The same phrases joined with `OR`: a row matches when it contains ANY term (column filters, [TextOp.ANY]). */
     fun renderAny(query: TextQuery): String = query.terms.joinToString(" OR ") { phrase(it) }
 
     private fun phrase(term: String): String = QUOTE + term.replace(QUOTE, QUOTE + QUOTE) + QUOTE

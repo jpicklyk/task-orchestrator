@@ -9,11 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -37,10 +32,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installReque
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
@@ -582,17 +575,9 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 2: Workflow
-        GetNextStatusTool(),
-        GetNextItemTool(),
-        GetBlockedItemsTool(),
         // Phase 3: Compound operations
         CompleteTreeTool(),
         CreateWorkTreeTool(),
-        // Phase 3: Context
-        GetContextTool(),
-        // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
-        ManagePlanDocumentsTool(),
     )
 
 /** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
@@ -735,7 +720,6 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
             itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
-            itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(
@@ -744,9 +728,6 @@ internal fun Application.installRestApiRoutes(
             )
             // The published config JSON Schema; every other config read and write is an op of the `config` tool.
             configSchemaRoute()
-            // plan_documents store: per-root plan document read/write —
-            // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
-            planDocumentRoutes(effectiveProvider, toolContext.unitOfWork)
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
             resourceLeaseRoutes(toolContext.claimService)
             // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced

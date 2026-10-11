@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -146,7 +146,7 @@ class SeatPerRootResolverTest {
     ): JsonObject {
         val result =
             runBlocking {
-                GetContextTool().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext)
+                ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext)
             }
         val obj = result as JsonObject
         assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected get_context success: $obj")

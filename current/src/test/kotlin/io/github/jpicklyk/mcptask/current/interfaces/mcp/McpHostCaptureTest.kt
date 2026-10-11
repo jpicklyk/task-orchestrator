@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -135,9 +136,19 @@ class McpHostCaptureTest {
                 .ClaimItemTool()
         )
 
+    /** The removed 3.x `get_context` as a test-only driver over the production `items_read` context select. */
+    private fun contextDriver(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
+        listOf(ItemContextProbe().asLegacyTool("get_context"))
+
     /** One Server carrying the production 3.x tool set through the real McpToolAdapter with the real call log writer. */
     private fun server3x(): Server =
-        bareServer().also { McpToolAdapter(callLog = writer).registerToolsWithServer(it, buildMcpTools() + legacyWorkflowTools(), rig.ctx) }
+        bareServer().also {
+            McpToolAdapter(callLog = writer).registerToolsWithServer(
+                it,
+                buildMcpTools() + legacyWorkflowTools() + contextDriver(),
+                rig.ctx
+            )
+        }
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
@@ -569,7 +580,9 @@ class McpHostCaptureTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             servers += server
-            McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools() + legacyWorkflowTools(), rig.ctx)
+            McpToolAdapter(
+                callLog = writer
+            ).registerToolsWithServer(server, buildMcpTools() + legacyWorkflowTools() + contextDriver(), rig.ctx)
             application { installMcpStreamableHttp(server) }
 
             val alpha = client.initSession("HttpAlpha")

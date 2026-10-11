@@ -5,10 +5,9 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
-import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -343,19 +342,25 @@ class McpToolAdapterIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `callTool with real GetContextTool reads a seeded item`(): Unit =
+    fun `callTool with real CreateWorkTreeTool returns the created root in its payload`(): Unit =
         runBlocking {
-            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("Integration test item")) })
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
+            adapter.registerToolWithServer(server, CreateWorkTreeTool(), dummyContext)
 
-            val result = client.callTool(name = "get_context", arguments = mapOf("itemId" to itemId))
+            val result =
+                client.callTool(
+                    name = "create_work_tree",
+                    arguments =
+                        mapOf(
+                            "root" to mapOf("type" to "test-item", "title" to "integration-test-marker")
+                        )
+                )
 
             assertTrue(result.isError != true, "Expected a successful read, got: ${result.content}")
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                result.structuredContent.toString().contains("Integration test item"),
-                "The payload should carry the seeded item: ${result.structuredContent}"
+                result.structuredContent.toString().contains("integration-test-marker"),
+                "The payload should carry the created root: ${result.structuredContent}"
             )
         }
 
@@ -438,14 +443,14 @@ class McpToolAdapterIntegrationTest {
     @Test
     fun `not_found error carries its code through structuredContent`(): Unit =
         runBlocking {
-            // Real tool, real DB: an unresolvable itemId prefix produces a top-level
+            // Real tool, real DB: an unresolvable parentId prefix produces a top-level
             // RESOURCE_NOT_FOUND error envelope.
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
+            adapter.registerToolWithServer(server, CreateWorkTreeTool(), dummyContext)
 
             val result =
                 client.callTool(
-                    name = "get_context",
-                    arguments = mapOf("itemId" to "deadbeef") // valid hex prefix, matches nothing
+                    name = "create_work_tree",
+                    arguments = mapOf("parentId" to "deadbeef", "root" to mapOf("title" to "orphan")) // valid hex prefix, matches nothing
                 )
 
             assertEquals(true, result.isError)

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -12,12 +11,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.restContext
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.tools.ItemSchemaProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -334,6 +334,12 @@ class SeatlessResponseGoldenTest {
             result = JsonObject(result + ("metadata" to patchedMetadata))
         }
 
+        // A 4.0 envelope (REST ops capture): `meta.reqId` is a fresh per-call id; nothing else in `meta` varies.
+        val meta = result["meta"] as? JsonObject
+        if (meta != null && meta.containsKey("reqId")) {
+            result = JsonObject(result + ("meta" to JsonObject(meta + ("reqId" to JsonPrimitive("<A1-T0-NORMALIZED-REQID>")))))
+        }
+
         val success = result["success"] as? JsonPrimitive
         val data = result["data"] as? JsonObject
         if (success?.booleanOrNull == true && data != null && data.containsKey("configFingerprint")) {
@@ -414,47 +420,47 @@ class SeatlessResponseGoldenTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `golden get_context feature-task QUEUE missing task-scope`(
+    fun `golden items_read context feature-task QUEUE missing task-scope`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_feature_task", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_feature_task", result)
         }
 
     @Test
-    fun `golden get_context bug-fix WORK missing notes across the trait-merged schema`(
+    fun `golden items_read context bug-fix WORK missing notes across the trait-merged schema`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(BUG_FIX_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_bug_fix", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_bug_fix", result)
         }
 
     @Test
-    fun `golden get_context schema-free item`(
+    fun `golden items_read context schema-free item`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(SCHEMA_FREE_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_schema_free", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_schema_free", result)
         }
 
     @Test
-    fun `golden get_context TERMINAL item`(
+    fun `golden items_read context TERMINAL item`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(TERMINAL_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_terminal", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_terminal", result)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -512,7 +518,7 @@ class SeatlessResponseGoldenTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     // ─────────────────────────────────────────────────────────────────────────
-    // REST: GET /items/{id}/gate x2, POST /items/{id}/advance 422 x1
+    // REST: POST /ops/items_read context x2, POST /items/{id}/advance 422 x1
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun restEnvelope(
@@ -534,7 +540,7 @@ class SeatlessResponseGoldenTest {
         } ?: emptyMap()
 
     @Test
-    fun `golden REST GET items id gate feature-task`(
+    fun `golden REST ops items_read context feature-task`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -556,15 +562,12 @@ class SeatlessResponseGoldenTest {
                     degradedModePolicy = fx.degradedModePolicy,
                 )
             }
-            val response =
-                client.get("/api/v1/items/$FEATURE_TASK_ID/gate") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            compareOrRecord("rest_gate_feature_task", restEnvelope(response.status, response.bodyAsText()))
+            val response = client.restContext(FEATURE_TASK_ID, TEST_TOKEN)
+            compareOrRecord("rest_context_feature_task", restEnvelope(response.status, response.bodyAsText()))
         }
 
     @Test
-    fun `golden REST GET items id gate bug-fix`(
+    fun `golden REST ops items_read context bug-fix`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -586,10 +589,7 @@ class SeatlessResponseGoldenTest {
                     degradedModePolicy = fx.degradedModePolicy,
                 )
             }
-            val response =
-                client.get("/api/v1/items/$BUG_FIX_ID/gate") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            compareOrRecord("rest_gate_bug_fix", restEnvelope(response.status, response.bodyAsText()))
+            val response = client.restContext(BUG_FIX_ID, TEST_TOKEN)
+            compareOrRecord("rest_context_bug_fix", restEnvelope(response.status, response.bodyAsText()))
         }
 }

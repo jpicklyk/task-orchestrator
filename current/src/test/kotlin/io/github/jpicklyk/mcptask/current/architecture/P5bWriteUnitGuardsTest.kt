@@ -145,7 +145,6 @@ class P5bWriteUnitGuardsTest {
             interfaces/api/v1/routes/ItemWriteRoutes.kt 7
             interfaces/api/v1/routes/NoteRoutes.kt 2
             interfaces/api/v1/routes/NoteWriteRoutes.kt 3
-            interfaces/api/v1/routes/PlanDocumentRoutes.kt 2
             interfaces/api/v1/routes/ProjectConfigRoutes.kt 1
             interfaces/api/v1/routes/QueryParams.kt 1
             interfaces/api/v1/routes/RuleRoutes.kt 1

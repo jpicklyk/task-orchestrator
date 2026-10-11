@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -26,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
@@ -798,7 +798,7 @@ class TraitsTypedTest {
             val plain = r.make("plain", type = "feature-task")
 
             suspend fun gate(item: WorkItem): JsonObject =
-                r.callOk(GetContextTool(), "itemId" to str(item.id.toString())).data()["gateStatus"]!!.jsonObject
+                r.callOk(ItemContextProbe(), "itemId" to str(item.id.toString())).data()["gateStatus"]!!.jsonObject
 
             suspend fun missing(item: WorkItem): Set<String> = gate(item)["missing"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
 

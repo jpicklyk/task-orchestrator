@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.related.SimilarTerms
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
@@ -9,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
+import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
+import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.LikeLiteral
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
@@ -180,6 +183,58 @@ class SqliteSearchEngine(
         }
     }
 
+    /**
+     * Reads [ref]'s own text (item: title, summary, description and every note body; note: its body; document: title
+     * and body) in at most two statements and hands it to [SimilarTerms.extract].
+     */
+    override suspend fun similarTerms(
+        ref: EntityRef,
+        max: Int,
+    ): List<String> {
+        if (max < 1) return emptyList()
+        val texts =
+            databaseManager.readTx {
+                val out = mutableListOf<String>()
+                val args = listOf<Pair<ColumnType<*>, Any?>>(uuidType to ref.id)
+
+                fun read(
+                    sql: String,
+                    columns: Int,
+                ) = rawQuery(sql, args) { rs ->
+                    while (rs.next()) {
+                        for (c in 1..columns) rs.getString(c)?.let { out += it }
+                    }
+                }
+                when (ref.kind) {
+                    RefKind.ITEM -> {
+                        read("SELECT title, summary, description FROM work_items WHERE id = ?", 3)
+                        read("SELECT body FROM notes WHERE work_item_id = ?", 1)
+                    }
+                    RefKind.NOTE -> read("SELECT body FROM notes WHERE id = ?", 1)
+                    RefKind.DOCUMENT -> read("SELECT title, body FROM documents WHERE id = ?", 2)
+                }
+                out
+            }
+        return SimilarTerms.extract(texts, max)
+    }
+
+    override suspend fun taggedItems(
+        tags: List<String>,
+        filter: ScopeFilter,
+    ): Map<UUID, String?> {
+        val wanted = tags.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        if (wanted.isEmpty()) return emptyMap()
+        if (filter.rootIds != null && filter.rootIds.isEmpty()) return emptyMap()
+        val statement = buildTaggedStatement(wanted, filter)
+        return databaseManager.readTx {
+            rawQuery(statement.sql, statement.args) { rs ->
+                val out = LinkedHashMap<UUID, String?>()
+                while (rs.next()) out[uuidOf(rs.getObject(1)!!)] = rs.getString(2)
+                out
+            }
+        }
+    }
+
     private fun ScopeFilter.hasItemFacets(): Boolean = !roles.isNullOrEmpty() || !tagsAny.isNullOrEmpty() || !traitsAny.isNullOrEmpty()
 
     /** One rendered statement and its positional arguments, in placeholder order. */
@@ -236,6 +291,65 @@ class SqliteSearchEngine(
             where += descriptor.fixedPredicates
             val whereArgs = mutableListOf<Pair<ColumnType<*>, Any?>>(textType to matchExpression)
 
+            val needsItemRow = appendScopePredicates(filter, owner, ctes, cteArgs, where, whereArgs)
+
+            val itemJoin = if (needsItemRow) descriptor.ownerItemJoin.orEmpty() else ""
+            val noteKey = descriptor.noteKeyColumn ?: "NULL"
+            val snippets = if (highlight) ",\n" + snippetColumns(descriptor, table) else ""
+            val extraSelect = descriptor.extraColumns.joinToString("") { ", $it" }
+            val with = if (ctes.isEmpty()) "" else "WITH RECURSIVE " + ctes.joinToString(",\n")
+            val sql =
+                """
+                $with
+                SELECT ft.rank, ${descriptor.idColumn} AS doc_id, $owner AS owner_id, $noteKey AS note_key$snippets$extraSelect
+                FROM $table ft
+                ${descriptor.baseJoin}
+                $itemJoin
+                WHERE ${where.joinToString("\n AND ")}
+                ORDER BY ft.rank
+                LIMIT ?
+                """.trimIndent()
+            return Statement(sql, cteArgs + whereArgs + listOf(intType to window))
+        }
+
+        /**
+         * Renders the [taggedItems] statement: `(id, tags)` of every work item carrying one of [tags] (already trimmed,
+         * lower-cased and non-empty), with every other [filter] predicate applied to the item itself.
+         */
+        fun buildTaggedStatement(
+            tags: List<String>,
+            filter: ScopeFilter,
+        ): Statement {
+            require(tags.isNotEmpty()) { "a tag lookup needs at least one tag" }
+            val ctes = mutableListOf<String>()
+            val cteArgs = mutableListOf<Pair<ColumnType<*>, Any?>>()
+            val where = mutableListOf<String>()
+            val whereArgs = mutableListOf<Pair<ColumnType<*>, Any?>>()
+            appendScopePredicates(filter.copy(tagsAny = tags), "wi.id", ctes, cteArgs, where, whereArgs)
+            val with = if (ctes.isEmpty()) "" else "WITH RECURSIVE " + ctes.joinToString(",\n")
+            val sql =
+                """
+                $with
+                SELECT wi.id, wi.tags
+                FROM work_items wi
+                WHERE ${where.joinToString("\n AND ")}
+                """.trimIndent()
+            return Statement(sql, cteArgs + whereArgs)
+        }
+
+        /**
+         * Appends the SQL predicates of [filter] for content owned by [owner] (a column expression) to [where] and
+         * [whereArgs], and any recursive CTE they need to [ctes] and [cteArgs], in the one order every statement uses.
+         * Returns true when a predicate reads the owning `work_items` row as `wi`.
+         */
+        private fun appendScopePredicates(
+            filter: ScopeFilter,
+            owner: String,
+            ctes: MutableList<String>,
+            cteArgs: MutableList<Pair<ColumnType<*>, Any?>>,
+            where: MutableList<String>,
+            whereArgs: MutableList<Pair<ColumnType<*>, Any?>>,
+        ): Boolean {
             fun subtreeCte(
                 name: String,
                 seedPredicate: String,
@@ -324,24 +438,7 @@ class SqliteSearchEngine(
                 TagAllowlistSql.args(allowed).forEach { whereArgs += textType to it }
                 needsItemRow = true
             }
-
-            val itemJoin = if (needsItemRow) descriptor.ownerItemJoin.orEmpty() else ""
-            val noteKey = descriptor.noteKeyColumn ?: "NULL"
-            val snippets = if (highlight) ",\n" + snippetColumns(descriptor, table) else ""
-            val extraSelect = descriptor.extraColumns.joinToString("") { ", $it" }
-            val with = if (ctes.isEmpty()) "" else "WITH RECURSIVE " + ctes.joinToString(",\n")
-            val sql =
-                """
-                $with
-                SELECT ft.rank, ${descriptor.idColumn} AS doc_id, $owner AS owner_id, $noteKey AS note_key$snippets$extraSelect
-                FROM $table ft
-                ${descriptor.baseJoin}
-                $itemJoin
-                WHERE ${where.joinToString("\n AND ")}
-                ORDER BY ft.rank
-                LIMIT ?
-                """.trimIndent()
-            return Statement(sql, cteArgs + whereArgs + listOf(intType to window))
+            return needsItemRow
         }
 
         /** One `snippet()` column per field, in field order. */
