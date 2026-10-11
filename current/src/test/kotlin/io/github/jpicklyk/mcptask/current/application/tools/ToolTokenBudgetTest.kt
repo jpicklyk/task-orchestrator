@@ -87,9 +87,9 @@ class ToolTokenBudgetTest {
      * trigger sentences were added to the 8 workflow/lifecycle tool descriptions. The other 8
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
+     * 49_200 after Q11; Q12 -4_635 (manage_dependencies 2_585, query_dependencies 2_050);
+     * Q13 -5_700 (advance_item 3_150, claim_item 2_550).
      */
-    // 49_200 after Q11; Q12 -4_635 (manage_dependencies 2_585, query_dependencies 2_050);
-    // Q13 -5_700 (advance_item 3_150, claim_item 2_550)
     private val totalCeiling = 38_865
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere

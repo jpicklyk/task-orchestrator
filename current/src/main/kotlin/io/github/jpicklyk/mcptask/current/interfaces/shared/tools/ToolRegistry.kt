@@ -119,5 +119,4 @@ class ToolRegistry(
  * `buildMcpTools()`). Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
  * `deps_read` and `deps_write`.
  */
-fun buildToolSpecs(): List<ToolSpec> =
-    listOf(notesReadTool, notesWriteTool, depsReadTool(), depsWriteTool(), advanceTool())
+fun buildToolSpecs(): List<ToolSpec> = listOf(notesReadTool, notesWriteTool, depsReadTool(), depsWriteTool(), advanceTool())
