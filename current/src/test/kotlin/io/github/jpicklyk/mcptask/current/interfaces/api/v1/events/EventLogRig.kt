@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -74,6 +75,21 @@ internal class EventLogRig(
     ): JsonObject {
         val result = call(tool, *params)
         assertTrue(result["success"]!!.jsonPrimitive.boolean, "${tool.name} must succeed: $result")
+        return result
+    }
+
+    /** [call] for the `items_read` context probe (the removed 3.x `get_context`): the 3.x test shape `{success, data}`. */
+    suspend fun call(
+        probe: ItemContextProbe,
+        vararg params: Pair<String, JsonElement>,
+    ): JsonObject = probe.execute(JsonObject(mapOf(*params)), ctx) as JsonObject
+
+    suspend fun callOk(
+        probe: ItemContextProbe,
+        vararg params: Pair<String, JsonElement>,
+    ): JsonObject {
+        val result = call(probe, *params)
+        assertTrue(result["success"]!!.jsonPrimitive.boolean, "items_read ${probe.select} must succeed: $result")
         return result
     }
 

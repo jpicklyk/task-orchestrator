@@ -9,7 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
@@ -318,19 +319,21 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real get_context with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real manage_project_config push with a non-boolean force maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
+            adapter.registerToolWithServer(server, ManageProjectConfigTool(YamlConfigDocumentParser), dummyContext)
 
             val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("S8 item")) })
 
             val queryResult =
                 client.callTool(
-                    name = "get_context",
+                    name = "manage_project_config",
                     arguments =
                         mapOf(
-                            "itemId" to itemId,
-                            "includeAncestors" to 42
+                            "operation" to "push",
+                            "rootId" to itemId,
+                            "configYaml" to "work_item_schemas: {}",
+                            "force" to 42
                         )
                 )
 
@@ -344,14 +347,14 @@ class McpToolAdapterValidationEnvelopeTest {
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                    .contains("includeAncestors"),
+                    .contains("force"),
                 "Error message should name the offending parameter: ${error["message"]}"
             )
 
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'get_context':"),
+                textContent[0].text.startsWith("Validation error in 'manage_project_config':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }

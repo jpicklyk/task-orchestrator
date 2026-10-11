@@ -34,6 +34,18 @@ class CallTelemetry(
     private val resultCountRef = AtomicReference<Int?>(null)
     private val eligibleCountRef = AtomicReference<Int?>(null)
     private val searchShapeRef = AtomicReference<SearchShape?>(null)
+    private val relatedSignalsRef = AtomicReference<Map<String, Int>?>(null)
+
+    /**
+     * Per signal (`edges`, `links`, `tags`, `text`), the number of hits on the returned page of a `related` call that
+     * signal contributed to (zeros kept); null when the call ran no `related` read.
+     */
+    val relatedSignals: Map<String, Int>? get() = relatedSignalsRef.get()
+
+    /** First recorded related-signal counts win. */
+    fun setRelatedSignals(counts: Map<String, Int>) {
+        relatedSignalsRef.compareAndSet(null, counts.toMap())
+    }
 
     /** Who made the call, as first recorded: the claim's id and kind and the verification status wire value. */
     data class Principal(
@@ -159,6 +171,11 @@ suspend fun recordCallSearchShape(
     matchMode: String
 ) {
     currentCallTelemetry()?.setSearchShape(CallTelemetry.SearchShape(queryHash, termCount, matchMode))
+}
+
+/** Records, per related signal, how many returned-page hits it contributed to; a no-op outside a call. */
+suspend fun recordCallRelatedSignals(counts: Map<String, Int>) {
+    currentCallTelemetry()?.setRelatedSignals(counts)
 }
 
 /** Records how many hits of each searched kind the search returned (page-invariant); a no-op outside a call. */

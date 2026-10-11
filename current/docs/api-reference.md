@@ -22,7 +22,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 | Tool | Category | R/W | Description |
 |---|---|---|---|
 | `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems, create a whole tree, or complete one (`ops[]`, per-element results) |
-| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, or summarize the hierarchy (4.0 envelope) |
+| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy, or find an item's relatives; orchestration profile adds `context` (gate state or health view), `next` (ranked pick-up candidates) and `blocked` (4.0 envelope) |
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
@@ -30,10 +30,6 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `docs_write` | Documents | Write | Upsert, archive, unarchive, delete a root's versioned documents; attach or detach items (4.0 envelope) |
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
-| `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
-| `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
-| `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
-| `get_blocked_items` | Workflow | Read | Items blocked by dependency or explicit block trigger, capped at 500 per role |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
 | `query_rules` | System | Read | Read git-tracked rule text by rootId+key, by an item skill-pointer resolution, or list rule keys under a root |
 
@@ -198,7 +194,8 @@ failures; resend with a new key to retry the failed items.
 ### items_read
 
 **Purpose.** Read work items: `get` one item, `list` a filtered page, read the note `schema` of a type or
-an item, full-text `search` over item content and note bodies, or an `overview` of the hierarchy. A 4.0
+an item, full-text `search` over item content and note bodies, an `overview` of the hierarchy, or the
+items and documents `related` to an item. A 4.0
 envelope tool: a request is `select` plus that select's fields, and every answer is the response envelope
 (`ok`, `data` or `error`, `meta.reqId`). The same tool is served over MCP and over REST
 `POST /api/v1/ops/items_read`; `GET /items/{id}` and `GET /items/{id}/children` are thin translations to
@@ -206,8 +203,9 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 `schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
 (`describe: true`).
 
-**Selects.** `get`, `list`, `schema`, `search`, `overview`. Every select needs the `READ` capability and
-honors the caller's root and tag scope.
+**Selects.** `get`, `list`, `schema`, `search`, `overview`, `related` (every profile), and `context`, `next`,
+`blocked` (the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select
+needs the `READ` capability and honors the root and tag scope of the caller.
 
 | Select | Fields | Answer (`data`) |
 |---|---|---|
@@ -216,12 +214,16 @@ honors the caller's root and tag scope.
 | `schema` | exactly one of `type` / `itemId`; `rootId?` (with `type` only); `fields?` | the resolved schema view, or `{schemaFree: true}` |
 | `search` | `query`, `kinds?`, `matchMode?`, `itemId?`, `ancestorId?`, `role?`, `tags?`, `traits?`, `snippet?`, `explain?`, `limit?`, `cursor?` | `{items: [hit], page}` |
 | `overview` | `itemId?` or `anchorId?` (not both), `excludeTerminal?`, `includeChildren?` (global only), `limit?`, `cursor?` | global `{items, page}`; scoped `{item, childCounts, items, page}`; anchored `{anchor: {id, title}, items, page}` |
+| `related` | `itemId`, `acrossRoots?`, `explain?`, `limit?`, `cursor?` | `{items: [hit], page}` |
+| `context` | `itemId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | with `itemId`: the gate state of one item; without: `{active, blocked, stalled, claimSummary}` |
+| `next` | `parentId?`, `ancestorId?`, `role?`, `priority?`, `tags?`, `type?`, `complexityMax?`, date bounds, `orderBy?`, `includeClaimed?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view], page, reason?}` |
+| `blocked` | `parentId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view + blockType + blockers], page}` |
 
 **Ids.** Every id field takes a full UUID or 8 to 32 hex characters of one. A prefix that matches more than
 one item is `ambiguous_id`; no match is `not_found`. Under a restricted scope an id that matches nothing
 the caller may see is `forbidden`, never `not_found`, so scope is no existence oracle, and an ambiguous
-prefix lists only the candidates the scope admits. A target id (`get`, `schema`, the overview `itemId` and
-`anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
+prefix lists only the candidates the scope admits. A target id (`get`, `schema`, `related`, the overview
+`itemId` and `anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
 `search` `itemId` / `ancestorId`) is not scope-checked: an out-of-scope subtree simply selects nothing.
 
 **Item views.** One renderer serves every select. Lean defaults: a null, an empty string, an empty array and
@@ -245,8 +247,8 @@ items with at least one of the listed traits (exact). Date bounds are inclusive 
 inverted pair is `invalid_request`. `list` sorts by `sort` (`title`, `priority`, `complexity`, `createdAt`,
 `modifiedAt`; default `createdAt`) in `order` (`asc`, `desc`; default `desc`); the 3.x aliases are gone.
 
-**Paging.** `list`, `search` and `overview` page with `limit` and `cursor`. `list` and `overview`: `limit`
-1 to 200, default 50. `search`: 1 to 100, default 20. A `limit` outside its range is `invalid_request`; a
+**Paging.** `list`, `search`, `overview` and `related` page with `limit` and `cursor`. `list` and `overview`:
+`limit` 1 to 200, default 50. `search`: 1 to 100, default 20. `related`: 1 to 50, default 10. A `limit` outside its range is `invalid_request`; a
 `cursor` that does not decode is `invalid_cursor`. `page` is `{total, truncated, capped?, next?}` and
 follows the envelope's list rules (amendment U22): `total` is the full count on every page, `truncated` is
 true exactly when entries exist after this page, and `next` (an opaque cursor) is present exactly when
@@ -316,13 +318,151 @@ open work below them; a terminal item with a non-terminal descendant is kept. Un
 every list and count covers only items the caller may see. `includeChildren` with `itemId` or `anchorId`,
 or `itemId` with `anchorId`, is `invalid_request`.
 
+**`related`.** The items and documents related to `itemId`, fused from four ranked signals with weighted
+Reciprocal Rank Fusion: each signal contributes `weight / (60 + position)` (position 1-based in that
+signal's list), with weights `edges` 1.0, `links` 1.0, `tags` 0.5, `text` 0.5. The signals:
+
+- `edges`: dependency counterparts in both directions, RELATES_TO first, then blocking ones, each by id.
+  Reasons `relates_to`, `blocks` (this item blocks it) and `blocked_by` (it blocks this item).
+- `links`: resolved links from the item or one of its notes (`links_to`) and links to the item
+  (`linked_from`), any relation; a note end counts as its owning item. Entities with more link rows rank
+  higher. Dangling links, a deleted target and an archived document never count.
+- `tags`: items sharing a tag (case-insensitive), each shared tag worth `1/n` where `n` is the number of
+  visible items carrying it, so rare tags weigh more. Reason `shared_tags:<n>` (the number of shared tags).
+- `text`: up to 8 distinctive words of the item's title, summary, description and note bodies (longest
+  first, common words dropped), matched any-term with stemming over item content, note bodies and
+  documents; a note match counts as its item. Reason `text`.
+
+Hits are ordered by score (higher first), then kind (`document` before `item`), then id. The item itself
+never appears. By default every signal stays inside the item's own root; `acrossRoots: true` lifts that
+bound only. The caller's scope always applies before fusion, so a relative the caller may not see is
+absent and not counted. An item hit is `{kind: "item", itemId, title, score, reasons, explain?}`; a document
+hit is `{kind: "document", rootId, docKind, slug, title?, score, reasons, explain?}`, addressed like a search
+document hit. `reasons` lists every signal that found the hit, in the order edges, links, tags, text.
+`explain` (default off) adds `{ranks: {edges?, links?, tags?, text?}, weights, rrfK}`. `page.total` is the
+size of the capped list (at most 50); `page.capped` is true when more relatives existed. The call log's
+`request_shape` carries `relatedSignals`, per signal the number of hits on the returned page it found
+(zeros kept), and each returned hit records its id and version as a target version.
+
+**Orchestration selects.** `context`, `next` and `blocked` replace `get_context`, `get_next_status`,
+`get_next_item` and `get_blocked_items`. They share the compact view, the id rules, the `fields` rule and the page
+rules above; every list is a `page` with an exact `total`, and under a restricted scope every list, count and total
+covers only items the caller may see (the scope is applied in SQL before paging). Whether an item is blocked and
+whether a blocker is satisfied are always decided on the true rows; a blocker outside the scope of the caller is
+omitted from `blockers` while its item stays listed.
+
+**`context`, item mode (`itemId`).** The state an advance or dispatch decision needs, from ONE preview read unit
+(`canAdvance`, `blockedBy`, `blockers`, `contended`, `missing`, `missingBySeat` and `violations` never disagree with
+`advance` on the same state):
+
+```json
+{
+  "item": { "id": "550e8400", "type": "feature-task", "title": "JWT Handler", "role": "work", "priority": "high", "depth": 2, "version": 4 },
+  "schema": [ { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true, "seat": "planner" } ],
+  "gateStatus": { "canAdvance": false, "phase": "work", "missing": ["implementation-notes"], "missingBySeat": { "implementer": ["implementation-notes"] }, "blockedBy": "note" },
+  "transitions": { "block": "blocked", "cancel": "terminal", "complete": "terminal", "hold": "blocked", "start": "review" },
+  "guidanceKey": "implementation-notes",
+  "skillPointer": "spec-quality",
+  "dispatch": { "agent": "task-orchestrator:implementer" }
+}
+```
+
+- `item` is the compact view; `fields: ["ancestors"]` adds the ancestors the caller may see.
+- `schema` is keys-only (`key`, `role`, `required`, `exists`, `filled`, plus `seat` when the resolved schema is
+  seat-aware). Resolve `description`, `guidance` and `skill` with `items_read(select="schema", itemId=...,
+  fields=["guidance"])`.
+- `gateStatus.canAdvance` is the policy evaluation `advance(start)` would run right now, claim ownership excluded:
+  false when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet,
+  a required note of the current phase is unfilled (or a `reject`-mode independence violation blocks), or an
+  exclusive resource the item declares is held by another item. `blockedBy` (`table`, `dependency`, `note`,
+  `lease`) names the first failing gate and is present only when `canAdvance` is false and the item is not
+  terminal. `blockers` is the unsatisfied list of a dependency block, `[{id, role?, threshold}]` (`id` a full UUID);
+  `contended` lists the resource keys of a lease block; both are omitted when empty.
+- `next` (`{trigger: "start", role}`) is present only when `canAdvance` is true.
+- `transitions` is the row of the item in the status graph for its resolved schema: each user trigger the
+  transition table allows from the role of the item, to its target role (`resume` resolved to the `previousRole` of
+  the item, omitted when none). A terminal item allows `reopen`.
+- `gateStatus.missingBySeat` (seat-aware schema, non-terminal item), `seats` and `dispatchBySeat` (current phase
+  only, flat `{<seat>: {agent?, model?, effort?}}`) follow the seat rules of
+  [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension);
+  `dispatch` is the `{agent?, model?, effort?}` profile of the current role of the item. All are omitted for a
+  seat-less or terminal item, never `[]`/`{}`.
+- `gateStatus.violations` (`[{key, seat?, constraint, conflictingSeat?, waived?}]`, actor-free) reports the
+  independence-attestation findings of the current phase: present (possibly `[]`) when independence `mode` is not
+  `off` and the schema declares `independent_of`, omitted otherwise
+  ([`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)).
+- `claimDetail` (`claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired`) is present only for a
+  claimed item and is the only place a claim identity is disclosed; `isExpired` is true when the claim is not active
+  (an expiry at or before now, or a claim without usable timestamps). Timestamps are UTC ISO-8601.
+- `resourceLeases` (`[{key, mode, held, holderItemId?, acquiredByActorId?, expiresAt?}]`) is present only when the item
+  declares or holds a resource lease: one entry per key it declares or holds; `held` is true only for the own active
+  lease of the item; the holder members appear when some lease on the key is active and its holder item is visible to the
+  caller (a holder outside a restricted scope is omitted, like an out-of-scope blocker)
+  (see [Workflow Guide](workflow-guide.md#11-resource-leasing), section 11).
+- `ancestorId`, `limit` and `cursor` with `itemId` are `invalid_request`. A per-root config read fault answers the
+  transient `unavailable` error, never a fallback.
+
+**`context`, health mode (no `itemId`).** `{active: {items, page}, blocked: {items, page}, stalled: [...],
+claimSummary: {active, expired, unclaimed}}` over the whole scope or, with `ancestorId`, that subtree. One `limit`
+(default 50, max 200) and `cursor` page `active` (role `work` and `review`, longest in the role first) and `blocked`
+together. `blocked` is the same set as the `blocked` select (role `blocked`, or open with an unsatisfied
+dependency; each entry has `blockType`, no blocker detail); the 3.x health check counted role `blocked` only. `stalled` holds the active items on the page whose
+resolved schema has unfilled required notes for their role: `{id, title, role, missing[], guidanceKey?,
+skillPointer?}`. `fields: ["ancestors"]` adds ancestors to `active` and `blocked` entries. The 3.x session-resume
+mode (`since`, `recentTransitions`) has no form here: the REST `GET /transitions` route serves recent transitions
+until `select=history` lands.
+
+**`next`.** The items an agent could pick up now, ranked, with eligibility decided in SQL over the whole matching set
+(an eligible item is found however many ineligible ones rank ahead of it): the item has the `role` (default
+`queue`; `terminal` is `invalid_request` on `/role`), matches the filters, has no active claim, has no ancestor
+holding an active claim, and has no unsatisfied blocking dependency. `complexityMax` is 1 to 10 and excludes items
+without a complexity; `tags` matches any (case-insensitive); date bounds are inclusive and an inverted pair is
+`invalid_request`. `orderBy`: `priority` (default: high first, then lower complexity, unrated last), `oldest`
+(`createdAt` ascending) or `newest`; ties by id. `limit` 1 to 200, default **1**. `includeClaimed` turns the claim
+predicates off (claimed items and items under a claim by another agent stay; dependency blocking still applies) and
+adds `isClaimed` (a boolean, never the holder) to each entry. `fields`: `summary`, `ancestors`.
+
+When the page is empty, `data.reason` says why only if items matched the filters: `claim_held` (matches exist but
+are under an active claim, their own or an ancestor claim) or `dependency_unmet` (matches are free of claims but wait
+on a blocker; with `includeClaimed`, always this). Nothing matched: no `reason`, and a drain worker should stop; a
+`reason` means wait and retry.
+
+```json
+{ "items": [ { "id": "550e8400", "type": "feature-task", "title": "Design login flow", "role": "queue", "priority": "high", "depth": 2, "version": 3 } ],
+  "page": { "total": 12, "truncated": true, "next": "b2Zmc2V0OjE" } }
+```
+
+Discovery patterns for multi-role fleets: work agents `{select: "next"}`; review agents `{select: "next", role: "review"}`;
+triage agents `{select: "next", role: "blocked"}`; fleet health `{select: "next", includeClaimed: true}`; FIFO drain
+`{select: "next", orderBy: "oldest"}`.
+
+**`blocked`.** The blocked items the caller may see: role `blocked` (`blockType: "explicit"`) and queue, work and
+review items with at least one unsatisfied blocking dependency (`blockType: "dependency"`); never terminal. Order:
+`blocked` first, then queue, work, review, then id. Each entry is the compact view plus `blockType` and `blockers`,
+EVERY blocking dependency into the item (satisfied ones too) ordered by blocker id: `[{id, title?, role?, threshold,
+satisfied}]` (`id` a full UUID, `threshold` the role the blocker must reach, `satisfied` whether it has). `limit`
+1 to 200, default 50. `fields`: `summary`, `ancestors`.
+
+```json
+{ "select": "context", "itemId": "550e8400" }
+{ "select": "context", "ancestorId": "550e8400", "limit": 25 }
+{ "select": "next", "role": "queue", "tags": ["backend"], "orderBy": "oldest", "limit": 5 }
+{ "select": "blocked", "ancestorId": "550e8400", "fields": ["ancestors"] }
+```
+
 ```json
 { "select": "get", "itemId": "550e8400", "fields": ["ancestors"], "ifVersion": 7 }
 { "select": "list", "ancestorId": "550e8400", "role": "work", "tags": ["backend"], "limit": 20 }
 { "select": "schema", "type": "feature-task", "rootId": "a1b2c3d4", "fields": ["guidance"] }
 { "select": "search", "query": "OAuth flow", "kinds": ["note"], "ancestorId": "550e8400" }
 { "select": "overview", "anchorId": "550e8400", "excludeTerminal": true }
+{ "select": "related", "itemId": "550e8400", "explain": true, "limit": 5 }
 ```
+
+`get_context`, `get_next_status`, `get_next_item` and `get_blocked_items` are removed: their `mode`,
+`includeAncestors` / `includeDetails` flags, comma-separated `tags`, `limit` ceilings (20, 500 per role, 200 per
+role) and `blockerCount` / `recommendations` / `blockedItems` shapes have no direct form; use `select`, `fields`,
+a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above.
 
 `query_items` and `query_notes` are removed. Their `offset` paging, `includeAncestors` and
 `includeTimestamps` flags, comma-separated `tags` filter, `sortBy` / `sortOrder` names and the
@@ -421,7 +561,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
 
 `manage_notes` is removed (its delete by note ids and delete of every note of an item have no
 replacement, and its `itemContext` guidance block is gone: read the next required note with
-`get_context`).
+`items_read(select="context")`).
 
 ---
 
@@ -585,456 +725,6 @@ a held key is `resource_unavailable`. Leases are released on every exit from `wo
 
 ---
 
-### get_next_status
-
-**Purpose.** Read-only status progression recommendation for a single WorkItem. Returns whether
-the item is Ready to advance, Blocked, or Terminal, without making any changes. For a queue, work or
-review item the answer is the same policy evaluation `advance_item(trigger="start")` runs (claim
-ownership excluded), so `Ready` means the `start` would be applied right now.
-
-**When to call.** Call to check one item's advance-readiness when a full context snapshot is not needed.
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `itemId` | string (UUID) | Yes | WorkItem to analyze |
-
-**Example.**
-
-```json
-{ "itemId": "550e8400-e29b-41d4-a716-446655440001" }
-```
-
-**`recommendation` values:** `"Ready"`, `"Blocked"`, or `"Terminal"`.
-
-**Response.**
-
-```json
-// Ready — item can advance
-{
-  "recommendation": "Ready",
-  "currentRole": "queue",
-  "nextRole": "work",
-  "trigger": "start",
-  "progressionPosition": "1/3"
-}
-
-// Blocked by dependency
-{
-  "recommendation": "Blocked",
-  "currentRole": "queue",
-  "blockers": [
-    { "fromItemId": "uuid-blocker", "currentRole": "queue", "requiredRole": "terminal" }
-  ]
-}
-
-// Blocked by unfilled required notes for the current phase
-{
-  "recommendation": "Blocked",
-  "currentRole": "queue",
-  "reason": "gate_blocked",
-  "missingNotes": ["task-scope"]
-}
-
-// Blocked by an exclusive resource held by another item
-{
-  "recommendation": "Blocked",
-  "currentRole": "queue",
-  "reason": "resource_unavailable",
-  "contendedResources": ["staging-db"]
-}
-
-// Blocked — item is explicitly in BLOCKED role (set via block/hold trigger)
-{
-  "recommendation": "Blocked",
-  "currentRole": "blocked",
-  "suggestion": "Use 'resume' trigger to return to previous role"
-}
-
-// Terminal
-{ "recommendation": "Terminal", "currentRole": "terminal", "reason": "Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled." }
-```
-
-When the item is in BLOCKED role, the response includes a `suggestion` field instead of `blockers`. When the item is blocked by unsatisfied dependencies, the response includes `blockers` but no `suggestion` (a blocker whose row cannot be read reports `currentRole: "unknown"`). A note or resource block carries `reason` with `missingNotes` or `contendedResources`.
-
----
-
-### get_context
-
-**Purpose.** Read-only context snapshot in one of three modes determined by which parameters are
-supplied. Use for session startup, work-summary dashboards, and pre-advance gate checks.
-
-**Modes:**
-- **Item mode** — pass `mode: "item"` (or provide `itemId`): note schema, existing notes with fill status, and gate status for a specific item.
-- **Session resume** — pass `mode: "session-resume"` (or provide `since`): active items, recent role transitions since the timestamp, and stalled items, each capped at 200 per role.
-- **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): active items (work/review), blocked items, and stalled items, each capped at 200 per role.
-
-When `mode` is omitted, the mode is inferred from which parameters are present (`itemId` → item, `since` → session-resume, neither → health-check).
-
-**When to call.** Call with no arguments to resume a session; call with `itemId` before any advance or dispatch decision.
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `mode` | string | No | Explicit mode: `"item"`, `"session-resume"`, or `"health-check"`. When provided, takes precedence over implicit detection. |
-| `itemId` | string (UUID) | No | Item UUID for item mode. Required when `mode="item"`. |
-| `since` | string (ISO 8601) | No | Timestamp for session-resume mode. Required when `mode="session-resume"`. |
-| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit health-check and session-resume results (active/blocked/stalled items, claim summary) to this item's subtree (any depth, inclusive). Ignored in item mode. Omitted = unscoped. Does NOT scope `recentTransitions` in session-resume mode — see note below. |
-| `includeAncestors` | boolean | No | Include `ancestors` array on each listed item (default: false) |
-| `limit` | integer (1–200) | No | Max role transitions in session-resume mode (default: 10) |
-
-**Examples.**
-
-```json
-// Health check (explicit mode)
-{ "mode": "health-check" }
-
-// Session resume
-{ "mode": "session-resume", "since": "2025-01-01T09:00:00Z", "includeAncestors": true }
-
-// Item gate check
-{ "mode": "item", "itemId": "550e8400-e29b-41d4-a716-446655440001" }
-```
-
-**Response (item mode).**
-
-```json
-{
-  "mode": "item",
-  "item": { "id": "uuid", "title": "JWT Handler", "role": "work", "tags": "task-implementation", "depth": 1 },
-  "schema": [
-    { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true, "seat": "planner" },
-    { "key": "done-criteria", "role": "work", "required": false, "exists": false, "filled": false, "seat": "implementer" }
-  ],
-  "gateStatus": { "canAdvance": true, "phase": "work", "missing": [], "missingBySeat": {} },
-  "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
-  "seats": [
-    { "name": "implementer", "phase": "work", "enters": true },
-    { "name": "extractor", "phase": "work", "after": ["implementer"] }
-  ],
-  "dispatchBySeat": {
-    "implementer": { "agent": "task-orchestrator:implementer" },
-    "extractor": { "model": "sonnet", "effort": "low" }
-  },
-  "claimDetail": {
-    "claimedBy": "agent-worker-42",
-    "claimedAt": "2026-01-01T12:00:00Z",
-    "claimExpiresAt": "2026-01-01T12:15:00Z",
-    "originalClaimedAt": "2026-01-01T12:00:00Z",
-    "isExpired": false
-  }
-}
-```
-
-(`guidanceKey` and `skillPointer` are omitted here because the current phase, `work`, has no missing required notes — `done-criteria` is optional and still unfilled, but only required notes drive `guidanceKey`/`skillPointer`. `dispatch` here is the **work**-phase profile, matching `role: "work"` — an implementer profile, since `get_context` only ever reports the item's current-role profile.)
-
-`guidanceKey` (string, optional) names the first unfilled required note with guidance for the **current** role. Omitted when no schema matches, no required notes exist, or all are filled. Resolve the full guidance text via `items_read(select="schema", itemId=..., fields=["guidance"])`.
-
-`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled. Derived from the `skill` field on the first unfilled required note in the schema.
-
-`dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the item's **current** role, resolved from the `dispatch` trait dimension — same resolution as `advance_item`'s `dispatch` field (per-item `traits` first, then `default_traits`; see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the current role.
-
-`get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses (the 3.x `manage_notes` `itemContext` block is gone with that tool).
-
-`gateStatus.canAdvance` is the policy evaluation `advance_item(trigger="start")` would run on the item right now, claim ownership excluded: it is `false` when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet, a required note for the current phase is unfilled (or a `reject`-mode independence violation blocks), or an exclusive resource the item declares is held by another item. `gateStatus.blockedBy` (string, optional) names that gate — `"table"`, `"dependency"`, `"note"` or `"lease"` — and is present only when `canAdvance` is `false` and the item is not terminal. The preview reads the item's config, notes and blockers in one read unit, so a store or per-root config read fault there fails the `get_context` call (transient `config_unavailable` for a config fault) rather than rendering an empty `missing` list.
-
-Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `items_read(select="schema", itemId=..., fields=["guidance"])`.
-
-**Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `items_read(select="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `items_read(select="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
-
-**Independence (A2).** `gateStatus.violations` (array, optional) reports A2 independence-attestation findings for the item's CURRENT phase — present (possibly `[]`) whenever independence `mode` is not `off` and the resolved schema declares `independent_of` somewhere; omitted entirely (not `null`) otherwise, including for a `TERMINAL` item. Each entry is `{key, seat?, constraint, conflictingSeat?, waived?}` — actor-free by construction, never an actor id, proof, or claim — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" for the constraint kinds (`same_actor`/`missing_actor`/`unverified`), the `independence: temporal-only` waiver, and honest limits. `canAdvance` already accounts for a `reject`-mode block from a non-waived violation (`blockedBy: "note"`), the same way it accounts for missing required notes.
-
-`claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
-
-> **UTC note.** `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are computed in Kotlin from the server's one bound clock (no database clock is read) and stored as canonical UTC text, `yyyy-MM-dd HH:mm:ss.SSS` (24-hour, millisecond precision). Every persisted timestamp column uses that one shape, so agents or operators inspecting raw database rows can compare them as text and must not assume local timezone, whatever the host's system time. A claim is active only while `claimExpiresAt` is strictly after "now": an expiry equal to now is already expired, on every surface that decides it (claims and resource leases alike).
-
-`claimDetail` fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `claimedBy` | string | Agent identity (opaque string — may be `did:web`, session ID, container hostname, etc.) |
-| `claimedAt` | ISO 8601 UTC | When the current claim was placed (refreshed on re-claim) |
-| `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (claim time plus TTL, computed server-side). Passive: the claim is not auto-released; expired claims are filtered at read time. |
-| `originalClaimedAt` | ISO 8601 UTC | First claim timestamp by the current agent. Preserved across re-claims (heartbeats). Reset when a different agent claims the item. |
-| `isExpired` | boolean | `true` when the item has a claim holder (`claimedBy`) and the claim is not active: `claimExpiresAt` is at or before the time of the query, or the claim has no usable timestamps (a partial claim) |
-
-**`resourceLeases`** (array, optional) — present only when the item declares at least one
-`resources:` requirement (via its resolved traits) or actively holds at least one lease; omitted
-entirely otherwise (zero payload for the common case). Item mode is the sanctioned holder-identity
-diagnostic for resource leases, mirroring `claimDetail` above:
-
-```json
-{
-  "resourceLeases": [
-    {
-      "key": "staging-db",
-      "mode": "exclusive",
-      "held": true,
-      "holderItemId": "uuid",
-      "acquiredByActorId": "agent-worker-42",
-      "expiresAt": "2026-07-25T13:00:00Z"
-    },
-    { "key": "deploy-credential", "mode": "advisory", "held": false }
-  ]
-}
-```
-
-One entry per key the item either declares or currently holds (union of both sets). `mode` is
-`"exclusive"` or `"advisory"` from the resolved trait requirement; for a key the item still holds a
-lease on but no longer declares (trait removed while the lease is active), `mode` defaults to
-`"advisory"` (the least presumptuous fallback). `held` is `true` only when **this item's own** lease
-is active for that key. `holderItemId`/`acquiredByActorId`/`expiresAt` are present only when *some*
-lease is currently active for that key (self lease takes priority for an undeclared-but-held key;
-otherwise the current holder across all items) — omitted for a declared-but-unheld key with no
-active lease anywhere. See [Workflow Guide §11](workflow-guide.md#11-resource-leasing) for the
-exclusive/advisory modeling guidance and the full guarantees statement.
-
-**Response (session-resume mode).**
-
-```json
-{
-  "mode": "session-resume",
-  "since": "2025-01-01T09:00:00Z",
-  "activeItems": [{ "id": "uuid", "title": "...", "role": "work", "tags": "task-implementation" }],
-  "recentTransitions": [
-    { "itemId": "uuid", "title": "JWT Handler", "fromRole": "queue", "toRole": "work", "at": "2025-01-01T09:05:00Z", "actorId": "agent-1" }
-  ],
-  "stalledItems": [{ "id": "uuid", "title": "...", "role": "work", "missingNotes": ["done-criteria"], "guidanceKey": "done-criteria" }]
-}
-```
-
-`limit` caps `recentTransitions` (default 10, max 200). Each transition entry is `{ itemId, title, fromRole, toRole, at, actorId? }` — `actorId` is omitted when the transition had no actor claim. There is no claim summary in this mode — use item mode or health-check mode for claim visibility. `stalledItems` entries may include `guidanceKey`/`skillPointer` for the first missing note, same semantics as item mode.
-
-**Known limitation:** when `ancestorId` is set, `activeItems` and `stalledItems` are scoped to the subtree, but `recentTransitions` is NOT — it always reflects transitions across the whole tree. Scoping transitions would require resolving the subtree set and filtering the transition-item lookup by it, which was flagged as invasive for the initial implementation.
-
-**Response (health-check mode).**
-
-```json
-{
-  "mode": "health-check",
-  "activeItems": [{ "id": "uuid", "title": "...", "role": "work" }],
-  "blockedItems": [{ "id": "uuid", "title": "...", "role": "blocked" }],
-  "stalledItems": [{ "id": "uuid", "title": "...", "role": "work", "missingNotes": ["done-criteria"] }],
-  "claimSummary": { "active": 3, "expired": 1 }
-}
-```
-
-`claimSummary` in health-check mode: `active` = items with live non-expired claims globally; `expired` = items whose claim TTL has elapsed. Counts only — no identity exposed. Omitted if the claim count query fails.
-
-`unclaimed` is deliberately excluded from the health-check `claimSummary` (too noisy). Use `items_read(select="overview")` for per-root-item `claimSummary` including `unclaimed`.
-
----
-
-### get_next_item
-
-**Purpose.** Priority-ranked recommendation of the next WorkItem(s) to work on. Finds items in the
-requested role (default: `queue`), filters out those with unsatisfied blocking dependencies and those
-with active claims (unless `includeClaimed=true`), and ranks by priority descending then complexity
-ascending (quick wins first) by default.
-
-**Ancestor-claim filtering (strict mode).** When `includeClaimed=false` (the default), items whose
-ancestor chain contains any live claim are excluded from results — even if the item itself is unclaimed.
-This prevents `get_next_item` from surfacing sub-items of in-progress features to agents that would
-be competing with the feature's orchestrator. Root items (no parent) are unaffected. When
-`includeClaimed=true`, ancestor-claim filtering is NOT applied — that path uses `findForNextItem`
-and is intentionally inclusive.
-
-**When to call.** Call when choosing what to work on next — at session start or after finishing an item.
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `role` | string | No | Role to query: `queue`, `work`, `review`, or `blocked` (default: `queue`) |
-| `parentId` | string (UUID) | No | Scope recommendations to items under this parent |
-| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit recommendations to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
-| `limit` | integer (1–20) | No | Number of recommendations (default: 1) |
-| `includeDetails` | boolean | No | Include `summary`, `tags`, and `parentId` in each recommendation (default: false) |
-| `includeAncestors` | boolean | No | Include `ancestors` array on each recommendation (default: false) |
-| `includeClaimed` | boolean | No | When `false` (default), items with an active claim are filtered out. When `true`, claimed items are included but only a boolean `isClaimed` field is added — the claiming agent's identity is never exposed. |
-
-#### Filter Parameters (all optional)
-
-| Parameter | Type | Description |
-|---|---|---|
-| `tags` | string (comma-separated) | Return only items whose tags contain any of the listed values (any-match) |
-| `priority` | string (`high`\|`medium`\|`low`) | Return only items with this exact priority |
-| `type` | string | Return only items of this type (exact match) |
-| `complexityMax` | integer (1–10) | Return only items with complexity ≤ this value |
-| `createdAfter` | string (ISO 8601) | Return only items created after this timestamp |
-| `createdBefore` | string (ISO 8601) | Return only items created before this timestamp |
-| `modifiedAfter` | string (ISO 8601) | Return only items last modified after this timestamp |
-| `modifiedBefore` | string (ISO 8601) | Return only items last modified before this timestamp |
-| `roleChangedAfter` | string (ISO 8601) | Return only items whose role last changed after this timestamp |
-| `roleChangedBefore` | string (ISO 8601) | Return only items whose role last changed before this timestamp |
-| `orderBy` | string (`priority`\|`oldest`\|`newest`) | Ordering strategy: `priority` (default — HIGH first then complexity ascending / quick wins), `oldest` (createdAt ascending / FIFO drain), `newest` (createdAt descending / recency-biased) |
-
-The tiered claim disclosure contract applies under all filter combinations: `claimedBy` identity is never exposed by this tool, regardless of which filters are active.
-
-**Discovery patterns for multi-role fleets:**
-- Work-group agents: `get_next_item()` (default `role=queue`)
-- Review-group agents: `get_next_item(role="review")`
-- Triage-group agents: `get_next_item(role="blocked")`
-- Fleet health debugging: `get_next_item(includeClaimed=true)` to see claimed items without identity disclosure
-- Fair-share FIFO drain: `get_next_item(orderBy="oldest")` — processes items in creation order
-
-**Example.**
-
-```json
-{ "parentId": "550e8400-e29b-41d4-a716-446655440000", "limit": 3, "includeDetails": true }
-```
-
-#### Filtered Queries
-
-Filter by tag (any-match):
-
-```json
-{ "tags": "task-implementation,feature-task", "limit": 5 }
-```
-
-Filter by priority:
-
-```json
-{ "priority": "high", "role": "queue" }
-```
-
-Filter by maximum complexity (quick wins only):
-
-```json
-{ "complexityMax": 3, "orderBy": "priority" }
-```
-
-Time-window filter — items added to the queue in the last hour:
-
-```json
-{ "createdAfter": "2026-01-01T11:00:00Z", "createdBefore": "2026-01-01T12:00:00Z" }
-```
-
-FIFO queue drain — oldest unclaimed item first:
-
-```json
-{ "orderBy": "oldest" }
-```
-
-**Response (unclaimed items only; request above with `includeDetails=true`).**
-
-```json
-{
-  "recommendations": [
-    {
-      "itemId": "uuid",
-      "title": "Design login flow",
-      "role": "queue",
-      "priority": "high",
-      "complexity": 2,
-      "summary": "Create wireframes and API contract",
-      "tags": "task-implementation",
-      "parentId": "uuid-parent"
-    }
-  ],
-  "total": 1
-}
-```
-
-`summary`, `tags`, and `parentId` appear only when `includeDetails=true`; the default response includes `itemId`, `title`, `role`, `priority`, and `complexity`.
-
-**Response (with `includeClaimed=true` — adds `isClaimed` boolean per item).**
-
-```json
-{
-  "recommendations": [
-    {
-      "itemId": "uuid",
-      "title": "Design login flow",
-      "role": "queue",
-      "priority": "high",
-      "complexity": 2,
-      "isClaimed": false
-    },
-    {
-      "itemId": "uuid2",
-      "title": "Write unit tests",
-      "role": "queue",
-      "priority": "medium",
-      "complexity": 3,
-      "isClaimed": true
-    }
-  ],
-  "total": 2
-}
-```
-
-`isClaimed` is `true` when the item has a live (non-expired) claim at query time. `claimedBy` identity is never included — tiered disclosure applies here.
-
----
-
-### get_blocked_items
-
-**Purpose.** Identifies WorkItems that are blocked, either explicitly (role=blocked via a
-block/hold trigger) or implicitly (items in queue/work/review with unsatisfied blocking
-dependency edges), capped at 500 per role — the response's `total` field reflects the returned
-count, not a full count of matching items. Terminal items are never included.
-
-**When to call.** Call when work appears stalled or someone asks why an item cannot start.
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `parentId` | string (UUID) | No | Scope results to items under this parent |
-| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit candidate items to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
-| `includeDetails` | boolean | No | Include `summary` and `tags` for each blocked item (default: false) |
-| `includeAncestors` | boolean | No | Include `ancestors` array on each blocked item (default: false) |
-
-**Example.**
-
-```json
-{ "includeDetails": true, "includeAncestors": true }
-```
-
-**Response.**
-
-```json
-{
-  "blockedItems": [
-    {
-      "itemId": "uuid",
-      "title": "Implement JWT handler",
-      "role": "queue",
-      "priority": "high",
-      "complexity": 5,
-      "blockType": "dependency",
-      "blockedBy": [
-        {
-          "itemId": "uuid-blocker",
-          "title": "Design login flow",
-          "role": "queue",
-          "unblockAt": "terminal",
-          "effectiveUnblockRole": "terminal",
-          "satisfied": false
-        }
-      ],
-      "blockerCount": 1,
-      "summary": "Handle JWT validation",
-      "tags": "task-implementation"
-    }
-  ],
-  "total": 1
-}
-```
-
-`blockType` values:
-- `"explicit"` — item is in the BLOCKED role (set via a `block` or `hold` trigger). `blockedBy` lists any associated dependency blockers but the item is included regardless.
-- `"dependency"` — item is in QUEUE, WORK, or REVIEW with one or more unsatisfied blocking dependency edges.
-
-`satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
-
-`blockerCount` reflects only the number of **unsatisfied** blockers (not total blockers). For `"explicit"` items with no dependency blockers, `blockerCount` is 0.
-
----
-
 ## Category: System
 
 ### manage_project_config
@@ -1067,8 +757,8 @@ it fails closed (`PerRootConfigInvalidException`) and never falls through to the
 `advance`, `items_write` `complete_tree` and
 REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
 advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
-the `canAdvance` previews of `get_context` and REST `GET /items/{id}/gate` read it inside their read unit
-the same way.
+the `canAdvance` preview of `items_read(select="context")` (MCP and `POST /api/v1/ops/items_read`) reads it inside
+its read unit the same way.
 
 Supports two operations, selected via `operation`:
 
@@ -1635,7 +1325,7 @@ tool's request handling — is mapped by `McpToolAdapter` to this envelope: `tex
 
 ```
 kind=transient  → exponential backoff, retry same operation with a fresh requestId
-  contendedItemId present → option: skip this item, pick another from get_next_item
+  contendedItemId present → option: skip this item, pick another from items_read(select="next")
 kind=permanent  → do not retry; fix the request (validation, permissions, etc.)
 kind=shedding   → wait retryAfterMs, then retry; reduce polling rate if this persists
 ```
@@ -1663,8 +1353,7 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 
 Every persisted actor claim includes a verification record.
 
-**Output omission.** MCP tool responses (`advance_item` transitions,
-`get_context` recent transitions) omit the `verification` object
+**Output omission.** MCP tool responses (`advance_item` transitions) omit the `verification` object
 whenever `verifier == "noop"` — the default when no `actor_authentication.verifier` is
 configured. A no-op result carries no information beyond "no verifier is configured," which is
 a deployment-wide fact repeated on every attributed note and transition, so it is dropped from

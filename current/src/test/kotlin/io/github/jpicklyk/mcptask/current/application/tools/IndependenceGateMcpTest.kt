@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -17,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -213,7 +213,8 @@ work_item_schemas:
     private suspend fun getContext(
         toolContext: ToolExecutionContext,
         itemId: UUID
-    ): JsonObject = extractData(GetContextTool().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, toolContext))
+    ): JsonObject =
+        extractData(ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, toolContext))
 
     private suspend fun advance(
         toolContext: ToolExecutionContext,

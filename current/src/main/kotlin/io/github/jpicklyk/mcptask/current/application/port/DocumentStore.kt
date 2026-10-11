@@ -44,6 +44,29 @@ interface DocumentStore {
         slugs: Collection<String>
     ): List<DocumentSummary>
 
+    /**
+     * Metadata-only summaries (no body, archived included) of the documents whose id is in [ids], in no particular
+     * order; absent ids are omitted. The default reads document by document; the SQLite store overrides it with
+     * batched reads. Empty [ids] returns an empty list without a query.
+     */
+    suspend fun findSummariesByIds(ids: Set<UUID>): List<DocumentSummary> =
+        ids.mapNotNull { id ->
+            getById(id)?.let {
+                DocumentSummary(
+                    it.id,
+                    it.rootItemId,
+                    it.kind,
+                    it.slug,
+                    it.title,
+                    it.contentHash,
+                    it.version,
+                    it.archivedAt,
+                    it.createdAt,
+                    it.modifiedAt
+                )
+            }
+        }
+
     /** Inserts [document] as given (its id, version and timestamps included) and returns the stored row. */
     @StoreWrite
     suspend fun insert(document: Document): Document

@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent tests (test-author seat, item 450aa813) for the tool-surface half of scenario S15 of the frozen test-plan: the
- * production registry exposes `items_read` with exactly the five selects, `tools/list` over a real MCP client/server pair shows
+ * production registry exposes `items_read` with the six selects (since Q30 including related), `tools/list` over a real MCP client/server pair shows
  * `items_read` and no `query_items`, and `query_notes` no longer offers a `search` operation.
  *
  * Oracles: task-scope item 1 (tool `items_read`, selects get, list, schema, search, overview, registered in
@@ -50,11 +50,14 @@ class ItemsReadRegistryTest {
     lateinit var dir: Path
 
     @Test
-    fun `S15 the production registry holds items_read with exactly the five selects`() {
+    fun `S15 the production registry holds items_read with exactly the nine selects`() {
         val members = ParityCoverage.members(ToolRegistry(buildToolSpecs())).filter { it.first == "items_read" }
 
-        assertEquals(setOf("get", "list", "schema", "search", "overview"), members.map { it.second }.toSet())
-        assertEquals(5, members.size, "no select is declared twice")
+        assertEquals(
+            setOf("get", "list", "schema", "search", "overview", "related", "context", "next", "blocked"),
+            members.map { it.second }.toSet()
+        )
+        assertEquals(9, members.size, "no select is declared twice")
     }
 
     @Test

@@ -1,12 +1,15 @@
 {
     "success": true,
     "data": {
-        "mode": "item",
         "item": {
-            "id": "a1000000-0000-4000-8000-000000000001",
+            "id": "a1000000",
+            "parentId": "a1000000",
+            "type": "feature-task",
             "title": "A1 T0 golden feature-task",
             "role": "queue",
-            "depth": 1
+            "priority": "medium",
+            "depth": 1,
+            "version": 1
         },
         "schema": [
             {
@@ -46,11 +49,14 @@
             ],
             "blockedBy": "note"
         },
+        "transitions": {
+            "block": "blocked",
+            "cancel": "terminal",
+            "complete": "terminal",
+            "hold": "blocked",
+            "start": "work"
+        },
         "guidanceKey": "task-scope",
         "skillPointer": "spec-quality"
-    },
-    "metadata": {
-        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
-        "version": "<A1-T0-NORMALIZED-VERSION>"
     }
 }

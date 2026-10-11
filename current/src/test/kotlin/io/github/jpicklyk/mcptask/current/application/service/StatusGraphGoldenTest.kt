@@ -16,7 +16,7 @@ import kotlin.test.assertNotNull
  * byte-identical to the graph the pre-P11 code produced.
  *
  * Oracle: the five JSON goldens under `golden/p11/`, captured by the orchestrator at the pre-P11 base commit fef751ec
- * from `StatusGraphBuilder(NoOpNoteSchemaService).buildStatusGraph(schemas)` encoded with
+ * from `StatusGraphBuilder().buildStatusGraph(schemas)` encoded with
  * `McpJson.encodeToString(StatusGraphDto.serializer(), dto)` for the schema inputs below. The goldens were not
  * produced from the post-change code. Line endings are normalised to LF on read so a CRLF checkout cannot fake a
  * difference (the encoded JSON itself contains no line break).
@@ -50,7 +50,7 @@ class StatusGraphGoldenTest {
     }
 
     private fun encoded(schemas: Map<String, WorkItemSchema>): String =
-        McpJson.encodeToString(StatusGraphDto.serializer(), StatusGraphBuilder(NoOpNoteSchemaService).buildStatusGraph(schemas))
+        McpJson.encodeToString(StatusGraphDto.serializer(), StatusGraphBuilder().buildStatusGraph(schemas))
 
     @Test
     fun `S13 the graph for no schemas equals the pre-change golden`() {

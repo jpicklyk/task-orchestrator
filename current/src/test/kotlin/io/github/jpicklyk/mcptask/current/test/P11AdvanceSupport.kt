@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -365,7 +365,7 @@ internal suspend fun P11Driver.configFaultFixture(): P11ConfigFixture {
     val child = item("config item", Role.QUEUE, type = "p11-gated", parent = root)
     note(child, "spec", "queue")
     raw.configStore().upsert(root.id, P11_ROOT_YAML)
-    val warm = rig.callOk(GetContextTool(), "itemId" to JsonPrimitive(child.id.toString()))
+    val warm = rig.callOk(ItemContextProbe(), "itemId" to JsonPrimitive(child.id.toString()))
     val gate = warm["data"]!!.jsonObject["gateStatus"]!!.jsonObject
     check(gate.flag("canAdvance") == true) { "fixture: a healthy warm read must report canAdvance=true: $gate" }
     return P11ConfigFixture(root, child)

@@ -3,16 +3,14 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -27,7 +25,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -46,7 +43,7 @@ import kotlin.test.assertTrue
  *
  * Harness mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`/
  * `FailableRepositoryProvider` pattern (each file defines its own copy; no shared harness class
- * exists for this port) and [ItemGateRouteTest]'s `configureGateApp` style for wiring one shared
+ * exists for this port) and the route-test `configureTestApp` style for wiring one shared
  * [ToolExecutionContext] into both route families.
  */
 class SharedConfigCacheRestMcpTest {
@@ -57,9 +54,6 @@ class SharedConfigCacheRestMcpTest {
         private const val NOTE_KEY = "req-note"
         private const val SCHEMA_TYPE = "shared-type"
     }
-
-    /** No global schema for any type — the note key in every scenario must come from the per-root push only. */
-    private object NoGlobalSchemaService : WorkItemSchemaService
 
     private fun perRootYaml(): String =
         """
@@ -72,13 +66,12 @@ class SharedConfigCacheRestMcpTest {
                 description: "shared cache test note"
         """.trimIndent()
 
-    /** Registers itemGateRoutes and effectiveConfigRoutes over the SAME [ctx], mirroring O1's shared wiring. */
+    /** Registers effectiveConfigRoutes over the SAME [ctx], mirroring O1's shared wiring. */
     private fun Application.configureSharedApp(
         provider: RepositoryProvider,
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
-            itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
             effectiveConfigRoutes(provider, ctx.configResolver, ServerConfigSource { null })
         }
     }
@@ -115,15 +108,15 @@ class SharedConfigCacheRestMcpTest {
     }
 
     // ──────────────────────────────────────────────
-    // S4 - warm via MCP (GetContextTool), then a per-root failure: REST gate 503 / advance 503 (in-unit), effective config 200 (cache)
+    // S4 - warm via MCP (items_read context), then a per-root failure: REST advance 503 (in-unit), effective config 200 (cache)
     // ──────────────────────────────────────────────
 
     // ----------------------------------------------------------------------------------------------------
-    // S5 - reverse: warm via REST gate, then a per-root failure; MCP get_context fails closed on the shared context
+    // S5 - warm via the MCP context select, then a per-root failure; the select fails closed (unavailable) on the shared context
     // ----------------------------------------------------------------------------------------------------
 
     @Test
-    fun `S5 - after a warm REST gate read, a read failure makes get_context throw while a non-unit read is still cached`() =
+    fun `S5 - after a warm context read, a read failure makes the context select unavailable while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.configStore())
@@ -156,19 +149,23 @@ class SharedConfigCacheRestMcpTest {
 
             application { configureSharedApp(provider, ctx) }
 
-            val warmGate = client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, warmGate.status, "sanity: the warm REST gate read must succeed before injecting failures")
+            val warm = ItemContextProbe().execute(gateParams(item.id), ctx) as JsonObject
+            assertEquals(
+                true,
+                (warm["success"] as JsonPrimitive).content.toBoolean(),
+                "sanity: the warm context read must succeed before injecting failures: $warm"
+            )
 
             failable.failFingerprint = true
             failable.failGet = true
 
-            // H1: get_context's canAdvance preview resolves config inside its read unit; a direct execute throws, the MCP
-            // adapter turns that into the transient config_unavailable error.
-            val e = assertFailsWith<PerRootConfigUnavailableException> { GetContextTool().execute(gateParams(item.id), ctx) }
-            assertEquals(item.rootId, e.rootId)
-            assertTrue(e.message.orEmpty().contains("inside a unit of work"), "the fault names the unit-of-work read: ${e.message}")
+            // H1: the canAdvance preview resolves config inside its read unit (no last-known-good there); the select answers
+            // the transient `unavailable` error (decision D-f), never a fallback.
+            val failed = ItemContextProbe().execute(gateParams(item.id), ctx) as JsonObject
+            assertEquals(false, (failed["success"] as JsonPrimitive).content.toBoolean(), "$failed")
+            assertEquals("unavailable", ((failed["error"] as JsonObject)["code"] as JsonPrimitive).content, "$failed")
 
-            // The REST-warmed cache is still the shared cache for reads outside any unit.
+            // The warmed cache is still the shared cache for reads outside any unit.
             val effective =
                 client.get("/api/v1/roots/${item.rootId}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, effective.status, effective.bodyAsText())

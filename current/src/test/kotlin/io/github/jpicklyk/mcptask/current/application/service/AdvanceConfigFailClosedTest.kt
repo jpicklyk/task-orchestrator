@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.P11Driver
@@ -14,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.snapshot
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,8 +26,6 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 /**
  * Independent P11 r1 tests (item 919d379e), MCP surface, for fix-decision H1: the advanced item's per-root config is
@@ -117,7 +114,7 @@ class AdvanceConfigFailClosedTest {
         }
 
     @Test
-    fun `H1 the get_context canAdvance preview fails closed with PerRootConfigUnavailableException on a direct execute`(
+    fun `H1 the context select canAdvance preview fails closed with the unavailable error and never a fallback`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -125,18 +122,15 @@ class AdvanceConfigFailClosedTest {
             val f = d.configFaultFixture()
             d.breakConfigReads()
 
-            val e =
-                assertFailsWith<PerRootConfigUnavailableException> {
-                    GetContextTool().execute(
-                        JsonObject(mapOf("itemId" to JsonPrimitive(f.item.id.toString()))),
-                        d.rig.ctx,
-                    )
-                }
+            val result =
+                ItemContextProbe().execute(
+                    JsonObject(mapOf("itemId" to JsonPrimitive(f.item.id.toString()))),
+                    d.rig.ctx,
+                ) as JsonObject
 
-            assertEquals(f.root.id, e.rootId)
-            assertTrue(
-                e.message.orEmpty().contains("inside a unit of work"),
-                "the fault names the unit-of-work read: ${e.message}"
-            )
+            assertEquals(false, result.flag("success"), "$result")
+            val error = result["error"] as JsonObject
+            assertEquals("unavailable", error.text("code"), "the transient config fault answers unavailable: $error")
+            assertEquals(null, result["data"], "no fallback data accompanies the fault: $result")
         }
 }

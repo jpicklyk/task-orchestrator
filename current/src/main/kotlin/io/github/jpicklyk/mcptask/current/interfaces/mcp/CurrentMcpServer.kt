@@ -11,10 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -41,7 +37,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
@@ -587,12 +582,6 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 2: Workflow
-        GetNextStatusTool(),
-        GetNextItemTool(),
-        GetBlockedItemsTool(),
-        // Phase 3: Context
-        GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
         ManageProjectConfigTool(YamlConfigDocumentParser),
         // Git-tracked rule text: read-only view over rule/<key> plan documents (A3, 840e700a)
@@ -739,7 +728,6 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
             itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
-            itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(

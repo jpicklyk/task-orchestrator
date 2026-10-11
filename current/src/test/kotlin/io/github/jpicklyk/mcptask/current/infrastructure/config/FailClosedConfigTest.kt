@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -10,10 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.actorArg
 import io.github.jpicklyk.mcptask.current.test.callTool
@@ -23,22 +19,19 @@ import io.github.jpicklyk.mcptask.current.test.upsert
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -59,7 +52,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -270,29 +262,6 @@ class FailClosedConfigTest {
 
     // ------------------------------------------------------------------------------------------------ S5: 3.x MCP
 
-    private suspend fun <T> withMcp(
-        composition: CompositionResult,
-        block: suspend (Client) -> T
-    ): T {
-        val server =
-            Server(serverInfo = Implementation(name = "fail-closed-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpToolAdapter()
-        adapter.registerToolWithServer(server, GetContextTool(), composition.toolContext)
-        val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
-        val client =
-            Client(
-                clientInfo = Implementation(name = "fail-closed-client", version = "1.0.0"),
-                options = ClientOptions(capabilities = ClientCapabilities())
-            )
-        server.createSession(serverTransport)
-        client.connect(clientTransport)
-        try {
-            return block(client)
-        } finally {
-            closeInMemoryPair(client, server)
-        }
-    }
-
     /**
      * `items_read` select `schema` through the real dispatcher (merge r1: Q19 removed `query_items`, whose schema operation
      * this scenario first exercised; the type-schema lookup now lives on items_read and fails closed through the envelope).
@@ -313,54 +282,37 @@ class FailClosedConfigTest {
             )
         }
 
-    private suspend fun Client.context(itemId: UUID): CallToolResult =
-        callTool(
-            name = "get_context",
-            arguments =
-                mapOf(
-                    "itemId" to itemId.toString()
-                )
-        )
-
-    private fun assertConfigInvalid(
-        result: CallToolResult,
-        what: String
-    ) {
-        assertEquals(true, result.isError, "$what must fail: $result")
-        val error = assertNotNull(result.structuredContent?.get("error")?.jsonObject, "$what must carry an error object: $result")
-        assertEquals("config_invalid", error["code"]?.jsonPrimitive?.content, "$what: $error")
-        assertEquals("permanent", error["kind"]?.jsonPrimitive?.content, "$what: $error")
-        assertTrue(
-            error["message"]
-                ?.jsonPrimitive
-                ?.content
-                .orEmpty()
-                .isNotBlank(),
-            "$what: a message is carried"
-        )
-    }
+    /**
+     * `items_read` select `context` for one item through the real dispatcher (merge r2: Q22 removed `get_context` and
+     * `GET /items/{id}/gate`; the item's gate status now lives on this select and fails closed through the envelope).
+     */
+    private fun contextRead(
+        composition: CompositionResult,
+        itemId: UUID
+    ): JsonObject =
+        runBlocking {
+            composition.toolContext.callTool(
+                "items_read",
+                buildJsonObject {
+                    put("select", "context")
+                    put("itemId", itemId.toString())
+                }
+            )
+        }
 
     @Test
-    fun `S5 3x MCP - a broken server head is config_invalid on items_read schema and get_context, a healthy one is not`() {
+    fun `S5 3x MCP - a broken server head is config_invalid on items_read schema and context, a healthy one is not`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
         assertEnvelopeOk(schemaRead(healthy, "feature-task"), "control: schema lookup succeeds")
-        runBlocking {
-            withMcp(healthy) { client ->
-                assertNotEquals(true, client.context(item.id).isError, "control: get_context succeeds")
-            }
-        }
+        assertEnvelopeOk(contextRead(healthy, item.id), "control: items_read(context, itemId) succeeds")
         nullServerCanonical()
         val broken = cold("cold")
 
         assertEnvelopeConfigInvalid(schemaRead(broken, "feature-task"), "items_read(schema, type)")
         assertEnvelopeConfigInvalid(schemaRead(broken, "feature-task", root.id), "items_read(schema, type, rootId)")
-        runBlocking {
-            withMcp(broken) { client ->
-                assertConfigInvalid(client.context(item.id), "get_context(itemId)")
-            }
-        }
+        assertEnvelopeConfigInvalid(contextRead(broken, item.id), "items_read(context, itemId)")
     }
 
     @Test
@@ -374,11 +326,7 @@ class FailClosedConfigTest {
         val broken = cold("cold")
 
         assertEnvelopeConfigInvalid(schemaRead(broken, "root-only-type", root.id), "items_read(schema, type, rootId)")
-        runBlocking {
-            withMcp(broken) { client ->
-                assertConfigInvalid(client.context(item.id), "get_context(itemId)")
-            }
-        }
+        assertEnvelopeConfigInvalid(contextRead(broken, item.id), "items_read(context, itemId)")
     }
 
     // ------------------------------------------------------------------------------------------------ S5: 3.x REST
@@ -415,6 +363,26 @@ class FailClosedConfigTest {
         token: String = TEST_TOKEN
     ) = client.get(path) { header(HttpHeaders.Authorization, "Bearer $token") }
 
+    private suspend fun ApplicationTestBuilder.opsContext(itemId: UUID) =
+        client.post("/api/v1/ops/items_read") {
+            header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN")
+            contentType(ContentType.Application.Json)
+            setBody("""{"select":"context","itemId":"$itemId"}""")
+        }
+
+    private suspend fun ApplicationTestBuilder.assertOpsContextConfigInvalid(
+        itemId: UUID,
+        what: String
+    ) {
+        val response = opsContext(itemId)
+        val body = response.bodyAsText()
+        // The ops route takes its HTTP status from the envelope error code (ErrorCode.CONFIG_INVALID = 422), as /gate did.
+        assertEquals(HttpStatusCode.UnprocessableEntity, response.status, "$what: $body")
+        val parsed = McpJson.parseToJsonElement(body).jsonObject
+        assertEquals("false", parsed["ok"]?.jsonPrimitive?.content, "$what: $body")
+        assertEnvelopeConfigInvalid(parsed, what)
+    }
+
     private suspend fun ApplicationTestBuilder.assertRestConfigInvalid(
         path: String,
         what: String
@@ -426,14 +394,15 @@ class FailClosedConfigTest {
     }
 
     @Test
-    fun `S5 3x REST - a broken server head is 422 config_invalid on config, effective config and the item gate`() {
+    fun `S5 3x REST - a broken server head is 422 config_invalid on config and effective config and fails ops items_read context`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
         rest(healthy) {
             assertEquals(HttpStatusCode.OK, fetch("/api/v1/config").status, "control: GET /config")
             assertEquals(HttpStatusCode.OK, fetch("/api/v1/roots/${root.id}/config/effective").status, "control: effective config")
-            assertEquals(HttpStatusCode.OK, fetch("/api/v1/items/${item.id}/gate").status, "control: gate")
+            val control = opsContext(item.id)
+            assertEquals(HttpStatusCode.OK, control.status, "control: ops items_read context: ${control.bodyAsText()}")
         }
         nullServerCanonical()
         val broken = cold("cold")
@@ -441,12 +410,12 @@ class FailClosedConfigTest {
         rest(broken) {
             assertRestConfigInvalid("/api/v1/config", "GET /config")
             assertRestConfigInvalid("/api/v1/roots/${root.id}/config/effective", "GET /roots/{id}/config/effective")
-            assertRestConfigInvalid("/api/v1/items/${item.id}/gate", "GET /items/{id}/gate")
+            assertOpsContextConfigInvalid(item.id, "POST /ops/items_read context")
         }
     }
 
     @Test
-    fun `S5 3x REST - a broken root head is 422 config_invalid on its effective config and the item gate`() {
+    fun `S5 3x REST - a broken root head is 422 config_invalid on its effective config, config_invalid on ops items_read context`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
@@ -459,7 +428,7 @@ class FailClosedConfigTest {
 
         rest(broken) {
             assertRestConfigInvalid("/api/v1/roots/${root.id}/config/effective", "GET /roots/{id}/config/effective")
-            assertRestConfigInvalid("/api/v1/items/${item.id}/gate", "GET /items/{id}/gate")
+            assertOpsContextConfigInvalid(item.id, "POST /ops/items_read context")
             assertEquals(HttpStatusCode.OK, fetch("/api/v1/config").status, "the server head itself is healthy and still served")
         }
     }

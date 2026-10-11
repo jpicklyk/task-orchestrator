@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -35,10 +36,10 @@ import kotlin.test.assertTrue
  * under- or over-counting here.
  *
  * The lifecycle: a tree fixture (root + 2 children + a blocking dep, through the 4.0 `items_write` `create_tree`, not
- * measured here: Q21 retired the 3.x `create_work_tree` this call used to measure) -> get_context
- * health-check -> get_context item -> advance start (gated FAILURE — queue note unfilled) ->
+ * measured here: Q21 retired the 3.x `create_work_tree` this call used to measure) -> items_read context
+ * health view -> items_read context item -> advance start (gated FAILURE — queue note unfilled) ->
  * fill the queue note -> advance start (-> work) -> fill both work notes -> advance start (-> review) ->
- * fill the review note -> advance start (-> terminal) -> get_next_item.
+ * fill the review note -> advance start (-> terminal) -> items_read next.
  * The note fills are fixture writes (`putNote`): the note tools are budgeted by their own tests.
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
@@ -47,7 +48,7 @@ import kotlin.test.assertTrue
  * BUDGET PHILOSOPHY: per-call ceilings below are measured-in-this-repo * 1.15, rounded up to
  * the nearest 50 (same policy as ToolTokenBudgetTest — see that file for the full rationale
  * on when it's OK to raise a ceiling vs. when a failure means "fix the bloat instead"). The
- * three `assertTrue(... < N ...)` hard caps are a second, independent guard: they pin the
+ * two `assertTrue(... < N ...)` hard caps are a second, independent guard: they pin the
  * *original pre-slimming* sizes from the token-efficiency audit as regression sentinels, so a
  * revert of that work fails loudly even if someone also loosened the per-call ceiling table.
  */
@@ -57,9 +58,9 @@ class LifecycleResponseBudgetTest {
 
     private lateinit var context: ToolExecutionContext
 
-    private val getContextTool = GetContextTool()
+    private val contextProbe = ItemContextProbe("context")
     private val advanceItemTool = AdvanceItemTool()
-    private val getNextItemTool = GetNextItemTool()
+    private val nextProbe = ItemContextProbe("next")
 
     /** Insertion-ordered label -> measured response char count, populated by [measureCall]. */
     private val measured = linkedMapOf<String, Int>()
@@ -152,6 +153,20 @@ class LifecycleResponseBudgetTest {
         return resultObj
     }
 
+    /**
+     * Calls the `items_read` select of [probe] through the production dispatcher and records the char count of the whole
+     * envelope body an MCP client receives as `structuredContent` (the 4.0 tools have no separate summary text).
+     */
+    private suspend fun measureEnvelope(
+        label: String,
+        probe: ItemContextProbe,
+        params: JsonObject
+    ): JsonObject {
+        val body = probe.envelope(context, params)
+        measured[label] = body.toString().length
+        return body
+    }
+
     private fun transitionParams(
         itemId: String,
         trigger: String
@@ -175,13 +190,13 @@ class LifecycleResponseBudgetTest {
     // ──────────────────────────────────────────────
     private val perCallCeilings: Map<String, Int> =
         mapOf(
-            "get_context(health-check)" to 200,
-            "get_context(item t1)" to 750,
+            "items_read(context health)" to 500,
+            "items_read(context item t1)" to 950,
             "advance_item(start, gated FAILURE)" to 650,
             "advance_item(start -> work)" to 850,
             "advance_item(start -> review)" to 550,
             "advance_item(start -> terminal)" to 500,
-            "get_next_item" to 350,
+            "items_read(next)" to 300,
         )
 
     @Test
@@ -243,13 +258,13 @@ class LifecycleResponseBudgetTest {
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
 
-            // ── 2. get_context health-check (session bootstrap) ──
-            measureCall("get_context(health-check)", getContextTool, buildJsonObject {})
+            // ── 2. items_read context, health view (session bootstrap) ──
+            measureEnvelope("items_read(context health)", contextProbe, buildJsonObject {})
 
-            // ── 3. get_context item mode on t1 ──
-            measureCall(
-                "get_context(item t1)",
-                getContextTool,
+            // ── 3. items_read context, item mode on t1 ──
+            measureEnvelope(
+                "items_read(context item t1)",
+                contextProbe,
                 buildJsonObject { put("itemId", JsonPrimitive(t1Id)) }
             )
 
@@ -304,11 +319,11 @@ class LifecycleResponseBudgetTest {
             // ── 10. advance start -> terminal ──
             measureCall("advance_item(start -> terminal)", advanceItemTool, transitionParams(t1Id, "start"))
 
-            // ── 11. get_next_item (t2 should now be unblocked) ──
-            measureCall(
-                "get_next_item",
-                getNextItemTool,
-                buildJsonObject { put("includeDetails", JsonPrimitive(true)) }
+            // ── 11. items_read next (t2 should now be unblocked) ──
+            measureEnvelope(
+                "items_read(next)",
+                nextProbe,
+                buildJsonObject { put("fields", buildJsonArray { add(JsonPrimitive("summary")) }) }
             )
 
             // ── Print the measured-size table ──
@@ -340,9 +355,9 @@ class LifecycleResponseBudgetTest {
 
             // ── Hard-cap regression sentinels: original (pre-token-efficiency-work) sizes ──
             assertTrue(
-                measured["get_context(item t1)"]!! < 1500,
-                "get_context(item) response is ${measured["get_context(item t1)"]} chars, " +
-                    "regressed toward the pre-slimming size (was 2,968 chars)"
+                measured["items_read(context item t1)"]!! < 1500,
+                "items_read(context item) response is ${measured["items_read(context item t1)"]} chars, " +
+                    "regressed toward the pre-slimming size (get_context was 2,968 chars)"
             )
             assertTrue(
                 measured["advance_item(start -> work)"]!! < 1100,
