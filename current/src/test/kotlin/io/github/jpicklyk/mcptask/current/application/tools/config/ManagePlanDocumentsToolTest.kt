@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
@@ -44,7 +45,7 @@ class ManagePlanDocumentsToolTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            tool = ManagePlanDocumentsTool(agentConfigBaseDir = tempDir)
+            tool = ManagePlanDocumentsTool()
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             planDocumentRepository = db.repositoryProvider().planDocumentRepository()
@@ -55,7 +56,7 @@ class ManagePlanDocumentsToolTest {
             every { repositoryProvider.documentStore() } returns db.repositoryProvider().documentStore()
             every { repositoryProvider.linkStore() } returns db.repositoryProvider().linkStore()
 
-            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
+            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork(), bodySource = FileBodySource(tempDir))
 
             val root = workItemRepository.create(WorkItem(title = "Project Root", type = "project"))
             rootId = root.id

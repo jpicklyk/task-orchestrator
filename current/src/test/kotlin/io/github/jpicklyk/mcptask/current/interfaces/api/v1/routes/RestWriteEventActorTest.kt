@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -18,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.drainDelivere
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.eventWiredUnit
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -73,13 +71,6 @@ class RestWriteEventActorTest {
                 IdempotencyService(unitOfWork),
                 toolContext.advanceServiceFactory(),
                 unitOfWork,
-            )
-            noteWriteRoutes(
-                decorated,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(unitOfWork),
-                unitOfWork,
-                toolContext.noteCommandService
             )
             dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(unitOfWork), unitOfWork)
         }
@@ -232,32 +223,6 @@ class RestWriteEventActorTest {
             assertTrue(
                 events.any { it.event == ApiEventType.ITEM_DELETED && it.itemId == item.id.toString() },
                 "R4: no item.deleted for ${item.id}; got $events",
-            )
-        }
-
-    @Test
-    fun `R5 note delete attributes note deleted to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = seed(repo, "R5 item")
-            runBlocking {
-                repo.noteRepository().upsert(Note(itemId = item.id, key = "r5-note", role = "work", body = "bye"))
-            }
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r5", emptySet(), lastEventId = null)
-
-            val response =
-                client.delete("/api/v1/items/${item.id}/notes/r5-note") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-            val events = bus.drainDelivered("r5", flow)
-
-            assertAttributed(events, "R5 all events")
-            assertTrue(
-                events.any { it.event == ApiEventType.NOTE_DELETED },
-                "R5: no note.deleted event; got $events",
             )
         }
 

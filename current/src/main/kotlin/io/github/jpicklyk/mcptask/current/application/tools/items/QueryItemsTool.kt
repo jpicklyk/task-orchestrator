@@ -82,7 +82,7 @@ full-subtree role-count roll-ups) — the anchored/project-dashboard entry point
 **schema** requires exactly one of `type` or `itemId`. Returns the full note schema (description +
 guidance + skill + maxLength per entry) — the reference target for keys-only `expectedNotes` /
 `guidanceKey` values returned elsewhere. `maxLength`, when present, is the max note body length
-(chars) enforced by `manage_notes` upsert.
+(chars) enforced by `notes_write` upsert.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT

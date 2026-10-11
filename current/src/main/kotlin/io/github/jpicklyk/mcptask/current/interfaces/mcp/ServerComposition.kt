@@ -33,6 +33,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthent
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
+import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
@@ -149,6 +150,10 @@ class ServerComposition(
                 .get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
                 .resolve(".taskorchestrator/config.yaml")
 
+        // The root every `bodyFromFile` path is resolved inside (AR-98): the same base directory, built once here from the
+        // typed AppConfig. FileBodySource reads no environment.
+        val bodySource = FileBodySource(Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir)))
+
         // ONE GlobalConfigFile instance reads and parses the file once; the schema service, the
         // status-label service, and the actor-auth service below all read from this SAME parsed
         // document instead of each independently re-reading and re-parsing it (AR-41 step 2/3).
@@ -204,6 +209,7 @@ class ServerComposition(
                 unitOfWork = unitOfWork,
                 workViewQueries = workViewQueries,
                 configService = configService,
+                bodySource = bodySource,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",

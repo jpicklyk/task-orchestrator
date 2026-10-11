@@ -10,10 +10,6 @@
 # application -> infrastructure (R2)
 application/service/AdvanceService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 application/tools/ActorParsing.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
-application/tools/config/ManagePlanDocumentsTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-application/tools/config/ManagePlanDocumentsTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
-application/tools/notes/ManageNotesTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-application/tools/notes/ManageNotesTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 #
 # infrastructure -> interfaces (R3)
 infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig

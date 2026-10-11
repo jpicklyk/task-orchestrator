@@ -29,7 +29,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
-import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -118,7 +117,6 @@ fun Application.configureWriteTestApp(
                 toolContext.advanceServiceFactory(),
                 unitOfWork,
             )
-            noteWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork, toolContext.noteCommandService)
             dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
         }
     }
@@ -1239,169 +1237,6 @@ class AdvanceReviewPhaseTest {
                     .lowercase(),
                 "WORK→start with no review schema must advance straight to terminal",
             )
-        }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT /items/{id}/notes/{key} — note upsert
-// ─────────────────────────────────────────────────────────────────────────────
-
-class NoteWriteRouteTest {
-    @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `PUT note creates new note and persists with api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0))!!
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/items/${item.id}/notes/impl-note") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"Some implementation detail"}""")
-                }
-
-            assertEquals(HttpStatusCode.Created, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("impl-note"), "Note key should be in response: $body")
-            assertTrue(body.contains("work"), "Note role should be in response: $body")
-            assertNotNull(response.headers[HttpHeaders.ETag], "ETag should be present")
-
-            // Hard assertion: query back actor attribution
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "impl-note") }
-            assertNotNull(noteResult)
-            val note = noteResult
-            assertNotNull(note, "Note should be persisted")
-            assertNotNull(note!!.actorClaim, "Actor claim should be persisted on note")
-            assertEquals(
-                "api:$WRITE_TOKEN_ID",
-                note.actorClaim?.id,
-                "Actor id must be 'api:<tokenId>'"
-            )
-            assertEquals(
-                "external",
-                note.actorClaim?.kind?.toJsonString(),
-                "Actor kind must be 'external'"
-            )
-        }
-
-    @Test
-    fun `PUT note updates existing note`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Update Note Item", depth = 0))!!
-                }
-            // Pre-create note
-            runBlocking {
-                repo.noteRepository().upsert(Note(itemId = item.id, key = "update-me", role = "work", body = "original"))
-            }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            // First read to get ETag
-            val readResponse =
-                client.get("/api/v1/items/${item.id}/notes/update-me") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            val readBody = readResponse.bodyAsText()
-            val noteEtag = readResponse.headers[HttpHeaders.ETag]
-            assertNotNull(noteEtag, "Should get ETag from read: $readBody")
-
-            val response =
-                client.put("/api/v1/items/${item.id}/notes/update-me") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, noteEtag!!)
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"updated content"}""")
-                }
-
-            assertEquals(HttpStatusCode.OK, response.status)
-
-            // Hard assertion: body updated in DB
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "update-me") }
-            assertEquals("updated content", (noteResult)!!.body)
-        }
-
-    @Test
-    fun `PUT note with stale ETag on update returns 412`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Note ETag", depth = 0))!!
-                }
-            runBlocking {
-                repo.noteRepository().upsert(Note(itemId = item.id, key = "stale-test", role = "work", body = "original"))
-            }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/items/${item.id}/notes/stale-test") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, "\"v1-0\"") // stale
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"should fail"}""")
-                }
-
-            assertEquals(HttpStatusCode.PreconditionFailed, response.status)
-
-            // Hard negative: body unchanged
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "stale-test") }
-            assertEquals("original", (noteResult)!!.body)
-        }
-
-    @Test
-    fun `PUT note without WRITE_NOTES capability returns 403`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Notes Forbidden", depth = 0))!!
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/items/${item.id}/notes/new-note") {
-                    header("Authorization", "Bearer $READ_ONLY_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"should not create"}""")
-                }
-            assertEquals(HttpStatusCode.Forbidden, response.status)
-
-            // Hard negative: note not created
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "new-note") }
-            assertTrue(noteResult == null, "Note should NOT be created")
-        }
-
-    @Test
-    fun `DELETE note deletes it and returns 204`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Delete Note Item", depth = 0))!!
-                }
-            runBlocking {
-                repo.noteRepository().upsert(Note(itemId = item.id, key = "delete-me", role = "work", body = "bye"))
-            }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.delete("/api/v1/items/${item.id}/notes/delete-me") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-
-            // Hard assertion: note gone
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "delete-me") }
-            assertTrue(noteResult == null, "Note should be deleted")
         }
 }
 

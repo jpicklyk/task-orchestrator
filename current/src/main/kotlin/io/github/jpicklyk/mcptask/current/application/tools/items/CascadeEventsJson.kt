@@ -49,7 +49,7 @@ internal fun cascadeEventsJson(events: List<AdvanceCascadeEvent>): JsonArray? {
 
 /**
  * The transient per-element failure for a per-root config fault inside an item write: the element is not written,
- * the rest of the batch proceeds (the same shape `manage_notes` emits). [idKey]/[idValue] name the element.
+ * the rest of the batch proceeds (the shape the 3.x `manage_notes` emitted). [idKey]/[idValue] name the element.
  */
 internal fun configUnavailableFailure(
     idKey: String,

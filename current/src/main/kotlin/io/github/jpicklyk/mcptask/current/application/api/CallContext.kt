@@ -20,11 +20,14 @@ data class CallPrincipal(
  * Request classes never declare `actor`: the transport lifts the top-level `actor` into [principal]
  * in one place (transitional until W4 replaces self-reported actors). [reqId] is the call's
  * correlation id, [surface] the transport (`mcp` or `rest`) and [scope] what the caller may see: handlers check
- * every item they touch with [ScopeGuard].
+ * every item they touch with [ScopeGuard]. [attributionVisible] says whether the caller may see note attribution (a
+ * note view's `actor` and `verification`); the transport decides it, so application code never inspects capabilities.
+ * It defaults to false (hidden). Proof evidence is never emitted, whatever its value.
  */
 data class CallContext(
     val reqId: String,
     val surface: String,
     val principal: CallPrincipal?,
-    val scope: AccessScope = AccessScope.unrestricted()
+    val scope: AccessScope = AccessScope.unrestricted(),
+    val attributionVisible: Boolean = false
 )
