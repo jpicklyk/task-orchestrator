@@ -92,10 +92,10 @@ internal object ItemDocs {
     const val COMPLEXITY = "1 to 10."
     const val REQUIRES_VERIFICATION = "Completion needs verification."
     const val METADATA = "Free-form metadata text."
-    const val TAGS = "Lowercase hyphenated tags. Update: [] clears."
+    const val TAGS = "Lowercase, hyphenated. Update: [] clears."
     const val TRAITS = "Declared trait names. Update: [] clears."
     const val PROPERTIES = "Free-form JSON object without a traits key."
-    const val EXPECTED_VERSION = "Fails with version_conflict if the item is at another version."
+    const val EXPECTED_VERSION = "Fails version_conflict if the item is at another version."
     const val CLEAR = "Update only: optional fields to set to null."
     const val RECURSIVE = "Delete the subtree; required when the item has children."
 }

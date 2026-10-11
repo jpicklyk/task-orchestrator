@@ -30,7 +30,7 @@ internal object RepinItemOp {
 internal fun repinItemOp(): OpSpec<RepinItemRequest, ItemWriteResult> =
     OpSpec(
         name = RepinItemOp.NAME,
-        doc = "Move an item's config pin to the current config; repinned is false when it was current.",
+        doc = "Move the item's config pin to the current config heads.",
         profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.WRITE_ITEMS,
         request = serializer<RepinItemRequest>(),
