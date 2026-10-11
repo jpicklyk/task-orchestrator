@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
@@ -36,6 +35,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
+import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -51,9 +51,7 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -319,16 +317,16 @@ class BootImportTest {
 
         val result =
             runBlocking {
-                QueryItemsTool().execute(
+                composition.toolContext.callTool(
+                    "items_read",
                     buildJsonObject {
-                        put("operation", JsonPrimitive("schema"))
+                        put("select", JsonPrimitive("schema"))
                         put("type", JsonPrimitive("feature-implementation"))
                         put("rootId", JsonPrimitive(dogfoodRoot.toString()))
-                    },
-                    composition.toolContext
+                    }
                 )
-            } as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "schema lookup must succeed: $result")
+            }
+        assertEquals("true", result["ok"]?.jsonPrimitive?.content, "schema lookup must succeed: $result")
         val data = result["data"]!!.jsonObject
         assertEquals("per-root", data["configSource"]!!.jsonPrimitive.content)
         assertEquals(configFingerprint(text), data["configFingerprint"]!!.jsonPrimitive.content)
@@ -863,15 +861,15 @@ class BootImportTest {
 
             val result =
                 runBlocking {
-                    QueryItemsTool().execute(
+                    composition.toolContext.callTool(
+                        "items_read",
                         buildJsonObject {
-                            put("operation", JsonPrimitive("schema"))
+                            put("select", JsonPrimitive("schema"))
                             put("type", JsonPrimitive("feature-task"))
-                        },
-                        composition.toolContext
+                        }
                     )
-                } as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "schema lookup must succeed: $result")
+                }
+            assertEquals("true", result["ok"]?.jsonPrimitive?.content, "schema lookup must succeed: $result")
             val data = result["data"]!!.jsonObject
             assertEquals(configFingerprint(legacy3x), data["configFingerprint"]!!.jsonPrimitive.content, "the value 3.x reported")
             assertEquals("global", data["configSource"]!!.jsonPrimitive.content)

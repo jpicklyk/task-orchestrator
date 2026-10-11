@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -278,7 +277,6 @@ class FailClosedConfigTest {
         val server =
             Server(serverInfo = Implementation(name = "fail-closed-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         val adapter = McpToolAdapter()
-        adapter.registerToolWithServer(server, QueryItemsTool(), composition.toolContext)
         adapter.registerToolWithServer(server, GetContextTool(), composition.toolContext)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val client =
@@ -295,19 +293,25 @@ class FailClosedConfigTest {
         }
     }
 
-    private suspend fun Client.schema(
+    /**
+     * `items_read` select `schema` through the real dispatcher (merge r1: Q19 removed `query_items`, whose schema operation
+     * this scenario first exercised; the type-schema lookup now lives on items_read and fails closed through the envelope).
+     */
+    private fun schemaRead(
+        composition: CompositionResult,
         type: String,
         rootId: UUID? = null
-    ): CallToolResult =
-        callTool(
-            name = "query_items",
-            arguments =
-                buildMap {
-                    put("operation", "schema")
+    ): JsonObject =
+        runBlocking {
+            composition.toolContext.callTool(
+                "items_read",
+                buildJsonObject {
+                    put("select", "schema")
                     put("type", type)
                     if (rootId != null) put("rootId", rootId.toString())
                 }
-        )
+            )
+        }
 
     private suspend fun Client.context(itemId: UUID): CallToolResult =
         callTool(
@@ -337,23 +341,23 @@ class FailClosedConfigTest {
     }
 
     @Test
-    fun `S5 3x MCP - a broken server head is config_invalid on query_items schema and get_context, a healthy one is not`() {
+    fun `S5 3x MCP - a broken server head is config_invalid on items_read schema and get_context, a healthy one is not`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
+        assertEnvelopeOk(schemaRead(healthy, "feature-task"), "control: schema lookup succeeds")
         runBlocking {
             withMcp(healthy) { client ->
-                assertNotEquals(true, client.schema("feature-task").isError, "control: schema lookup succeeds")
                 assertNotEquals(true, client.context(item.id).isError, "control: get_context succeeds")
             }
         }
         nullServerCanonical()
         val broken = cold("cold")
 
+        assertEnvelopeConfigInvalid(schemaRead(broken, "feature-task"), "items_read(schema, type)")
+        assertEnvelopeConfigInvalid(schemaRead(broken, "feature-task", root.id), "items_read(schema, type, rootId)")
         runBlocking {
             withMcp(broken) { client ->
-                assertConfigInvalid(client.schema("feature-task"), "query_items(schema, type)")
-                assertConfigInvalid(client.schema("feature-task", root.id), "query_items(schema, type, rootId)")
                 assertConfigInvalid(client.context(item.id), "get_context(itemId)")
             }
         }
@@ -365,17 +369,13 @@ class FailClosedConfigTest {
         val root = seedRoot()
         val item = seedItem(root)
         pushRootConfig(root, rootOnly)
-        runBlocking {
-            withMcp(healthy) { client ->
-                assertNotEquals(true, client.schema("root-only-type", root.id).isError, "control: the root's type resolves")
-            }
-        }
+        assertEnvelopeOk(schemaRead(healthy, "root-only-type", root.id), "control: the root's type resolves")
         nullRootCanonical()
         val broken = cold("cold")
 
+        assertEnvelopeConfigInvalid(schemaRead(broken, "root-only-type", root.id), "items_read(schema, type, rootId)")
         runBlocking {
             withMcp(broken) { client ->
-                assertConfigInvalid(client.schema("root-only-type", root.id), "query_items(schema, type, rootId)")
                 assertConfigInvalid(client.context(item.id), "get_context(itemId)")
             }
         }
