@@ -150,7 +150,7 @@ internal fun twComplete(vararg fields: Pair<String, JsonElement>): JsonObject =
 
 internal fun twIds(vararg ids: UUID): JsonArray = JsonArray(ids.map { JsonPrimitive(it.toString()) })
 
-/** Dispatches over the real dispatcher in [profile] (the kit's own `call` is fixed to the knowledge profile). */
+/** Dispatches over the real dispatcher in [profile] (the shared kit `call` is fixed to the knowledge profile, which hides tree ops per U23). */
 internal suspend fun IwKit.callIn(
     profile: ToolProfile,
     vararg ops: JsonObject,
@@ -272,7 +272,8 @@ class ItemsWriteTreeTest {
         runBlocking {
             val k = kit()
             val r =
-                k.call(
+                k.callIn(
+                    ToolProfile.ORCHESTRATION,
                     twTree(
                         twRoot("Root"),
                         listOf(twChild("c1"), twChild("c2", "c1")),
@@ -337,7 +338,7 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(twTree(twRoot("Root"), listOf(twChild("c2", "c1"), twChild("c1"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("Root"), listOf(twChild("c2", "c1"), twChild("c1"))))
                     .envelope.body
                     .okResult()
             assertEquals(listOf("root", "c1", "c2"), ok.treeItems().map { it.str("ref") }, "the parent c1 precedes its child c2")
@@ -355,7 +356,7 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(twTree(twRoot("Root"), listOf(twChild("c3"), twChild("c1"), twChild("c2"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("Root"), listOf(twChild("c3"), twChild("c1"), twChild("c2"))))
                     .envelope.body
                     .okResult()
             assertEquals(listOf("root", "c3", "c1", "c2"), ok.treeItems().map { it.str("ref") })
@@ -368,7 +369,8 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             twRoot("Root"),
                             listOf(twChild("a"), twChild("b"), twChild("c")),
@@ -402,7 +404,8 @@ class ItemsWriteTreeTest {
             assertEquals(2, k.all().size)
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             buildJsonObject { put("id", attached.id.toString().take(8)) },
                             listOf(twChild("x"), twChild("y", "x"))
@@ -427,8 +430,10 @@ class ItemsWriteTreeTest {
             val target = k.make("Target")
             val upper =
                 k
-                    .call(twTree(buildJsonObject { put("id", target.id.toString().uppercase()) }, listOf(twChild("u"))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(buildJsonObject { put("id", target.id.toString().uppercase()) }, listOf(twChild("u")))
+                    ).envelope.body
                     .okResult()
             assertEquals(target.id.toString(), upper.str("id"), "the upper-case spelling resolves to the same item")
             val before = k.snapshot()
@@ -436,20 +441,23 @@ class ItemsWriteTreeTest {
 
             val short =
                 k
-                    .call(twTree(buildJsonObject { put("id", target.id.toString().take(7)) }, listOf(twChild("s"))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(buildJsonObject { put("id", target.id.toString().take(7)) }, listOf(twChild("s")))
+                    ).envelope.body
                     .errorAt()
             assertEquals("invalid_request", short.str("code"), "7 hex characters are below the 8-hex prefix minimum")
             val ghost = UUID.fromString("11111111-2222-4333-8444-555555555555")
             val missing =
                 k
-                    .call(twTree(buildJsonObject { put("id", ghost.toString()) }, listOf(twChild("m"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(buildJsonObject { put("id", ghost.toString()) }, listOf(twChild("m"))))
                     .envelope.body
                     .errorAt()
             assertEquals("not_found", missing.str("code"))
             val both =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             buildJsonObject { put("id", target.id.toString()) },
                             listOf(twChild("b")),
@@ -471,20 +479,20 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             val asParent =
                 k
-                    .call(twTree(twRoot("T"), extra = listOf("parentId" to jstr("abcdef12"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("T"), extra = listOf("parentId" to jstr("abcdef12"))))
                     .envelope.body
                     .errorAt()
             assertEquals("ambiguous_id", asParent.str("code"))
             assertTrue(one.id.toString() in asParent.toString() && two.id.toString() in asParent.toString(), asParent.toString())
             val asRoot =
                 k
-                    .call(twTree(buildJsonObject { put("id", "abcdef12") }))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(buildJsonObject { put("id", "abcdef12") }))
                     .envelope.body
                     .errorAt()
             assertEquals("ambiguous_id", asRoot.str("code"))
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("T"), extra = listOf("parentId" to jstr(one.id.toString()))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("T"), extra = listOf("parentId" to jstr(one.id.toString()))))
                 .envelope.body
                 .okResult()
             assertEquals(3, k.all().size, "control: the full id works through the same call shape")
@@ -500,7 +508,8 @@ class ItemsWriteTreeTest {
             val mid = k.make("Mid", top)
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             twRoot("Tree root"),
                             listOf(twChild("a")),
@@ -516,7 +525,7 @@ class ItemsWriteTreeTest {
 
             val free =
                 k
-                    .call(twTree(twRoot("Free")))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("Free")))
                     .envelope.body
                     .okResult()
             val freeRow = assertNotNull(k.item(free.refId("root")))
@@ -566,7 +575,7 @@ class ItemsWriteTreeTest {
             val linksBefore = k.tableCounts().getValue("links")
             val ok =
                 k
-                    .call(docTree(project, listOf(twNote("t1", "extra", "work", "explicit wins"))))
+                    .callIn(ToolProfile.ORCHESTRATION, docTree(project, listOf(twNote("t1", "extra", "work", "explicit wins"))))
                     .envelope.body
                     .okResult()
             val root = ok.refId("root")
@@ -621,7 +630,8 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             twRoot("Root"),
                             listOf(twChild("c1")),
@@ -659,7 +669,7 @@ class ItemsWriteTreeTest {
                 )
             assertField(
                 k
-                    .call(foreign)
+                    .callIn(ToolProfile.ORCHESTRATION, foreign)
                     .envelope.body
                     .errorAt(),
                 "/docRef/rootId"
@@ -688,7 +698,7 @@ class ItemsWriteTreeTest {
                 )
             val ok =
                 k
-                    .call(own)
+                    .callIn(ToolProfile.ORCHESTRATION, own)
                     .envelope.body
                     .okResult()
             assertEquals(
@@ -710,7 +720,8 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             twRoot("Gated root", "feature-task"),
                             listOf(twChild("plain"), twChild("gated", type = "feature-task"), twChild("given", type = "feature-task")),
@@ -736,8 +747,10 @@ class ItemsWriteTreeTest {
             val k = kit()
             val ok =
                 k
-                    .call(twTree(twRoot("Gated root", "feature-task"), listOf(twChild("g", type = "feature-task"))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("Gated root", "feature-task"), listOf(twChild("g", type = "feature-task")))
+                    ).envelope.body
                     .okResult()
             assertEquals(emptyList(), k.notesOf(ok.refId("root")))
             assertEquals(emptyList(), k.notesOf(ok.refId("g")))
@@ -755,14 +768,14 @@ class ItemsWriteTreeTest {
             val bad = twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", "nope")))
             assertField(
                 k
-                    .call(bad)
+                    .callIn(ToolProfile.ORCHESTRATION, bad)
                     .envelope.body
                     .errorAt(),
                 "/children/1/parentRef"
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", "c0"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", "c0"))))
                 .envelope.body
                 .okResult()
             assertEquals(3, k.all().size, "control: the same shape with a known parentRef writes the whole tree")
@@ -776,14 +789,14 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             val err =
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("ok1"), twChild("a", "b"), twChild("b", "a"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("ok1"), twChild("a", "b"), twChild("b", "a"))))
                     .envelope.body
                     .errorAt()
             assertField(err, "/children")
             assertTrue("parentRef chain is cyclic" in err.toString(), err.toString())
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("ok1"), twChild("a", "ok1"), twChild("b", "a"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("ok1"), twChild("a", "ok1"), twChild("b", "a"))))
                 .envelope.body
                 .okResult()
             assertEquals(4, k.all().size, "control: an acyclic chain writes")
@@ -797,7 +810,7 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             assertField(
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = null))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = null))))
                     .envelope.body
                     .errorAt(),
                 "/children/1/type"
@@ -805,7 +818,7 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "schema_violation",
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = "no-such-type"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = "no-such-type"))))
                     .envelope.body
                     .errorAt()
                     .str("code")
@@ -813,14 +826,14 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "schema_violation",
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = ""))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = ""))))
                     .envelope.body
                     .errorAt()
                     .str("code")
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = "feature-task"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"), twChild("c1", type = "feature-task"))))
                 .envelope.body
                 .okResult()
             assertEquals(3, k.all().size, "control: a declared type writes")
@@ -834,14 +847,14 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             assertField(
                 k
-                    .call(twTree(twRoot(null), listOf(twChild("c0"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot(null), listOf(twChild("c0"))))
                     .envelope.body
                     .errorAt(),
                 "/root/title"
             )
             assertField(
                 k
-                    .call(twTree(twRoot("R", null), listOf(twChild("c0"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R", null), listOf(twChild("c0"))))
                     .envelope.body
                     .errorAt(),
                 "/root/type"
@@ -849,7 +862,7 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "schema_violation",
                 k
-                    .call(twTree(twRoot("R", "")))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R", "")))
                     .envelope.body
                     .errorAt()
                     .str("code")
@@ -857,14 +870,14 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "schema_violation",
                 k
-                    .call(twTree(twRoot("R", "no-such-type")))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R", "no-such-type")))
                     .envelope.body
                     .errorAt()
                     .str("code")
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("c0"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c0"))))
                 .envelope.body
                 .okResult()
             assertEquals(2, k.all().size)
@@ -878,21 +891,21 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             assertField(
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("a"), twChild("root"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("a"), twChild("root"))))
                     .envelope.body
                     .errorAt(),
                 "/children/1/ref"
             )
             assertField(
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("a"), twChild("b"), twChild("a"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("a"), twChild("b"), twChild("a"))))
                     .envelope.body
                     .errorAt(),
                 "/children/2/ref"
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("a"), twChild("b"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("a"), twChild("b"))))
                 .envelope.body
                 .okResult()
             assertEquals(3, k.all().size)
@@ -907,29 +920,33 @@ class ItemsWriteTreeTest {
             val kids = listOf(twChild("a"), twChild("b"))
             assertField(
                 k
-                    .call(twTree(twRoot("R"), kids, listOf(twDep("a", "b"), twDep("zz", "b"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("a", "b"), twDep("zz", "b"))))
                     .envelope.body
                     .errorAt(),
                 "/deps/1/from"
             )
             assertField(
                 k
-                    .call(twTree(twRoot("R"), kids, listOf(twDep("a", "zz"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("a", "zz"))))
                     .envelope.body
                     .errorAt(),
                 "/deps/0/to"
             )
             assertField(
                 k
-                    .call(twTree(twRoot("R"), kids, notes = listOf(twNote("a", "k", "work", "x"), twNote("zz", "k", "work", "x"))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("R"), kids, notes = listOf(twNote("a", "k", "work", "x"), twNote("zz", "k", "work", "x")))
+                    ).envelope.body
                     .errorAt(),
                 "/notes/1/itemRef"
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), kids, listOf(twDep("a", "root")), listOf(twNote("root", "k", "work", "x"))))
-                .envelope.body
+                .callIn(
+                    ToolProfile.ORCHESTRATION,
+                    twTree(twRoot("R"), kids, listOf(twDep("a", "root")), listOf(twNote("root", "k", "work", "x")))
+                ).envelope.body
                 .okResult()
             assertEquals(3, k.all().size, "control: the reserved ref root is a valid dependency end and note target")
         }
@@ -943,7 +960,7 @@ class ItemsWriteTreeTest {
             val anchored = twRoot("R", extra = listOf("noteAnchors" to JsonArray(listOf(twAnchor("requirements", "queue", "overview")))))
             assertField(
                 k
-                    .call(twTree(anchored))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(anchored))
                     .envelope.body
                     .errorAt(),
                 "/docRef"
@@ -951,14 +968,14 @@ class ItemsWriteTreeTest {
             val ruleSlug = twTree(twRoot("R"), extra = listOf("docRef" to buildJsonObject { put("slug", "rule/x") }))
             assertField(
                 k
-                    .call(ruleSlug)
+                    .callIn(ToolProfile.ORCHESTRATION, ruleSlug)
                     .envelope.body
                     .errorAt(),
                 "/docRef/slug"
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R")))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R")))
                 .envelope.body
                 .okResult()
             assertEquals(1, k.all().size)
@@ -972,26 +989,27 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             val loud =
                 k
-                    .call(twTree(twRoot("R", extra = listOf("priority" to jstr("High")))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R", extra = listOf("priority" to jstr("High")))))
                     .envelope.body
                     .errorAt()
             assertField(loud, "/priority")
             val csv =
                 k
-                    .call(twTree(twRoot("R", extra = listOf("tags" to jstr("a,b")))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R", extra = listOf("tags" to jstr("a,b")))))
                     .envelope.body
                     .errorAt()
             assertEquals("invalid_request", csv.str("code"))
             val childCsv =
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("c", extra = listOf("tags" to jstr("a,b"))))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), listOf(twChild("c", extra = listOf("tags" to jstr("a,b"))))))
                     .envelope.body
                     .errorAt()
             assertEquals("invalid_request", childCsv.str("code"))
             assertUntouched(k, before, counts)
             val ok =
                 k
-                    .call(
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
                         twTree(
                             twRoot("R", extra = listOf("priority" to jstr("high"), "tags" to strings("a", "b"))),
                             listOf(twChild("c", extra = listOf("priority" to jstr("low"))))
@@ -1006,7 +1024,12 @@ class ItemsWriteTreeTest {
     fun `S8 an unknown member of a tree element is unknown_parameter and a valid sibling still commits`(): Unit =
         runBlocking {
             val k = kit()
-            val r = k.call(JsonObject(twTree(twRoot("U")) + ("surprise" to JsonPrimitive(1))), twTree(twRoot("V")))
+            val r =
+                k.callIn(
+                    ToolProfile.ORCHESTRATION,
+                    JsonObject(twTree(twRoot("U")) + ("surprise" to JsonPrimitive(1))),
+                    twTree(twRoot("V"))
+                )
             val err = r.envelope.body.errorAt(0)
             assertEquals("unknown_parameter", err.str("code"))
             assertEquals(
@@ -1032,19 +1055,19 @@ class ItemsWriteTreeTest {
             val kids = listOf(twChild("c1"), twChild("c2"))
             val cycle =
                 k
-                    .call(twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c2", "c1"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c2", "c1"))))
                     .envelope.body
                     .errorAt()
             assertEquals("cycle_detected", cycle.str("code"))
             val restated =
                 k
-                    .call(twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c1", "c2"))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c1", "c2"))))
                     .envelope.body
                     .errorAt()
             assertEquals("duplicate", restated.str("code"))
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"))))
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"))))
                 .envelope.body
                 .okResult()
             assertEquals(3, k.all().size)
@@ -1060,22 +1083,40 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             val shut =
                 k
-                    .call(twTree(twRoot("R"), listOf(twChild("c")), extra = listOf("parentId" to jstr(closed.id.toString()))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(
+                            twRoot("R"),
+                            listOf(twChild("c")),
+                            extra =
+                                listOf(
+                                    "parentId" to jstr(closed.id.toString())
+                                )
+                        )
+                    ).envelope.body
                     .errorAt()
             assertEquals("invalid_transition", shut.str("code"))
             val ghost = UUID.fromString("11111111-2222-4333-8444-555555555555")
             val missing =
                 k
-                    .call(twTree(twRoot("R"), extra = listOf("parentId" to jstr(ghost.toString()))))
+                    .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), extra = listOf("parentId" to jstr(ghost.toString()))))
                     .envelope.body
                     .errorAt()
             assertEquals("not_found", missing.str("code"))
             assertUntouched(k, before, counts)
             val open = k.make("Open")
             k
-                .call(twTree(twRoot("R"), listOf(twChild("c")), extra = listOf("parentId" to jstr(open.id.toString()))))
-                .envelope.body
+                .callIn(
+                    ToolProfile.ORCHESTRATION,
+                    twTree(
+                        twRoot("R"),
+                        listOf(twChild("c")),
+                        extra =
+                            listOf(
+                                "parentId" to jstr(open.id.toString())
+                            )
+                    )
+                ).envelope.body
                 .okResult()
             assertEquals(4, k.all().size, "control: an open parent accepts the same tree (closed, open, root, child)")
         }
@@ -1089,7 +1130,7 @@ class ItemsWriteTreeTest {
             val counts = k.tableCounts()
             assertField(
                 k
-                    .call(docTree(project, rootAnchor = "does-not-exist"))
+                    .callIn(ToolProfile.ORCHESTRATION, docTree(project, rootAnchor = "does-not-exist"))
                     .envelope.body
                     .errorAt(),
                 "/root/noteAnchors/0/anchor"
@@ -1110,7 +1151,7 @@ class ItemsWriteTreeTest {
                 )
             assertField(
                 k
-                    .call(childMiss)
+                    .callIn(ToolProfile.ORCHESTRATION, childMiss)
                     .envelope.body
                     .errorAt(),
                 "/children/0/noteAnchors/1/anchor"
@@ -1125,7 +1166,7 @@ class ItemsWriteTreeTest {
             assertEquals(PlanDocumentStatus.PENDING, doc.status)
             assertNull(doc.adoptedByItemId)
             k
-                .call(docTree(project))
+                .callIn(ToolProfile.ORCHESTRATION, docTree(project))
                 .envelope.body
                 .okResult()
             assertEquals(
@@ -1153,7 +1194,7 @@ class ItemsWriteTreeTest {
                 )
             val missing =
                 k
-                    .call(unknown)
+                    .callIn(ToolProfile.ORCHESTRATION, unknown)
                     .envelope.body
                     .errorAt()
             assertEquals("not_found", missing.str("code"))
@@ -1177,7 +1218,7 @@ class ItemsWriteTreeTest {
             val countsAfterFixture = k.tableCounts()
             val again =
                 k
-                    .call(docTree(project))
+                    .callIn(ToolProfile.ORCHESTRATION, docTree(project))
                     .envelope.body
                     .errorAt()
             assertEquals("duplicate", again.str("code"))
@@ -1215,14 +1256,14 @@ class ItemsWriteTreeTest {
             val over = twTree(twRoot("R", "lim-type"), listOf(twChild("c")), notes = listOf(twNote("root", "lim", "work", "x".repeat(11))))
             val err =
                 reject
-                    .call(over)
+                    .callIn(ToolProfile.ORCHESTRATION, over)
                     .envelope.body
                     .errorAt()
             assertEquals(ErrorCode.NOTE_TOO_LONG.wire, err.str("code"))
             assertUntouched(reject, before, counts)
             val within = twTree(twRoot("R", "lim-type"), notes = listOf(twNote("root", "lim", "work", "x".repeat(10))))
             reject
-                .call(within)
+                .callIn(ToolProfile.ORCHESTRATION, within)
                 .envelope.body
                 .okResult()
             assertEquals(1, reject.all().size, "control: exactly maxLength is accepted in reject mode")
@@ -1234,8 +1275,10 @@ class ItemsWriteTreeTest {
             val warn = kit(limConfig.replace("%MODE%", "warn"))
             val ok =
                 warn
-                    .call(twTree(twRoot("R", "lim-type"), notes = listOf(twNote("root", "lim", "work", "x".repeat(11)))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("R", "lim-type"), notes = listOf(twNote("root", "lim", "work", "x".repeat(11))))
+                    ).envelope.body
                     .okResult()
             // Arbitration: the frozen oracle names `warning?` on the note entry without a shape (the 3.x tool answered a message), so only
             // its presence is asserted, with a within-limit control that carries none.
@@ -1248,8 +1291,10 @@ class ItemsWriteTreeTest {
             assertTrue("warning" in entry, "an over-maxLength note carries a warning member: $entry")
             val within =
                 warn
-                    .call(twTree(twRoot("R2", "lim-type"), notes = listOf(twNote("root", "lim", "work", "x".repeat(10)))))
-                    .envelope.body
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("R2", "lim-type"), notes = listOf(twNote("root", "lim", "work", "x".repeat(10))))
+                    ).envelope.body
                     .okResult()
             assertFalse(
                 "warning" in
@@ -1280,7 +1325,7 @@ class ItemsWriteTreeTest {
             assertEquals(
                 ErrorCode.PAYLOAD_TOO_LARGE.wire,
                 k
-                    .call(huge)
+                    .callIn(ToolProfile.ORCHESTRATION, huge)
                     .envelope.body
                     .errorAt()
                     .str("code")
@@ -1289,19 +1334,23 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "schema_violation",
                 k
-                    .call(wrongRole)
+                    .callIn(ToolProfile.ORCHESTRATION, wrongRole)
                     .envelope.body
                     .errorAt()
                     .str("code")
             )
             assertUntouched(k, before, counts)
             k
-                .call(twTree(twRoot("R"), listOf(twChild("c")), notes = listOf(twNote("c", "k", "work", "a".repeat(65536)))))
-                .envelope.body
+                .callIn(
+                    ToolProfile.ORCHESTRATION,
+                    twTree(twRoot("R"), listOf(twChild("c")), notes = listOf(twNote("c", "k", "work", "a".repeat(65536))))
+                ).envelope.body
                 .okResult()
             k
-                .call(twTree(twRoot("R", "feature-task"), notes = listOf(twNote("root", "spec", "queue", "x"))))
-                .envelope.body
+                .callIn(
+                    ToolProfile.ORCHESTRATION,
+                    twTree(twRoot("R", "feature-task"), notes = listOf(twNote("root", "spec", "queue", "x")))
+                ).envelope.body
                 .okResult()
             assertEquals(3, k.all().size, "control: exactly 65536 bytes and the declared role both write")
         }
@@ -1317,14 +1366,14 @@ class ItemsWriteTreeTest {
             val before = k.snapshot()
             val counts = k.tableCounts()
 
-            val atomic = k.call(good, badCycle, atomic = true)
+            val atomic = k.callIn(ToolProfile.ORCHESTRATION, good, badCycle, atomic = true)
             assertEquals(409, atomic.envelope.httpStatus)
             val whole = atomic.envelope.body.wholeError()
             assertEquals("cycle_detected", whole.str("code"))
             assertEquals("1", whole.str("index"))
             assertUntouched(k, before, counts)
 
-            val loose = k.call(good, badCycle)
+            val loose = k.callIn(ToolProfile.ORCHESTRATION, good, badCycle)
             assertEquals(207, loose.envelope.httpStatus)
             assertEquals("""{"ok":1,"failed":1}""", loose.envelope.body.summary())
             assertEquals(
@@ -1348,7 +1397,7 @@ class ItemsWriteTreeTest {
             val before = k.snapshot()
             val counts = k.tableCounts()
             val ghost = UUID.fromString("11111111-2222-4333-8444-555555555555")
-            val r = k.call(docTree(project), deleteOp(ghost), atomic = true)
+            val r = k.callIn(ToolProfile.ORCHESTRATION, docTree(project), deleteOp(ghost), atomic = true)
             assertEquals(
                 "not_found",
                 r.envelope.body
@@ -1371,7 +1420,7 @@ class ItemsWriteTreeTest {
             assertEquals(PlanDocumentStatus.PENDING, doc.status, "the adoption was inside the unit and rolled back")
             assertNull(doc.adoptedByItemId)
             k
-                .call(docTree(project), deleteOp(ghost))
+                .callIn(ToolProfile.ORCHESTRATION, docTree(project), deleteOp(ghost))
                 .envelope.body
                 .okResult(0)
             assertEquals(
@@ -1399,14 +1448,14 @@ class ItemsWriteTreeTest {
             val keyed = twTree(twRoot("Keyed"), listOf(twChild("a")), extra = listOf("idempotencyKey" to jstr("tree-key-1")))
             val first =
                 k
-                    .call(keyed, actor = IW_ACTOR)
+                    .callIn(ToolProfile.ORCHESTRATION, keyed, actor = IW_ACTOR)
                     .envelope.body
                     .okResult()
             assertNull(first["replayed"], "the first execution is not a replay")
             val counts = k.tableCounts()
             val again =
                 k
-                    .call(keyed, actor = IW_ACTOR)
+                    .callIn(ToolProfile.ORCHESTRATION, keyed, actor = IW_ACTOR)
                     .envelope.body
                     .okResult()
             assertEquals("true", again.str("replayed"))
@@ -1417,7 +1466,7 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "idempotency_mismatch",
                 k
-                    .call(other, actor = IW_ACTOR)
+                    .callIn(ToolProfile.ORCHESTRATION, other, actor = IW_ACTOR)
                     .envelope.body
                     .errorAt()
                     .str("code")
@@ -1435,7 +1484,8 @@ class ItemsWriteTreeTest {
             val (ok, rows) =
                 k.rig.written {
                     k
-                        .call(
+                        .callIn(
+                            ToolProfile.ORCHESTRATION,
                             twTree(
                                 twRoot(
                                     "Feature X",
@@ -1480,15 +1530,18 @@ class ItemsWriteTreeTest {
             val (_, failedRows) =
                 k.rig.written {
                     k
-                        .call(twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c2", "c1"))), actor = IW_ACTOR)
-                        .envelope.body
+                        .callIn(
+                            ToolProfile.ORCHESTRATION,
+                            twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"), twDep("c2", "c1"))),
+                            actor = IW_ACTOR
+                        ).envelope.body
                         .errorAt()
                 }
             assertEquals(emptyList(), failedRows.map { it.type }, "a failed element writes no event")
             val (_, okRows) =
                 k.rig.written {
                     k
-                        .call(twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"))))
+                        .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("R"), kids, listOf(twDep("c1", "c2"))))
                         .envelope.body
                         .okResult()
                 }
@@ -1564,7 +1617,7 @@ class ItemsWriteTreeTest {
             assertEquals(
                 "not_found",
                 k
-                    .call(tree)
+                    .callIn(ToolProfile.ORCHESTRATION, tree)
                     .envelope.body
                     .errorAt()
                     .str("code"),
@@ -1687,13 +1740,13 @@ class ItemsWriteTreeTest {
     // ------------------------------------------------------------------ S19 registration
 
     @Test
-    fun `S19 items_write lists create_tree and complete_tree, the knowledge profile hides complete_tree`() {
+    fun `S19 items_write lists create_tree and complete_tree, the knowledge profile hides both (amendment U23)`() {
         val spec = assertNotNull(ToolRegistry(buildToolSpecs())["items_write"])
         assertTrue(spec is OpsToolSpec<*>)
         assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree"), spec.ops.map { it.name })
         val knowledge = ToolSchemaRenderer.inputSchema(spec, ToolProfile.KNOWLEDGE).toString()
         val orchestration = ToolSchemaRenderer.inputSchema(spec, ToolProfile.ORCHESTRATION).toString()
-        assertTrue("create_tree" in knowledge, "knowledge shows create_tree")
+        assertTrue("create_tree" !in knowledge, "knowledge hides create_tree")
         assertTrue("complete_tree" !in knowledge, "knowledge hides complete_tree")
         assertTrue("create_tree" in orchestration && "complete_tree" in orchestration, "orchestration shows both")
     }
@@ -1702,7 +1755,13 @@ class ItemsWriteTreeTest {
     fun `S19 a batch of tree ops is a normal envelope - one result per op, summary counts, distinct ids`(): Unit =
         runBlocking {
             val k = kit()
-            val r = k.call(twTree(twRoot("A")), twTree(twRoot("B")), twTree(twRoot("C"), listOf(twChild("x", "nope"))))
+            val r =
+                k.callIn(
+                    ToolProfile.ORCHESTRATION,
+                    twTree(twRoot("A")),
+                    twTree(twRoot("B")),
+                    twTree(twRoot("C"), listOf(twChild("x", "nope")))
+                )
             assertEquals(
                 3,
                 r.envelope.body
