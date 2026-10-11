@@ -1,16 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsCreateRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanInRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanOutRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -175,5 +179,29 @@ private suspend fun WriteScope.createEdges(
                 unblockAt = unblockAt?.wire
             )
         }
-    return withEventActor(ctx.principal?.claim) { env.dependencyCommandService.createInUnit(deps) }
+    return when (val r = withEventActor(ctx.principal?.claim) { env.dependencyCommandService.createInUnit(deps) }) {
+        is Outcome.Ok -> r
+        is Outcome.Err -> Outcome.Err(redactCyclePath(ctx, r.error, ids.toSet(), items))
+    }
+}
+
+/**
+ * Under a restricted scope, a `cycle_detected` path lists only the ids the caller's scope admits, in path order; a hop
+ * through an item outside the scope is omitted (fail closed: scope is no topology oracle). The request's [named] ids were
+ * admitted already, so only the other hops cost one [ScopeGuard.admitted] batch call. An unrestricted caller, or any
+ * other error, is returned unchanged.
+ */
+private suspend fun redactCyclePath(
+    ctx: CallContext,
+    error: DomainError,
+    named: Set<UUID>,
+    items: WorkItemRepository
+): DomainError {
+    val detail = error.detail as? ErrorDetail.CycleDetected ?: return error
+    if (ctx.scope.isUnrestricted) return error
+    val others = detail.path.filterTo(LinkedHashSet()) { it !in named }
+    val admitted = named + ScopeGuard.admitted(ctx.scope, others, items)
+    val visible = detail.path.filter { it in admitted }
+    // the closing edge's ends are named ids, so visible is never empty; the fallback only keeps the detail valid
+    return error.copy(detail = ErrorDetail.CycleDetected(visible.ifEmpty { named.take(1) }))
 }

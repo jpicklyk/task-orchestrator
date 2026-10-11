@@ -958,8 +958,9 @@ REST `POST /api/v1/ops/deps_read`. Replaces `query_dependencies` (its backlinks 
 (`describe: true`).
 
 **Selects.** `list`, `graph`. Both need the `READ` capability and honor the caller's root and tag
-scope: a subject `item` outside the scope is `forbidden` (scope is checked before existence, so an
-unknown item is `not_found` only for an unrestricted caller).
+scope: a subject `item` outside the scope is `forbidden`. Scope is checked before existence for a full
+UUID, so an unknown full UUID is `forbidden` to a restricted caller; a short hex prefix is resolved
+before the scope check, so a prefix that matches nothing can answer `not_found` to a restricted caller.
 
 | Select | Fields | Answer (`data`) |
 |---|---|---|
@@ -1008,7 +1009,8 @@ capability (`manage-dependencies`); `delete` is destructive.
   the pattern leaves nothing written.
 - **Scope.** Every named item must be inside the caller's scope; `delete {id}` checks both stored ends,
   `delete {item}` the item and every counterparty of its edges. A miss is `forbidden` and nothing is
-  written.
+  written. Under a restricted scope, a `cycle_detected` `path` lists only the items the scope admits, in
+  path order: a hop through an out-of-scope item is omitted.
 - **Delete matching.** `{id}` takes a full dependency UUID; an unknown one is `not_found`. `{from, to}`
   without `type` matches edges of either type; `{from, to}` or `{item}` that matches nothing is
   `deleted: 0`.

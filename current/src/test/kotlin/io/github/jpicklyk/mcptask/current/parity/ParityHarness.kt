@@ -441,7 +441,7 @@ class ParityHarness(
                             label == "seq" ||
                                 label == "req_id" ||
                                 label == "session_id" ||
-                                label == "host" ||
+                                (label == "host" && table == "events") ||
                                 label == "at" ||
                                 (label.endsWith("_at") && label != "unblock_at")
                         ) &&
