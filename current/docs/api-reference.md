@@ -44,8 +44,8 @@ errors, per-root-config-unavailable failures, and internal errors.
 ### items_write
 
 **Purpose.** Create, update and delete WorkItems, create a whole tree, or complete one. One `ops[]` array of flat
-objects, each naming its op in `op` (`create`, `update`, `delete`, `create_tree`, and `complete_tree` in the
-orchestration profile). It is the 4.0 replacement of `manage_items`, `create_work_tree` and `complete_tree`, and the
+objects, each naming its op in `op` (`create`, `update`, `delete`, and `create_tree` and `complete_tree` in the
+orchestration profile only). It is the 4.0 replacement of `manage_items`, `create_work_tree` and `complete_tree`, and the
 same call is served over MCP and
 as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
 gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
@@ -112,7 +112,7 @@ principal of the `item.created`, `item.updated`, `item.reparented` and `item.del
 
 Creates a root with its children, the dependencies between them and their notes as ONE write unit: everything commits
 or nothing does (zero items, notes, dependencies, links and events; a referenced plan document stays PENDING). It
-replaces the 3.x `create_work_tree` tool. Knowledge profile; capability `write-items`.
+replaces the 3.x `create_work_tree` tool. Orchestration profile only; capability `write-items`.
 
 | Field | Meaning |
 |---|---|

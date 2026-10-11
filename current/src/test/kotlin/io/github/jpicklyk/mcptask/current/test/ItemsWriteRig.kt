@@ -29,17 +29,25 @@ internal suspend fun ToolExecutionContext.itemsWrite(
     atomic: Boolean = false,
     actor: JsonObject? = null,
     reqId: String = "k7f3q9ab",
-    profile: ToolProfile = ToolProfile.KNOWLEDGE
+    profile: ToolProfile? = null
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())["items_write"]) { "items_write is not registered" }
+    // Default: knowledge, unless an op is orchestration-only (create_tree and complete_tree, amendment U23).
+    val effectiveProfile =
+        profile ?: if (ops.any { it.opName() in ORCHESTRATION_ONLY_OPS }) ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
     val arguments =
         buildJsonObject {
             actor?.let { put("actor", it) }
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(this).dispatch(spec, profile, arguments, reqId, "mcp").envelope.body
+    return buildToolDispatcher(this).dispatch(spec, effectiveProfile, arguments, reqId, "mcp").envelope.body
 }
+
+/** The `items_write` ops the knowledge profile hides. */
+private val ORCHESTRATION_ONLY_OPS = setOf("create_tree", "complete_tree")
+
+private fun JsonObject.opName(): String? = (this["op"] as? JsonPrimitive)?.content
 
 /** [ToolExecutionContext.itemsWrite] over the rig's production composition. */
 internal suspend fun EventLogRig.itemsWrite(
@@ -47,7 +55,7 @@ internal suspend fun EventLogRig.itemsWrite(
     atomic: Boolean = false,
     actor: JsonObject? = null,
     reqId: String = "k7f3q9ab",
-    profile: ToolProfile = ToolProfile.KNOWLEDGE
+    profile: ToolProfile? = null
 ): JsonObject = ctx.itemsWrite(*ops, atomic = atomic, actor = actor, reqId = reqId, profile = profile)
 
 /** A `create` element for [title]; [extra] adds or overrides fields. */
