@@ -11,6 +11,7 @@ import java.util.UUID
  */
 interface LinkStore {
     /** Inserts [link] as given and returns it. A resolved duplicate (same ends and relation) is a unique violation. */
+    @StoreWrite
     suspend fun insert(link: Link): Link
 
     /** Every link whose source is [ref], oldest first. */
@@ -33,6 +34,7 @@ interface LinkStore {
      * Deletes the links whose source is [ref]: every relation when [relation] is null, else only that relation.
      * Returns the number deleted.
      */
+    @StoreWrite
     suspend fun deleteFrom(
         ref: EntityRef,
         relation: LinkRelation? = null
@@ -43,6 +45,7 @@ interface LinkStore {
      * only, never on
 oot_item_id. Empty [refs] runs no query. Returns the number deleted.
      */
+    @StoreWrite
     suspend fun deleteFromAny(refs: Collection<EntityRef>): Int
 
     /**
@@ -50,12 +53,14 @@ oot_item_id. Empty [refs] runs no query. Returns the number deleted.
      * statements matched on (kind, id) only. Dangling links (no target id) are never touched. Empty [refs] runs no
      * query. Returns the number deleted.
      */
+    @StoreWrite
     suspend fun deleteToAny(
         refs: Collection<EntityRef>,
         keep: Set<LinkRelation>
     ): Int
 
     /** Deletes the links with the given [ids] in batched statements. Empty [ids] runs no query. Returns the number deleted. */
+    @StoreWrite
     suspend fun deleteByIds(ids: Collection<UUID>): Int
 
     /**
@@ -68,6 +73,7 @@ oot_item_id. Empty [refs] runs no query. Returns the number deleted.
     ): List<Link>
 
     /** Resolves the dangling link [id] to [target] (sets its target kind and id). Returns true when a row was updated. */
+    @StoreWrite
     suspend fun resolve(
         id: UUID,
         target: EntityRef
@@ -78,5 +84,6 @@ oot_item_id. Empty [refs] runs no query. Returns the number deleted.
      * (target id cleared, text kept); each one without a `to_ref` is deleted. Returns the number of links changed or
      * deleted.
      */
+    @StoreWrite
     suspend fun unresolveTo(ref: EntityRef): Int
 }

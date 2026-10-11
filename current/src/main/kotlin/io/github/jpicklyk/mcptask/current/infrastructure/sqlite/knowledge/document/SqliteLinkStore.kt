@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
 import io.github.jpicklyk.mcptask.current.domain.model.Link
 import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
@@ -32,6 +33,7 @@ import java.util.UUID
 class SqliteLinkStore(
     private val databaseManager: DatabaseManager
 ) : LinkStore {
+    @StoreWrite
     override suspend fun insert(link: Link): Link {
         require(link.to != null || link.toRef != null) { "a link needs a resolved target or a target reference" }
         return databaseManager.writeTx("LinkStore.insert") {
@@ -95,6 +97,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteFrom(
         ref: EntityRef,
         relation: LinkRelation?
@@ -107,6 +110,7 @@ class SqliteLinkStore(
             }
         }
 
+    @StoreWrite
     override suspend fun deleteFromAny(refs: Collection<EntityRef>): Int {
         if (refs.isEmpty()) return 0
         return databaseManager.writeTx("LinkStore.deleteFromAny") {
@@ -119,6 +123,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteToAny(
         refs: Collection<EntityRef>,
         keep: Set<LinkRelation>
@@ -138,6 +143,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteByIds(ids: Collection<UUID>): Int {
         if (ids.isEmpty()) return 0
         return databaseManager.writeTx("LinkStore.deleteByIds") {
@@ -166,6 +172,7 @@ class SqliteLinkStore(
         }
     }
 
+    @StoreWrite
     override suspend fun resolve(
         id: UUID,
         target: EntityRef
@@ -177,6 +184,7 @@ class SqliteLinkStore(
             } == 1
         }
 
+    @StoreWrite
     override suspend fun unresolveTo(ref: EntityRef): Int =
         databaseManager.writeTx("LinkStore.unresolveTo") {
             val kind = ref.kind.toDbValue()
