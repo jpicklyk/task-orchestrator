@@ -254,7 +254,8 @@ comma-separated list split and trimmed); claim identity is never rendered.
   `diagnostics`. `schemaVersion` is the item's pin, `{server?, root?, key?, layer?}`: the pinned server and root
   config version numbers and the pinned base schema key and layer (`server` or `root`), each omitted when null;
   the whole member is omitted for an item that was never pinned. `stale: true` appears only when either pinned
-  version is no longer the head of its scope (`repin` moves it).
+  version is no longer the head of its scope (`repin` moves it). Rendering the pin reads config, so a config read
+  fault with nothing cached answers `unavailable`.
 - Compact view (`list` entries, overview entries, `ancestors`): `id` and `parentId` as 8-hex short ids,
   `type`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `traits`, `version`. A compact view never
   carries a pin.

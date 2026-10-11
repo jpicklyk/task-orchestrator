@@ -850,8 +850,10 @@ answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 array, `version` always present; a pinned item adds `schemaVersion` `{server?, root?, key?, layer?}` and, only
 when a pinned config version is no longer the head, `stale: true`), with `ETag: "v{version}"` (the item version). An `If-None-Match` naming
 that tag (a comma-separated list, a `W/` weak tag or `*` also match) answers `304 Not Modified` with no
-body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. Errors:
-`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`.
+body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. `stale` can change
+without a version change (a config push moves the head), so a `304` does not prove `stale` unchanged. Errors:
+`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`, `503 unavailable` (the pin view's config
+read failed with nothing cached).
 
 ### GET /items/{id}/children
 

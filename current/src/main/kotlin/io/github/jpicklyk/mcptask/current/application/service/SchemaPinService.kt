@@ -52,33 +52,54 @@ class SchemaPinService(
         item: WorkItem,
         rootId: UUID?,
         now: Instant
-    ): SchemaPin {
+    ): SchemaPin = pinsFor(listOf(item), rootId, now).getValue(item.id)
+
+    /**
+     * The pins [items] get under [rootId] at [now], by item id: [pinFor] for each, over ONE read of the heads and one
+     * base-schema resolution per distinct type (a moved subtree re-pins without a per-item config read).
+     */
+    suspend fun pinsFor(
+        items: Collection<WorkItem>,
+        rootId: UUID?,
+        now: Instant
+    ): Map<UUID, SchemaPin> {
+        if (items.isEmpty()) return emptyMap()
         val layered = configResolver.layered(rootId)
-        val base = layered.baseSchemaEntry(item.type)
-        return SchemaPin(
-            serverVersionId = layered.global.versionId(),
-            rootVersionId = layered.perRoot?.versionId,
-            schemaKey = base?.key,
-            schemaLayer = base?.source?.let { layerOf(it) },
-            lifecycle = base?.schema?.lifecycleMode,
-            pinnedAt = now
-        )
+        val serverVersionId = layered.global.versionId()
+        val rootVersionId = layered.perRoot?.versionId
+        val byType = HashMap<String?, SchemaPin>()
+        return items.associate { item ->
+            item.id to
+                byType.getOrPut(item.type) {
+                    val base = layered.baseSchemaEntry(item.type)
+                    SchemaPin(
+                        serverVersionId = serverVersionId,
+                        rootVersionId = rootVersionId,
+                        schemaKey = base?.key,
+                        schemaLayer = base?.source?.let { layerOf(it) },
+                        lifecycle = base?.schema?.lifecycleMode,
+                        pinnedAt = now
+                    )
+                }
+        }
     }
 
     /**
      * The read-side view of [item]'s pin, or null when it is unpinned. Stale compares each pinned version id with the
-     * current head of that scope (a missing or reset head counts as none).
+     * current head of that scope (a missing or reset head counts as none). A pinned version that IS the head takes its
+     * number from the head already read (no version lookup).
      */
     suspend fun view(item: WorkItem): PinView? {
         val pin = item.pin ?: return null
         val head = configResolver.layered(item.rootId)
-        val stale = pin.serverVersionId != head.global.versionId() || pin.rootVersionId != head.perRoot?.versionId
+        val serverHead = head.global.versionId()
+        val rootHead = head.perRoot?.versionId
         return PinView(
-            serverVersion = versionNumber(pin.serverVersionId),
-            rootVersion = versionNumber(pin.rootVersionId),
+            serverVersion = if (pin.serverVersionId == serverHead) head.global.version() else versionNumber(pin.serverVersionId),
+            rootVersion = if (pin.rootVersionId == rootHead) head.perRoot?.version else versionNumber(pin.rootVersionId),
             key = pin.schemaKey,
             layer = pin.schemaLayer,
-            stale = stale
+            stale = pin.serverVersionId != serverHead || pin.rootVersionId != rootHead
         )
     }
 
@@ -88,10 +109,12 @@ class SchemaPinService(
      */
     suspend fun versionLabels(item: WorkItem): Pair<String, String> {
         val pin = requireNotNull(item.pin) { "item ${item.id} is not pinned" }
-        val pinned = label(versionNumber(pin.serverVersionId), versionNumber(pin.rootVersionId))
         val head = configResolver.layered(item.rootId)
-        val current = label(head.global.version(), head.perRoot?.version)
-        return pinned to current
+        val serverNow = head.global.version()
+        val rootNow = head.perRoot?.version
+        val server = if (pin.serverVersionId == head.global.versionId()) serverNow else versionNumber(pin.serverVersionId)
+        val root = if (pin.rootVersionId == head.perRoot?.versionId) rootNow else versionNumber(pin.rootVersionId)
+        return label(server, root) to label(serverNow, rootNow)
     }
 
     private fun label(

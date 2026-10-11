@@ -146,8 +146,10 @@ data class ItemDeleteResult(
  *
  * - **Pins** (plan section 3.8) are taken through [schemaPinService] at the pin points this service owns: a create, a
  *   patch that changes the type, moves the item to another root, or changes its traits (one `item.pinned` row per
- *   patch, reason precedence type_change > reparent > trait_change), and [repin]. A title-only patch or a same-root
- *   move leaves the pin untouched. With pins off ([SchemaPinService.enabled] false) nothing is pinned.
+ *   patch, reason precedence type_change > reparent > trait_change), and [repin]. A move to another root also re-pins
+ *   every descendant against the new root (one `reparent` row each, batched). A delete first re-points any surviving
+ *   pin naming a config version the delete cascades away. A title-only patch or a same-root move leaves the pin
+ *   untouched. With pins off ([SchemaPinService.enabled] false) nothing is pinned.
  *
  * A [PerRootConfigUnavailableException] (resolving a TERMINAL parent's lifecycle, or taking a pin) rolls the unit back
  * and is rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
@@ -454,10 +456,48 @@ class ItemCommandService(
                     if (changed.isEmpty()) null else DomainEvent.ItemUpdated(d.id, newRoot, changed)
                 }
             events.record(rows)
+            repinMovedDescendants(descendants, newRoot)
         }
 
         val cascades = cascade(existing.parentId, followUps)
         return Outcome.Ok(ItemPatchResult(stored, reparented = true, descendantsRestamped = restamped, cascadeEvents = cascades))
+    }
+
+    /**
+     * A move to another root re-pins every descendant that changed root against [newRoot]'s heads (reason `reparent`;
+     * the moved item's own precedence is unaffected), in one batched write, so no row keeps a pin naming the old root's
+     * config versions (which that root's delete cascades away). The restamp already bumped each row's version.
+     */
+    private suspend fun WriteScope.repinMovedDescendants(
+        descendants: List<WorkItem>,
+        newRoot: UUID
+    ) {
+        if (!schemaPinService.enabled) return
+        val moved = descendants.filter { it.rootId != newRoot }
+        if (moved.isEmpty()) return
+        val pins = schemaPinService.pinsFor(moved, newRoot, now)
+        items.writePins(pins)
+        events.record(moved.map { SchemaPinService.pinnedEvent(it.id, newRoot, it.pin, pins.getValue(it.id), PinReason.REPARENT) })
+    }
+
+    /**
+     * Before [doomed] are deleted (their `config_versions` rows cascade with them), re-points every SURVIVING item whose
+     * root pin names one of those versions at its own root's heads (reason `repin`; no version bump), so the delete never
+     * trips the pin foreign key. Unreachable with consistent placement (a cross-root move re-pins its subtree); it covers
+     * rows whose `root_id` disagrees with the tree. A survivor whose root is itself doomed pins against the server only.
+     */
+    private suspend fun WriteScope.repointSurvivingPins(doomed: Set<UUID>) {
+        if (!schemaPinService.enabled) return
+        val survivors = items.findPinnedToConfigOf(doomed)
+        if (survivors.isEmpty()) return
+        val pins = HashMap<UUID, SchemaPin>()
+        for ((root, group) in survivors.groupBy { it.rootId?.takeUnless { r -> r in doomed } }) {
+            pins.putAll(schemaPinService.pinsFor(group, root, now))
+        }
+        items.writePins(pins)
+        events.record(
+            survivors.map { SchemaPinService.pinnedEvent(it.id, eventRootOf(it, hierarchy), it.pin, pins.getValue(it.id), PinReason.REPIN) }
+        )
     }
 
     /** Records the one `item.pinned` row of a patch pin point ([reason] null: the patch fired none). */
@@ -515,14 +555,18 @@ class ItemCommandService(
         val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
 
         var descendantsDeleted = 0
+        var descendants: List<WorkItem> = emptyList()
         if (recursive) {
-            val descendants =
+            descendants =
                 try {
                     hierarchy.findDescendants(itemId)
                 } catch (e: Exception) {
                     e.rethrowIfCancellation()
                     return fault("Failed to find descendants: ${LegacyFaults.message(e)}")
                 }
+        }
+        repointSurvivingPins(descendants.mapTo(HashSet()) { it.id } + itemId)
+        if (recursive) {
             if (descendants.isNotEmpty()) {
                 val released = claimService.releaseLeases(descendants.map { it.id }.toSet())
                 if (released is Outcome.Err) {

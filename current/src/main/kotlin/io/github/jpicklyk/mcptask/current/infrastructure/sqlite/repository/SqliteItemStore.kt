@@ -15,8 +15,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ConfigVersionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -333,6 +335,37 @@ class SqliteItemStore(
                 val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
                 WorkItemsTable.deleteWhere { WorkItemsTable.id inList entityIds }
             }
+        }
+    }
+
+    @StoreWrite
+    override suspend fun writePins(pins: Map<UUID, SchemaPin>): Int {
+        if (pins.isEmpty()) return 0
+        return databaseManager.writeTx("WorkItemRepository.writePins") {
+            // One UPDATE per distinct pin (a subtree's items share few base schemas), chunked under the bind limit.
+            pins.entries.groupBy({ it.value }, { it.key }).entries.sumOf { (pin, ids) ->
+                ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+                    WorkItemsTable.update({ WorkItemsTable.id inList entityIds }) { writePin(it, pin) }
+                }
+            }
+        }
+    }
+
+    override suspend fun findPinnedToConfigOf(ownerIds: Set<UUID>): List<WorkItem> {
+        if (ownerIds.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            val ids = HashSet<UUID>()
+            ownerIds.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
+                // Driven from config_versions by its root_id index: an owner with no stored config costs no scan.
+                ConfigVersionsTable
+                    .join(WorkItemsTable, JoinType.INNER, ConfigVersionsTable.id, WorkItemsTable.pinnedRootCfg)
+                    .select(WorkItemsTable.id)
+                    .where { ConfigVersionsTable.rootItemId inList chunk }
+                    .forEach { ids += it[WorkItemsTable.id].value }
+            }
+            ids.removeAll(ownerIds)
+            if (ids.isEmpty()) emptyList() else WorkItemRows.loadByIds(ids)
         }
     }
 

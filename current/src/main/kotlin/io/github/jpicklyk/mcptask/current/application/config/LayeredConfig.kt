@@ -10,7 +10,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import org.slf4j.LoggerFactory
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Both config layers visible to one root, and the per-layer LOOKUPS every facet reads. Pure and
@@ -147,11 +149,23 @@ class LayeredConfig(
         val snapshot = perRootDocument
         pinnedBase?.let { pinned ->
             val key = pinned.key ?: return null
-            return when (pinned.layer) {
-                PinLayer.ROOT -> snapshot?.workItemSchemas?.get(key)?.let { BaseSchemaEntry(key, it, ConfigSource.PER_ROOT) }
-                PinLayer.SERVER -> global.exactSchema(key)?.let { BaseSchemaEntry(key, it, ConfigSource.GLOBAL) }
-                null -> null
+            val entry =
+                when (pinned.layer) {
+                    PinLayer.ROOT -> snapshot?.workItemSchemas?.get(key)?.let { BaseSchemaEntry(key, it, ConfigSource.PER_ROOT) }
+                    PinLayer.SERVER -> global.exactSchema(key)?.let { BaseSchemaEntry(key, it, ConfigSource.GLOBAL) }
+                    null -> null
+                }
+            // A pinned key the pinned document lacks resolves schema-free (D7): the one place gates drop without
+            // failing closed, so it is surfaced once per (root, layer, key).
+            if (entry == null && warnedAbsentPins.add("$rootId/${pinned.layer?.wire}/$key")) {
+                logger.warn(
+                    "Pinned schema '{}' ({} layer) is absent from the pinned config of root {}: resolving schema-free",
+                    key,
+                    pinned.layer?.wire,
+                    rootId
+                )
             }
+            return entry
         }
         if (type != null) {
             snapshot?.workItemSchemas?.get(type)?.let { return BaseSchemaEntry(type, it, ConfigSource.PER_ROOT) }
@@ -171,6 +185,11 @@ class LayeredConfig(
     private companion object {
         /** The `"default"` schema key, the generic last resort in each layer. */
         const val DEFAULT_TYPE = "default"
+
+        private val logger = LoggerFactory.getLogger(LayeredConfig::class.java)
+
+        /** The absent pinned keys already warned about (bounded by the distinct pins in the database). */
+        private val warnedAbsentPins: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 }
 

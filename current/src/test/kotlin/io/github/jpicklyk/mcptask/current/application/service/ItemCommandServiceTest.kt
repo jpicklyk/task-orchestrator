@@ -364,10 +364,14 @@ class ItemCommandServiceTest {
                 assertEquals(before.getValue(it.id), after.getValue(it.id), "${it.title} is outside the moved subtree and must not change")
             }
 
-            // S3: exactly two reparent rows, the moved item's pin row (a cross-root move re-pins it) plus one updated row
-            // per descendant, in one contiguous run.
-            assertEquals(5, rows.size, "2 reparented + 1 pinned + 2 descendant updated, nothing else: ${rows.types()}")
-            assertEquals(1, rows.ofType("item.pinned").size, "one pin row for the moved item")
+            // S3: exactly two reparent rows, one pin row per moved row (a cross-root move re-pins the item and every
+            // descendant) plus one updated row per descendant, in one contiguous run.
+            assertEquals(7, rows.size, "2 reparented + 3 pinned + 2 descendant updated, nothing else: ${rows.types()}")
+            assertEquals(
+                setOf(f.x.id, f.c1.id, f.c2.id),
+                rows.ofType("item.pinned").map { it.entityId }.toSet(),
+                "one pin row for the moved item and each descendant"
+            )
             val moved = rows.ofType("item.reparented")
             assertEquals(2, moved.size)
             val left = moved.single { it.str("side") == "left" }

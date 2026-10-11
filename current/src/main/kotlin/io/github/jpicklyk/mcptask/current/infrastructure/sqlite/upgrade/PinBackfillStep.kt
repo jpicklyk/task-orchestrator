@@ -38,8 +38,8 @@ import java.util.UUID
  * - `lifecycle` = that schema's lifecycle mode, NULL when schema-free;
  * - `pinned_at` = the step's unit instant.
  *
- * Schema keys and modes come from [TypeBackfillStep.layerOf] (a key-only scan, no validation); lifecycles from the
- * MIGRATION-mode config parser (never rejects). A head document that does not parse counts as no layer for the key
+ * Schema keys and modes come from [TypeBackfillStep.layerOf] (a key-only scan, no validation), narrowed to the keys the
+ * MIGRATION-mode config parser builds; lifecycles come from that parse (never rejects). A head document that does not parse counts as no layer for the key
  * resolution (WARN), never a startup failure; its version id is still pinned. Writes the pin columns only: no version
  * bump, no `modified_at`, no events (a backfill is not an edit; the `data_steps` ledger row is the record). Idempotent:
  * only `pinned_at IS NULL` rows are touched. Returns the number of rows pinned.
@@ -154,29 +154,39 @@ class PinBackfillStep(
         return pins.size
     }
 
-    /** The head of version [versionId] with document [yaml]: its key layer and its schemas' lifecycles. */
+    /**
+     * The head of version [versionId] with document [yaml]: its key layer and its schemas' lifecycles. When the
+     * MIGRATION parse succeeds, the key set is narrowed to the schemas that parse built (an entry the parser skips,
+     * such as a non-map value, is absent from the document a pinned item is served, so it must not be pinned).
+     */
     private fun headOf(
         versionId: UUID,
         yaml: String,
         source: String
-    ): Head = Head(versionId, TypeBackfillStep.layerOf(yaml, source), lifecyclesOf(yaml, source))
+    ): Head {
+        val lifecycles = lifecyclesOf(yaml, source)
+        val layer = TypeBackfillStep.layerOf(yaml, source)
+        val served = if (lifecycles == null || layer == null) layer else layer.copy(schemaKeys = layer.schemaKeys intersect lifecycles.keys)
+        return Head(versionId, served, lifecycles.orEmpty())
+    }
 
+    /** Each parsed schema's lifecycle by key, or null when the document does not parse (WARN). */
     private fun lifecyclesOf(
         yaml: String,
         source: String
-    ): Map<String, LifecycleMode> =
+    ): Map<String, LifecycleMode>? =
         try {
             when (val outcome = parser.parse(yaml, warnOnMissingSchemas = false, mode = ParseMode.MIGRATION)) {
                 is ConfigDocumentParser.Outcome.Parsed -> outcome.document.workItemSchemas.mapValues { it.value.lifecycleMode }
                 is ConfigDocumentParser.Outcome.Failed -> {
                     logger.warn("pin-backfill: {} does not parse ({}); its schemas pin no lifecycle", source, outcome.detail)
-                    emptyMap()
+                    null
                 }
             }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             logger.warn("pin-backfill: {} does not parse ({}); its schemas pin no lifecycle", source, e.message)
-            emptyMap()
+            null
         }
 
     internal companion object {

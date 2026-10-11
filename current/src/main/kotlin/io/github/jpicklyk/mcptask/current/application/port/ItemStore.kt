@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.util.UUID
 
@@ -142,6 +143,21 @@ interface ItemStore {
      */
     @StoreWrite
     suspend fun deleteAll(ids: Set<UUID>): Int
+
+    /**
+     * Writes each item's config pin from [pins] (item id -> pin) into its pin columns and `lifecycle`, in one statement
+     * per distinct pin (no per-item round trip). Does not bump `version` or `modified_at`: the caller owns that (a
+     * subtree move's restamp already bumped every row it re-pins). Must run inside the caller's write unit. Returns the
+     * number of rows written.
+     */
+    @StoreWrite
+    suspend fun writePins(pins: Map<UUID, SchemaPin>): Int
+
+    /**
+     * The items, outside [ownerIds], whose root pin names a config version owned by (`config_versions.root_id` in)
+     * [ownerIds]: the rows deleting those owners would leave pointing at a cascaded-away version.
+     */
+    suspend fun findPinnedToConfigOf(ownerIds: Set<UUID>): List<WorkItem>
 
     /**
      * The items whose id, as 32 lower-case hex digits without dashes, starts with [prefix]
