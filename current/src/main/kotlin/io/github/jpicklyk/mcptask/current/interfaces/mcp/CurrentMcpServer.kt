@@ -46,6 +46,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
@@ -819,6 +820,9 @@ internal fun Application.installRestApiRoutes(
             ruleRoutes(effectiveProvider)
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
             resourceLeaseRoutes(effectiveProvider, toolContext.unitOfWork)
+            // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced
+            // by the dispatcher from the bearer principal; mounted last so it never shadows a resource route.
+            opsRoutes(toolRegistry, toolDispatcher)
         }
         // Phase 6: real-time SSE event stream — registered in a separate, sibling
         // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does
