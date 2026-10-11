@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -149,6 +150,7 @@ private fun hasJsonContentType(call: ApplicationCall): Boolean {
         try {
             ContentType.parse(raw)
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             return false
         }
     return parsed.withoutParameters().match(ContentType.Application.Json)
