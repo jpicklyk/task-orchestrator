@@ -307,8 +307,8 @@ class ConfigRoutesTest {
     @Test
     fun `StatusGraphBuilder feature-task oracle transitions match spec`() {
         val service = FakeSchemaService()
-        val builder = StatusGraphBuilder(service)
-        val graph = builder.getStatusGraph()
+        val builder = StatusGraphBuilder()
+        val graph = builder.buildStatusGraph(service.getAllSchemas())
 
         val featureTask = graph.types.find { it.type == "feature-task" }
         assertNotNull(featureTask, "feature-task type must be present")
@@ -352,8 +352,8 @@ class ConfigRoutesTest {
     @Test
     fun `StatusGraphBuilder simple-task no-review override`() {
         val service = FakeSchemaService()
-        val builder = StatusGraphBuilder(service)
-        val graph = builder.getStatusGraph()
+        val builder = StatusGraphBuilder()
+        val graph = builder.buildStatusGraph(service.getAllSchemas())
 
         val simpleTask = graph.types.find { it.type == "simple-task" }
         assertNotNull(simpleTask, "simple-task type must be present")

@@ -9,8 +9,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * Snapshot of an item's required-note status for its current workflow phase.
  *
  * Computed from the item's role, its note schema, and the current state of its notes.
- * Used by GetContextTool (gateStatus + guidanceKey), AdvanceItemTool (guidanceKey, full
- * guidancePointer on a gate failure), and GetContextTool.findStalledItems.
+ * Used by `items_read select=context` (gateStatus + guidanceKey, and its health view's stalled items) and the advance
+ * tool (guidanceKey, full guidancePointer on a gate failure).
  *
  * @property guidancePointer Full guidance text for the first unfilled required note, or null if all
  *   filled or the note has no guidance. Only serialized in gate-failure payloads (the 3.x
@@ -53,11 +53,9 @@ fun computePhaseNoteContext(
     if (role == Role.TERMINAL || schema == null) return null
 
     val required = schema.filter { it.role == role && it.required }
-    val missing =
-        required.filter { entry ->
-            val note = notesByKey[entry.key]
-            note == null || note.body.isBlank()
-        }
+    // "Filled" is the gate's own definition (GatePredicate.filledNoteKeys), never a second blank-body test.
+    val filledKeys = GatePredicate.filledNoteKeys(notesByKey.values.toList())
+    val missing = required.filter { entry -> entry.key !in filledKeys }
 
     val firstMissing = missing.firstOrNull()
     return PhaseNoteContext(

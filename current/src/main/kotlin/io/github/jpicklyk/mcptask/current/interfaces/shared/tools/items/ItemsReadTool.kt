@@ -36,11 +36,14 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
- * The 4.0 `items_read` tool (plan section 4.1, Q19): one select per file (`ItemsRead<Select>.kt`), assembled here,
- * so later items add a select by adding a file. Every select is KNOWLEDGE-profile and needs READ.
+ * The 4.0 `items_read` tool (plan section 4.1, Q19, Q22): one select per file (`ItemsRead<Select>.kt`), assembled here,
+ * so later items add a select by adding a file. Every select needs READ; `get`, `list`, `schema`, `search` and
+ * `overview` are KNOWLEDGE-profile, `context`, `next` and `blocked` ORCHESTRATION-only (plan section 3.1).
  *
  * Shared request fields (a name used by two selects) take their documentation from [ItemsReadDocs], so every select
- * generates the identical schema for them (the registry rejects a mismatch).
+ * generates the identical schema for them (the registry rejects a mismatch). The shared strings name only knowledge
+ * selects: what an orchestration select does with a shared field (a default limit, the `fields` it takes) is in its own
+ * select `doc`, which the knowledge profile never renders.
  */
 object ItemsReadTool {
     const val NAME = "items_read"
@@ -62,6 +65,9 @@ object ItemsReadTool {
                 ItemsReadSearch.select,
                 ItemsReadOverview.select,
                 ItemsReadRelated.select,
+                ItemsReadContext.select,
+                ItemsReadNext.select,
+                ItemsReadBlocked.select,
             )
         )
 }
@@ -82,6 +88,14 @@ object ItemsReadDocs {
     const val TRAITS = "Only items with at least one of these traits (exact)."
     const val ANCESTOR_ID = "Only this item's subtree, itself included (UUID or 8-32 hex)."
     const val TYPE = "list: only items of this type. schema: the type whose schema to return."
+    const val PARENT_ID = "Only direct children of this item (UUID or 8-32 hex)."
+    const val PRIORITY = "Only items with this priority."
+    const val CREATED_AFTER = "Created at or after (ISO 8601)."
+    const val CREATED_BEFORE = "Created at or before (ISO 8601)."
+    const val MODIFIED_AFTER = "Modified at or after (ISO 8601)."
+    const val MODIFIED_BEFORE = "Modified at or before (ISO 8601)."
+    const val ROLE_CHANGED_AFTER = "Role changed at or after (ISO 8601)."
+    const val ROLE_CHANGED_BEFORE = "Role changed at or before (ISO 8601)."
 }
 
 /** A role on the wire. */

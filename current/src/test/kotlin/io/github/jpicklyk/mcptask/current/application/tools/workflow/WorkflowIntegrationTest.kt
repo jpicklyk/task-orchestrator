@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -36,9 +37,9 @@ abstract class WorkflowIntegrationScenarios(
 
     private lateinit var context: ToolExecutionContext
     private lateinit var transitionTool: AdvanceItemTool
-    private lateinit var nextItemTool: GetNextItemTool
-    private lateinit var blockedItemsTool: GetBlockedItemsTool
-    private lateinit var nextStatusTool: GetNextStatusTool
+    private lateinit var nextItemTool: ItemContextProbe
+    private lateinit var blockedItemsTool: ItemContextProbe
+    private lateinit var nextStatusTool: ItemContextProbe
 
     @BeforeEach
     fun setUp() {
@@ -46,9 +47,9 @@ abstract class WorkflowIntegrationScenarios(
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
         transitionTool = AdvanceItemTool()
-        nextItemTool = GetNextItemTool()
-        blockedItemsTool = GetBlockedItemsTool()
-        nextStatusTool = GetNextStatusTool()
+        nextItemTool = ItemContextProbe("next")
+        blockedItemsTool = ItemContextProbe("blocked")
+        nextStatusTool = ItemContextProbe("context")
     }
 
     // ──────────────────────────────────────────────
@@ -453,7 +454,7 @@ abstract class WorkflowIntegrationScenarios(
     // ──────────────────────────────────────────────
 
     @Test
-    fun `get_next_item skips blocked items and sorts by priority`(): Unit =
+    fun `next skips blocked items and sorts by priority`(): Unit =
         runBlocking {
             val itemA = createItem("Item A - no deps", priority = Priority.LOW, complexity = 3)
             val itemB = createItem("Item B - blocked", priority = Priority.HIGH, complexity = 1)
@@ -472,28 +473,28 @@ abstract class WorkflowIntegrationScenarios(
 
             assertTrue((result as JsonObject)["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            val recommendations = data["recommendations"]!!.jsonArray
+            val recommendations = data["items"]!!.jsonArray
 
-            // B should NOT appear (blocked by dependency)
-            val recIds = recommendations.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            // B should NOT appear (blocked by dependency); a compact entry carries the 8-hex short id
+            val recIds = recommendations.map { it.jsonObject["id"]!!.jsonPrimitive.content }
             assertFalse(
-                recIds.contains(itemB.id.toString()),
+                recIds.contains(itemB.id.toString().take(8)),
                 "Blocked item B should not be in recommendations"
             )
 
             // C (HIGH priority, complexity 2) should come before A (LOW priority)
             assertTrue(
-                recIds.contains(itemC.id.toString()),
+                recIds.contains(itemC.id.toString().take(8)),
                 "Unblocked high-priority item C should be recommended"
             )
             assertTrue(
-                recIds.contains(itemA.id.toString()),
+                recIds.contains(itemA.id.toString().take(8)),
                 "Unblocked item A should be recommended"
             )
 
             // Verify ordering: HIGH priority items before LOW priority
-            val cIndex = recIds.indexOf(itemC.id.toString())
-            val aIndex = recIds.indexOf(itemA.id.toString())
+            val cIndex = recIds.indexOf(itemC.id.toString().take(8))
+            val aIndex = recIds.indexOf(itemA.id.toString().take(8))
             assertTrue(
                 cIndex < aIndex,
                 "High priority item C should come before low priority item A"
@@ -501,11 +502,11 @@ abstract class WorkflowIntegrationScenarios(
         }
 
     // ──────────────────────────────────────────────
-    // 8. get_blocked_items Reports Both Explicit and Dependency Blocks
+    // 8. blocked Reports Both Explicit and Dependency Blocks
     // ──────────────────────────────────────────────
 
     @Test
-    fun `get_blocked_items reports both explicit and dependency blocks`(): Unit =
+    fun `blocked reports both explicit and dependency blocks`(): Unit =
         runBlocking {
             // X: explicitly BLOCKED
             val itemX = createItem("Explicitly Blocked", role = Role.BLOCKED, previousRole = Role.WORK)
@@ -519,15 +520,15 @@ abstract class WorkflowIntegrationScenarios(
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            val blockedItems = data["blockedItems"]!!.jsonArray
-            val total = data["total"]!!.jsonPrimitive.int
+            val blockedItems = data["items"]!!.jsonArray
+            val total = data["page"]!!.jsonObject["total"]!!.jsonPrimitive.int
 
             assertEquals(2, total)
 
             // Find X (explicit block)
             val xEntry =
                 blockedItems.firstOrNull {
-                    it.jsonObject["itemId"]!!.jsonPrimitive.content == itemX.id.toString()
+                    it.jsonObject["id"]!!.jsonPrimitive.content == itemX.id.toString().take(8)
                 }
             assertNotNull(xEntry, "Explicitly blocked item X should be in results")
             assertEquals("explicit", xEntry.jsonObject["blockType"]!!.jsonPrimitive.content)
@@ -535,19 +536,19 @@ abstract class WorkflowIntegrationScenarios(
             // Find Y (dependency block)
             val yEntry =
                 blockedItems.firstOrNull {
-                    it.jsonObject["itemId"]!!.jsonPrimitive.content == itemY.id.toString()
+                    it.jsonObject["id"]!!.jsonPrimitive.content == itemY.id.toString().take(8)
                 }
             assertNotNull(yEntry, "Dependency-blocked item Y should be in results")
             assertEquals("dependency", yEntry.jsonObject["blockType"]!!.jsonPrimitive.content)
-            assertEquals(1, yEntry.jsonObject["blockerCount"]!!.jsonPrimitive.int)
+            assertEquals(1, yEntry.jsonObject["blockers"]!!.jsonArray.count { !it.jsonObject["satisfied"]!!.jsonPrimitive.boolean })
         }
 
     // ──────────────────────────────────────────────
-    // 9. get_next_status Ready vs Blocked vs Terminal
+    // 9. context Ready vs Blocked vs Terminal
     // ──────────────────────────────────────────────
 
     @Test
-    fun `get_next_status returns Ready for unblocked item`(): Unit =
+    fun `context returns Ready for unblocked item`(): Unit =
         runBlocking {
             val item = createItem("Ready Item")
 
@@ -558,14 +559,15 @@ abstract class WorkflowIntegrationScenarios(
                 )
 
             val data = extractData(result)
-            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-            assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
-            assertEquals("work", data["nextRole"]!!.jsonPrimitive.content)
-            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+            val gate = data["gateStatus"]!!.jsonObject
+            assertEquals(true, gate["canAdvance"]!!.jsonPrimitive.boolean)
+            assertEquals("queue", gate["phase"]!!.jsonPrimitive.content)
+            assertEquals("work", data["next"]!!.jsonObject["role"]!!.jsonPrimitive.content)
+            assertEquals("start", data["next"]!!.jsonObject["trigger"]!!.jsonPrimitive.content)
         }
 
     @Test
-    fun `get_next_status returns Blocked for dependency-blocked item`(): Unit =
+    fun `context returns Blocked for dependency-blocked item`(): Unit =
         runBlocking {
             val item = createItem("Blocked Item")
             val blocker = createItem("Blocker", role = Role.QUEUE)
@@ -578,15 +580,17 @@ abstract class WorkflowIntegrationScenarios(
                 )
 
             val data = extractData(result)
-            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
-            assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
-            val blockers = data["blockers"]!!.jsonArray
+            val gate = data["gateStatus"]!!.jsonObject
+            assertEquals(false, gate["canAdvance"]!!.jsonPrimitive.boolean)
+            assertEquals("queue", gate["phase"]!!.jsonPrimitive.content)
+            assertEquals("dependency", gate["blockedBy"]!!.jsonPrimitive.content)
+            val blockers = gate["blockers"]!!.jsonArray
             assertEquals(1, blockers.size)
-            assertEquals(blocker.id.toString(), blockers[0].jsonObject["fromItemId"]!!.jsonPrimitive.content)
+            assertEquals(blocker.id.toString(), blockers[0].jsonObject["id"]!!.jsonPrimitive.content)
         }
 
     @Test
-    fun `get_next_status returns Terminal for completed item`(): Unit =
+    fun `context returns Terminal for completed item`(): Unit =
         runBlocking {
             val item = createItem("Terminal Item", role = Role.TERMINAL)
 
@@ -597,12 +601,14 @@ abstract class WorkflowIntegrationScenarios(
                 )
 
             val data = extractData(result)
-            assertEquals("Terminal", data["recommendation"]!!.jsonPrimitive.content)
-            assertEquals("terminal", data["currentRole"]!!.jsonPrimitive.content)
+            val gate = data["gateStatus"]!!.jsonObject
+            assertEquals(false, gate["canAdvance"]!!.jsonPrimitive.boolean)
+            assertEquals("terminal", gate["phase"]!!.jsonPrimitive.content)
+            assertEquals("queue", data["transitions"]!!.jsonObject["reopen"]!!.jsonPrimitive.content)
         }
 
     @Test
-    fun `get_next_status returns Blocked with resume suggestion for BLOCKED item`(): Unit =
+    fun `context returns Blocked with resume suggestion for BLOCKED item`(): Unit =
         runBlocking {
             val item = createItem("Blocked Item", role = Role.BLOCKED, previousRole = Role.WORK)
 
@@ -613,9 +619,9 @@ abstract class WorkflowIntegrationScenarios(
                 )
 
             val data = extractData(result)
-            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
-            assertEquals("blocked", data["currentRole"]!!.jsonPrimitive.content)
-            assertTrue(data["suggestion"]!!.jsonPrimitive.content.contains("resume"))
+            val gate = data["gateStatus"]!!.jsonObject
+            assertEquals("blocked", gate["phase"]!!.jsonPrimitive.content)
+            assertEquals("work", data["transitions"]!!.jsonObject["resume"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
@@ -834,11 +840,11 @@ abstract class WorkflowIntegrationScenarios(
         }
 
     // ──────────────────────────────────────────────
-    // 15. Transition and GetNextItem Interaction
+    // 15. Transition and select next Interaction
     // ──────────────────────────────────────────────
 
     @Test
-    fun `completing a blocker makes downstream item appear in get_next_item`(): Unit =
+    fun `completing a blocker makes downstream item appear in next`(): Unit =
         runBlocking {
             val blocker = createItem("Blocker", priority = Priority.HIGH, complexity = 1)
             val downstream = createItem("Downstream", priority = Priority.HIGH, complexity = 2)
@@ -850,10 +856,10 @@ abstract class WorkflowIntegrationScenarios(
                     buildJsonObject { put("limit", JsonPrimitive(10)) },
                     context
                 )
-            val recs1 = (extractData(result1))["recommendations"]!!.jsonArray
-            val recIds1 = recs1.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
-            assertTrue(recIds1.contains(blocker.id.toString()))
-            assertFalse(recIds1.contains(downstream.id.toString()))
+            val recs1 = (extractData(result1))["items"]!!.jsonArray
+            val recIds1 = recs1.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+            assertTrue(recIds1.contains(blocker.id.toString().take(8)))
+            assertFalse(recIds1.contains(downstream.id.toString().take(8)))
 
             // Complete the blocker
             transitionTool.execute(
@@ -867,14 +873,14 @@ abstract class WorkflowIntegrationScenarios(
                     buildJsonObject { put("limit", JsonPrimitive(10)) },
                     context
                 )
-            val recs2 = (extractData(result2))["recommendations"]!!.jsonArray
-            val recIds2 = recs2.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            val recs2 = (extractData(result2))["items"]!!.jsonArray
+            val recIds2 = recs2.map { it.jsonObject["id"]!!.jsonPrimitive.content }
             assertTrue(
-                recIds2.contains(downstream.id.toString()),
+                recIds2.contains(downstream.id.toString().take(8)),
                 "Downstream should now be recommended after blocker completion"
             )
             assertFalse(
-                recIds2.contains(blocker.id.toString()),
+                recIds2.contains(blocker.id.toString().take(8)),
                 "Completed blocker should no longer be recommended"
             )
         }

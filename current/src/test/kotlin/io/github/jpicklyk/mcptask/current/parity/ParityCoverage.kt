@@ -165,6 +165,12 @@ object ItemsReadParityScenarios {
         item(r2, "Beta root zephyrquux", tags = "beta")
     }
 
+    /** [seedTree] plus R2 BLOCKS C1: the child is dependency-blocked by an item outside a root-R1 scope. */
+    private val seedBlocked: suspend ParitySeeder.() -> Unit = {
+        seedTree()
+        dependency(UUID.fromString("55555555-5555-4555-8555-555555555555"), from = r2, to = c1)
+    }
+
     private fun scenario(
         name: String,
         member: String,
@@ -174,7 +180,8 @@ object ItemsReadParityScenarios {
         expectStatus: Int,
         expectCode: String? = null,
         expectContains: List<String> = emptyList(),
-        expectAbsent: List<String> = emptyList()
+        expectAbsent: List<String> = emptyList(),
+        seed: suspend ParitySeeder.() -> Unit = seedTree
     ) = ParityScenario(
         name = "items_read $name",
         tool = "items_read",
@@ -187,7 +194,7 @@ object ItemsReadParityScenarios {
         expectContains = expectContains,
         expectAbsent = expectAbsent,
         expectDbChanged = false,
-        seed = seedTree
+        seed = seed
     )
 
     private val rootForbidden = listOf("\"scope\":\"root\"", "\"required\":\"$r1\"")
@@ -312,6 +319,76 @@ object ItemsReadParityScenarios {
                 expectCode = "forbidden",
                 expectContains = rootForbidden,
                 expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "context happy",
+                "context",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"context","itemId":"$c1"}""",
+                200,
+                expectContains = listOf("\"canAdvance\":true", "\"title\":\"Alpha child\"", "\"transitions\"")
+            ),
+            scenario(
+                "context scope root",
+                "context",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"context","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "context health filtered by root scope",
+                "context",
+                ParityKind.OTHER,
+                rootScoped,
+                """{"select":"context"}""",
+                200,
+                expectContains = listOf("\"claimSummary\"", "\"active\":{\"items\":[]"),
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "next happy",
+                "next",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"next","limit":5}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux", "Beta root zephyrquux")
+            ),
+            scenario(
+                "next filtered by root scope",
+                "next",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"next","limit":5}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux"),
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "blocked happy",
+                "blocked",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"blocked"}""",
+                200,
+                expectContains = listOf("\"title\":\"Alpha child\"", "\"blockType\":\"dependency\"", "\"satisfied\":false"),
+                seed = seedBlocked
+            ),
+            scenario(
+                "blocked filtered by root scope",
+                "blocked",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"blocked"}""",
+                200,
+                expectContains = listOf("\"title\":\"Alpha child\"", "\"blockType\":\"dependency\""),
+                expectAbsent = listOf("Beta root", "33333333"),
+                seed = seedBlocked
             ),
             scenario(
                 "get not found",

@@ -19,8 +19,8 @@ fun Decision.blockedByWire(): String? = (this as? Decision.Reject)?.gate?.name?.
 /**
  * A preview [decision] together with the gate facts read in the SAME read unit: the item's resolved
  * [schema], its [notes], and the independence-attestation [violations] for its current phase
- * (`GatePredicate.violationsForStart`; null when none apply). `get_context` and `GET /items/{id}/gate`
- * derive `missing`, `missingBySeat` and `violations` from these, so they never disagree with
+ * (`GatePredicate.violationsForStart`; null when none apply). `items_read` `select=context` derives
+ * `missing`, `missingBySeat` and `violations` from these, so they never disagree with
  * `canAdvance` / `blockedBy` because of a write landing between two reads.
  */
 class PreviewView(
@@ -32,8 +32,8 @@ class PreviewView(
 
 /**
  * Read-only previews of a user transition: the same [TransitionSnapshotLoader] and [TransitionPolicy]
- * the advance pipeline uses, evaluated in a read unit with nothing applied. `get_context`'s and
- * `GET /items/{id}/gate`'s `canAdvance`, and `get_next_status`'s recommendation, are
+ * the advance pipeline uses, evaluated in a read unit with nothing applied. The `canAdvance` and `next` of
+ * `items_read` `select=context` are
  * `evaluate(item, START) is Decision.Allow`, so a preview never disagrees with the advance it predicts
  * on the same state.
  *

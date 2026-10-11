@@ -50,11 +50,14 @@ class ItemsReadRegistryTest {
     lateinit var dir: Path
 
     @Test
-    fun `S15 the production registry holds items_read with exactly the six selects`() {
+    fun `S15 the production registry holds items_read with exactly the nine selects`() {
         val members = ParityCoverage.members(ToolRegistry(buildToolSpecs())).filter { it.first == "items_read" }
 
-        assertEquals(setOf("get", "list", "schema", "search", "overview", "related"), members.map { it.second }.toSet())
-        assertEquals(6, members.size, "no select is declared twice")
+        assertEquals(
+            setOf("get", "list", "schema", "search", "overview", "related", "context", "next", "blocked"),
+            members.map { it.second }.toSet()
+        )
+        assertEquals(9, members.size, "no select is declared twice")
     }
 
     @Test

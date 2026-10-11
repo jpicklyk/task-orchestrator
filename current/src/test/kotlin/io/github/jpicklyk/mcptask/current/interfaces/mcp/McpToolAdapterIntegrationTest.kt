@@ -5,11 +5,13 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -343,19 +345,20 @@ class McpToolAdapterIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `callTool with real GetContextTool reads a seeded item`(): Unit =
+    fun `callTool with real ManageProjectConfigTool reads a seeded root config`(): Unit =
         runBlocking {
             val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("Integration test item")) })
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
+            db.repositoryProvider().configStore().upsert(UUID.fromString(itemId), "work_item_schemas: {} # integration-test-marker")
+            adapter.registerToolWithServer(server, ManageProjectConfigTool(YamlConfigDocumentParser), dummyContext)
 
-            val result = client.callTool(name = "get_context", arguments = mapOf("itemId" to itemId))
+            val result = client.callTool(name = "manage_project_config", arguments = mapOf("operation" to "get", "rootId" to itemId))
 
             assertTrue(result.isError != true, "Expected a successful read, got: ${result.content}")
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                result.structuredContent.toString().contains("Integration test item"),
-                "The payload should carry the seeded item: ${result.structuredContent}"
+                result.structuredContent.toString().contains("integration-test-marker"),
+                "The payload should carry the seeded root config: ${result.structuredContent}"
             )
         }
 
@@ -438,14 +441,14 @@ class McpToolAdapterIntegrationTest {
     @Test
     fun `not_found error carries its code through structuredContent`(): Unit =
         runBlocking {
-            // Real tool, real DB: an unresolvable itemId prefix produces a top-level
+            // Real tool, real DB: an unresolvable rootId prefix produces a top-level
             // RESOURCE_NOT_FOUND error envelope.
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
+            adapter.registerToolWithServer(server, ManageProjectConfigTool(YamlConfigDocumentParser), dummyContext)
 
             val result =
                 client.callTool(
-                    name = "get_context",
-                    arguments = mapOf("itemId" to "deadbeef") // valid hex prefix, matches nothing
+                    name = "manage_project_config",
+                    arguments = mapOf("operation" to "get", "rootId" to "deadbeef") // valid hex prefix, matches nothing
                 )
 
             assertEquals(true, result.isError)
