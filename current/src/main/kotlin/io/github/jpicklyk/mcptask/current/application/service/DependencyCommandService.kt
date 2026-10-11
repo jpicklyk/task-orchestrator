@@ -16,9 +16,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import java.util.UUID
 
 /**
- * The single owner of the dependency write policy, shared by `manage_dependencies`, the REST dependency
- * routes and `create_work_tree`. JSON-free and transport-free: callers map the returned [DomainError]
- * codes to their own wire shapes.
+ * The single owner of the dependency write policy, shared by `deps_write` and `create_work_tree`.
+ * JSON-free and transport-free: callers map the returned [DomainError] codes to their own wire shapes.
  *
  * Policy, in this order: normalization ([Dependency.normalized]: IS_BLOCKED_BY is stored as BLOCKS with its
  * ends swapped), duplicates within the request, duplicates against stored rows, then cycles over the

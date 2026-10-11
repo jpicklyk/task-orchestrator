@@ -69,13 +69,6 @@ components:
       required: true
       schema:
         type: string
-    depId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
     page:
       name: page
       in: query
@@ -357,19 +350,6 @@ components:
           type: string
           format: date-time
 
-    BacklinkDto:
-      type: object
-      required: [fromItemId, fromTitle, type]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        fromTitle:
-          type: string
-        type:
-          type: string
-          enum: [blocks, relates_to]
-
     ErrorDto:
       type: object
       required: [error, message]
@@ -496,24 +476,6 @@ components:
         metadata:
           type: string
           nullable: true
-
-    DependencyCreateDto:
-      type: object
-      required: [fromItemId, toItemId, type]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        toItemId:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [blocks, relates_to]
-        unblockAt:
-          type: string
-          nullable: true
-          description: Must be absent/null for relates_to edges
 
     IndependenceViolationDto:
       type: object
@@ -2108,56 +2070,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
 
-  /items/{id}/dependencies:
-    get:
-      summary: Combined dependency view for an item
-      operationId: getItemDependencies
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: >-
-            Dependencies split by direction and type. For a tags_include-scoped caller, edges whose
-            counterparty item is outside the caller's scope are dropped from the response — this is
-            not a guarantee of completeness for scoped callers (see api-rest.md §3).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DependenciesDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/backlinks:
-    get:
-      summary: Items that reference this item via a dependency edge
-      operationId: getItemBacklinks
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: >-
-            Backlinks. For a tags_include-scoped caller, backlink rows whose source item is outside
-            the caller's scope are dropped from the response — this is not a guarantee of
-            completeness for scoped callers (see api-rest.md §3).
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BacklinkDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /items/{id}/transitions:
     get:
       summary: Role-transition audit history for an item
@@ -2180,76 +2092,6 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/RoleTransitionDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /dependencies:
-    post:
-      summary: Create a dependency edge
-      operationId: createDependency
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/idempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DependencyCreateDto"
-      responses:
-        "201":
-          description: Edge created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DependencyEdgeDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          description: >-
-            duplicate_dependency — an edge with the same fromItemId/toItemId/type already exists.
-            idempotency_mismatch — the Idempotency-Key was already used with a different request.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the body is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /dependencies/{id}:
-    delete:
-      summary: Remove a dependency edge
-      operationId: deleteDependency
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/depId"
-      responses:
-        "204":
-          description: Deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

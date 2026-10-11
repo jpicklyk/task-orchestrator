@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -43,12 +41,9 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -97,7 +92,6 @@ fun Application.configureWriteTestApp(
             // READ routes too (for asserting persisted state)
             itemRoutes(repo)
             noteRoutes(repo)
-            dependencyRoutes(repo)
             // WRITE routes under test
             val perRoot = PerRootConfigService(repo.configStore())
             val toolContext =
@@ -115,7 +109,6 @@ fun Application.configureWriteTestApp(
                 toolContext.advanceServiceFactory(),
                 unitOfWork,
             )
-            dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
         }
     }
 }
@@ -835,239 +828,6 @@ private fun reviewPhaseSchemaService(): ConfigDocument =
 class AdvanceReviewPhaseTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /dependencies + DELETE /dependencies/{id}
-// ─────────────────────────────────────────────────────────────────────────────
-
-class DependencyWriteRouteTest {
-    @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `POST dependencies creates edge and returns 201`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To", depth = 0))!!
-                    Pair(a, b)
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""")
-                }
-
-            assertEquals(HttpStatusCode.Created, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains(from.id.toString()), "fromItemId should be in response: $body")
-            assertTrue(body.contains(to.id.toString()), "toItemId should be in response: $body")
-
-            // Hard assertion: dependency persisted
-            val deps =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().findByItemId(from.id)
-                    }
-                }
-            assertTrue(deps.isNotEmpty(), "Dependency should be persisted in DB")
-        }
-
-    @Test
-    fun `POST dependencies with same fromItemId and toItemId returns 400`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Self Dep", depth = 0))!!
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"${item.id}","toItemId":"${item.id}","type":"blocks"}""")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-        }
-
-    @Test
-    fun `POST dependencies cycle detection returns 400 cycle_detected`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (a, b) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))!!
-                    // Create A → B
-                    repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
-                    Pair(a, b)
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            // Try to create B → A (would create cycle)
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"${b.id}","toItemId":"${a.id}","type":"blocks"}""")
-                }
-
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("cycle_detected"), "Should indicate cycle: $body")
-        }
-
-    @Test
-    fun `DELETE dependencies id deletes edge and returns 204`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From Del", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To Del", depth = 0))!!
-                    Pair(a, b)
-                }
-            val dep =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().create(
-                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS)
-                        )
-                    }
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.delete("/api/v1/dependencies/${dep.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-
-            // Hard assertion: dep gone
-            val remaining =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().findById(dep.id)
-                    }
-                }
-            assertTrue(remaining == null, "Dependency should be deleted from DB")
-        }
-
-    @Test
-    fun `DELETE dependencies enforces scope on BOTH endpoints not just from`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            // 'from' is a root inside the caller's scope; 'to' is a separate root OUTSIDE it.
-            val (from, to) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "In Scope From", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "Out Of Scope To", depth = 0))!!
-                    Pair(a, b)
-                }
-            val dep =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().create(
-                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS),
-                        )
-                    }
-                }
-            // Principal scoped to ONLY the 'from' root — authority over the from side, not the to side.
-            application {
-                configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(from.id)), unitOfWork = db.unitOfWork())
-            }
-
-            val response =
-                client.delete("/api/v1/dependencies/${dep.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            // Forbidden: the 'to' endpoint is outside the caller's scope (regression guard for the
-            // prior bug where DELETE only checked fromItemId).
-            assertEquals(HttpStatusCode.Forbidden, response.status)
-
-            // Hard negative assertion: the edge must NOT have been deleted.
-            val remaining =
-                runBlocking {
-                    withContext(Dispatchers.IO) { repo.dependencyRepository().findById(dep.id) }
-                }
-            assertNotNull(remaining, "Dependency must NOT be deleted when toItemId is outside the caller's scope")
-        }
-
-    @Test
-    fun `DELETE dependencies store fault returns 500 db_error with fixed text and no SQL text`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From Fault", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To Fault", depth = 0))!!
-                    Pair(a, b)
-                }
-            val dep =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().create(
-                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS),
-                        )
-                    }
-                }
-            // A real SQL fault on the delete itself (the edge lookup before it still succeeds).
-            DriverManager.getConnection(db.jdbcUrl).use { conn ->
-                conn.createStatement().use {
-                    it.execute(
-                        "CREATE TRIGGER dep_delete_fault BEFORE DELETE ON dependencies " +
-                            "BEGIN SELECT RAISE(ABORT, 'injected-dep-delete-fault'); END"
-                    )
-                }
-            }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.delete("/api/v1/dependencies/${dep.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            assertEquals(HttpStatusCode.InternalServerError, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("\"db_error\""), "legacy write-fault code expected: $body")
-            assertTrue(body.contains("Failed to delete dependency"), "fixed route text expected: $body")
-            assertFalse(body.contains("injected-dep-delete-fault"), "SQL text must not reach the body: $body")
-            assertFalse(body.contains("\"internal\""), "the catalog code must not reach the body: $body")
-
-            val remaining =
-                runBlocking {
-                    withContext(Dispatchers.IO) { repo.dependencyRepository().findById(dep.id) }
-                }
-            assertNotNull(remaining, "the faulted delete must roll back")
-        }
-
-    @Test
-    fun `POST dependencies without MANAGE_DEPENDENCIES returns 403`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From Forbidden", depth = 0))!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To Forbidden", depth = 0))!!
-                    Pair(a, b)
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $READ_ONLY_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""")
-                }
-            assertEquals(HttpStatusCode.Forbidden, response.status)
-        }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

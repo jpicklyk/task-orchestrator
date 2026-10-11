@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -61,7 +60,7 @@ import kotlin.test.assertTrue
  *
  * Oracles: task-scope D2 (store fault -> site legacy mapper: MCP DATABASE_ERROR with the innermost SQL text), D3/F5
  * (MCP text for a lost optimistic lock: "WorkItem was modified by another transaction (version mismatch)"), D4/D7/F7
- * (one unit per element; create_work_tree and manage_dependencies create are ONE unit per call), F10 (MCP read fault
+ * (one unit per element; create_work_tree is ONE unit per call), F10 (MCP read fault
  * -> DATABASE_ERROR, never RESOURCE_NOT_FOUND), claim contract in the declarations (outcome and code `db_error`,
  * kind `transient`). The exact MCP message prefixes are NOT DECLARED, so S5 asserts the code and the `inj` text only.
  * NOT-COVERED here: the McpToolAdapter fallback (no public seam to drive it; see test-manifest).
@@ -508,44 +507,5 @@ class P5bWriteUnitToolsTest {
             assertTrue(success(healthy), "control: $healthy")
             assertEquals(4, rawInt("SELECT count(*) FROM work_items WHERE title LIKE 'S14 tree%'"))
             assertEquals(1, okCounting.writes, "one unit for the whole call")
-        }
-
-    @Test
-    fun `S14 manage_dependencies create of three is one atomic unit - a fault on the third edge leaves no edge`(): Unit =
-        runBlocking {
-            val ids = (1..6).map { repo.create(WorkItem(title = "S14 dep $it", depth = 0)).id }
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("create"),
-                    "dependencies" to
-                        buildJsonArray {
-                            listOf(0 to 1, 2 to 3, 4 to 5).forEach { (a, b) ->
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", ids[a].toString())
-                                        put("toItemId", ids[b].toString())
-                                    }
-                                )
-                            }
-                        }
-                )
-            rawExec(
-                "CREATE TRIGGER s14_deps BEFORE INSERT ON dependencies WHEN (SELECT count(*) FROM dependencies) >= 2 " +
-                    "BEGIN SELECT RAISE(ABORT, 'inj'); END"
-            )
-            val (faultCtx, faultCounting) = contextOver()
-
-            val faulted = db.assertNoOutsideUnitWrites { ManageDependenciesTool().execute(params, faultCtx) }
-
-            assertEquals(0, rawInt("SELECT count(*) FROM dependencies"), "all-or-nothing: edges 1 and 2 must be rolled back: $faulted")
-            assertFalse("\"created\":3" in faulted.toString(), "$faulted")
-            assertEquals(1, faultCounting.writes, "one unit per call")
-
-            rawExec("DROP TRIGGER s14_deps")
-            val (okCtx, okCounting) = contextOver()
-            val healthy = ManageDependenciesTool().execute(params, okCtx)
-            assertEquals(3, data(healthy)["created"]!!.jsonPrimitive.int, "control: $healthy")
-            assertEquals(3, rawInt("SELECT count(*) FROM dependencies"))
-            assertEquals(1, okCounting.writes, "one unit per call")
         }
 }

@@ -67,6 +67,52 @@ object ScopeGuard {
         return Outcome.Ok(Unit)
     }
 
+    /**
+     * Batch twin of [check]: the subset of [ids] the [scope] admits, under the same rules as [check] and
+     * `allowedItemIdsForScope`. An unrestricted scope returns [ids] with no database read. A restricted scope
+     * costs one `findAncestorChains` (root restriction) and one `findByIds` (tag restriction) over the ids still
+     * in the running. A missing item is not admitted, and a lookup fault admits nothing (fail closed).
+     */
+    suspend fun admitted(
+        scope: AccessScope,
+        ids: Set<UUID>,
+        repo: WorkItemRepository
+    ): Set<UUID> {
+        if (scope.isUnrestricted || ids.isEmpty()) return ids
+        try {
+            var candidates = ids
+            val rootIds = scope.rootIds
+            if (rootIds != null) {
+                val chains = repo.findAncestorChains(candidates)
+                candidates =
+                    candidates.filterTo(LinkedHashSet()) { id ->
+                        val inChain = (chains[id] ?: emptyList()).map { it.id }.toSet() + id
+                        inChain.any { it in rootIds }
+                    }
+            }
+            if (scope.tagsInclude.isNotEmpty() && candidates.isNotEmpty()) {
+                candidates =
+                    repo
+                        .findByIds(candidates)
+                        .filter { item -> splitTags(item.tags).any { it in scope.tagsInclude } }
+                        .mapTo(LinkedHashSet()) { it.id }
+            }
+            return candidates
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            logger.warn("Scope check failed to read {} items: {}", ids.size, e.message)
+            return emptySet()
+        }
+    }
+
+    private fun splitTags(tags: String?): Set<String> =
+        tags
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.toSet()
+            ?: emptySet()
+
     /** The `forbidden` error for [scope]; `required` is the sorted listed values joined by `,`. */
     fun forbidden(
         scope: ForbiddenScope,
