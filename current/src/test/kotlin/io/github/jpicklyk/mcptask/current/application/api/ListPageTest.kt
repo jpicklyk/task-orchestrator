@@ -14,7 +14,8 @@ import kotlin.test.assertTrue
 /**
  * Independent tests (test-author seat, item f1b003a6) for [ListPage] and [PageRequest.from], scenario S11.
  *
- * Oracles: envelope section 2 "List data" (`truncated` is `items.length < total`; `next` present only when truncated),
+ * Oracles: envelope section 2 "List data" as amended by U22 (`truncated` means items exist after this page; `next`
+ * present only when truncated),
  * section 8 U15 (when `capped`, `total` is a lower bound and the two rules keep their meaning), plan section 3.3
  * ("default 50, max 200"; limit outside 1..200 is `invalid_request` on field `limit`; a bad cursor is `invalid_cursor`).
  * All scenarios here are NEW-SURFACE (the types do not exist before the item).
@@ -63,12 +64,26 @@ class ListPageTest {
         assertFailsWith<IllegalArgumentException> { ListPage(emptyList<String>(), total = -1, truncated = false) }
     }
 
+    // Envelope amendment U22: truncated means items exist after this page (offset + items.size < total), so the
+    // constructor no longer ties truncated to items.size < total; ListPage.of derives it from the PageRequest.
     @Test
-    fun `S11 truncated must equal items smaller than total - both mismatching directions are rejected`() {
-        // truncated=true while every item is present
-        assertFailsWith<IllegalArgumentException> { ListPage(listOf("a", "b"), total = 2, truncated = true, next = "n") }
-        // truncated=false while items are missing
-        assertFailsWith<IllegalArgumentException> { ListPage(listOf("a"), total = 2, truncated = false) }
+    fun `S11 U22 the factory marks a page truncated exactly when items exist after it`() {
+        val first = ListPage.of(listOf("a", "b"), total = 3, page = PageRequest(limit = 2, offset = 0))
+        assertTrue(first.truncated)
+        assertEquals(CursorCodec.encode(2), first.next)
+        assertEquals(3, first.total)
+
+        val last = ListPage.of(listOf("c"), total = 3, page = PageRequest(limit = 2, offset = 2))
+        assertFalse(last.truncated)
+        assertNull(last.next)
+        assertEquals(3, last.total, "total is the full count on every page")
+
+        val past = ListPage.of(emptyList<String>(), total = 3, page = PageRequest(limit = 2, offset = 4))
+        assertFalse(past.truncated)
+        assertNull(past.next)
+
+        val capped = ListPage.of(listOf("a"), total = 5, page = PageRequest(limit = 1, offset = 0), capped = true)
+        assertTrue(capped.capped && capped.truncated)
     }
 
     @Test
@@ -89,7 +104,7 @@ class ListPageTest {
         assertTrue(truncatedCapped.capped)
         assertEquals("n", truncatedCapped.next)
 
-        assertFailsWith<IllegalArgumentException> { ListPage(listOf("a"), total = 2, truncated = false, capped = true) }
+        // (U22: a capped final page of 1 of 2 is valid, so that former mismatch case is gone)
         assertFailsWith<IllegalArgumentException> { ListPage(listOf("a", "b"), total = 2, truncated = false, capped = true, next = "n") }
         assertFailsWith<IllegalArgumentException> { ListPage(listOf("a", "b", "c"), total = 2, truncated = false, capped = true) }
     }

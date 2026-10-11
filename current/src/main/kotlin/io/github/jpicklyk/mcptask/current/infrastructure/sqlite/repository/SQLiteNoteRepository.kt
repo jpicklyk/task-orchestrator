@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.NoteRef
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -9,10 +10,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
+import org.jetbrains.exposed.v1.core.CustomFunction
+import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -96,6 +100,8 @@ class SQLiteNoteRepository(
                 it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
                 it[NotesTable.verificationVerifier] = note.verification?.verifier
                 it[NotesTable.verificationReason] = note.verification?.reason
+                // The store owns the version: +1 on every update, in the same statement as the new body.
+                it[NotesTable.version] = NotesTable.version + 1L
             },
         ) {
             it[id] = note.id
@@ -114,6 +120,7 @@ class SQLiteNoteRepository(
             it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
             it[NotesTable.verificationVerifier] = note.verification?.verifier
             it[NotesTable.verificationReason] = note.verification?.reason
+            it[NotesTable.version] = 1L
         }
 
         // Read back the canonical row to obtain the actual ID (preserved from the pre-existing
@@ -187,6 +194,53 @@ class SQLiteNoteRepository(
         }
     }
 
+    override suspend fun findSummariesByItemId(
+        itemId: UUID,
+        role: String?,
+        keys: Set<String>?
+    ): List<NoteSummary> {
+        if (keys != null && keys.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            // The body column is never selected: only its length.
+            val bodyLength = CustomFunction("LENGTH", LongColumnType(), NotesTable.body)
+            var condition = NotesTable.itemId eq itemId
+            if (role != null) condition = condition and (NotesTable.role eq role)
+            if (keys != null) condition = condition and (NotesTable.key inList keys)
+            NotesTable
+                .select(
+                    NotesTable.id,
+                    NotesTable.itemId,
+                    NotesTable.key,
+                    NotesTable.role,
+                    NotesTable.version,
+                    bodyLength,
+                    NotesTable.modifiedAt,
+                    NotesTable.actorId,
+                    NotesTable.actorKind,
+                    NotesTable.actorParent,
+                    NotesTable.actorProofSha256,
+                    NotesTable.actorProofClaims,
+                    NotesTable.verificationStatus,
+                    NotesTable.verificationVerifier,
+                    NotesTable.verificationReason
+                ).where { condition }
+                .map { row ->
+                    val noteId = row[NotesTable.id].value
+                    NoteSummary(
+                        id = noteId,
+                        itemId = row[NotesTable.itemId],
+                        key = row[NotesTable.key],
+                        role = row[NotesTable.role],
+                        version = row[NotesTable.version],
+                        bodyLength = row[bodyLength].toInt(),
+                        modifiedAt = row[NotesTable.modifiedAt],
+                        actorClaim = mapActor(row, noteId),
+                        verification = mapVerification(row, noteId)
+                    )
+                }
+        }
+    }
+
     override suspend fun findByItemIdAndKey(
         itemId: UUID,
         key: String
@@ -200,44 +254,52 @@ class SQLiteNoteRepository(
             row?.let { mapRowToNote(it) }
         }
 
+    private fun mapActor(
+        row: ResultRow,
+        noteId: UUID
+    ): ActorClaim? =
+        row[NotesTable.actorId]?.let { actorId ->
+            val kindStr = row[NotesTable.actorKind]
+            if (kindStr == null) {
+                logger.warn("Note {}: actorId present but actorKind is null; skipping actor", noteId)
+                return@let null
+            }
+            try {
+                ActorClaim(
+                    id = actorId,
+                    kind = ActorKind.fromString(kindStr),
+                    parent = row[NotesTable.actorParent],
+                    // Never surface a legacy/unscrubbed raw proof — defense in depth alongside
+                    // the V17 scrub. actor_proof is written NULL on every insert/update path.
+                    proof = null
+                )
+            } catch (e: IllegalArgumentException) {
+                logger.warn("Note {}: invalid actorKind '{}'; skipping actor", noteId, kindStr)
+                null
+            }
+        }
+
+    private fun mapVerification(
+        row: ResultRow,
+        noteId: UUID
+    ): VerificationResult? =
+        row[NotesTable.verificationStatus]?.let { status ->
+            try {
+                VerificationResult(
+                    status = VerificationStatus.fromString(status),
+                    verifier = row[NotesTable.verificationVerifier],
+                    reason = row[NotesTable.verificationReason],
+                    proofSha256 = row[NotesTable.actorProofSha256],
+                    proofClaims = parseProofClaimsOrNull(row[NotesTable.actorProofClaims], logger, "Note $noteId")
+                )
+            } catch (e: IllegalArgumentException) {
+                logger.warn("Note {}: invalid verificationStatus '{}'; skipping verification", noteId, status)
+                null
+            }
+        }
+
     private fun mapRowToNote(row: ResultRow): Note {
         val noteId = row[NotesTable.id].value
-        val actorClaim =
-            row[NotesTable.actorId]?.let { actorId ->
-                val kindStr = row[NotesTable.actorKind]
-                if (kindStr == null) {
-                    logger.warn("Note {}: actorId present but actorKind is null; skipping actor", noteId)
-                    return@let null
-                }
-                try {
-                    ActorClaim(
-                        id = actorId,
-                        kind = ActorKind.fromString(kindStr),
-                        parent = row[NotesTable.actorParent],
-                        // Never surface a legacy/unscrubbed raw proof — defense in depth alongside
-                        // the V17 scrub. actor_proof is written NULL on every insert/update path.
-                        proof = null
-                    )
-                } catch (e: IllegalArgumentException) {
-                    logger.warn("Note {}: invalid actorKind '{}'; skipping actor", noteId, kindStr)
-                    null
-                }
-            }
-        val verification =
-            row[NotesTable.verificationStatus]?.let { status ->
-                try {
-                    VerificationResult(
-                        status = VerificationStatus.fromString(status),
-                        verifier = row[NotesTable.verificationVerifier],
-                        reason = row[NotesTable.verificationReason],
-                        proofSha256 = row[NotesTable.actorProofSha256],
-                        proofClaims = parseProofClaimsOrNull(row[NotesTable.actorProofClaims], logger, "Note $noteId")
-                    )
-                } catch (e: IllegalArgumentException) {
-                    logger.warn("Note {}: invalid verificationStatus '{}'; skipping verification", noteId, status)
-                    null
-                }
-            }
         return Note(
             id = noteId,
             itemId = row[NotesTable.itemId],
@@ -246,8 +308,9 @@ class SQLiteNoteRepository(
             body = row[NotesTable.body],
             createdAt = row[NotesTable.createdAt],
             modifiedAt = row[NotesTable.modifiedAt],
-            actorClaim = actorClaim,
-            verification = verification
+            actorClaim = mapActor(row, noteId),
+            verification = mapVerification(row, noteId),
+            version = row[NotesTable.version]
         )
     }
 

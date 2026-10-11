@@ -27,8 +27,7 @@ data class SchemaResponseFields(
  * carries only {key, role, required, exists} (+ filled when [filledNoteKeys] is provided).
  * Static schema text (description, guidance, skill) is intentionally NOT included here;
  * agents fetch it on demand via `query_items` operation "schema" (see [buildFullSchemaEntriesJson]),
- * or receive full guidance in the two designated places (manage_notes itemContext and
- * gate-failure error payloads).
+ * or receive full guidance in gate-failure error payloads.
  *
  * Supports three shapes:
  * - Shape 1 (creation): exists=false for all, no filled field

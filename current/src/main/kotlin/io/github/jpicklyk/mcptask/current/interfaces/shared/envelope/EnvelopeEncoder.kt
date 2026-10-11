@@ -139,7 +139,9 @@ object EnvelopeEncoder {
         buildJsonObject {
             put("code", error.code.wire)
             put("kind", error.kind.toJsonString())
-            put("message", error.message)
+            // `internal` never carries exception text, whatever built the error: a store fault translated by a unit of
+            // work arrives here with the driver's message, which the wire must not see (the server log has it).
+            put("message", if (error.code == ErrorCode.INTERNAL) INTERNAL_MESSAGE else error.message)
             error.detail?.let { put("detail", detail(it)) }
             error.fix?.let { put("fix", it) }
             retryAfterMs(error.detail)?.let { put("retryAfterMs", it) }

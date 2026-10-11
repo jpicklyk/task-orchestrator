@@ -92,13 +92,6 @@ class WriteRouteAuthInvariantTest {
                     toolContext.advanceServiceFactory(),
                     db.unitOfWork(),
                 )
-                noteWriteRoutes(
-                    repo,
-                    degradedModePolicy,
-                    IdempotencyService(db.unitOfWork()),
-                    db.unitOfWork(),
-                    toolContext.noteCommandService
-                )
                 dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(db.unitOfWork()), db.unitOfWork())
             }
         }

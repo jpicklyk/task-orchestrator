@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
-import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -25,27 +24,23 @@ private val VALID_MATCH_MODES = setOf("auto", "substring", "text")
 private val UNSUPPORTED_SEARCH_SCOPE_FIELDS = listOf("role", "tags")
 
 /**
- * Read-only MCP tool for querying Notes.
+ * Read-only MCP tool for searching Notes.
  *
- * Supports three operations:
- * - **get**: Retrieve a single Note by its UUID.
- * - **list**: List all notes for a WorkItem, with optional role filtering and body inclusion control.
- * - **search**: Full-text FTS5 search over note bodies, returning ranked snippets.
+ * Supports one operation, **search**: full-text FTS5 search over note bodies, returning ranked snippets. Reading a
+ * note by key and listing an item's notes are `notes_read` (`get`, `list`); this tool disappears with the rest of the
+ * 3.x surface when search moves to `items_read` (Q19).
  */
 class QueryNotesTool : BaseToolDefinition() {
     override val name = "query_notes"
 
     override val description =
         """
-Read-only query operations for Notes.
+Read-only search over Notes.
 
-Operations: get, list, search
+Operations: search
 
-**get** requires `noteId`.
-
-**list** requires `itemId`. Optional `role`/`keys` filters.
-
-**search** requires `query`; full-text search over note bodies.
+**search** requires `query`; full-text search over note bodies. To read a note by key or list an item's
+notes, use `notes_read`.
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -66,52 +61,11 @@ Operations: get, list, search
                         "operation",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Operation: get, list, search"))
-                            put("enum", JsonArray(listOf("get", "list", "search").map { JsonPrimitive(it) }))
+                            put("description", JsonPrimitive("Operation: search"))
+                            put("enum", JsonArray(listOf("search").map { JsonPrimitive(it) }))
                         }
                     )
-                    put(
-                        "noteId",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Note UUID (required for get)"))
-                        }
-                    )
-                    put(
-                        "itemId",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("WorkItem UUID or hex prefix (4+ chars), required for list"))
-                        }
-                    )
-                    put(
-                        "role",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by role: queue, work, review"))
-                        }
-                    )
-                    put(
-                        "keys",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("array"))
-                            put("items", buildJsonObject { put("type", JsonPrimitive("string")) })
-                            put("description", JsonPrimitive("Filter list results to notes with these keys (optional)"))
-                        }
-                    )
-                    put(
-                        "includeBody",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("boolean"))
-                            put(
-                                "description",
-                                JsonPrimitive(
-                                    "Include full note bodies (default: false). When false, each note includes bodyLength instead."
-                                )
-                            )
-                        }
-                    )
-                    // ── FTS search parameters (used when operation=search) ──
+                    // ── FTS search parameters ──
                     put(
                         "query",
                         buildJsonObject {
@@ -133,7 +87,7 @@ Operations: get, list, search
                                 "description",
                                 JsonPrimitive(
                                     "Structural scope filter for search mode. All fields are optional and combined with AND. " +
-                                        "scope.role/scope.tags are rejected (VALIDATION_ERROR); use operation=list for role."
+                                        "scope.role/scope.tags are rejected (VALIDATION_ERROR); use notes_read list for role."
                                 )
                             )
                             put(
@@ -224,33 +178,6 @@ Operations: get, list, search
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
-            "get" -> {
-                extractUUID(params, "noteId", required = true)
-            }
-            "list" -> {
-                validateIdOrPrefix(params, "itemId", required = true)
-                val role = optionalString(params, "role")
-                if (role != null) {
-                    val validRoles = setOf("queue", "work", "review")
-                    if (role.lowercase() !in validRoles) {
-                        throw ToolValidationException(
-                            "Invalid role: '$role'. Must be one of: queue, work, review"
-                        )
-                    }
-                }
-                val keysElement = (params as? JsonObject)?.get("keys")
-                if (keysElement != null) {
-                    val keysArray =
-                        keysElement as? JsonArray
-                            ?: throw ToolValidationException("keys must be an array of note-key strings")
-                    keysArray.forEachIndexed { index, element ->
-                        val prim = element as? JsonPrimitive
-                        if (prim == null || !prim.isString || prim.content.isBlank()) {
-                            throw ToolValidationException("keys[$index] must be a non-blank string")
-                        }
-                    }
-                }
-            }
             "search" -> {
                 requireString(params, "query") // query is required for search
                 val matchMode = optionalString(params, "matchMode")
@@ -278,12 +205,12 @@ Operations: get, list, search
                     if (value != null && value !is JsonNull) {
                         throw ToolValidationException(
                             "scope.$field is not supported by query_notes search. Supported scope fields: ancestorId, " +
-                                "itemId. To filter notes by role, use operation=list with role."
+                                "itemId. To filter notes by role, use notes_read list with role."
                         )
                     }
                 }
             }
-            else -> throw ToolValidationException("Invalid operation: $operation. Must be get, list, or search")
+            else -> throw ToolValidationException("Invalid operation: $operation. Must be search")
         }
     }
 
@@ -293,8 +220,6 @@ Operations: get, list, search
     ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
-            "get" -> executeGet(params, context)
-            "list" -> executeList(params, context)
             "search" -> {
                 val query = requireString(params, "query")
                 executeFtsSearch(params, query, context)
@@ -315,87 +240,12 @@ Operations: get, list, search
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
             isError -> "query_notes($op) failed"
-            op == "get" -> {
-                val key = data?.get("key")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
-                "Retrieved note: $key"
-            }
-            op == "list" -> {
-                val total = data?.get("total")?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() } ?: 0
-                "Listed $total note(s)"
-            }
             op == "search" -> {
                 val totalHits = data?.get("totalHits")?.let { if (it is JsonPrimitive) it.intOrNull else null } ?: 0
                 val returned = (data?.get("hits") as? JsonArray)?.size ?: 0
                 "Found $totalHits note hit(s), returned $returned"
             }
             else -> super.userSummary(params, result, isError)
-        }
-    }
-
-    // ──────────────────────────────────────────────
-    // Get operation
-    // ──────────────────────────────────────────────
-
-    private suspend fun executeGet(
-        params: JsonElement,
-        context: ToolExecutionContext
-    ): JsonElement {
-        val id = requireUUID(params, "noteId")
-        val noteRepo = context.noteRepository()
-
-        val note =
-            legacyRead({ return errorResponse("Failed to get note: $it", LegacyMcpCode.DATABASE_ERROR) }) { noteRepo.getById(id) }
-                ?: return errorResponse(
-                    "Note not found: $id",
-                    LegacyMcpCode.RESOURCE_NOT_FOUND,
-                    details = "Note not found with id: $id"
-                )
-        return successResponse(note.toJson())
-    }
-
-    // ──────────────────────────────────────────────
-    // List operation
-    // ──────────────────────────────────────────────
-
-    private suspend fun executeList(
-        params: JsonElement,
-        context: ToolExecutionContext
-    ): JsonElement {
-        val (resolvedItemId, idError) = resolveItemId(params, "itemId", context)
-        if (idError != null) return idError
-        val itemId = resolvedItemId!!
-        val role = optionalString(params, "role")
-        val includeBody = optionalBoolean(params, "includeBody", defaultValue = false)
-        val keyFilter: Set<String>? =
-            ((params as? JsonObject)?.get("keys") as? JsonArray)
-                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                ?.toSet()
-        val noteRepo = context.noteRepository()
-
-        return run {
-            val result =
-                legacyRead({
-                    return@run run {
-                        errorResponse(
-                            "Failed to list notes for item: $itemId",
-                            LegacyMcpCode.DATABASE_ERROR,
-                            details = it
-                        )
-                    }
-                }) { noteRepo.findByItemId(itemId, role) }
-            val notes =
-                if (keyFilter != null) {
-                    result.filter { it.key in keyFilter }
-                } else {
-                    result
-                }
-            val data =
-                buildJsonObject {
-                    // itemId echo omitted per note — the caller supplied it for this list.
-                    put("notes", JsonArray(notes.map { it.toJson(includeBody = includeBody, includeItemId = false) }))
-                    put("total", JsonPrimitive(notes.size))
-                }
-            successResponse(data)
         }
     }
 

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -25,12 +24,16 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocume
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.listNotesVia
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.updateOp
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -366,11 +369,11 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // manage_notes / S16
+    // notes_write / S16
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `manage_notes upsert and delete record note upserted with the body length in characters and note deleted explicit`(
+    fun `notes_write upsert and delete record note upserted with the body length in characters and note deleted explicit`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -388,21 +391,8 @@ class EventCoverageTest {
 
             val (_, upserted) =
                 rig.written {
-                    rig.callOk(
-                        ManageNotesTool(),
-                        "operation" to JsonPrimitive("upsert"),
-                        "notes" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", item.id.toString())
-                                        put("key", "k1")
-                                        put("role", "work")
-                                        put("body", body)
-                                    },
-                                )
-                            },
-                    )
+                    val answer = rig.ctx.upsertNoteVia(item.id, "k1", "work", body)
+                    assertTrue(envelopeOk(answer), "notes_write must succeed: $answer")
                 }
             val up = upserted.single()
             assertEquals("note.upserted", up.type)
@@ -422,12 +412,25 @@ class EventCoverageTest {
 
             val (_, deleted) =
                 rig.written {
-                    rig.callOk(
-                        ManageNotesTool(),
-                        "operation" to JsonPrimitive("delete"),
-                        "itemId" to JsonPrimitive(item.id.toString()),
-                        "key" to JsonPrimitive("k1"),
-                    )
+                    val answer =
+                        rig.ctx.callTool(
+                            "notes_write",
+                            buildJsonObject {
+                                put(
+                                    "ops",
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("op", "delete")
+                                                put("itemId", item.id.toString())
+                                                put("key", "k1")
+                                            },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    assertTrue(envelopeOk(answer), "notes_write must succeed: $answer")
                 }
             val down = deleted.single()
             assertEquals("note.deleted", down.type)
@@ -437,7 +440,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S16 deleting all notes of an item records one note deleted row per note with its key`(
+    fun `S16 deleting each note of an item records one note deleted row per note with its key`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -445,9 +448,15 @@ class EventCoverageTest {
             val item = rig.seed("S16 host")
             listOf("a", "b", "c").forEach { rig.raw.noteRepository().upsert(Note(itemId = item.id, key = it, role = "work", body = it)) }
 
-            val (count, rows) = rig.written { (rig.ctx.noteCommandService.deleteAllForItem(item.id) as Outcome.Ok).value }
+            val (_, rows) =
+                rig.written {
+                    listOf(
+                        "a",
+                        "b",
+                        "c"
+                    ).forEach { (rig.ctx.noteCommandService.delete(item.id, it) as Outcome.Ok).value }
+                }
 
-            assertEquals(3, count)
             assertEquals(List(3) { "note.deleted" }, rows.types())
             assertEquals(setOf("a", "b", "c"), rows.mapNotNull { it.str("key") }.toSet())
             assertEquals(3, rows.map { it.entityId }.toSet().size, "each row names its own note")
@@ -1096,21 +1105,7 @@ class EventCoverageTest {
             val perTool: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
                     "items_write" to emptyArray(),
-                    "manage_notes" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("upsert"),
-                            "notes" to
-                                buildJsonArray {
-                                    add(
-                                        buildJsonObject {
-                                            put("itemId", child.id.toString())
-                                            put("key", "k")
-                                            put("role", "work")
-                                            put("body", "b")
-                                        },
-                                    )
-                                },
-                        ),
+                    "notes_write" to emptyArray(),
                     "manage_dependencies" to
                         arrayOf(
                             "operation" to JsonPrimitive("create"),
@@ -1158,12 +1153,10 @@ class EventCoverageTest {
             for ((name, params) in perTool) {
                 val (result, rows) =
                     rig.written {
-                        if (name ==
-                            "items_write"
-                        ) {
-                            rig.itemsWrite(createOp("S17 created"))
-                        } else {
-                            rig.call(tools.getValue(name), *params)
+                        when (name) {
+                            "items_write" -> rig.itemsWrite(createOp("S17 created"))
+                            "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
+                            else -> rig.call(tools.getValue(name), *params)
                         }
                     }
                 val succeeded = (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean
@@ -1179,19 +1172,20 @@ class EventCoverageTest {
             val reads: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
                     "query_items" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(root.id.toString())),
-                    "query_notes" to arrayOf("operation" to JsonPrimitive("list"), "itemId" to JsonPrimitive(child.id.toString())),
+                    "query_notes" to arrayOf("operation" to JsonPrimitive("search"), "query" to JsonPrimitive("anything")),
                     "get_context" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "query_dependencies" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(child.id.toString())),
                     "get_next_status" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "get_next_item" to emptyArray(),
                     "get_blocked_items" to emptyArray(),
                     "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
+                    "notes_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
-                val result = rig.call(tools.getValue(name), *params)
+                val result = if (name == "notes_read") rig.ctx.listNotesVia(child.id) else rig.call(tools.getValue(name), *params)
                 assertTrue(
-                    result["success"]!!.jsonPrimitive.boolean,
+                    (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean,
                     "read tool $name must succeed so its zero rows mean something: $result"
                 )
             }
@@ -1227,7 +1221,7 @@ class EventCoverageTest {
         val WRITE_TOOLS_COVERED: Map<String, Set<String>> =
             mapOf(
                 "items_write" to setOf("item.created"),
-                "manage_notes" to setOf("note.upserted"),
+                "notes_write" to setOf("note.upserted"),
                 "manage_dependencies" to setOf("dependency.added"),
                 "advance_item" to setOf("item.transitioned"),
                 "claim_item" to setOf("claim.acquired"),
@@ -1248,6 +1242,7 @@ class EventCoverageTest {
                 "get_blocked_items",
                 "get_context",
                 "query_rules",
+                "notes_read",
             )
     }
 }

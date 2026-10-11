@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -30,8 +29,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the mutating tools (manage_notes,
- * manage_dependencies, advance_item, complete_tree, create_work_tree) must be rejected with a
+ * a malformed `requestId` on any of the four 3.x mutating tools (manage_dependencies, advance_item,
+ * complete_tree, create_work_tree; manage_items and manage_notes were replaced by items_write and notes_write, which
+ * take a per-element idempotencyKey instead) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
  * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
  * `create_work_tree` malformed-actor contract are UNCHANGED (guard regressions, not new gates).
@@ -121,32 +121,6 @@ class RequestIdValidationTest {
 
     private fun toolCases(): List<ToolCase> =
         listOf(
-            ToolCase("manage_notes", ManageNotesTool()) { context, actorId ->
-                val itemId = createItem(context, "Notes Target ${UUID.randomUUID()}")
-                val params =
-                    buildJsonObject {
-                        put("operation", JsonPrimitive("upsert"))
-                        put(
-                            "notes",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId.toString()))
-                                        put("key", JsonPrimitive("approach"))
-                                        put("role", JsonPrimitive("work"))
-                                        put("body", JsonPrimitive("body"))
-                                    }
-                                )
-                            )
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    val notes = context.noteRepository().findByItemId(itemId)
-                    notes?.isNotEmpty() == true
-                }
-                params to check
-            },
             ToolCase("manage_dependencies", ManageDependenciesTool()) { context, actorId ->
                 val from = createItem(context, "Dep From ${UUID.randomUUID()}")
                 val to = createItem(context, "Dep To ${UUID.randomUUID()}")
@@ -554,12 +528,12 @@ class RequestIdValidationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────
-    // S10 — edge (manage_notes): non-string JSON shapes for requestId are all rejected
+    // S10 — edge (manage_dependencies): non-string JSON shapes for requestId are all rejected
     // ──────────────────────────────────────────────────────────────────
 
     @TestFactory
-    fun `S10 manage_notes rejects non-string requestId JSON shapes`(): List<DynamicTest> {
-        val case = toolCases().first { it.label == "manage_notes" }
+    fun `S10 manage_dependencies rejects non-string requestId JSON shapes`(): List<DynamicTest> {
+        val case = toolCases().first { it.label == "manage_dependencies" }
         val forms: List<Pair<String, JsonElement>> =
             listOf(
                 "number" to JsonPrimitive(123),
@@ -587,13 +561,13 @@ class RequestIdValidationTest {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // S11 — edge (manage_notes): requestId is validated before operation (ordering)
+    // S11 — edge (manage_dependencies): requestId is validated before operation (ordering)
     // ──────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S11 manage_notes validates requestId before operation`() =
+    fun `S11 manage_dependencies validates requestId before operation`() =
         runBlocking {
-            val case = toolCases().first { it.label == "manage_notes" }
+            val case = toolCases().first { it.label == "manage_dependencies" }
             val context = freshContext()
             val (baseParams, mutated) = case.build(context, "agent-1")
             val withBadOperation =

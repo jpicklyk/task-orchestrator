@@ -351,19 +351,6 @@ data class EffectiveConfigDto(
 // ─── Phase 5: Write-API request DTOs ─────────────────────────────────────────
 
 /**
- * Request DTO for `PUT /api/v1/items/{id}/notes/{key}`.
- *
- * `role` must be one of "queue", "work", "review".
- * `properties` is reserved for future note-level metadata and is silently ignored in v1.
- */
-@Serializable
-data class NoteWriteDto(
-    val role: String,
-    val body: String,
-    val properties: JsonObject? = null,
-)
-
-/**
  * Request DTO for `POST /api/v1/dependencies`.
  *
  * `type` must be one of "blocks" or "relates_to" (case-insensitive).
