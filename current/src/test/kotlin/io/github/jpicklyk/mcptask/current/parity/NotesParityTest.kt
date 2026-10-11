@@ -556,14 +556,10 @@ class NotesParityTest {
         val members = ParityCoverage.members(registry)
         assertEquals(
             setOf("notes_read" to "get", "notes_read" to "list", "notes_write" to "upsert", "notes_write" to "delete"),
-            members.toSet()
+            members.filter { it.first.startsWith("notes_") }.toSet()
         )
-        assertEquals(
-            emptyList(),
-            ParityCoverage
-                .missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions)
-                .filter { it.tool.startsWith("notes") }
-        )
+        val missing = ParityCoverage.missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions)
+        assertEquals(emptyList(), missing.filter { it.tool.startsWith("notes_") })
         assertEquals(emptyList(), ParityCoverage.stale(registry, NotesParityCatalog.scenarios))
         assertTrue(NotesParityCatalog.exemptions.isEmpty(), "no scope exemption: every notes member touches an item")
     }

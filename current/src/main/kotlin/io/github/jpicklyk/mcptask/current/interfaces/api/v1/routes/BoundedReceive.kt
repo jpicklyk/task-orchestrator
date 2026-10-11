@@ -59,8 +59,7 @@ const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024
  * [io.ktor.server.request.receiveText] performed at every call site this replaces. On either 413
  * path the response has already been sent and this returns `null`; callers use
  * `call.receiveBounded(CAP) ?: return@xxx`, the same nullable-sentinel convention already used by
- * `parseIdempotencyKey` (returns `IdempotencyKeyResult.Invalid` after responding) and by each
- * route file's `parseRootId` / `parseSlug` helpers.
+ * each route file's `parseRootId` / `parseSlug` helpers.
  */
 suspend fun ApplicationCall.receiveBounded(maxBytes: Int): String? {
     val declaredLength = request.contentLength()

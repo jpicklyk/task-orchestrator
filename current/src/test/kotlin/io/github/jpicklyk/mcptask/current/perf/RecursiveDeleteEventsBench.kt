@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.perf
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -9,14 +8,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -60,20 +57,9 @@ class RecursiveDeleteEventsBench {
             repeat(RUNS + 1) { run ->
                 val rootId = seedTree(raw, run)
                 val started = System.nanoTime()
-                val result =
-                    ManageItemsTool().execute(
-                        JsonObject(
-                            mapOf(
-                                "operation" to JsonPrimitive("delete"),
-                                "itemIds" to JsonArray(listOf(JsonPrimitive(rootId.toString()))),
-                                "recursive" to JsonPrimitive(true),
-                            ),
-                        ),
-                        ctx,
-                    ) as JsonObject
+                val result = ctx.itemsWrite(deleteOp(rootId, recursive = true))
                 val elapsedMs = (System.nanoTime() - started) / 1_000_000
-                assertTrue(result["success"]!!.jsonPrimitive.boolean, "delete must succeed: $result")
-                assertEquals(ITEMS, result["data"]!!.jsonObject["deleted"]!!.jsonPrimitive.int)
+                assertEquals(ITEMS, result.okResult(0)["deleted"]!!.jsonPrimitive.int, "delete must succeed: $result")
                 if (run > 0) timings += elapsedMs // run 0 is the warm-up
             }
             val sorted = timings.sorted()

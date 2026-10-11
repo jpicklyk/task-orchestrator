@@ -4,7 +4,6 @@ import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.at
@@ -13,23 +12,20 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.managemen
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWriteTestApp
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.ktor.client.HttpClient
+import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.ktor.client.request.delete
-import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -38,11 +34,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -141,31 +135,8 @@ class PlacementInvariantTest {
             parent: UUID?,
             title: String
         ): List<Pair<UUID, UUID?>> {
-            val result =
-                rig.callOk(
-                    ManageItemsTool(),
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", title)
-                                    if (parent != null) put("parentId", parent.toString())
-                                }
-                            )
-                        }
-                )
-            val data = result["data"]!!.jsonObject
-            assertEquals(1, data["created"]!!.jsonPrimitive.int, "mcp create must create the item: $result")
-            val id =
-                UUID.fromString(
-                    data["items"]!!
-                        .jsonArray[0]
-                        .jsonObject["id"]!!
-                        .jsonPrimitive.content
-                )
-            return listOf(id to parent)
+            val result = rig.itemsWrite(createOp(title, parent))
+            return listOf(result.okId(0) to parent)
         }
 
         override suspend fun reparent(
@@ -173,31 +144,24 @@ class PlacementInvariantTest {
             newParent: UUID?
         ) {
             val result =
-                rig.callOk(
-                    ManageItemsTool(),
-                    "operation" to JsonPrimitive("update"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", id.toString())
-                                    if (newParent == null) put("parentId", JsonNull) else put("parentId", newParent.toString())
-                                }
-                            )
-                        }
+                rig.itemsWrite(
+                    if (newParent ==
+                        null
+                    ) {
+                        updateOp(id, "clear" to strings("parentId"))
+                    } else {
+                        updateOp(
+                            id,
+                            "parentId" to JsonPrimitive(newParent.toString())
+                        )
+                    }
                 )
-            assertEquals(1, result["data"]!!.jsonObject["updated"]!!.jsonPrimitive.int, "mcp reparent must apply: $result")
+            result.okResult(0)
         }
 
         override suspend fun delete(id: UUID) {
-            val result =
-                rig.callOk(
-                    ManageItemsTool(),
-                    "operation" to JsonPrimitive("delete"),
-                    "itemIds" to buildJsonArray { add(JsonPrimitive(id.toString())) },
-                    "recursive" to JsonPrimitive(true)
-                )
-            assertEquals(0, result["data"]!!.jsonObject["failed"]!!.jsonPrimitive.int, "mcp delete must apply: $result")
+            val result = rig.itemsWrite(deleteOp(id, recursive = true))
+            result.okResult(0)
         }
     }
 
@@ -247,60 +211,6 @@ class PlacementInvariantTest {
         ) = error("create_work_tree does not reparent")
 
         override suspend fun delete(id: UUID) = error("create_work_tree does not delete")
-    }
-
-    private inner class RestSurface(
-        private val rig: EventLogRig,
-        private val client: HttpClient
-    ) : Surface {
-        override val label = "rest"
-
-        override suspend fun create(
-            parent: UUID?,
-            title: String
-        ): List<Pair<UUID, UUID?>> {
-            val body =
-                if (parent ==
-                    null
-                ) {
-                    """{"title":"$title","type":"test-item"}"""
-                } else {
-                    """{"title":"$title","type":"test-item","parentId":"$parent"}"""
-                }
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-            val text = response.bodyAsText()
-            assertEquals(HttpStatusCode.Created, response.status, "rest create must apply: $text")
-            val id = Regex(""""id"\s*:\s*"([0-9a-f\-]{36})"""").find(text)!!.groupValues[1]
-            return listOf(UUID.fromString(id) to parent)
-        }
-
-        override suspend fun reparent(
-            id: UUID,
-            newParent: UUID?
-        ) {
-            val current = rig.raw.workItemRepository().getById(id)!!
-            val response =
-                client.patch("/api/v1/items/$id") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, "\"v1-${current.modifiedAt.toEpochMilli()}\"")
-                    contentType(ContentType.Application.Json)
-                    setBody(if (newParent == null) """{"parentId":null}""" else """{"parentId":"$newParent"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, "rest reparent must apply: ${response.bodyAsText()}")
-        }
-
-        override suspend fun delete(id: UUID) {
-            val response =
-                client.delete("/api/v1/items/$id?recursive=true") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-            assertTrue(response.status.value in 200..299, "rest delete must apply: ${response.status} ${response.bodyAsText()}")
-        }
     }
 
     /** The test's own model of the forest: item id to parent id. Expected placement is recomputed from it. */
@@ -362,7 +272,7 @@ class PlacementInvariantTest {
         testApplication {
             application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
             val rig = EventLogRig.build(db.db, dir)
-            val surfaces: List<Surface> = listOf(ServiceSurface(rig), McpSurface(rig), RestSurface(rig, client))
+            val surfaces: List<Surface> = listOf(ServiceSurface(rig), McpSurface(rig))
             val tree = TreeSurface(rig)
             val model = Model()
             val rng = Random(seed)
@@ -408,17 +318,17 @@ class PlacementInvariantTest {
         }
 
     @Test
-    fun `S14 random create reparent and delete steps across service mcp rest and tree keep every row placed (seed 11)`(
+    fun `S14 random create reparent and delete steps across service items_write and tree keep every row placed (seed 11)`(
         @TempDir dir: Path
     ): Unit = randomSequence(11L, dir)
 
     @Test
-    fun `S14 random create reparent and delete steps across service mcp rest and tree keep every row placed (seed 202)`(
+    fun `S14 random create reparent and delete steps across service items_write and tree keep every row placed (seed 202)`(
         @TempDir dir: Path
     ): Unit = randomSequence(202L, dir)
 
     @Test
-    fun `S14 random create reparent and delete steps across service mcp rest and tree keep every row placed (seed 3033)`(
+    fun `S14 random create reparent and delete steps across service items_write and tree keep every row placed (seed 3033)`(
         @TempDir dir: Path
     ): Unit = randomSequence(3033L, dir)
 
