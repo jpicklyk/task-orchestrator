@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildRows, formatText, truncate } from './rollup.mjs';
+import { buildRows, formatMarkdown, formatText, main, truncate } from './rollup.mjs';
 
 const script = fileURLToPath(new URL('./rollup.mjs', import.meta.url));
 const zero = { queue: 0, work: 0, review: 0, blocked: 0, terminal: 0 };
@@ -59,4 +59,56 @@ test('CLI: text mode via stdin, invalid JSON exits 1', () => {
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /invalid JSON/);
   assert.equal(bad.stdout, '');
+});
+
+const ov2 = { items: [
+  { id: 'aaaaaaaa1', title: 'A', childCounts: { queue: 1, work: 2 } },
+  { id: 'bbbbbbbb2', title: 'B', childCounts: { queue: 3, terminal: 4 } },
+] };
+
+test('formatMarkdown: empty -> header, separator, TOTAL', () => {
+  assert.deepEqual(formatMarkdown(buildRows({ items: [] })).split('\n'), [
+    '| id | title | queue | work | review | blocked | terminal |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+    '| TOTAL |  | 0 | 0 | 0 | 0 | 0 |',
+  ]);
+});
+
+test('formatMarkdown: multi-item rows in order, TOTAL sums', () => {
+  assert.deepEqual(formatMarkdown(buildRows(ov2)).split('\n').slice(2), [
+    '| aaaaaaaa | A | 1 | 2 | 0 | 0 | 0 |',
+    '| bbbbbbbb | B | 3 | 0 | 0 | 0 | 4 |',
+    '| TOTAL |  | 4 | 2 | 0 | 0 | 4 |',
+  ]);
+});
+
+test('formatMarkdown: pipe in title is escaped, delimiter count intact', () => {
+  const md = formatMarkdown(buildRows({ items: [{ id: 'i', title: 'a|b', childCounts: { work: 1 } }] }));
+  const row = md.split('\n')[2];
+  assert.equal(row, '| i | a\\|b | 0 | 1 | 0 | 0 | 0 |');
+  assert.equal(row.replaceAll('\\|', '').split('|').length - 1, 8); // 7 cells -> 8 delimiters
+});
+
+test('main: --markdown and flag rules', () => {
+  const m = main(['--markdown'], JSON.stringify(ov2));
+  assert.equal(m.code, 0);
+  assert.equal(m.stdout, formatMarkdown(buildRows(ov2)) + '\n');
+  for (const input of [JSON.stringify(ov2), 'nope']) {
+    const b = main(['--json', '--markdown'], input);
+    assert.deepEqual(b, { code: 2, stdout: '', stderr: 'rollup: --json and --markdown are mutually exclusive\n' });
+  }
+  assert.equal(main(['--markdown'], 'nope').code, 1);
+  assert.equal(main([], JSON.stringify(ov2)).stdout, formatText(buildRows(ov2)) + '\n');
+});
+
+test('CLI: --markdown exits 0; both flags exit 2', () => {
+  const ok = spawnSync(process.execPath, [script, '--markdown'], { input: JSON.stringify(ov2), encoding: 'utf8' });
+  assert.equal(ok.status, 0);
+  assert.match(ok.stdout, /^\| id \| title \|/);
+  assert.match(ok.stdout, /\| TOTAL \|/);
+  const both = spawnSync(process.execPath, [script, '--json', '--markdown'], { input: 'nope', encoding: 'utf8' });
+  assert.equal(both.status, 2);
+  assert.equal(both.stdout, '');
+  assert.match(both.stderr, /mutually exclusive/);
+  assert.equal(both.stderr.trim().split('\n').length, 1);
 });

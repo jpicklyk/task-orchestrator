@@ -1,5 +1,5 @@
 // rollup.mjs - compact per-child role rollup from a query_items overview JSON (anchorId shape).
-// Usage: node rollup.mjs [--json] < overview.json
+// Usage: node rollup.mjs [--json | --markdown] < overview.json
 // Unknown flags are ignored.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -45,7 +45,29 @@ export function formatText({ rows, total }) {
   return out.join('\n');
 }
 
+function cell(s) {
+  return String(s).replaceAll('|', '\\|');
+}
+
+function mdRow(cells) {
+  return '| ' + cells.join(' | ') + ' |';
+}
+
+// GitHub markdown table rendered from the row model (not from formatText output).
+export function formatMarkdown({ rows, total }) {
+  const out = [
+    mdRow(['id', 'title', ...COLUMNS]),
+    mdRow(['---', '---', ...COLUMNS.map(() => '---:')]),
+  ];
+  for (const r of rows) out.push(mdRow([cell(r.id), cell(r.title), ...COLUMNS.map((c) => r[c])]));
+  out.push(mdRow(['TOTAL', '', ...COLUMNS.map((c) => total[c])]));
+  return out.join('\n');
+}
+
 export function main(argv, input) {
+  if (argv.includes('--json') && argv.includes('--markdown')) {
+    return { code: 2, stdout: '', stderr: 'rollup: --json and --markdown are mutually exclusive\n' };
+  }
   let overview;
   try {
     overview = JSON.parse(input);
@@ -53,7 +75,11 @@ export function main(argv, input) {
     return { code: 1, stdout: '', stderr: `rollup: invalid JSON on stdin: ${e.message}\n` };
   }
   const result = buildRows(overview);
-  const text = argv.includes('--json') ? JSON.stringify(result) : formatText(result);
+  const text = argv.includes('--json')
+    ? JSON.stringify(result)
+    : argv.includes('--markdown')
+      ? formatMarkdown(result)
+      : formatText(result);
   return { code: 0, stdout: text + '\n', stderr: '' };
 }
 
