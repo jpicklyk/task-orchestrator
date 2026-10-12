@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Registry guard (item 4162566c): every field a tool's select or op request class declares (and every field of a
@@ -40,6 +41,23 @@ class RequestFieldConsumptionGuardTest {
                 "\n\nFix: wire the field into its handler, remove it from the request class, or (with a reason) add " +
                 "'<owner>#<field>  # <reason>' to src/test/resources/architecture/request-field-consumption-baseline.txt."
         )
+    }
+
+    @Test
+    fun `every request root walks at least one owner class`() {
+        val classRoot =
+            Path.of(
+                ToolRegistry::class.java.protectionDomain.codeSource.location
+                    .toURI()
+            )
+        val walked =
+            RequestFieldConsumption.walkedOwners(
+                RequestFieldConsumption.roots(buildToolSpecs()),
+                classRoot
+            ) { it.startsWith("io.github.jpicklyk.mcptask.") }
+        val skipped = walked.filterValues { it.isEmpty() }.keys.sorted()
+        assertTrue(skipped.isEmpty(), "Request root(s) the guard silently skipped (no owner walked): $skipped")
+        assertTrue(walked.isNotEmpty(), "No request roots found; the guard would prove nothing.")
     }
 
     private fun readBaseline(): Set<String> =

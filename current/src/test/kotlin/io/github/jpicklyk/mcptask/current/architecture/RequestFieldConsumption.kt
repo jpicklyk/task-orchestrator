@@ -45,6 +45,16 @@ internal data class UnreadField(
  * methods, `copy`, `copy$default`, `equals`, `hashCode`, `toString`, `write$Self*`, and every `$$serializer` class.
  * O's other member functions do count.
  *
+ * Limits (known, accepted: the guard proves presence of a read, not correct per-handler use):
+ * - A request class shared by several handlers is checked once: DocAttachRequest serves both attach and detach
+ *   (DocsWriteTool.kt:93, :106), so a field read by only one of the two passes.
+ * - Reads in dead branches and in uncalled member functions count.
+ * - A read in a log line, an exception message or a member validate() counts (presence, not effect).
+ * - Interface dispatch is not followed, and a field read only by re-serializing the object comes out unread.
+ * - Fail-open edge: a class-level @SerialName outside the include prefix, or a root whose descriptor is not a CLASS
+ *   (sealed, polymorphic, custom primitive), is skipped without error; the guard test asserts every root still
+ *   walks at least one owner via [walkedOwners], which catches a fully skipped root but not a skipped nested class.
+ *
  * Fail-closed: an included descriptor with no class file, an element with no field of that name, or an empty scan
  * throws [IllegalStateException].
  */
@@ -87,6 +97,21 @@ internal object RequestFieldConsumption {
                     .filter { (owner to it) !in reads }
                     .map { UnreadField(owner, it, labelsByOwner.getValue(owner).toList()) }
             }.sortedBy { it.key }
+    }
+
+    /** Root label to the owner classes its walk reached; a root mapped to an empty set was silently skipped. */
+    fun walkedOwners(
+        roots: List<RequestRoot>,
+        classRoot: Path,
+        include: (String) -> Boolean = { true }
+    ): Map<String, Set<String>> {
+        val classes = scan(classRoot, include)
+        val result = LinkedHashMap<String, MutableSet<String>>()
+        for (root in roots) {
+            val owners = result.getOrPut(root.label) { LinkedHashSet() }
+            walk(root.serializer.descriptor, classes, include, HashSet()) { owner, _ -> owners += owner }
+        }
+        return result
     }
 
     /** Null when [actual] and [baseline] (keys) agree; otherwise a message naming each new and each stale entry. */
