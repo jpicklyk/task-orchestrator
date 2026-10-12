@@ -39,6 +39,7 @@ data class PhaseNoteContext(
  *
  * Returns null when no meaningful phase context exists:
  * - Terminal items (cannot advance)
+ * - Lifecycle-free items (null [role]: no phase)
  * - Items with no matching schema (schema-free mode)
  *
  * @param role The item's current role
@@ -46,11 +47,11 @@ data class PhaseNoteContext(
  * @param notesByKey Map of existing notes keyed by their note key
  */
 fun computePhaseNoteContext(
-    role: Role,
+    role: Role?,
     schema: List<NoteSchemaEntry>?,
     notesByKey: Map<String, Note>
 ): PhaseNoteContext? {
-    if (role == Role.TERMINAL || schema == null) return null
+    if (role == null || role == Role.TERMINAL || schema == null) return null
 
     val required = schema.filter { it.role == role && it.required }
     // "Filled" is the gate's own definition (GatePredicate.filledNoteKeys), never a second blank-body test.
@@ -78,7 +79,7 @@ fun computePhaseNoteContext(
  * @param notesByKey Map of existing notes keyed by their note key
  */
 fun computePhaseNoteContext(
-    role: Role,
+    role: Role?,
     schema: WorkItemSchema,
     notesByKey: Map<String, Note>
 ): PhaseNoteContext? = computePhaseNoteContext(role, schema.notes, notesByKey)

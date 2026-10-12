@@ -134,7 +134,7 @@ internal class P11FaultRig(
             items =
                 items.map {
                     val current = raw.workItemRepository().getById(it.id)!!
-                    P11ItemState(it.id, current.role, current.previousRole, current.statusLabel, current.roleChangedAt)
+                    P11ItemState(it.id, current.role!!, current.previousRole, current.statusLabel, current.roleChangedAt)
                 },
             transitionRows = items.associate { it.id to raw.roleTransitionRepository().findByItemId(it.id, limit = 500).size },
             leases = items.associate { it.id to raw.resourceLeaseRepository().findActiveForItem(it.id).map { l -> l.resourceKey } },

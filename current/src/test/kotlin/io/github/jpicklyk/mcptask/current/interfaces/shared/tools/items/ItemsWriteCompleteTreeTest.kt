@@ -87,7 +87,7 @@ class ItemsWriteCompleteTreeTest {
         rig.raw.dependencyRepository().create(Dependency(fromItemId = from, toItemId = to, type = type))
     }
 
-    private suspend fun IwKit.role(id: UUID): Role = assertNotNull(item(id), "item $id").role
+    private suspend fun IwKit.role(id: UUID): Role = assertNotNull(item(id), "item $id").role!!
 
     /** An item held by [by] with a live claim (expiry in 2099), seeded directly like the advance tests do. */
     private suspend fun IwKit.claimed(

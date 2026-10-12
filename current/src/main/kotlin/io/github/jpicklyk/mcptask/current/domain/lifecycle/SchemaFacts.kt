@@ -15,9 +15,9 @@ data class SchemaFacts(
     }
 }
 
-/** The facts about a (new or current) parent that structural rules depend on. */
+/** The facts about a (new or current) parent that structural rules depend on. [role] is null for a lifecycle-free parent. */
 data class ParentFacts(
     val id: UUID,
-    val role: Role,
+    val role: Role?,
     val lifecycle: LifecycleMode
 )

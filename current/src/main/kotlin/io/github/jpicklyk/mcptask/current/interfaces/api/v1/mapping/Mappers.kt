@@ -68,7 +68,7 @@ fun WorkItem.toDto(
         description = description,
         summary = summary,
         type = type,
-        role = role.name.lowercase(),
+        role = role?.name?.lowercase(),
         previousRole = previousRole?.name?.lowercase(),
         statusLabel = statusLabel,
         priority = priority.name.lowercase(),

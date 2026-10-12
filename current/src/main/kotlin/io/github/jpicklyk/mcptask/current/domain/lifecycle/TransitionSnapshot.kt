@@ -7,10 +7,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
-/** The item being transitioned. [previousRole] is the role saved when it was blocked. */
+/**
+ * The item being transitioned. [role] is null for a lifecycle-free (NONE) item. [previousRole] is the
+ * role saved when it was blocked.
+ */
 data class ItemFacts(
     val id: UUID,
-    val role: Role,
+    val role: Role?,
     val previousRole: Role? = null,
     val parentId: UUID? = null
 )

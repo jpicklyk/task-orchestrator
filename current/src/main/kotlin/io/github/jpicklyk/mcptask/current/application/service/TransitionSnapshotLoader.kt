@@ -122,7 +122,8 @@ class TransitionSnapshotLoader(
             notes = itemNotes
             filledKeys = GatePredicate.filledNoteKeys(itemNotes)
             val policy = independencePolicyResolver(item)
-            val current = GatePredicate.violationsForStart(schema, item.role, itemNotes, policy)
+            // A table target implies a lifecycle role: a lifecycle-free item never reaches here.
+            val current = item.role?.let { GatePredicate.violationsForStart(schema, it, itemNotes, policy) }
             val all = GatePredicate.violationsForComplete(schema, itemNotes, policy)
             if (current != null || all != null) independence = IndependenceFacts(policy.mode, current, all)
         }
@@ -190,12 +191,18 @@ class TransitionSnapshotLoader(
     /** All notes of [itemId] (read in the caller's unit). */
     internal suspend fun notesOf(itemId: UUID): List<Note> = noteRepository.findByItemId(itemId)
 
-    /** Independence-attestation violations for [item]'s current phase under [schema] and its root's policy. */
+    /**
+     * Independence-attestation violations for [item]'s current phase under [schema] and its root's policy; null
+     * for a lifecycle-free item, which has no phase.
+     */
     internal suspend fun currentPhaseViolations(
         schema: WorkItemSchema,
         item: WorkItem,
         notes: List<Note>
-    ): List<IndependenceViolation>? = GatePredicate.violationsForStart(schema, item.role, notes, independencePolicyResolver(item))
+    ): List<IndependenceViolation>? {
+        val role = item.role ?: return null
+        return GatePredicate.violationsForStart(schema, role, notes, independencePolicyResolver(item))
+    }
 
     /** The normalized edges blocking [itemId], each with its blocker's current role (null = unreadable). */
     internal suspend fun loadBlockers(itemId: UUID): List<BlockerState> {
@@ -213,8 +220,8 @@ class TransitionSnapshotLoader(
     internal suspend fun edgesBlockedBy(itemId: UUID): List<BlockingEdge> =
         DependencyEdges.normalize(dependencyRepository.findByItemId(itemId)).blocking.filter { it.blocker == itemId }
 
-    /** Current roles of [ids]; an id with no readable row is absent. */
-    internal suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> =
+    /** Current roles of [ids]; an id with no readable row is absent, a lifecycle-free row maps to null. */
+    internal suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> =
         if (ids.isEmpty()) emptyMap() else workItemRepository.findByIds(ids).associate { it.id to it.role }
 
     companion object {

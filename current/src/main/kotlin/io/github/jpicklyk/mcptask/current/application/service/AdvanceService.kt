@@ -19,7 +19,6 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
-import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -40,6 +39,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -616,7 +616,8 @@ class AdvanceService(
                     )
             }
 
-        val label = labelFor(trigger, allow.target)
+        val newRole = allow.lifecycleTarget()
+        val label = labelFor(trigger, newRole)
         val applied =
             when (
                 val result =
@@ -660,8 +661,8 @@ class AdvanceService(
         return AdvanceOutcome.Success(
             AdvanceResult(
                 itemId = item.id,
-                previousRole = item.role,
-                newRole = allow.target,
+                previousRole = allow.lifecycleFrom(),
+                newRole = newRole,
                 trigger = trigger.wire,
                 applied = true,
                 appliedItem = applied,
@@ -753,7 +754,7 @@ class AdvanceService(
                     if (missingEntries.isNotEmpty()) {
                         val keys = missingEntries.joinToString { it.key }
                         if (trigger == Trigger.User.START) {
-                            "Gate check failed: required notes not filled for ${item.role.name.lowercase()} phase: $keys"
+                            "Gate check failed: required notes not filled for ${item.lifecycleRole().name.lowercase()} phase: $keys"
                         } else {
                             "Gate check failed: required notes not filled: $keys"
                         }
@@ -763,8 +764,8 @@ class AdvanceService(
                     }
                 AdvanceFailure.GateBlocked(
                     message = message,
-                    previousRole = item.role,
-                    targetRole = target ?: item.role,
+                    previousRole = item.lifecycleRole(),
+                    targetRole = target ?: item.lifecycleRole(),
                     missingNotes = missingEntries,
                     missingBySeat = computeMissingBySeat(loaded.schema, missingKeys),
                     violations = violations,
@@ -794,7 +795,8 @@ class AdvanceService(
         trigger: Trigger.User,
         decision: Decision.Reject?
     ): String {
-        val role = item.role
+        // A lifecycle-free item has no legacy message: report the table's own (fromRole "none").
+        val role = item.role ?: return decision?.error?.message ?: "Failed to resolve transition"
         val roleWire = role.name.lowercase()
         val legacy =
             when (trigger) {
@@ -909,8 +911,8 @@ class AdvanceService(
             }
         }
 
-        val previousRole = item.role
-        val targetRole = decision.target
+        val previousRole = decision.lifecycleFrom()
+        val targetRole = decision.lifecycleTarget()
         val touchesTerminal = targetRole == Role.TERMINAL || previousRole == Role.TERMINAL
         // Entering TERMINAL clears the claim unconditionally in the unit; leaving a terminal item that
         // still holds a claim (pre-fix rows) heals it.
@@ -1089,7 +1091,9 @@ class AdvanceService(
             is Decision.NotApplicable -> null
             is Decision.Reject -> CascadeStep(suppressedEvent(parent, trigger, decision, loaded), emptyList())
             is Decision.Allow -> {
-                val label = labelFor(trigger, decision.target)
+                val cascadeFrom = decision.lifecycleFrom()
+                val cascadeTarget = decision.lifecycleTarget()
+                val label = labelFor(trigger, cascadeTarget)
                 when (
                     val result =
                         applyDecision(
@@ -1111,8 +1115,8 @@ class AdvanceService(
                             AdvanceCascadeEvent(
                                 itemId = parent.id,
                                 title = parent.title,
-                                previousRole = parent.role,
-                                targetRole = decision.target,
+                                previousRole = cascadeFrom,
+                                targetRole = cascadeTarget,
                                 applied = false,
                                 resourceBlocked = true,
                                 contendedResources = result.keys
@@ -1124,8 +1128,8 @@ class AdvanceService(
                             AdvanceCascadeEvent(
                                 itemId = parent.id,
                                 title = parent.title,
-                                previousRole = parent.role,
-                                targetRole = decision.target,
+                                previousRole = cascadeFrom,
+                                targetRole = cascadeTarget,
                                 applied = true,
                                 statusLabel = result.item.statusLabel,
                                 violations = decision.violations
@@ -1145,11 +1149,13 @@ class AdvanceService(
         loaded: LoadedSnapshot
     ): AdvanceCascadeEvent? {
         val target = resolvedTarget(loaded.snapshot, trigger) ?: return null
+        // A resolved target implies a lifecycle role; a lifecycle-free parent never reaches here.
+        val from = parent.role ?: return null
         val base =
             AdvanceCascadeEvent(
                 itemId = parent.id,
                 title = parent.title,
-                previousRole = parent.role,
+                previousRole = from,
                 targetRole = target,
                 applied = false
             )
@@ -1248,9 +1254,9 @@ internal object AdvanceErrors {
     ): DomainError =
         DomainError(
             code = ErrorCode.INVALID_TRANSITION,
-            message = "Trigger '${trigger.wire}' is not applicable to item ${item.id} in role ${item.role.toJsonString()}",
-            detail = ErrorDetail.InvalidTransition(item.id, item.role.toJsonString(), trigger.wire, emptyList()),
-            fixArgs = mapOf("itemId" to item.id.toString(), "trigger" to trigger.wire, "fromRole" to item.role.toJsonString())
+            message = "Trigger '${trigger.wire}' is not applicable to item ${item.id} in role ${item.role.wireOrNone()}",
+            detail = ErrorDetail.InvalidTransition(item.id, item.role.wireOrNone(), trigger.wire, emptyList()),
+            fixArgs = mapOf("itemId" to item.id.toString(), "trigger" to trigger.wire, "fromRole" to item.role.wireOrNone())
         )
 
     /**
@@ -1273,3 +1279,16 @@ internal object AdvanceErrors {
             )
         }
 }
+
+/**
+ * The role of an item a lifecycle transition is being applied or reported for. Only a lifecycle-free
+ * item has none, and the table gate rejects every user trigger and skips every cascade for one
+ * before any caller of this reads it.
+ */
+private fun WorkItem.lifecycleRole(): Role = checkNotNull(role) { "Item $id is lifecycle-free; no lifecycle transition applies" }
+
+/** [Decision.Allow.from] of a user or cascade transition, which the table never allows for a lifecycle-free item. */
+private fun Decision.Allow.lifecycleFrom(): Role = checkNotNull(from) { "A lifecycle transition was allowed without a source role" }
+
+/** [Decision.Allow.target] of a user or cascade transition, which the table never allows for a lifecycle-free item. */
+private fun Decision.Allow.lifecycleTarget(): Role = checkNotNull(target) { "A lifecycle transition was allowed without a target role" }

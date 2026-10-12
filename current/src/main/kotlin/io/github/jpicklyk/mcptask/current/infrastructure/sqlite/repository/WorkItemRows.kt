@@ -44,8 +44,9 @@ internal object WorkItemRows {
                 title = row[WorkItemsTable.title],
                 description = row[WorkItemsTable.description],
                 summary = row[WorkItemsTable.summary],
-                // role is nullable since V26; Q31a replaces this fallback with Role?. No writer produces NULL before Q31b.
-                role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE,
+                // A NULL role is a lifecycle-free row (V26 CHECK pairs it with lifecycle 'none'): read as null, never
+                // folded to QUEUE. The role CHECK admits only the five role names otherwise.
+                role = row[WorkItemsTable.role]?.let { Role.fromString(it) },
                 statusLabel = row[WorkItemsTable.statusLabel],
                 previousRole = row[WorkItemsTable.previousRole]?.let { Role.fromString(it) },
                 priority = Priority.fromString(row[WorkItemsTable.priority]) ?: Priority.MEDIUM,

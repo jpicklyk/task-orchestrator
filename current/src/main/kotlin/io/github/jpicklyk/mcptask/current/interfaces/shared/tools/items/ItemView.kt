@@ -12,8 +12,9 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
- * The ONE WorkItem -> JSON renderer of the 4.0 tools (plan section 3.3, "lean defaults"). Later items extend it
- * (nullable role); nothing else renders an item for a 4.0 tool. Only [full] renders a pin; compact views never do.
+ * The ONE WorkItem -> JSON renderer of the 4.0 tools (plan section 3.3, "lean defaults"); nothing else renders an
+ * item for a 4.0 tool. Only [full] renders a pin; compact views never do. A lifecycle-free item (null role) has no
+ * `role` member, by the lean rule.
  *
  * Lean: a null, an empty string, an empty array and `requiresVerification: false` are omitted; `version` is always
  * present. Tags are an array (the stored comma-separated list split, each element trimmed, empty elements dropped).
@@ -55,7 +56,7 @@ object ItemView {
             text("title", item.title)
             text("summary", item.summary)
             text("description", item.description)
-            put("role", item.role.name.lowercase())
+            text("role", item.role?.name?.lowercase())
             text("statusLabel", item.statusLabel)
             text("previousRole", item.previousRole?.name?.lowercase())
             put("priority", item.priority.name.lowercase())
@@ -102,7 +103,7 @@ object ItemView {
             text("type", item.type)
             text("title", item.title)
             if (summary) text("summary", item.summary)
-            put("role", item.role.name.lowercase())
+            text("role", item.role?.name?.lowercase())
             text("statusLabel", item.statusLabel)
             put("priority", item.priority.name.lowercase())
             put("depth", item.depth)

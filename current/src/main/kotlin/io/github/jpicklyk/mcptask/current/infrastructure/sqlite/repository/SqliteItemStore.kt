@@ -80,7 +80,7 @@ class SqliteItemStore(
             it[title] = item.title
             it[description] = item.description
             it[summary] = item.summary
-            it[role] = item.role.name.lowercase()
+            it[role] = item.role?.name?.lowercase()
             it[statusLabel] = item.statusLabel
             it[previousRole] = item.previousRole?.name?.lowercase()
             it[priority] = item.priority.name.lowercase()
@@ -156,7 +156,7 @@ class SqliteItemStore(
                     it[title] = item.title
                     it[description] = item.description
                     it[summary] = item.summary
-                    it[role] = item.role.name.lowercase()
+                    it[role] = item.role?.name?.lowercase()
                     it[statusLabel] = item.statusLabel
                     it[previousRole] = item.previousRole?.name?.lowercase()
                     it[priority] = item.priority.name.lowercase()
@@ -378,17 +378,17 @@ class SqliteItemStore(
         }
     }
 
-    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> {
+    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> {
         if (ids.isEmpty()) return emptyMap()
         return databaseManager.readTx {
-            val roles = HashMap<UUID, Role>()
+            val roles = HashMap<UUID, Role?>()
             ids.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
                 WorkItemsTable
                     .select(WorkItemsTable.id, WorkItemsTable.role)
                     .where { WorkItemsTable.id inList chunk.map { EntityID(it, WorkItemsTable) } }
                     .forEach { row ->
-                        roles[row[WorkItemsTable.id].value] =
-                            row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                        // A NULL role is a lifecycle-free row (V26): reported as null, never folded to QUEUE.
+                        roles[row[WorkItemsTable.id].value] = row[WorkItemsTable.role]?.let { Role.fromString(it) }
                     }
             }
             roles
@@ -447,6 +447,7 @@ class SqliteItemStore(
                 .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
                 .forEach { row ->
                     val parent = row[WorkItemsTable.parentId] ?: return@forEach
+                    // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
                     val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                     val counts = result.getOrPut(parent) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + row[total].toInt()
@@ -485,7 +486,8 @@ class SqliteItemStore(
             selectSql(sql, args) { rs ->
                 while (rs.next()) {
                     val top = uuidOf(rs.getObject("top")!!)
-                    val role = Role.fromString(rs.getString("role")) ?: Role.QUEUE
+                    // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
+                    val role = rs.getString("role")?.let { Role.fromString(it) } ?: Role.QUEUE
                     val counts = result.getOrPut(top) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + rs.getInt("n")
                 }
@@ -632,7 +634,7 @@ class SqliteItemStore(
             ItemSlice(items, total)
         }
 
-    /** Counts rows matching [condition] grouped by role (unknown stored roles count as QUEUE, as the mapper does). */
+    /** Counts rows matching [condition] grouped by role (a NULL, lifecycle-free role counts as QUEUE). */
     private fun countByRole(condition: Op<Boolean>): Map<Role, Int> {
         val total = WorkItemsTable.id.count()
         val counts = mutableMapOf<Role, Int>()
@@ -641,7 +643,7 @@ class SqliteItemStore(
             .where { condition }
             .groupBy(WorkItemsTable.role)
             .forEach { row ->
-                // role is nullable since V26; Q31a replaces this fallback with Role?.
+                // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
                 val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                 counts[role] = (counts[role] ?: 0) + row[total].toInt()
             }

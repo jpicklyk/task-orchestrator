@@ -236,8 +236,8 @@ class SchemaGatedLifecycleTest {
             val reportedRole = r["newRole"]!!.jsonPrimitive.content
             assertEquals(
                 reportedRole,
-                dbItem.role.name.lowercase(),
-                "Response says newRole=$reportedRole but DB has role=${dbItem.role.name.lowercase()}"
+                dbItem.role?.name?.lowercase(),
+                "Response says newRole=$reportedRole but DB has role=${dbItem.role?.name?.lowercase()}"
             )
         } else {
             // If applied=false, the item should NOT have changed role.
