@@ -71,7 +71,11 @@ data class DocHistoryEntry(
     val actor: String?
 )
 
-/** One row of `docs_read links`; exactly one of [to] and [toRef] is normally set. */
+/**
+ * One row of `docs_read links`. [to] is null while a reference names no document yet (a dangling link); [toRef] is the
+ * reference text, set for every `references` link (resolved or dangling) and for `derived_from` (`plan:<slug>`), and
+ * null for `attached` and `adopted_by`.
+ */
 data class DocLinkEntry(
     val id: UUID,
     val relation: LinkRelation,

@@ -61,8 +61,9 @@ internal val docsLinksSelect =
     SelectSpec.Paged<DocsLinksRequest, DocLinkEntry>(
         name = "links",
         doc =
-            "List the links of one document, oldest first: {id, relation, from, to | toRef, anchor?}. toRef is the text " +
-                "of a reference that names no document yet. Links to items or notes outside the caller's scope are left out.",
+            "List the links of one document, oldest first: {id, relation, from, to?, toRef?, anchor?}. to is absent while " +
+                "a reference names no document yet; toRef is its text. Links to items or notes outside the caller's scope " +
+                "are left out.",
         profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocsLinksRequest>(),
         errors = READ_ERRORS,

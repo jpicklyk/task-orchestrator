@@ -3,6 +3,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
@@ -146,6 +147,12 @@ data class ItemDeleteResult(
  *   rows per move, `item.deleted`, and the `note.deleted` / `dependency.removed` rows (cause `cascade`) a delete's
  *   foreign-key cascade implies. The same delete also removes, through [LinkService.onItemsDeleted], the links the removed
  *   notes and items were the source of and the resolved links into the removed items (except `adopted_by`); no event.
+ *   Every document anchored to a removed item (by its `root_item_id`, archived and adopted ones included) is deleted
+ *   first through [DocumentService.deleteAnchoredTo], with its link cleanup and one `document.deleted` row each,
+ *   recorded before that item's `item.deleted`.
+ * - **Link roots** follow a move to another root: the links sourced from the notes of the moved item and of every
+ *   descendant are restamped to the new root ([LinkService.onItemsMoved]), in the same unit, with no event, so the
+ *   old root's delete cascade no longer removes them.
  *
  * - **Pins** (plan section 3.8) are taken through [schemaPinService] at the pin points this service owns: a create, a
  *   patch that changes the type, moves the item to another root, or changes its traits (one `item.pinned` row per
@@ -171,6 +178,7 @@ class ItemCommandService(
     private val items get() = repositoryProvider.workItemRepository()
     private val hierarchy get() = repositoryProvider.workItemRepository()
     private val links = LinkService(repositoryProvider, unitOfWork)
+    private val documents = DocumentService(repositoryProvider, unitOfWork)
 
     /** Creates one item in its own write unit (joining an ambient one). */
     suspend fun create(cmd: ItemCreateCommand): Outcome<WorkItem> = guarded(CREATE_OP) { createBody(cmd) }
@@ -494,9 +502,29 @@ class ItemCommandService(
             events.record(rows)
             repinMovedDescendants(descendants, newRoot, descendantPins)
         }
+        if (newRoot != oldRoot) restampLinkRoots(listOf(stored.id) + descendants.map { it.id }, newRoot)
 
         val cascades = cascade(existing.parentId, followUps)
         return Outcome.Ok(ItemPatchResult(stored, reparented = true, descendantsRestamped = restamped, cascadeEvents = cascades))
+    }
+
+    /**
+     * Restamps to [newRoot] the links sourced from the notes of [movedIds] (the moved item and its descendants) and from
+     * the items themselves. Note ids are read in chunks (a large subtree can exceed one IN list's bound-variable limit).
+     */
+    private suspend fun restampLinkRoots(
+        movedIds: List<UUID>,
+        newRoot: UUID
+    ) {
+        val noteIds = ArrayList<UUID>()
+        for (chunk in movedIds.chunked(PRE_READ_CHUNK)) {
+            repositoryProvider
+                .noteRepository()
+                .findRefsByItemIds(chunk.toSet())
+                .values
+                .forEach { refs -> refs.mapTo(noteIds) { it.id } }
+        }
+        links.onItemsMoved(movedIds, noteIds, newRoot)
     }
 
     /**
@@ -685,6 +713,8 @@ class ItemCommandService(
                     try {
                         val noteIds = ArrayList<UUID>()
                         val rows = cascadeRows(levelItems, noteIds)
+                        val docs = documents.deleteAnchoredTo(levelIds)
+                        if (docs is Outcome.Err) return docs
                         links.onItemsDeleted(levelIds, noteIds)
                         val deleted = items.deleteAll(levelIds)
                         if (deleted > 0) events.record(rows)
@@ -705,6 +735,8 @@ class ItemCommandService(
         val rows = cascadeRows(listOf(root), rootNoteIds)
         val deleted =
             try {
+                val docs = documents.deleteAnchoredTo(listOf(itemId))
+                if (docs is Outcome.Err) return docs
                 links.onItemsDeleted(listOf(itemId), rootNoteIds)
                 items.delete(itemId)
             } catch (e: Exception) {
