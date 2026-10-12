@@ -105,7 +105,7 @@ object SeedV28 : MigrationSeed(28) {
 
     private fun verifyNothingElseChanged(conn: Connection) {
         val expected = checkNotNull(before) { "seed() must run before verify()" }
-        for ((table, rows) in expected) {
+        for ((table, rows) in SeedV29.afterRelocation(expected)) {
             if (table == "data_steps") continue // the production data steps run after the chain and record their own rows
             assertEquals(rows, count(conn, table), "row count of $table is unchanged by V28")
         }

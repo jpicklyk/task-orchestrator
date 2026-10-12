@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -22,7 +21,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
  */
 class AdvanceServiceFactory(
     private val workItemRepository: WorkItemRepository,
-    private val roleTransitionRepository: TransitionStore,
     private val dependencyRepository: DependencyStore,
     private val noteRepository: NoteStore,
     private val resourceLeaseRepository: LeaseStore?,
@@ -68,7 +66,6 @@ class AdvanceServiceFactory(
         val rootId = item.rootId
         return AdvanceService(
             workItemRepository = workItemRepository,
-            roleTransitionRepository = roleTransitionRepository,
             dependencyRepository = dependencyRepository,
             noteRepository = noteRepository,
             labelFor = { trigger, target -> configResolver.labelFor(rootId, trigger, target) },

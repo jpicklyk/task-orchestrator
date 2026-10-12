@@ -308,7 +308,6 @@ class P7ClaimClockStoreTest {
             val service =
                 AdvanceService(
                     workItemRepository = provider.workItemRepository(),
-                    roleTransitionRepository = provider.roleTransitionRepository(),
                     dependencyRepository = provider.dependencyRepository(),
                     noteRepository = provider.noteRepository(),
                     schemaResolver = { null },

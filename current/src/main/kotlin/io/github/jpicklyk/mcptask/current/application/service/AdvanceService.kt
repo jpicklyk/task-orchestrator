@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -288,8 +287,8 @@ data class AdvanceResult(
  *    in that order. A rejection records its `transition.rejected` / `lease.rejected` row through
  *    [io.github.jpicklyk.mcptask.current.application.port.EventSink.recordRejection] (it survives the
  *    rollback) and returns the mapped [AdvanceFailure].
- * 4. **Apply** — exclusive leases, the item row, the `role_transitions` row, the `item.transitioned`
- *    event, and the lease release on a WORK exit.
+ * 4. **Apply** — exclusive leases, the item row, the `item.transitioned` event
+ *    (the audit record), and the lease release on a WORK exit.
  * 5. **Cascades** — every [Decision.Allow.followUps] parent is evaluated by the same policy with a
  *    cascade trigger and applied in the same unit; a rejected cascade is reported as a suppressed
  *    [AdvanceCascadeEvent]; an inapplicable one (lifecycle, warrant) is silent.
@@ -315,7 +314,6 @@ data class AdvanceResult(
  */
 class AdvanceService(
     private val workItemRepository: WorkItemRepository,
-    private val roleTransitionRepository: TransitionStore,
     private val dependencyRepository: DependencyStore,
     private val noteRepository: NoteStore,
     private val labelFor: suspend (Trigger, Role) -> String? = DEFAULT_LABEL_FOR,
@@ -903,8 +901,8 @@ class AdvanceService(
 
     /**
      * Applies an allowed transition inside the current unit: exclusive leases (entry into WORK), the
-     * item row (previousRole / statusLabel / claim rules), the `role_transitions` row, the
-     * `item.transitioned` event, and the lease release on a WORK exit. A missing row aborts the unit.
+     * item row (previousRole / statusLabel / claim rules), the
+     * `item.transitioned` event (the audit record), and the lease release on a WORK exit. A missing row aborts the unit.
      */
     private suspend fun WriteScope.applyDecision(
         item: WorkItem,
@@ -1008,7 +1006,6 @@ class AdvanceService(
                 verification = verification,
                 consumedCredentials = consumedCredentials
             )
-        roleTransitionRepository.create(transition)
         events.record(
             DomainEvent.ItemTransitioned(
                 entityId = item.id,

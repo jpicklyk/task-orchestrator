@@ -52,7 +52,6 @@ class AdvanceLabelPolicyTest {
         val provider = db.repositoryProvider()
         return AdvanceService(
             workItemRepository = provider.workItemRepository(),
-            roleTransitionRepository = provider.roleTransitionRepository(),
             dependencyRepository = provider.dependencyRepository(),
             noteRepository = provider.noteRepository(),
             labelFor = labelFor,

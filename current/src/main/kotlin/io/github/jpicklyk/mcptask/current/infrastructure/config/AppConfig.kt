@@ -101,7 +101,7 @@ data class AppConfig(
     val apiSseBufferSize: Int,
     // ---- REST API: bearer tokens ----
     val apiTokensPath: String,
-    // ---- REST API: redaction (AttributionRedactor / TransitionRoutes) ----
+    // ---- REST API: redaction (AttributionRedactor) ----
     val apiRedactNoteAttribution: Boolean,
     // ---- CORS (CorsConfig) ----
     val corsAllowedOrigins: List<String>,

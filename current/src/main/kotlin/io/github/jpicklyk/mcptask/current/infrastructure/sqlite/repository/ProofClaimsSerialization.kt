@@ -13,8 +13,8 @@ import kotlinx.serialization.json.longOrNull
 import org.slf4j.Logger
 
 /**
- * Manual JSON encode/decode for [ProofClaims], used by [SQLiteNoteRepository] and
- * [SQLiteRoleTransitionRepository] to persist/read the `actor_proof_claims` TEXT column (V17).
+ * Manual JSON encode/decode for [ProofClaims], used by [SQLiteNoteRepository] to persist/read the `actor_proof_claims` TEXT column (V17). The retired
+ * `role_transitions` table used it too; its rows now live in `events` (V29).
  *
  * [ProofClaims] deliberately carries no `@Serializable` annotation — domain models in this
  * codebase stay free of serialization framework coupling (see `DidDocument.kt`) — so encoding
@@ -49,7 +49,7 @@ internal fun ProofClaims.toJsonStringOrNull(): String? {
 /**
  * Decodes a JSON string previously produced by [toJsonStringOrNull] back into [ProofClaims].
  * Returns `null` and logs a warning on any parse failure, mirroring the
- * `consumedCredentials` decode-failure handling in [SQLiteRoleTransitionRepository].
+ * `consumedCredentials` decode-failure handling in [SQLiteNoteRepository].
  */
 internal fun parseProofClaimsOrNull(
     raw: String?,

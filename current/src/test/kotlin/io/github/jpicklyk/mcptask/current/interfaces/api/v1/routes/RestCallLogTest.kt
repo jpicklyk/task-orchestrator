@@ -159,36 +159,17 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ S10
 
     @Test
-    fun `S10 a typed 404 records the ErrorDto code and an unknown route records http_404`() =
+    fun `S10 an unknown route records http_404`() =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
-
-            val missing = UUID.randomUUID()
-            val typed = client.getWith("/items/$missing/transitions") // a legacy ErrorDto route (item and note GETs answer envelopes)
-            assertEquals(HttpStatusCode.NotFound, typed.status)
-            val typedCode =
-                Json
-                    .parseToJsonElement(typed.bodyAsText())
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content
-            assertEquals("not_found", typedCode, "fixture: the ErrorDto of a missing item")
 
             val unknown = client.getWith("/definitely-not-a-route")
             assertEquals(HttpStatusCode.NotFound, unknown.status)
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val typedRow = byTool.getValue("GET /api/v1/items/{id}/transitions")
-            assertEquals("error", typedRow["outcome"])
-            assertEquals("not_found", typedRow["error_code"], "the typed ErrorDto.error, not http_404")
-            assertEquals(typed.headers["X-Req-Id"], typedRow["req_id"])
-            assertEquals(
-                listOf(missing.toString()),
-                ids(typedRow["target_ids"]),
-                "a UUID path segment is a target even when the item does not exist"
-            )
             val unknownRow = byTool.getValue("GET unmatched")
             assertEquals("error", unknownRow["outcome"])
             assertEquals("http_404", unknownRow["error_code"], "no typed body: http_<status>")
@@ -207,7 +188,7 @@ class RestCallLogTest {
             val deep = client.getWith("/items/$a/zzz/$b")
             val keyed = client.getWith("/items/$a/notes/my-key")
             val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
-            val schema = client.getWith("/items/$a/transitions")
+            val schema = client.getWith("/items/$a/children")
 
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
@@ -225,7 +206,7 @@ class RestCallLogTest {
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
             assertNull(listing["target_ids"])
             // G1: a matched multi-literal route keeps its declared template.
-            assertEquals("GET /api/v1/items/{id}/transitions", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/children", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
         }
 
     @Test
@@ -235,11 +216,11 @@ class RestCallLogTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
             val id = UUID.randomUUID()
-            val matched = client.getWith("/items/$id/transitions")
+            val matched = client.getWith("/items/$id/children")
             val plain = client.getWith("/items/$id")
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
-            assertEquals("GET /api/v1/items/{id}/transitions", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/children", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
             assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
         }
 
@@ -265,8 +246,7 @@ class RestCallLogTest {
                     "notes",
                     "resources",
                     "roots",
-                    "search",
-                    "transitions"
+                    "search"
                 )
             repeat(200) { n ->
                 // Eight segments never resolve a declared route; the first is a resource name or random junk.

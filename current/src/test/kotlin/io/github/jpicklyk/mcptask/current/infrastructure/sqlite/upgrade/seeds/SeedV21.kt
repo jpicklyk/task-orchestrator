@@ -86,7 +86,11 @@ object SeedV21 : MigrationSeed(21) {
 
         assertEquals(0, count(conn, "call_log"), "call_log starts empty (no backfill)")
         val pre = before ?: error("SeedV21.seed did not run before the migration")
-        for ((table, rows) in pre) assertEquals(rows, count(conn, live(table)), "$table row count changed across V21")
+        for ((table, rows) in SeedV29.afterRelocation(
+            pre
+        )) {
+            assertEquals(rows, count(conn, live(table)), "$table row count changed across V21")
+        }
 
         // Accepted shape: the minimal valid row, with replayed taking its default of 0.
         insert(conn, "ok00001a")

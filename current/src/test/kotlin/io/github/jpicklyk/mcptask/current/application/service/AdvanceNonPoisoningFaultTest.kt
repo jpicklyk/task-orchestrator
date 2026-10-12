@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.P11FaultRig
 import io.github.jpicklyk.mcptask.current.test.P11_FAULT_LEASE_KEY
@@ -126,7 +128,12 @@ class AdvanceNonPoisoningFaultTest {
     fun `S9 advance_item a plain fault on the cascade's transition row fails the whole advance and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
-            val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
+            val ctx =
+                ToolExecutionContext(
+                    rig.provider,
+                    configResolver = p11FaultResolver(),
+                    unitOfWork = SqliteUnitOfWork(db.databaseManager, rig.provider, SystemClock)
+                )
             val (parent, child) = rig.fixture("tx-mcp")
             val before = rig.snapshot(parent, child)
             assertEquals(listOf(P11_FAULT_LEASE_KEY), before.leases[child.id], "fixture: the child holds the lease")
@@ -149,7 +156,12 @@ class AdvanceNonPoisoningFaultTest {
     fun `S9 advance_item a plain fault releasing the lease on work exit fails the whole advance and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
-            val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
+            val ctx =
+                ToolExecutionContext(
+                    rig.provider,
+                    configResolver = p11FaultResolver(),
+                    unitOfWork = SqliteUnitOfWork(db.databaseManager, rig.provider, SystemClock)
+                )
             val (parent, child) = rig.fixture("lease-mcp")
             val before = rig.snapshot(parent, child)
             rig.leaseStore.arm()
@@ -175,7 +187,12 @@ class AdvanceNonPoisoningFaultTest {
     fun `S9 complete_tree a plain fault on the cascade's transition row fails the element and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
-            val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
+            val ctx =
+                ToolExecutionContext(
+                    rig.provider,
+                    configResolver = p11FaultResolver(),
+                    unitOfWork = SqliteUnitOfWork(db.databaseManager, rig.provider, SystemClock)
+                )
             val (parent, child) = rig.fixture("tx-tree")
             val before = rig.snapshot(parent, child)
             rig.transitionStore.arm()
@@ -197,7 +214,12 @@ class AdvanceNonPoisoningFaultTest {
     fun `S9 complete_tree a plain fault releasing the lease on work exit fails the element and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
-            val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
+            val ctx =
+                ToolExecutionContext(
+                    rig.provider,
+                    configResolver = p11FaultResolver(),
+                    unitOfWork = SqliteUnitOfWork(db.databaseManager, rig.provider, SystemClock)
+                )
             val (parent, child) = rig.fixture("lease-tree")
             val before = rig.snapshot(parent, child)
             rig.leaseStore.arm()

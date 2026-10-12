@@ -903,9 +903,9 @@ class ItemsReadContextTest {
     }
 
     @Test
-    fun `S17 the orchestration profile offers context next and blocked and the knowledge profile does not`() {
+    fun `S17 the orchestration profile offers context next blocked and history and the knowledge profile does not`() {
         assertEquals(
-            listOf("get", "list", "schema", "search", "overview", "related", "context", "next", "blocked"),
+            listOf("get", "list", "schema", "search", "overview", "related", "context", "next", "blocked", "history"),
             selectEnum(ToolProfile.ORCHESTRATION)
         )
         assertEquals(listOf("get", "list", "schema", "search", "overview", "related"), selectEnum(ToolProfile.KNOWLEDGE))

@@ -34,7 +34,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -763,14 +762,10 @@ internal fun Application.installRestApiRoutes(
                 actorAuthEnabled = actorAuthEnabled,
                 configService = toolContext.configService,
             )
-            // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
+            // Phase 3: read API — items (through the items_read select), notes, dependencies
             itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
-            transitionRoutes(
-                effectiveProvider,
-                redactAttribution = appConfig.apiRedactNoteAttribution,
-            )
             // The published config JSON Schema; every other config read and write is an op of the `config` tool.
             configSchemaRoute()
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).

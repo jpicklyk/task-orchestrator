@@ -14,12 +14,13 @@
           "related",
           "context",
           "next",
-          "blocked"
+          "blocked",
+          "history"
         ]
       },
       "itemId": {
         "type": "string",
-        "description": "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. [select: get, schema, search, overview, related, context]"
+        "description": "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. [select: get, schema, search, overview, related, context, history]"
       },
       "fields": {
         "type": "array",
@@ -142,11 +143,11 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. [select: list, search, overview, related, context, next, blocked]"
+        "description": "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. [select: list, search, overview, related, context, next, blocked, history]"
       },
       "cursor": {
         "type": "string",
-        "description": "The page.next of the previous page; absent for the first page. [select: list, search, overview, related, context, next, blocked]"
+        "description": "The page.next of the previous page; absent for the first page. [select: list, search, overview, related, context, next, blocked, history]"
       },
       "rootId": {
         "type": "string",
@@ -217,6 +218,16 @@
       "includeClaimed": {
         "type": "boolean",
         "description": "Also list items under an active claim, each with isClaimed; default false. [select: next]"
+      },
+      "since": {
+        "type": "string",
+        "description": "Only transitions at or after this time (ISO 8601). [select: history]",
+        "format": "date-time"
+      },
+      "until": {
+        "type": "string",
+        "description": "Only transitions at or before this time (ISO 8601). [select: history]",
+        "format": "date-time"
       },
       "describe": {
         "type": "boolean",

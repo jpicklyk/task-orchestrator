@@ -10,7 +10,6 @@ import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -204,7 +203,6 @@ class ActorVerificationScopeTest {
         val workItemRepo = mockk<WorkItemRepository>()
         val depRepo = mockk<DependencyStore>()
         AdvanceMockStores.stubReads(workItemRepo, depRepo)
-        val roleTransitionRepo = mockk<TransitionStore>()
         val noteRepo = mockk<NoteStore>()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
@@ -215,14 +213,12 @@ class ActorVerificationScopeTest {
             every { depRepo.findByFromItemId(id) } returns emptyList()
         }
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
-        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
 
         val verifier =

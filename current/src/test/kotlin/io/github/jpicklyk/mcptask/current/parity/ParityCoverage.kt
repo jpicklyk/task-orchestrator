@@ -390,6 +390,27 @@ object ItemsReadParityScenarios {
                 expectAbsent = listOf("Beta root", "33333333"),
                 seed = seedBlocked
             ),
+            // history (Q28b a7fa21a6): an empty trail still answers the page shape; an out-of-scope item is forbidden.
+            scenario(
+                "history happy",
+                "history",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"history"}""",
+                200,
+                expectContains = listOf("\"items\":[]", "\"total\":0")
+            ),
+            scenario(
+                "history scope root",
+                "history",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"history","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
             scenario(
                 "get not found",
                 "get",

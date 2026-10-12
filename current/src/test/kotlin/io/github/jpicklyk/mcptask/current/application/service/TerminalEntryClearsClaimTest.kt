@@ -37,7 +37,6 @@ class TerminalEntryClearsClaimTest {
             val service =
                 AdvanceService(
                     workItemRepository = repository,
-                    roleTransitionRepository = provider.roleTransitionRepository(),
                     dependencyRepository = provider.dependencyRepository(),
                     noteRepository = provider.noteRepository(),
                     schemaResolver = { null },

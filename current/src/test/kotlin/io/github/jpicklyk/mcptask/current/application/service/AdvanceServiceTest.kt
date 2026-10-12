@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -45,7 +44,6 @@ import kotlin.test.assertTrue
 class AdvanceServiceTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
-    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
     private lateinit var advanceStores: AdvanceMockStores
 
@@ -53,13 +51,11 @@ class AdvanceServiceTest {
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         advanceStores = AdvanceMockStores(workItemRepo, depRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -96,7 +92,6 @@ class AdvanceServiceTest {
     private fun serviceWith(schema: WorkItemSchema? = null): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
             schemaResolver = { schema },
@@ -282,7 +277,6 @@ class AdvanceServiceTest {
             val service =
                 AdvanceService(
                     workItemRepo,
-                    roleTransitionRepo,
                     depRepo,
                     noteRepo,
                     AdvanceService.DEFAULT_LABEL_FOR,
@@ -488,7 +482,6 @@ class AdvanceServiceTest {
             val service =
                 AdvanceService(
                     workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
                     labelFor = { trigger, target -> nullBlockLabelService.resolveLabel(statusLabelKey(trigger, target)) },

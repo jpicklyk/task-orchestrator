@@ -2,14 +2,12 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.flag
-import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -23,11 +21,10 @@ import kotlin.test.assertEquals
 
 /**
  * Independent P11 tests (item 919d379e) for S15: `item.transitioned` is recorded by AdvanceService once per applied
- * transition, not by the TransitionStore decorator.
+ * transition, by AdvanceService alone.
  *
  * Oracles: AC6 (item.transitioned recorded exactly once per applied transition, primary and each cascade, with origin
- * user | cascade, by AdvanceService not the decorator) and task-scope 1.4 (the decorator's TransitionStore override is
- * deleted: a bare TransitionStore.create passes through without an event row).
+ * user | cascade, by AdvanceService). The role_transitions store this once decorated is retired (Q28b).
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class TransitionEventCoverageTest {
@@ -36,25 +33,6 @@ class TransitionEventCoverageTest {
     val db = SqliteTestDatabase.perMethod()
 
     private fun driver(dir: Path) = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
-
-    @Test
-    fun `S15 a bare TransitionStore create through the decorated provider passes through without an event row`(
-        @TempDir dir: Path,
-    ): Unit =
-        runBlocking {
-            val d = driver(dir)
-            val item = d.item("bare", Role.QUEUE)
-            val mark = d.rig.maxSeq()
-
-            d.rig.inUnit("S15.bare") {
-                d.rig.provider.roleTransitionRepository().create(
-                    RoleTransition(itemId = item.id, fromRole = "queue", toRole = "work", trigger = "start"),
-                )
-            }
-
-            assertEquals(1, rawCount(d.jdbcUrl, "SELECT count(*) FROM role_transitions"), "control: the row really was written")
-            assertEquals(emptyList(), d.rig.rowsAfter(mark), "the store alone records no item.transitioned row")
-        }
 
     @Test
     fun `S15 the number of item transitioned rows equals the number of applied transitions across primaries and cascades`(
@@ -71,10 +49,15 @@ class TransitionEventCoverageTest {
             assertEquals(true, d.advance(child, "complete").flag("applied"))
 
             val rows = d.rig.rowsAfter(mark).transitioned()
-            val stored = d.transitions(child) + d.transitions(parent) + d.transitions(grand)
-            assertEquals(5, stored.size, "start cascades one level (parent only), complete cascades two ancestors")
-            assertEquals(stored.size, rows.size, "exactly one event per stored transition: ${rows.map { it.type }}")
-            val expected = stored.map { Triple(it.itemId, it.trigger, it.fromRole + ">" + it.toRole) }.sortedBy { it.toString() }
+            assertEquals(5, rows.size, "start cascades one level (parent only), complete cascades two ancestors: ${rows.map { it.type }}")
+            val expected =
+                listOf(
+                    Triple(child.id, "start", "queue>work"),
+                    Triple(parent.id, "cascade", "queue>work"),
+                    Triple(child.id, "complete", "work>terminal"),
+                    Triple(parent.id, "cascade", "work>terminal"),
+                    Triple(grand.id, "cascade", "queue>terminal"),
+                ).sortedBy { it.toString() }
             val actual =
                 rows
                     .map {
@@ -84,7 +67,7 @@ class TransitionEventCoverageTest {
                             it.str("fromRole") + ">" + it.str("toRole")
                         )
                     }.sortedBy { it.toString() }
-            assertEquals(expected, actual, "events carry the same item, trigger and roles as the transition rows")
+            assertEquals(expected, actual, "events carry the item, trigger and roles of each applied transition")
             val cascadeRows = rows.filter { it.str("origin") == "cascade" }
             assertEquals(3, cascadeRows.size)
             assertEquals(2, rows.count { it.str("origin") == "user" })
@@ -110,7 +93,6 @@ class TransitionEventCoverageTest {
                     .sortedBy { it.seq }
             assertEquals(sequence, rows.map { it.str("trigger") }, "one row per applied transition, in order")
             assertEquals(setOf("user"), rows.map { it.str("origin") }.toSet())
-            assertEquals(sequence.size, d.transitions(item).size)
         }
 
     @Test
@@ -151,7 +133,6 @@ class TransitionEventCoverageTest {
                     .size,
                 "the replay executes nothing"
             )
-            assertEquals(1, d.transitions(item).size)
             assertEquals(Role.WORK, d.reload(item).role)
         }
 }

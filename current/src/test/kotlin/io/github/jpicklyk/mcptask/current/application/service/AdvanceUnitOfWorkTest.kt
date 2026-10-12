@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -69,7 +70,6 @@ class AdvanceUnitOfWorkTest {
                 val service =
                     AdvanceService(
                         workItemRepository = provider.workItemRepository(),
-                        roleTransitionRepository = provider.roleTransitionRepository(),
                         dependencyRepository = provider.dependencyRepository(),
                         noteRepository = provider.noteRepository(),
                         labelFor = { trigger, target -> "lbl:${trigger.wire}:${target.name}" },
@@ -91,7 +91,7 @@ class AdvanceUnitOfWorkTest {
                 assertEquals(Role.WORK, persisted.role)
                 assertEquals("lbl:start:WORK", persisted.statusLabel)
                 assertEquals(unitInstant, persisted.roleChangedAt, "roleChangedAt is the unit instant, not the creation instant")
-                val rows = provider.roleTransitionRepository().findByItemId(created.id, limit = 50)
+                val rows = provider.transitionsOf(created.id)
                 assertEquals(1, rows.size)
                 assertEquals("start", rows.single().trigger)
                 assertEquals("queue", rows.single().fromRole)
@@ -362,7 +362,7 @@ class AdvanceUnitOfWorkTest {
             assertEquals(true, first.flag("applied"), "$first")
             assertEquals(1, counting.writes, "the element's unit is the only unit; ops=${counting.ops}")
             assertFalse("AdvanceService.advance" in counting.ops, "the advance JOINS the keyed element unit: ${counting.ops}")
-            assertEquals(1, repo.roleTransitionRepository().findByItemId(item.id, limit = 10).size)
+            assertEquals(1, repo.transitionsOf(item.id).size)
 
             val replay =
                 AdvanceItemTool()
@@ -372,7 +372,7 @@ class AdvanceUnitOfWorkTest {
                     .jsonObject
 
             assertEquals(true, replay.flag("replayed"), "an identical retry replays: $replay")
-            assertEquals(1, repo.roleTransitionRepository().findByItemId(item.id, limit = 10).size, "replay executes nothing")
+            assertEquals(1, repo.transitionsOf(item.id).size, "replay executes nothing")
             assertEquals(Role.WORK, repo.workItemRepository().getById(item.id)!!.role)
             assertFalse("AdvanceService.advance" in counting.ops, "still no advance unit of its own: ${counting.ops}")
         }
@@ -395,7 +395,7 @@ class AdvanceUnitOfWorkTest {
 
             assertEquals(null, second.flag("replayed"), "no requestId, no replay: $second")
             assertEquals(2, counting.ops.count { it == "AdvanceService.advance" }, "each unkeyed call is its own unit: ${counting.ops}")
-            assertEquals(2, repo.roleTransitionRepository().findByItemId(item.id, limit = 10).size)
+            assertEquals(2, repo.transitionsOf(item.id).size)
         }
 
     private fun startParams(id: UUID): JsonObject =

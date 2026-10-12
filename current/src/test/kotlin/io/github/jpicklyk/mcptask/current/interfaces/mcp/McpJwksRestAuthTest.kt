@@ -184,7 +184,7 @@ class McpJwksRestAuthTest {
             application { installJwksApp(verifier()) }
 
             val response =
-                client.get("/api/v1/transitions") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
                 }
             assertEquals(
@@ -198,7 +198,7 @@ class McpJwksRestAuthTest {
     fun `missing token returns 401 in jwks mode`() =
         testApplication {
             application { installJwksApp(verifier()) }
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/transitions").status)
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/resources/leases").status)
         }
 
     @Test
@@ -208,7 +208,7 @@ class McpJwksRestAuthTest {
             application { installJwksApp(verifier(algorithms = listOf("RS512"))) }
 
             val response =
-                client.get("/api/v1/transitions") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
                 }
             assertEquals(
@@ -225,7 +225,7 @@ class McpJwksRestAuthTest {
 
             val expired = signRs256(buildClaims(expiry = Instant.now().minusSeconds(3600)))
             val response =
-                client.get("/api/v1/transitions") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer $expired")
                 }
             assertEquals(HttpStatusCode.Unauthorized, response.status, "An expired JWT must 401")

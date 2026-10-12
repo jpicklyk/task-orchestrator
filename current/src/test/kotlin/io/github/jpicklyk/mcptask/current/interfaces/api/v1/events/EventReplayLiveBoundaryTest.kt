@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.EventPage
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
@@ -61,6 +64,22 @@ class EventReplayLiveBoundaryTest {
             type: String,
             entityIds: Set<UUID>,
         ): Map<UUID, EventRecord> = delegate.latestOfType(type, entityIds)
+
+        override suspend fun findByEntity(
+            entityId: UUID,
+            types: Set<String>,
+            page: PageRequest,
+            since: java.time.Instant?,
+            until: java.time.Instant?,
+        ): EventPage = delegate.findByEntity(entityId, types, page, since, until)
+
+        override suspend fun findByTypes(
+            types: Set<String>,
+            since: java.time.Instant?,
+            until: java.time.Instant?,
+            scope: AccessScope,
+            page: PageRequest,
+        ): EventPage = delegate.findByTypes(types, since, until, scope, page)
 
         override suspend fun maxSeq(): Long = delegate.maxSeq()
 

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
@@ -13,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDt
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import kotlinx.serialization.json.Json
@@ -105,8 +103,8 @@ fun ActorClaim.toDto(): ActorClaimDto =
  *
  * `proof` is always populated here when [VerificationResult.proofSha256] is present; redaction
  * for non-admin callers is applied downstream by
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] /
- * `redactVerification`, not by this call-context-free mapper.
+ * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor],
+ * not by this call-context-free mapper.
  */
 fun VerificationResult.toDto(): VerificationDto =
     VerificationDto(
@@ -194,29 +192,3 @@ fun buildDependenciesDto(
 
     return DependenciesDto(blocks = blocks, blockedBy = blockedBy, related = related)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RoleTransitionMapper
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Maps a [RoleTransition] domain entity to a [RoleTransitionDto].
- *
- * `actor` and `verification` are included; callers that expose the transition to the API
- * should call [redactVerification] from
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]
- * as needed.
- */
-fun RoleTransition.toDto(): RoleTransitionDto =
-    RoleTransitionDto(
-        id = id.toString(),
-        itemId = itemId.toString(),
-        fromRole = fromRole.takeIf { it.isNotBlank() },
-        toRole = toRole,
-        trigger = trigger,
-        statusLabel = toStatusLabel,
-        occurredAt = transitionedAt.toString(),
-        actor = actorClaim?.toDto(),
-        verification = verification?.toDto(),
-        consumedCredentials = consumedCredentials.takeIf { it.isNotEmpty() },
-    )

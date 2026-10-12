@@ -48,7 +48,6 @@ class AdvanceFailureClassificationTest {
     private fun service(schema: WorkItemSchema? = null): AdvanceService =
         AdvanceService(
             workItemRepository = provider.workItemRepository(),
-            roleTransitionRepository = provider.roleTransitionRepository(),
             dependencyRepository = provider.dependencyRepository(),
             noteRepository = provider.noteRepository(),
             schemaResolver = { schema },

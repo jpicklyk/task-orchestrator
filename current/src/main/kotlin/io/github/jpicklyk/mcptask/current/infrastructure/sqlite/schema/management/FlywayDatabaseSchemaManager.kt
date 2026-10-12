@@ -71,6 +71,8 @@ class FlywayDatabaseSchemaManager(
      * - Repair (`ignoreFuture = true`) also ignores `*:future`, so `FLYWAY_REPAIR` never marks a newer
      *   applied version as deleted (that would erase the evidence the fail-closed guard relies on).
      * - The DataSource is Flyway's own connection (see [flywayDataSource]).
+     * - [RoleTransitionBackfillCallback] logs the V29 role_transitions backfill counts (a caller that sets its own
+     *   `callbacks(...)` replaces it).
      */
     internal fun flywayConfiguration(
         url: String = jdbcUrl,
@@ -84,6 +86,7 @@ class FlywayDatabaseSchemaManager(
                 .locations(MIGRATION_LOCATION)
                 .validateMigrationNaming(true)
                 .cleanDisabled(true)
+                .callbacks(RoleTransitionBackfillCallback())
                 .ignoreMigrationPatterns(*(if (ignoreFuture) arrayOf("*:missing", "*:future") else arrayOf("*:missing")))
         if (target != null) config.target(target)
         return config
