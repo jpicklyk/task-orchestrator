@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.tools
+package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
@@ -48,7 +48,7 @@ import kotlin.test.assertTrue
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: `SeatlessResponseGoldenTest`): every capture
  * runs the REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
- * ([GetContextTool], [ItemSchemaView], [AdvanceItemTool]) against the resulting
+ * (the context probe, [ItemSchemaView] and the `advance` tool) against the resulting
  * `composition.toolContext` — never a hand-built `ToolExecutionContext` replica. The fixture config
  * is supplied as the GLOBAL layer only (a real temp `.taskorchestrator/config.yaml` read by
  * `GlobalConfigFile`, exactly as `SeatlessResponseGoldenTest.materializeGlobalConfig` does) — no

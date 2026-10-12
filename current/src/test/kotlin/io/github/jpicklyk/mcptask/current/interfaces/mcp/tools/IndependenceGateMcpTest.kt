@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.tools
+package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
@@ -58,7 +58,7 @@ import kotlin.test.assertTrue
  * (suppressed) and WARN-mode (applied, violations still reported) start/terminal cascade paths
  * (AdvanceCascadeEvent.violations) -- the cascade/complete_tree declarations were appended to
  * decl-a2a.md by the orchestrator after the first arbitration round (class skeletons for
- * CompleteTreeTool.kt/AdvanceItemTool.kt/GetContextTool.kt/AdvanceService.kt). The two WARN-mode
+ * the 3.x complete_tree, advance_item and get_context tools and AdvanceService.kt). The two WARN-mode
  * cascade tests were briefly removed in an earlier round after NPE'ing on a missing cascadeEvents
  * key; a second arbitration ruling confirmed that was an IMPLEMENTATION gap (an applied WARN-mode
  * cascade event omitted violations, now fixed) and they are restored here with their original
@@ -69,7 +69,7 @@ import kotlin.test.assertTrue
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: SeatServingMcpTest): every capture runs the
  * REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
- * ([GetContextTool], [AdvanceItemTool], [ManageNotesTool]) against the resulting
+ * (the context probe, the `advance` tool and the note writer) against the resulting
  * `composition.toolContext` -- never a hand-built ToolExecutionContext replica. Actor-bearing notes
  * are written via [ManageNotesTool]'s public `actor: {id, kind}` upsert parameter (NoOpActorVerifier
  * default -- exercised in ManageNotesToolTest's "actor claim includes actor" case), never by
@@ -493,8 +493,8 @@ work_item_schemas:
     // DOES expose a structured `violations` array on the per-item result (confirmed empirically
     // this round, not guessed: the prior round's speculative `gateErrors`-only assertion failed
     // with `gateErrors: []` alongside a populated `violations` array and a top-level `error`
-    // string), mirroring AdvanceItemTool/GetContextTool's convention -- `gateErrors` stays empty
-    // for a violations-only block, exactly like AdvanceItemTool's missingNotes=[] convention.
+    // string), mirroring the advance and context conventions -- `gateErrors` stays empty
+    // for a violations-only block, exactly like the advance gate's empty missing list.
 
     @Test
     fun `S7 complete_tree -- REJECT blocks a same-actor item, the violations array names the note`(

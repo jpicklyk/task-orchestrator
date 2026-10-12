@@ -32,7 +32,7 @@ import kotlin.test.assertTrue
  * Unit tests for [ToolExecutionContext.resolveDispatchProfile] (resolved-schema overload) /
  * [ToolExecutionContext.resolveDispatchProfiles] — the dispatch-trait resolution layer (B1,
  * dispatch trait dimension). Uses the 3-arg `resolveDispatchProfile(item, role, resolvedSchema)`
- * overload throughout: it is the overload the tools (AdvanceItemTool, GetContextTool,
+ * overload throughout: it is the overload the tools (the advance transition, the context read,
  * QueryItemsTool) actually use (per the pinned contract, P7), and it isolates the dispatch
  * RESOLUTION algorithm under test here from the separate schema LOOKUP algorithm already covered
  * by [ToolExecutionContextResolveSchemaTest]. Mirrors the fixture and mocking conventions of

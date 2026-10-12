@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.tools.workflow
+package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
