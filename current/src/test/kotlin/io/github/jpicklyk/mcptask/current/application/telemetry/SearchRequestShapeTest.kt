@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
@@ -103,7 +101,6 @@ class SearchRequestShapeTest {
 
     private suspend fun connect(rig: Rig): Pair<Client, Server> {
         val server = Server(serverInfo = Implementation(name = "s13-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpToolAdapter(callLog = rig.writer).registerToolsWithServer(server, buildMcpTools(), rig.rig.ctx)
         McpOperationAdapter(buildToolDispatcher(rig.rig.ctx), callLog = rig.writer)
             .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

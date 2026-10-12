@@ -8,10 +8,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sampleCallLogRecord
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -43,7 +46,8 @@ import kotlin.time.Duration.Companion.milliseconds
  * Call-log overhead benchmark for item 8abb69e2 (P10), measurement plan of the frozen performance-baseline note
  * (section 4). Platform-gated: runs only with TO_PERF=1, like [AdvanceLatencyBench].
  *
- * 1. Advance latency on the adapter path: `advance_item(start)` through the in-memory MCP client/server pair with 1 and
+ * 1. Advance latency on the adapter path: an `advance` `transition` start (Q32: formerly the removed 3.x advance_item)
+ *    through [McpOperationAdapter] and the in-memory MCP client/server pair with 1 and
  *    8 concurrent agents, 50 advances each on distinct items (8 roots x 50 queue children). Run A uses
  *    `CallLogSink.NONE`, run B a started [CallLogWriter] on the same database. Three interleaved runs per
  *    configuration; one `PERF_RESULT` line per run and one `PERF_RATIO` line with the median ratios.
@@ -189,13 +193,13 @@ class CallLogLatencyBench {
                 } else {
                     null
                 }
-            val adapter = McpToolAdapter(callLog = writer ?: CallLogSink.NONE)
+            val adapter = McpOperationAdapter(buildToolDispatcher(context), callLog = writer ?: CallLogSink.NONE)
             val latenciesNs = java.util.Collections.synchronizedList(mutableListOf<Long>())
             var failed = 0
             runBlocking {
                 val server =
                     Server(serverInfo = Implementation(name = "p10-bench", version = "1.0.0"), options = inMemoryTestServerOptions())
-                adapter.registerToolsWithServer(server, buildMcpTools(), context)
+                adapter.register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
                 val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
                 val client =
                     Client(
@@ -212,15 +216,16 @@ class CallLogLatencyBench {
                                 for (itemId in seeded[agent].take(perAgent)) {
                                     val request =
                                         buildCallToolRequest {
-                                            name = "advance_item"
+                                            name = "advance"
                                             arguments(
                                                 JsonObject(
                                                     mapOf(
-                                                        "transitions" to
+                                                        "ops" to
                                                             JsonArray(
                                                                 listOf(
                                                                     JsonObject(
                                                                         mapOf(
+                                                                            "op" to JsonPrimitive("transition"),
                                                                             "itemId" to JsonPrimitive(itemId.toString()),
                                                                             "trigger" to JsonPrimitive("start")
                                                                         )

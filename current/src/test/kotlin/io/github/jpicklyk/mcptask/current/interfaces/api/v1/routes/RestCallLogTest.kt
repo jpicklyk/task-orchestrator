@@ -8,8 +8,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
@@ -348,8 +346,6 @@ class RestCallLogTest {
                     serverInfo = Implementation(name = "p10-http", version = "1.0.0"),
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
-            McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools(), rig.ctx)
-            // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {

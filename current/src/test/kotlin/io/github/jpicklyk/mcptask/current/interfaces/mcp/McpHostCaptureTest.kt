@@ -9,11 +9,12 @@ import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
-import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -70,8 +71,10 @@ import kotlin.time.Duration.Companion.hours
 
 /**
  * Independent tests (test-author seat, item ab14346c, Q7 host capture) for the MCP side: scenarios S1, S2, S6, S7, S13,
- * S14, S15 of the frozen test-plan, driven through the real [McpToolAdapter] (3.x) and [McpOperationAdapter] (4.0) over
- * the in-memory SDK client/server pair, plus the streamable-HTTP transport for the SDK-registry risk.
+ * S14, S15 of the frozen test-plan, driven through the real [McpOperationAdapter] over the in-memory SDK client/server pair
+ * (the production registry with the real call log writer, and the fixture registry with a collecting sink), plus the
+ * streamable-HTTP transport for the SDK-registry risk. Q32 port: the scenarios that ran the removed 3.x adapter now run the
+ * production registry (`items_read` `context` for the removed get_context, `advance` for the removed advance_item).
  *
  * Oracles (task-scope, frozen at queue phase): MCP host = normalize(clientInfo.name) with no fallback literal; host is
  * recorded per call on `call_log.host` and on every `events.host` row the call writes; two sessions on one Server keep
@@ -79,11 +82,11 @@ import kotlin.time.Duration.Companion.hours
  * constructor call remains in production source outside CallTelemetryFactory.kt; an event written outside any call has
  * a null host.
  *
- * Harnesses reused unchanged: McpCallLogTest.connect shape (Server + McpToolAdapter + ChannelTransport.createLinkedPair),
+ * Harnesses reused unchanged: McpCallLogTest.connect shape (Server + McpOperationAdapter + ChannelTransport.createLinkedPair),
  * McpOperationAdapterTest.connect shape, S16 of RestCallLogTest for the HTTP wire shapes. Rows are read with
  * [CallLogRows.read] and with raw JDBC for `events`.
  *
- * Narrowest reverts for the NEW-SURFACE scenarios: S2 McpToolAdapter passes a null client name; S6 EventRecorder omits
+ * Narrowest reverts for the NEW-SURFACE scenarios: S2 the adapter passes a null client name; S6 EventRecorder omits
  * host; S14 a stray `CallTelemetry(` call site returns.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
@@ -127,28 +130,22 @@ class McpHostCaptureTest {
                 it
         }
 
-    /** The deleted 3.x advance/claim tools as test-only drivers: these call-log tests need a write tool that records a rejection event. */
-    private fun legacyWorkflowTools(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
-        listOf(
-            io.github.jpicklyk.mcptask.current.application.tools.workflow
-                .AdvanceItemTool(),
-            io.github.jpicklyk.mcptask.current.application.tools.workflow
-                .ClaimItemTool()
-        )
-
-    /** The removed 3.x `get_context` as a test-only driver over the production `items_read` context select. */
-    private fun contextDriver(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
-        listOf(ItemContextProbe().asLegacyTool("get_context"))
-
-    /** One Server carrying the production 3.x tool set through the real McpToolAdapter with the real call log writer. */
-    private fun server3x(): Server =
+    /** One Server carrying the production registry through the real McpOperationAdapter with the real call log writer. */
+    private fun serverProd(): Server =
         bareServer().also {
-            McpToolAdapter(callLog = writer).registerToolsWithServer(
-                it,
-                buildMcpTools() + legacyWorkflowTools() + contextDriver(),
-                rig.ctx
-            )
+            McpOperationAdapter(
+                buildToolDispatcher(rig.ctx),
+                callLog = writer
+            ).register(it, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         }
+
+    /** The health view of `items_read` `context` (the removed get_context with no item). */
+    private suspend fun Client.context(vararg args: Pair<String, JsonElement>): CallToolResult =
+        call(
+            "items_read",
+            "select" to jstr("context"),
+            *args
+        )
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
@@ -226,35 +223,6 @@ class McpHostCaptureTest {
             }
         }
 
-    private fun createArgs(
-        title: String,
-        actorId: String? = null,
-        requestId: String? = null
-    ): Array<Pair<String, JsonElement>> {
-        val list =
-            mutableListOf<Pair<String, JsonElement>>(
-                "operation" to jstr("create"),
-                "items" to
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", title)
-                            }
-                        )
-                    }
-            )
-        if (actorId != null) {
-            list += "actor" to
-                buildJsonObject {
-                    put("id", actorId)
-                    put("kind", "subagent")
-                }
-        }
-        if (requestId != null) list += "requestId" to jstr(requestId)
-        return list.toTypedArray()
-    }
-
     /** The comparable part of a result: payload, text, error flag and meta with the call's own reqId masked. */
     private fun scrubbed(result: CallToolResult): String {
         val reqId = reqIdOf(result)
@@ -262,13 +230,13 @@ class McpHostCaptureTest {
         return "${result.structuredContent}|$text|${result.isError}|${result.meta}".replace(reqId, "<REQ>")
     }
 
-    // ------------------------------------------------------------------ S2 (3.x)
+    // ------------------------------------------------------------------ S2 (production registry)
 
     @Test
-    fun `S2 a 3x tool call records the normalized clientInfo name as call_log host`(): Unit =
+    fun `S2 a production tool call records the normalized clientInfo name as call_log host`(): Unit =
         runBlocking {
-            val client = attach(server3x(), "Claude Code")
-            val result = client.call("get_context")
+            val client = attach(serverProd(), "Claude Code")
+            val result = client.context()
             val reqId = reqIdOf(result)
 
             val row = flush().single()
@@ -281,13 +249,13 @@ class McpHostCaptureTest {
     @Test
     fun `S2 a blank or empty clientInfo name records a null host with no fallback literal`(): Unit =
         runBlocking {
-            val server = server3x()
+            val server = serverProd()
             val blank = attach(server, "   ")
             val empty = attach(server, "")
             val control = attach(server, "Named")
-            val rb = blank.call("get_context")
-            val re = empty.call("get_context")
-            val rc = control.call("get_context")
+            val rb = blank.context()
+            val re = empty.context()
+            val rc = control.context()
             val rows = flush().associateBy { it["req_id"] }
             assertNull(rows.getValue(reqIdOf(rb))["host"], "blank name")
             assertNull(rows.getValue(reqIdOf(re))["host"], "empty name")
@@ -297,11 +265,11 @@ class McpHostCaptureTest {
     @Test
     fun `S2 caller text in the clientInfo name is bounded by the normalization`(): Unit =
         runBlocking {
-            val server = server3x()
+            val server = serverProd()
             val dirty = attach(server, "  Pi\u0000-Agent\t ")
             val long = attach(server, "X".repeat(70))
-            val rd = dirty.call("get_context")
-            val rl = long.call("get_context")
+            val rd = dirty.context()
+            val rl = long.context()
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("pi-agent", rows.getValue(reqIdOf(rd))["host"], "N2 removes NUL and tab, N3 trims, N4 lowercases")
             assertEquals("x".repeat(64), rows.getValue(reqIdOf(rl))["host"], "N5 keeps the first 64")
@@ -312,18 +280,19 @@ class McpHostCaptureTest {
     @Test
     fun `S6 a rejected transition event carries the host too`(): Unit =
         runBlocking {
-            val client = attach(server3x(), "Gate Agent")
+            val client = attach(serverProd(), "Gate Agent")
             val item = rig.seed("S6 gated", tags = EventLogRig.GATED_TAG)
             val transitions =
                 buildJsonArray {
                     add(
                         buildJsonObject {
+                            put("op", "transition")
                             put("itemId", item.id.toString())
                             put("trigger", "start")
                         }
                     )
                 }
-            val result = client.call("advance_item", "transitions" to transitions)
+            val result = client.call("advance", "ops" to transitions)
             val reqId = reqIdOf(result)
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("gate agent", rows.getValue(reqId)["host"])
@@ -338,9 +307,9 @@ class McpHostCaptureTest {
     // ------------------------------------------------------------------ S7
 
     @Test
-    fun `S7 two clients on one 3x Server keep separate hosts under interleaved and concurrent calls`(): Unit =
+    fun `S7 two clients on one production Server keep separate hosts under interleaved and concurrent calls`(): Unit =
         runBlocking {
-            val server = server3x()
+            val server = serverProd()
             val alpha = attach(server, "alpha")
             val beta = attach(server, "Beta")
             val expected = mutableMapOf<String, String>()
@@ -349,7 +318,7 @@ class McpHostCaptureTest {
                 client: Client,
                 host: String
             ) {
-                expected[reqIdOf(client.call("get_context"))] = host
+                expected[reqIdOf(client.context())] = host
             }
             go(alpha, "alpha")
             go(beta, "beta")
@@ -360,7 +329,7 @@ class McpHostCaptureTest {
                     .map { i ->
                         async {
                             val even = i % 2 == 0
-                            reqIdOf((if (even) alpha else beta).call("get_context")) to
+                            reqIdOf((if (even) alpha else beta).context()) to
                                 (if (even) "alpha" else "beta")
                         }
                     }.awaitAll()
@@ -386,11 +355,11 @@ class McpHostCaptureTest {
     @Test
     fun `S7 two clients with the same name still record the same host and different sessions`(): Unit =
         runBlocking {
-            val server = server3x()
+            val server = serverProd()
             val one = attach(server, "Same Name")
             val two = attach(server, "same name")
-            val r1 = one.call("get_context")
-            val r2 = two.call("get_context")
+            val r1 = one.context()
+            val r2 = two.context()
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("same name", rows.getValue(reqIdOf(r1))["host"])
             assertEquals("same name", rows.getValue(reqIdOf(r2))["host"])
@@ -476,15 +445,15 @@ class McpHostCaptureTest {
     // ------------------------------------------------------------------ S13
 
     @Test
-    fun `S13 the same 3x read from two sessions with different hosts returns identical results apart from reqId`(): Unit =
+    fun `S13 the same production read from two sessions with different hosts returns identical results apart from reqId`(): Unit =
         runBlocking {
-            val server = server3x()
+            val server = serverProd()
             val item = rig.seed("S13 read")
             val x = attach(server, "x")
             val y = attach(server, "y")
             val args = arrayOf("itemId" to jstr(item.id.toString()))
-            val rx = x.call("get_context", *args)
-            val ry = y.call("get_context", *args)
+            val rx = x.context(*args)
+            val ry = y.context(*args)
             assertNotEquals(reqIdOf(rx), reqIdOf(ry), "fixture: each call has its own reqId")
             assertTrue(
                 rx.structuredContent.toString().contains("S13 read"),
@@ -550,7 +519,7 @@ class McpHostCaptureTest {
         val response =
             rpc(
                 sessionId,
-                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"get_context","arguments":{}}}"""
+                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"items_read","arguments":{"select":"context"}}}"""
             )
         val text = response.bodyAsText()
         val payload =
@@ -580,9 +549,8 @@ class McpHostCaptureTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             servers += server
-            McpToolAdapter(
-                callLog = writer
-            ).registerToolsWithServer(server, buildMcpTools() + legacyWorkflowTools() + contextDriver(), rig.ctx)
+            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+                .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application { installMcpStreamableHttp(server) }
 
             val alpha = client.initSession("HttpAlpha")

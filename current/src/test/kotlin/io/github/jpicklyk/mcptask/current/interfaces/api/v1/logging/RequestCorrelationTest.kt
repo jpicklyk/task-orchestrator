@@ -22,8 +22,8 @@ import kotlin.test.assertTrue
 /**
  * REST-path MDC correlation coverage for AR-78 / item b5081c9b (S4, S8): [installRequestCorrelation]
  * wraps requests under `/api/v1` in an MDC scope carrying `transport`, `requestId`, `httpMethod`, and
- * `httpPath`, mirroring the MCP-path correlation in
- * [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter].
+ * `httpPath`, mirroring the MCP-path correlation of
+ * [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter].
  */
 class RequestCorrelationTest {
     private val probeLoggerName = "request.correlation.probe"

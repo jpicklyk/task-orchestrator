@@ -36,13 +36,12 @@ import org.junit.jupiter.api.extension.RegisterExtension
  * These tests are the regression guard for the SDK-0.12.0 startup crash where an explicit
  * `install(SSE)` collided with the SSE plugin that `mcpStreamableHttp` installs itself
  * (`DuplicatePluginException` → HTTP server never started). They exercise the SAME production
- * wiring function ([installMcpStreamableHttp]) and the SAME tool set ([buildMcpTools]) the real
- * server uses — so re-introducing a duplicate plugin install, or otherwise breaking the `/mcp`
+ * wiring function ([installMcpStreamableHttp]) and the SAME tool registry (`buildToolSpecs()` through
+ * [McpOperationAdapter]) the real server uses — so re-introducing a duplicate plugin install, or otherwise breaking the `/mcp`
  * module, fails the application at first request and trips these tests.
  *
- * Unlike [McpToolAdapterIntegrationTest] (in-process ChannelTransport), this drives the protocol
- * over real HTTP through Ktor's test engine, covering the transport layer the integration test
- * cannot reach.
+ * Unlike the in-process ChannelTransport adapter tests ([McpOperationAdapterTest]), this drives the protocol
+ * over real HTTP through Ktor's test engine, covering the transport layer they cannot reach.
  */
 class McpStreamableHttpTransportTest {
     @RegisterExtension
@@ -64,8 +63,6 @@ class McpStreamableHttpTransportTest {
                     ),
             )
         val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
-        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), context)
-        // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
         McpOperationAdapter(buildToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         return server
     }
@@ -183,9 +180,7 @@ class McpStreamableHttpTransportTest {
                     .jsonArray
                     .map { it.jsonObject["name"]!!.jsonPrimitive.content }
                     .toSet()
-            val expectedNames =
-                buildMcpTools().map { it.name }.toSet() +
-                    ToolRegistry(buildToolSpecs()).visible(ToolProfile.ORCHESTRATION).map { it.name }
+            val expectedNames = ToolRegistry(buildToolSpecs()).visible(ToolProfile.ORCHESTRATION).map { it.name }.toSet()
             assertEquals(expectedNames, servedNames, "tools/list must expose exactly the production tool set")
 
             // 4) tools/call config rules over a directly seeded root -- proves the full stack executes over HTTP
