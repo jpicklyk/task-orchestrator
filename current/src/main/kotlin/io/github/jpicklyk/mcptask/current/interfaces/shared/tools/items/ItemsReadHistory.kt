@@ -81,6 +81,8 @@ object ItemsReadHistory {
                                 is Outcome.Err -> return@handler r
                                 is Outcome.Ok -> r.value
                             }
+                        // D10: the per-item read of a gone item is not_found (a restricted scope already answered forbidden).
+                        if (env.workItemRepository().getById(itemId) == null) return@handler Outcome.Err(itemNotFound(itemId))
                         store.findByEntity(itemId, TYPES, page, req.since, req.until)
                     } else {
                         store.findByTypes(TYPES, req.since, req.until, ctx.scope, page)
