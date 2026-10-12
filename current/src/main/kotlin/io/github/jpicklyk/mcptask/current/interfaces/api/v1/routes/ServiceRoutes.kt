@@ -26,7 +26,7 @@ import kotlinx.serialization.Serializable
  *
  * Auth note: `/health` intentionally bypasses the auth plugin — the route is registered
  * OUTSIDE the [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth]
- * plugin scope (see [CurrentMcpServer.runHttpTransport] for the routing topology).
+ * plugin scope (see `CurrentMcpServer.runHttpTransport` for the routing topology).
  *
  * @param repositoryProvider Used by `/health` to probe the database. Optional to allow
  *   integration tests to omit it when testing routes that do not hit the DB.

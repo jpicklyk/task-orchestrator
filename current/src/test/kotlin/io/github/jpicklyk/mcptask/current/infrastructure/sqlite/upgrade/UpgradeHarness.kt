@@ -3,12 +3,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepReport
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import kotlinx.coroutines.runBlocking
 import org.flywaydb.core.api.callback.Callback
 import org.flywaydb.core.api.callback.Context

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp
+package io.github.jpicklyk.mcptask.current.bootstrap
 
 /**
  * Result of [CurrentMcpServer.run] — the testable seam that lets startup failures translate into a

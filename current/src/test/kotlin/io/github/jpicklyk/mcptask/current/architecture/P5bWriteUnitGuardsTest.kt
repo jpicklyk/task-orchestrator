@@ -97,11 +97,13 @@ class P5bWriteUnitGuardsTest {
     private companion object {
         /**
          * The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt),
-         * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again.
+         * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again,
+         * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
             CurrentMain.kt 1
+            bootstrap/CurrentMcpServer.kt 9
             application/config/ConfigSession.kt 1
             application/service/ConfigService.kt 1
             application/service/RoleTransitionHandler.kt 1
@@ -137,7 +139,6 @@ class P5bWriteUnitGuardsTest {
             interfaces/api/v1/routes/ProjectConfigRoutes.kt 1
             interfaces/api/v1/routes/QueryParams.kt 1
             interfaces/api/v1/routes/RuleRoutes.kt 1
-            interfaces/mcp/CurrentMcpServer.kt 9
             """.trimIndent()
                 .lines()
                 .associate { it.substringBeforeLast(' ') to it.substringAfterLast(' ').toInt() }

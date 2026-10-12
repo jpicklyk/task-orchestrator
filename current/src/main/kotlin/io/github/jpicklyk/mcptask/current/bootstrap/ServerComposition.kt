@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp
+package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext

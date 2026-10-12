@@ -167,17 +167,17 @@ class IndependenceConfigParseTest {
     private fun buildComposition(
         tempDir: java.nio.file.Path,
         globalConfig: String
-    ): io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult {
+    ): io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return io.github.jpicklyk.mcptask.current.interfaces.mcp
+        return io.github.jpicklyk.mcptask.current.bootstrap
             .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = ShutdownCoordinator())
             .build()
             .also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         title: String
     ): UUID =
         runBlocking {
@@ -188,7 +188,7 @@ class IndependenceConfigParseTest {
         }
 
     private fun pushPerRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         rootId: UUID,
         yaml: String
     ) {
