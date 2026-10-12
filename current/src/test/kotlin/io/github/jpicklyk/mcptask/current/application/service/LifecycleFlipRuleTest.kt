@@ -186,7 +186,8 @@ class LifecycleFlipRuleTest {
             name: String
         ): String? = P7Raw.query(rig.db.jdbcUrl, "SELECT $name FROM work_items WHERE id = ?", id) { it.getString(1) }.single()
 
-        suspend fun transitionRows(id: UUID) = rig.raw.roleTransitionRepository().findByItemId(id, limit = 500)
+        /** Every `item.transitioned` event ever recorded for the item (role transitions live only in the event store). */
+        suspend fun transitionRows(id: UUID): List<EventRecord> = rig.rows().filter { it.type == "item.transitioned" && it.entityId == id }
     }
 
     private fun fx(
@@ -255,7 +256,7 @@ class LifecycleFlipRuleTest {
             assertEquals("queue", fx.column(plainId, "role"))
             assertEquals("auto", fx.column(plainId, "lifecycle"))
             assertEquals(2, rows.ofType("item.created").size, "both creates were recorded: ${rows.map { it.type }}")
-            assertTrue(fx.transitionRows(pageId).isEmpty(), "creating a page records no role transition")
+            assertTrue(fx.transitionRows(pageId).isEmpty(), "creating a page records no item.transitioned event")
         }
 
     @Test
@@ -317,7 +318,7 @@ class LifecycleFlipRuleTest {
             assertTrue("type" in updated.changed(), "changedFields names type: ${updated.changed()}")
             assertEquals("type_change", rows.ofType("item.pinned").single().str("reason"))
             assertTrue(rows.ofType("item.transitioned").isEmpty(), "a flip is not a transition: ${rows.map { it.type }}")
-            assertTrue(fx.transitionRows(item.id).isEmpty(), "a flip records no role transition row")
+            assertTrue(fx.transitionRows(item.id).isEmpty(), "a flip records no item.transitioned event")
         }
 
     @Test
@@ -355,7 +356,7 @@ class LifecycleFlipRuleTest {
             assertEquals("none", fx.column(item.id, "lifecycle"))
             assertEquals("repin", rows.ofType("item.pinned").single().str("reason"))
             assertTrue("role" in rows.ofType("item.updated").single().changed(), "a repin flip records item.updated with role")
-            assertTrue(fx.transitionRows(item.id).isEmpty(), "a flip records no role transition row")
+            assertTrue(fx.transitionRows(item.id).isEmpty(), "a flip records no item.transitioned event")
         }
 
     @Test
@@ -421,7 +422,7 @@ class LifecycleFlipRuleTest {
             assertEquals("queue", fx.column(page.id, "role"))
             assertTrue("role" in rows.ofType("item.updated").single().changed())
             assertEquals("type_change", rows.ofType("item.pinned").single().str("reason"))
-            assertTrue(fx.transitionRows(page.id).isEmpty(), "leaving none records no role transition")
+            assertTrue(fx.transitionRows(page.id).isEmpty(), "leaving none records no item.transitioned event")
         }
 
     @Test
