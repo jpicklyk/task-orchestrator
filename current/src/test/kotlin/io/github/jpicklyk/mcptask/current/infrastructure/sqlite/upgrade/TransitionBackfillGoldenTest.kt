@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -465,7 +466,7 @@ class TransitionBackfillGoldenTest {
     // ------------------------------------------------------------------ S3
 
     @Test
-    fun `S3 an orphan transition and a root-less item are kept with their own id as root and an unparseable timestamp is skipped`() {
+    fun `S3 an orphan transition and a root-less item are kept with their own id as root and an unparseable timestamp is repaired`() {
         val url = UpgradeHarness.copyAt(28, File(dir, "s3.sqlite"))
         DriverManager.getConnection(url).use { conn ->
             insertItem(conn, "rootless")
@@ -490,13 +491,22 @@ class TransitionBackfillGoldenTest {
         val rootless = byId.getValue(BaselineDataset.uuid("transition:rootless"))
         assertEquals(BaselineDataset.uuid("rootless"), rootless.rootId, "an item with no stored root is its own root")
         assertEquals(BaselineDataset.uuid("root"), byId.getValue(BaselineDataset.uuid("transition:rooted")).rootId, "a stored root wins")
-        assertFalse(BaselineDataset.uuid("transition:garbled") in byId, "a row whose timestamp does not parse is skipped, not guessed")
-        assertEquals(3, rows.size)
-        assertEquals(listOf(1L, 2L, 3L), rows.map { it.seq })
+        val garbled = byId[BaselineDataset.uuid("transition:garbled")]
+        assertNotNull(garbled, "a row whose timestamp does not parse is still backfilled, never dropped")
+        val itemCreatedAt =
+            sqlRows(url, "SELECT created_at FROM work_items WHERE id = ?", {
+                it.setBytes(1, BaselineDataset.id("rooted"))
+            }) { it.getString(1) }.single()
+        assertEquals(itemCreatedAt, garbled.occurredAt, "the fallback timestamp is the item's created_at")
+        assertEquals(JsonPrimitive(true), garbled.data["timestampRepaired"], "the repaired row is marked in its event data")
+        assertTrue(garbled.backfilled)
+        assertEquals(BaselineDataset.uuid("rooted"), garbled.entityId)
+        assertEquals(4, rows.size)
+        assertEquals(listOf(1L, 2L, 3L, 4L), rows.map { it.seq })
         assertEquals(
             listOf("transition:orphan", "transition:rootless", "transition:rooted").map { BaselineDataset.uuid(it) },
-            rows.map { it.id },
-            "seq follows transitioned_at"
+            rows.filter { it.id != garbled.id }.map { it.id },
+            "seq follows transitioned_at among the parseable rows"
         )
     }
 
