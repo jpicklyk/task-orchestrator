@@ -199,7 +199,7 @@ internal class P11Driver(
         raw.resourceLeaseRepository().releaseAllForItem(holder.id)
     }
 
-    suspend fun role(item: WorkItem): Role = raw.workItemRepository().getById(item.id)!!.role
+    suspend fun role(item: WorkItem): Role = raw.workItemRepository().getById(item.id)!!.role!!
 
     suspend fun reload(item: WorkItem): WorkItem = raw.workItemRepository().getById(item.id)!!
 
@@ -347,7 +347,7 @@ internal data class P11Snapshot(
 internal suspend fun P11Driver.snapshot(item: WorkItem): P11Snapshot {
     val current = reload(item)
     return P11Snapshot(
-        role = current.role,
+        role = current.role!!,
         previousRole = current.previousRole,
         statusLabel = current.statusLabel,
         roleChangedAt = current.roleChangedAt,

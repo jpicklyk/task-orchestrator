@@ -65,7 +65,7 @@ class TreeCompletionServiceTest {
             is Outcome.Err -> error("expected Ok, got ${error.code.wire}: ${error.message}")
         }
 
-    private suspend fun EventLogRig.role(item: WorkItem): Role = raw.workItemRepository().getById(item.id)!!.role
+    private suspend fun EventLogRig.role(item: WorkItem): Role = raw.workItemRepository().getById(item.id)!!.role!!
 
     @Test
     fun `blockers run before what they block, ties in target order, the root last`(

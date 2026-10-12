@@ -56,7 +56,8 @@ sealed interface RejectContext {
 /** The outcome of [TransitionPolicy.evaluate]. */
 sealed interface Decision {
     /**
-     * The transition may be applied.
+     * The transition may be applied. [from] and [target] are both null only for a structural
+     * Reparent or Delete of a lifecycle-free (null-role) item.
      *
      * @property violations the independence findings evaluated by the note gate (current-phase or
      *   all-phase list), or null when the note gate was skipped or nothing was declared.
@@ -64,8 +65,8 @@ sealed interface Decision {
      * @property followUps parent cascades to evaluate after apply.
      */
     data class Allow(
-        val from: Role,
-        val target: Role,
+        val from: Role?,
+        val target: Role?,
         val violations: List<IndependenceViolation>?,
         val acquireLeases: List<String>,
         val followUps: List<FollowUp>

@@ -25,7 +25,8 @@ data class GateInput(
     val trigger: Trigger,
     val resolution: TransitionTable.Resolution
 ) {
-    val from: Role get() = snapshot.item.role
+    /** The item's current role; null for a lifecycle-free item. */
+    val from: Role? get() = snapshot.item.role
 
     /** The resolved target, or null when the table did not resolve one. */
     val target: Role? get() = (resolution as? TransitionTable.Resolution.To)?.role
@@ -41,6 +42,12 @@ fun interface TransitionGate {
 
 /** Lowercase wire form of a role. */
 internal fun Role.wire(): String = name.lowercase()
+
+/** Wire form of a role that may be null: a null (lifecycle-free) role is "none". */
+internal fun Role?.wireOrNone(): String = this?.wire() ?: NONE_ROLE_WIRE
+
+/** The `fromRole` reported for a lifecycle-free (null-role) item. */
+internal const val NONE_ROLE_WIRE: String = "none"
 
 /** Which required notes and independence findings a trigger's note gate covers. */
 internal enum class NoteScope { CURRENT_PHASE, ALL_PHASES }
@@ -111,7 +118,11 @@ object StandardGates {
             }
         }
 
-    /** The table: invalid user cells reject; inapplicable cascade cells stop with NotApplicable. */
+    /**
+     * The table: invalid user cells reject; inapplicable cascade cells stop with NotApplicable. A
+     * lifecycle-free item rejects with `fromRole` "none" and no allowed triggers, and its cascades are
+     * not applicable for [NotApplicableReason.LIFECYCLE].
+     */
     val TABLE: TransitionGate =
         TransitionGate { input ->
             when (val r = input.resolution) {
@@ -120,7 +131,7 @@ object StandardGates {
                     invalidTransition(GateId.TABLE, input.snapshot.item.id, input.from, input.trigger.wire, r.allowed.map { it.wire })
                 TransitionTable.Resolution.NotApplicable ->
                     Decision.NotApplicable(
-                        if (input.snapshot.schema.lifecycle != LifecycleMode.AUTO) {
+                        if (input.from == null || input.snapshot.schema.lifecycle != LifecycleMode.AUTO) {
                             NotApplicableReason.LIFECYCLE
                         } else {
                             NotApplicableReason.ROLE
@@ -214,7 +225,7 @@ object StandardGates {
                             } else {
                                 "Item ${item.id} has blocking independence violations."
                             },
-                        detail = ErrorDetail.GateBlocked(item.id, item.role.wire(), detailMissing, blocking.ifEmpty { null }),
+                        detail = ErrorDetail.GateBlocked(item.id, item.role.wireOrNone(), detailMissing, blocking.ifEmpty { null }),
                         fixArgs = mapOf("itemId" to item.id.toString())
                     ),
                     RejectContext.Notes(eval.missing, eval.violations)
@@ -269,19 +280,21 @@ object StandardGates {
 internal fun invalidTransition(
     gate: GateId,
     itemId: UUID,
-    from: Role,
+    from: Role?,
     trigger: String,
     allowed: List<String>
-): Decision.Reject =
-    Decision.Reject(
+): Decision.Reject {
+    val fromWire = from.wireOrNone()
+    return Decision.Reject(
         gate,
         DomainError(
             code = ErrorCode.INVALID_TRANSITION,
-            message = "Trigger $trigger is not valid for item $itemId in role ${from.wire()}.",
-            detail = ErrorDetail.InvalidTransition(itemId, from.wire(), trigger, allowed),
-            fixArgs = mapOf("itemId" to itemId.toString(), "trigger" to trigger, "fromRole" to from.wire())
+            message = "Trigger $trigger is not valid for item $itemId in role $fromWire.",
+            detail = ErrorDetail.InvalidTransition(itemId, fromWire, trigger, allowed),
+            fixArgs = mapOf("itemId" to itemId.toString(), "trigger" to trigger, "fromRole" to fromWire)
         )
     )
+}
 
 /**
  * The pure lifecycle policy. [evaluate] runs [gates] in order (first failure wins) and, when all
