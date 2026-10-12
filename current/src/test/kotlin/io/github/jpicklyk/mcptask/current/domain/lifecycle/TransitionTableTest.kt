@@ -109,9 +109,9 @@ class TransitionTableTest {
             }
         }
 
-    // S1: 5 roles x 11 triggers x 2 hasReview x 3 lifecycles = 330 cells.
+    // S1: 5 roles x 11 triggers x 2 hasReview x 4 lifecycles = 440 cells.
     @Test
-    fun `S1 resolve matches the hand-written matrix for all 330 cells`() {
+    fun `S1 resolve matches the hand-written matrix for all 440 cells`() {
         var cells = 0
         for (lifecycle in LifecycleMode.entries) {
             for (hasReview in listOf(false, true)) {
@@ -145,7 +145,7 @@ class TransitionTableTest {
                 }
             }
         }
-        assertEquals(330, cells)
+        assertEquals(440, cells)
     }
 
     @Test

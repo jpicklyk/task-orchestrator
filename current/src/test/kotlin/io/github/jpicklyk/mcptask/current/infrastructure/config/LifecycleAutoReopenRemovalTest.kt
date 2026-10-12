@@ -129,9 +129,9 @@ class LifecycleAutoReopenRemovalTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S3 LifecycleMode has exactly AUTO, MANUAL, PERMANENT`() {
+    fun `S3 LifecycleMode has exactly AUTO, MANUAL, PERMANENT, NONE`() {
         assertEquals(
-            listOf("AUTO", "MANUAL", "PERMANENT"),
+            listOf("AUTO", "MANUAL", "PERMANENT", "NONE"),
             LifecycleMode.entries.map { it.name },
         )
     }
