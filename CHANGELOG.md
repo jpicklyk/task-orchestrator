@@ -82,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Config
 
 - **Changed: config resolves by one precedence rule; `schema_resolution` and tag-selected schemas are removed.** One `TraitResolver` does every trait merge. An item's schema comes from its `type` only: per-root exact type, then server exact type, then per-root `default`, then server `default` (an item with no type gets only the `default` chain). Every trait dimension uses item traits first, then `default_traits`; note order and resource `ttlSeconds` follow that order, and a note key's `required` is true when the base schema or any trait marks it required, its other fields coming from the first declaration, base first. When the per-root `traits:` map declares a trait, the per-root entry replaces the whole server entry (notes, seats, resources and dispatch). A per-root `resources:` registry is not allowed (the registry is server-only), and the `effective` view no longer carries `schemaResolution`.
+- **Changed: `RESOURCE_LEASES_ENFORCED` is read once at startup.** The kill switch is parsed into `AppConfig.resourceLeasesEnforced` when the server boots; changing it requires a restart (the 3.x text that said it was re-read per advance call was wrong for a running process).
 
 #### REST
 
@@ -96,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Changed: the default `CORS_ALLOWED_HEADERS` gains `X-Client-Host`** (now `Authorization,Content-Type,If-Match,X-Client-Host`), and the default `CORS_EXPOSE_HEADERS` gains `X-Req-Id` (now `ETag,Last-Event-ID,Retry-After,X-Req-Id`). A deployment that sets either variable explicitly keeps its own list and must add the header itself.
 - **Changed: item search covers descriptions; `work_items` is recreated (V26).** The item FTS tables index `title`, `summary` and `description`, and the unused `prefix` index on them is dropped. The migration recreates `work_items` (every row, rowid and value preserved) and adds the nullable `lifecycle` and pin columns; `role` becomes nullable. Back up the database file before upgrading.
 - **Changed: the static JWKS actor verifier warns when `audience`/`issuer` are missing.** A `type: jwks` verifier in static mode (`jwks_uri`/`jwks_path`/`oidc_discovery`) with no `audience`, or no `issuer` when `oidc_discovery` is not set, logs a startup WARN; an `oidc_discovery` config whose discovery document supplies no `issuer` logs a one-time WARN. Behaviour is unchanged: such configs still parse and verify tokens as before. Set `audience` (and `issuer` for `jwks_uri`/`jwks_path`) to bind tokens to this server.
+- **Changed: environment variables are read only through `AppConfig`, and `jwks_path` resolves against `AGENT_CONFIG_DIR`.** The composition root builds the config base directory once from `AppConfig`; `bodyFromFile` paths, the global config file and a relative `actor_authentication` `jwks_path` all resolve against it (the working directory when `AGENT_CONFIG_DIR` is unset), so no service reads `AGENT_CONFIG_DIR` itself.
 
 ### Removed
 
@@ -153,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fixed: stale readiness marker cleared at startup.** The `READINESS_FILE` marker left by a crashed run is removed before DB init, so the Docker health check cannot report ready before startup succeeds.
 - **Fixed: the server ignores `actor_authentication.enabled`.** The key is read only by the plugin hook (client-side config); claim ownership is enforced by the server whenever an item is claimed, and a call with no actor on a claimed item is rejected.
 - **Fixed: stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
+- **Fixed: `FLYWAY_REPAIR=true` leaves newer migration rows alone.** Repair now ignores future-version rows (`*:future`) as well as missing ones, so running it against a database migrated by a later 4.x no longer marks those rows deleted; the next normal start still fails closed naming the newer version instead of serving the database.
 
 ## [3.16.0] - 2026-10-02
 

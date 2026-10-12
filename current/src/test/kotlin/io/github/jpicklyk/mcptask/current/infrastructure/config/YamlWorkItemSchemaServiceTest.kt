@@ -13,7 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class YamlNoteSchemaServiceTest {
+class YamlWorkItemSchemaServiceTest {
     private fun createTempConfigDir(): File {
         val tempDir = Files.createTempDirectory("yaml-schema-test").toFile()
         tempDir.deleteOnExit()
@@ -36,7 +36,7 @@ class YamlNoteSchemaServiceTest {
         val tempDir = createTempConfigDir()
         // No config file written — directory exists but .taskorchestrator/config.yaml does not
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForTags(listOf("any-tag")))
         assertNull(service.getSchemaForTags(emptyList()))
@@ -58,7 +58,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -85,7 +85,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForTags(listOf("unknown-tag")))
     }
@@ -110,7 +110,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertTrue(service.hasReviewPhase(listOf("my-schema")))
     }
@@ -135,7 +135,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertFalse(service.hasReviewPhase(listOf("my-schema")))
     }
@@ -161,7 +161,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -185,7 +185,7 @@ other_config:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForTags(listOf("any-tag")))
     }
@@ -195,7 +195,7 @@ other_config:
         val tempDir = createTempConfigDir()
         // No config file
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertFalse(service.hasReviewPhase(listOf("any-tag")))
     }
@@ -220,7 +220,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -245,7 +245,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -275,7 +275,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -299,7 +299,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertFalse(service.hasReviewPhase(listOf("unknown-tag")))
     }
@@ -320,7 +320,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -345,7 +345,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         service.getSchemaForTags(listOf("my-schema"))
         assertEquals(0, service.getLoadWarnings().size)
@@ -370,7 +370,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         service.getSchemaForTags(listOf("my-schema"))
         val warnings = service.getLoadWarnings()
@@ -394,7 +394,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         service.getSchemaForTags(listOf("my-schema"))
         val warnings = service.getLoadWarnings()
@@ -419,7 +419,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         val warnings = service.getLoadWarnings()
@@ -439,7 +439,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         // Fail-closed per diagnosis D1: a YAML syntax error is fatal, not a silent fallback to
         // empty schemas.
@@ -462,7 +462,7 @@ note_limits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         service.getSchemaForTags(listOf("any-tag"))
         val warnings = service.getLoadWarnings()
@@ -474,7 +474,7 @@ note_limits:
     fun `getLoadWarnings returns empty list on absent config file`() {
         val tempDir = createTempConfigDir()
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         service.getSchemaForTags(listOf("any-tag"))
         assertEquals(0, service.getLoadWarnings().size)
@@ -502,7 +502,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema, "Schema should be populated even though one entry had a bad role")
@@ -527,7 +527,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val first = service.getSchemaForTags(listOf("stable-schema"))
         val second = service.getSchemaForTags(listOf("stable-schema"))
@@ -557,7 +557,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val result = service.getSchemaForTags(listOf("something"))
         assertNull(result, "When note_schemas is a list the cast fails and null is returned")
@@ -576,7 +576,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val result = service.getSchemaForTags(emptyList())
         assertNull(result, "Empty tags with list-type note_schemas should return null")
@@ -607,7 +607,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("feature-task"))
         assertNotNull(schema)
@@ -638,7 +638,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForType("bug-fix")
         assertNotNull(schema)
@@ -666,7 +666,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForType("unknown-type"))
     }
@@ -696,7 +696,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForType("unknown-type"))
     }
@@ -719,7 +719,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getSchemaForType(null))
     }
@@ -742,7 +742,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForType("feature-task")
         assertNotNull(schema)
@@ -770,7 +770,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("feature-task"))
         assertNotNull(schema)
@@ -809,7 +809,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("feature-task"))
         assertNotNull(schema)
@@ -846,7 +846,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         // First tag wins
         val schema = service.getSchemaForTags(listOf("schema-a", "schema-b"))
@@ -873,7 +873,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForType("epic")
         assertNotNull(schema)
@@ -922,7 +922,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val securityNotes = service.getTraitNotes("needs-security-review")
         assertNotNull(securityNotes)
@@ -965,7 +965,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getTraitNotes("unknown-trait"))
         assertNotNull(service.getTraitNotes("known-trait"))
@@ -987,7 +987,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertNull(service.getTraitNotes("any-trait"))
     }
@@ -1027,7 +1027,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val defaults = service.getDefaultTraits("feature-task")
         assertEquals(listOf("needs-security-review", "needs-perf-review"), defaults)
@@ -1055,7 +1055,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertEquals(emptyList(), service.getDefaultTraits("simple-task"))
         assertEquals(emptyList(), service.getDefaultTraits("nonexistent-type"))
@@ -1090,7 +1090,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val notes = service.getTraitNotes("bad-trait")
         assertNotNull(notes)
@@ -1130,7 +1130,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val notes = service.getTraitNotes("comprehensive-review")
         assertNotNull(notes)
@@ -1163,7 +1163,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("feature-task"))
         assertNotNull(schema)
@@ -1196,7 +1196,7 @@ traits:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val traitNotes = service.getTraitNotes("needs-security-review")
         assertNotNull(traitNotes)
@@ -1222,7 +1222,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("feature-task"))
         assertNotNull(schema)
@@ -1251,7 +1251,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -1274,7 +1274,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -1298,7 +1298,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForTags(listOf("my-schema"))
         assertNotNull(schema)
@@ -1325,7 +1325,7 @@ work_item_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val schema = service.getSchemaForType("feature-task")
         assertNotNull(schema)
@@ -1351,7 +1351,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertEquals("warn", noteLimitsMode(configPath))
     }
@@ -1360,7 +1360,7 @@ note_schemas:
     fun `note_limits mode defaults to warn when config file absent`() {
         val tempDir = createTempConfigDir()
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertEquals("warn", noteLimitsMode(configPath))
     }
@@ -1383,7 +1383,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertEquals("reject", noteLimitsMode(configPath))
     }
@@ -1406,7 +1406,7 @@ note_schemas:
         )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         assertEquals("warn", noteLimitsMode(configPath))
         assertTrue(service.getLoadWarnings().any { it.contains("note_limits.mode") })
@@ -1433,7 +1433,7 @@ note_schemas:
             )
 
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
+        val service = YamlWorkItemSchemaService(configPath)
 
         val fingerprintBefore = service.getConfigFingerprint()
 
@@ -1463,7 +1463,7 @@ note_schemas:
             "a live instance's fingerprint must stay pinned to the bytes it first parsed"
         )
 
-        val newInstanceFingerprint = YamlNoteSchemaService(configPath).getConfigFingerprint()
+        val newInstanceFingerprint = YamlWorkItemSchemaService(configPath).getConfigFingerprint()
         assertNotNull(newInstanceFingerprint)
         assertTrue(
             fingerprintBefore != newInstanceFingerprint,
@@ -1477,17 +1477,18 @@ note_schemas:
     // parsing assertions above keep their meaning.
     // ──────────────────────────────────────────────
 
-    private fun YamlNoteSchemaService.getSchemaForTags(tags: List<String>) = tags.firstNotNullOfOrNull { getAllSchemas()[it]?.notes }
+    private fun YamlWorkItemSchemaService.getSchemaForTags(tags: List<String>) = tags.firstNotNullOfOrNull { getAllSchemas()[it]?.notes }
 
-    private fun YamlNoteSchemaService.hasReviewPhase(tags: List<String>) = getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
+    private fun YamlWorkItemSchemaService.hasReviewPhase(tags: List<String>) =
+        getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
 
-    private fun YamlNoteSchemaService.getSchemaForType(type: String?) = type?.let { getAllSchemas()[it] }
+    private fun YamlWorkItemSchemaService.getSchemaForType(type: String?) = type?.let { getAllSchemas()[it] }
 
-    private fun YamlNoteSchemaService.getTraitNotes(name: String) = getAllTraits()[name]
+    private fun YamlWorkItemSchemaService.getTraitNotes(name: String) = getAllTraits()[name]
 
-    private fun YamlNoteSchemaService.getAvailableTraits() = getAllTraits().keys.toList()
+    private fun YamlWorkItemSchemaService.getAvailableTraits() = getAllTraits().keys.toList()
 
-    private fun YamlNoteSchemaService.getDefaultTraits(type: String?) = getSchemaForType(type)?.defaultTraits ?: emptyList()
+    private fun YamlWorkItemSchemaService.getDefaultTraits(type: String?) = getSchemaForType(type)?.defaultTraits ?: emptyList()
 
     private fun noteLimitsMode(configPath: java.nio.file.Path) =
         LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode()

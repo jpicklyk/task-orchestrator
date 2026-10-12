@@ -88,9 +88,3 @@ class YamlWorkItemSchemaService(
      */
     override fun getConfigFingerprint(): String? = globalConfig.layer()?.fingerprint
 }
-
-/**
- * Backward-compatibility alias. All existing code importing [YamlNoteSchemaService] continues
- * to compile without modification.
- */
-typealias YamlNoteSchemaService = YamlWorkItemSchemaService

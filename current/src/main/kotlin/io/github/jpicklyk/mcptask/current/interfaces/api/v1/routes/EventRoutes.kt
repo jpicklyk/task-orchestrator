@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
@@ -374,6 +373,8 @@ private val sseInlineAuthPlugin =
  *   described above. Null (the default) preserves prior behavior for callers that do not pass
  *   it, EXCEPT that a tag-scoped principal is now rejected with 403 rather than streamed
  *   unfiltered.
+ * @param redactAttribution `AppConfig.apiRedactNoteAttribution`: hide the event actor from non-ADMIN
+ *   principals. Required (no default): the caller passes the typed config value instead of this route reading the environment.
  */
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
@@ -383,7 +384,7 @@ fun Route.eventRoutes(
     authCheckIntervalSeconds: Int = 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
-    redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,
+    redactAttribution: Boolean,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.

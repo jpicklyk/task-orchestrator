@@ -26,7 +26,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * DB-backed tests for [PerRootConfigService], adapted from [YamlNoteSchemaServiceTest]'s
+ * DB-backed tests for [PerRootConfigService], adapted from [YamlWorkItemSchemaServiceTest]'s
  * temp-dir style — here the "file" is a `project_config` row instead of a temp
  * `.taskorchestrator/config.yaml`.
  */

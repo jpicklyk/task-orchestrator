@@ -653,7 +653,7 @@ abstract class WorkflowIntegrationScenarios(
     @Test
     fun `item progresses through QUEUE to WORK to TERMINAL via start in schema-free mode`(): Unit =
         runBlocking {
-            // In schema-free mode (NoOpNoteSchemaService), hasReviewPhase=false,
+            // In schema-free mode (NoOpWorkItemSchemaService), hasReviewPhase=false,
             // so WORK + start advances directly to TERMINAL (no review phase).
             val item = createItem("Full Progression Item")
 

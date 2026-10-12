@@ -139,6 +139,7 @@ class SseRootScopeFailClosedTest {
                 tokenEntries,
                 allowQueryToken = false,
                 authCheckIntervalSeconds = 60,
+                redactAttribution = true
             )
         }
     }

@@ -138,6 +138,7 @@ class SyncLostSseDeliveryTest {
                 allowQueryToken = false,
                 authCheckIntervalSeconds = 60,
                 workItemRepository = workItemRepository,
+                redactAttribution = true
             )
         }
     }

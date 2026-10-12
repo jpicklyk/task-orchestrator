@@ -1168,14 +1168,13 @@ invariant, and not fairness. Read this section before relying on it for anything
   verified actor to an item with a TTL, and an agent can hold its item claim and the item's
   resource leases simultaneously by design. The release-side corollary of the same assumption:
   any actor's work-exit transition on the shared item releases the lease for all of them.
-- **The kill switch is read fresh on every advance call, but the env var itself only changes at
-  process/container restart.** `AdvanceService` reads `RESOURCE_LEASES_ENFORCED` each time it is
-  constructed, on every `advance_item`/`POST .../advance` call — but a running JVM's environment
-  cannot change mid-process, and a container's environment changes only when the container is
-  recreated. So in practice, flipping this var takes effect only after the process or container
-  restarts. `false`/`0`/`no` disable acquisition (releases still always run); `true`/`1`/`yes` or
-  unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and
-  enforcement stays on.
+- **The kill switch is read once at startup; changing it requires a restart.** `RESOURCE_LEASES_ENFORCED`
+  is parsed a single time into `AppConfig.resourceLeasesEnforced` when the server boots and is handed to
+  the advance machinery from there; it is not re-read per call. A running JVM's environment cannot
+  change mid-process and a container's environment changes only when it is recreated, so flipping this
+  var takes effect only after the process or container restarts. `false`/`0`/`no` disable acquisition
+  (releases still always run); `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and
+  trimmed; any other value logs a WARN and enforcement stays on.
 - **No selector-level awareness.** `get_next_item` and `claim_item`'s selector mode do not know
   about resource contention — they can still hand an agent an item that will immediately reject with
   `resource_unavailable` on `start`. This is a known, deliberately deferred gap (see Non-Goals in

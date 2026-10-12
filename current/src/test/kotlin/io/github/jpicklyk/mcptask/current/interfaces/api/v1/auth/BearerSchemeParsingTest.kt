@@ -178,7 +178,7 @@ class BearerSchemeParsingTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
 
             val itemId = UUID.randomUUID()
@@ -212,7 +212,7 @@ class BearerSchemeParsingTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
 
             val itemId = UUID.randomUUID()
