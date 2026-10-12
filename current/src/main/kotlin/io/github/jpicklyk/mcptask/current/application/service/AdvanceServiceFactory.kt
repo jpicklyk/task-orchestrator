@@ -33,7 +33,9 @@ class AdvanceServiceFactory(
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,
     /** Where every built [AdvanceService] routes its claim and lease writes (and their events). */
-    private val claimService: ClaimService
+    private val claimService: ClaimService,
+    /** The pin writer every built [AdvanceService] re-pins with when a transition leaves TERMINAL. */
+    private val schemaPinService: SchemaPinService = SchemaPinService(configResolver)
 ) {
     private val previewLazy by lazy {
         TransitionPreview(
@@ -78,7 +80,8 @@ class AdvanceServiceFactory(
             resourceLeasesEnforced = resourceLeasesEnforced(),
             independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) },
             clock = clock,
-            claimService = claimService
+            claimService = claimService,
+            schemaPinService = schemaPinService
         )
     }
 

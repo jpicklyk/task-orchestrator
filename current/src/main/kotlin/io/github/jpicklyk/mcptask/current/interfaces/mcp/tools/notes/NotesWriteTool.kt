@@ -18,7 +18,8 @@ internal val noteUpsertOp =
         doc =
             "Create the note at (item, key) or replace it in place; its version goes up by one on every write. " +
                 "Give exactly one of body and bodyFromFile. A body over the schema's maxLength for the key is accepted " +
-                "with a warning, or rejected, depending on the server's note limits mode.",
+                "with a warning, or rejected, depending on the server's note limits mode. A key the current schema requires but " +
+                "the item's pinned schema lacks is schema_pinned_conflict: repin the item first.",
         profile = ToolProfile.KNOWLEDGE,
         destructive = false,
         capability = ApiCapability.WRITE_NOTES,
@@ -31,7 +32,8 @@ internal val noteUpsertOp =
                 ErrorCode.VERSION_CONFLICT,
                 ErrorCode.PAYLOAD_TOO_LARGE,
                 ErrorCode.NOTE_TOO_LONG,
-                ErrorCode.SCHEMA_VIOLATION
+                ErrorCode.SCHEMA_VIOLATION,
+                ErrorCode.SCHEMA_PINNED_CONFLICT
             ),
         execute = { env, ctx, req -> NoteHandlers.upsert(this, env, ctx, req) }
     )

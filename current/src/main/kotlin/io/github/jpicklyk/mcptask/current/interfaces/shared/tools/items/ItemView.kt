@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.service.PinView
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -12,7 +13,7 @@ import java.util.UUID
 
 /**
  * The ONE WorkItem -> JSON renderer of the 4.0 tools (plan section 3.3, "lean defaults"). Later items extend it
- * (pins, schema version, nullable role); nothing else renders an item for a 4.0 tool.
+ * (nullable role); nothing else renders an item for a 4.0 tool. Only [full] renders a pin; compact views never do.
  *
  * Lean: a null, an empty string, an empty array and `requiresVerification: false` are omitted; `version` is always
  * present. Tags are an array (the stored comma-separated list split, each element trimmed, empty elements dropped).
@@ -37,10 +38,14 @@ object ItemView {
             ?.filter { it.isNotEmpty() }
             ?: emptyList()
 
-    /** The full view of [item], with `createdAt`/`modifiedAt`/`roleChangedAt` appended when [timestamps]. */
+    /**
+     * The full view of [item], with `createdAt`/`modifiedAt`/`roleChangedAt` appended when [timestamps]. [pin] (the
+     * item's pin view; null for an unpinned item) adds `schemaVersion` and, only when the pin is stale, `stale: true`.
+     */
     fun full(
         item: WorkItem,
-        timestamps: Boolean = false
+        timestamps: Boolean = false,
+        pin: PinView? = null
     ): JsonObject =
         buildJsonObject {
             put("id", item.id.toString())
@@ -62,9 +67,28 @@ object ItemView {
             text("properties", item.properties)
             if (item.requiresVerification) put("requiresVerification", true)
             put("version", item.version)
+            pin?.let { pinMembers(it) }
             array("diagnostics", item.diagnostics ?: emptyList())
             if (timestamps) timestampsOf(item)
         }
+
+    /**
+     * The `schemaVersion` object of a pin view: `server` and `root` (the pinned config version numbers), `key` and
+     * `layer` (the pinned base schema), each omitted when null.
+     */
+    fun schemaVersion(pin: PinView): JsonObject =
+        buildJsonObject {
+            pin.serverVersion?.let { put("server", it) }
+            pin.rootVersion?.let { put("root", it) }
+            pin.key?.let { put("key", it) }
+            pin.layer?.let { put("layer", it.wire) }
+        }
+
+    /** `schemaVersion` and, only when the pin is stale, `stale: true`. */
+    private fun JsonObjectBuilder.pinMembers(pin: PinView) {
+        put("schemaVersion", schemaVersion(pin))
+        if (pin.stale) put("stale", true)
+    }
 
     /** The compact view of [item]; [summary] adds its summary, [timestamps] its three timestamps. */
     fun compact(

@@ -2,7 +2,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.seeds
 
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.MigrationSeed
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
+import java.io.File
+import java.nio.file.Files
 import java.sql.Connection
+import java.sql.DriverManager
 import java.sql.SQLException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -136,13 +140,12 @@ object SeedV26 : MigrationSeed(26) {
             assertTrue("prefix='2 3'" in ddl(conn, fts), "$fts keeps its prefix index")
         }
 
-        // 4. rowids and roles preserved, new columns NULL on every row
+        // 4. rowids and roles preserved; the new columns NULL on every row right after the migration (checked on a
+        // scratch copy migrated WITHOUT the data steps: the pin-backfill step fills the pin set on this database)
         val rows = rows(conn, "SELECT rowid AS r, lower(hex(id)) AS hid, role FROM work_items")
         assertEquals(rowidToId, rows.associate { (it["r"] as Number).toLong() to it["hid"] as String }, "rowid -> id map")
         assertEquals(roleById, rows.associate { it["hid"] as String to it["role"] as String }, "role per id")
-        for (c in newColumns) {
-            assertEquals(0, count(conn, "SELECT count(*) FROM work_items WHERE $c IS NOT NULL"), "$c must be NULL after V26")
-        }
+        migrationOnlyChecks()
 
         // 5. item FTS covers every row (NULL description included) and finds the description-only token
         val total = count(conn, "SELECT count(*) FROM work_items")
@@ -162,6 +165,27 @@ object SeedV26 : MigrationSeed(26) {
 
         // 7. CHECK and FK probes
         checkProbes(conn)
+    }
+
+    /** The migration alone adds the lifecycle and pin columns NULL on every row (baseline seeded at V25, bare chain). */
+    private fun migrationOnlyChecks() {
+        val dir = Files.createTempDirectory("seed-v26-only-")
+        try {
+            val url = UpgradeHarness.copyAt(25, File(dir.toFile(), "only.db"))
+            DriverManager.getConnection(url).use { conn ->
+                BaselineDataset.seed(conn)
+                BaselineDataset.extraItem(conn, "seed26-null-description", "queue", "backlog")
+            }
+            UpgradeHarness.migrate(url)
+            DriverManager.getConnection(url).use { conn ->
+                assertTrue(count(conn, "SELECT count(*) FROM work_items") > 0, "the scratch copy holds work items")
+                for (c in newColumns) {
+                    assertEquals(0, count(conn, "SELECT count(*) FROM work_items WHERE $c IS NOT NULL"), "$c must be NULL after V26")
+                }
+            }
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     private fun match(

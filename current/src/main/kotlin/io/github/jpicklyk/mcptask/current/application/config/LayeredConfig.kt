@@ -3,13 +3,16 @@ package io.github.jpicklyk.mcptask.current.application.config
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import org.slf4j.LoggerFactory
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Both config layers visible to one root, and the per-layer LOOKUPS every facet reads. Pure and
@@ -34,11 +37,19 @@ import java.util.UUID
  * | Status labels | per-root map wins per trigger by key presence (an explicit null included), else server |
  * | Trait names | per-root keys first, then server, distinct |
  * | Type keys | union of both layers' schema keys, sorted |
+ *
+ * ## Pinned resolution
+ *
+ * A [LayeredConfig] built for a pinned item ([EffectiveConfigResolver.forItem]) holds the pinned versions as its two
+ * layers and a non-null [pinnedBase]: the base schema is then exactly the pinned key in the pinned layer (no
+ * precedence walk), and a pinned key the pinned document does not declare, or a schema-free pin, resolves schema-free.
+ * Every other facet reads the two layers by the table above.
  */
 class LayeredConfig(
     val rootId: UUID?,
     val perRoot: ConfigLayer?,
     val global: GlobalConfigLookup,
+    val pinnedBase: PinnedBase? = null,
 ) {
     private val perRootDocument: ConfigDocument? get() = perRoot?.document
 
@@ -128,14 +139,40 @@ class LayeredConfig(
      * Base schema and supplying layer, without fetching any fingerprint (the server fingerprint is
      * fetched lazily, only when a caller needs provenance).
      */
-    internal fun baseSchema(type: String?): Pair<WorkItemSchema, ConfigSource>? {
+    internal fun baseSchema(type: String?): Pair<WorkItemSchema, ConfigSource>? = baseSchemaEntry(type)?.let { it.schema to it.source }
+
+    /**
+     * The base schema for an item of [type] with the schema KEY it was found under and the supplying layer: the
+     * precedence table, or exactly [pinnedBase] when this config is pinned. Null when nothing matches.
+     */
+    fun baseSchemaEntry(type: String?): BaseSchemaEntry? {
         val snapshot = perRootDocument
-        if (type != null) {
-            snapshot?.workItemSchemas?.get(type)?.let { return it to ConfigSource.PER_ROOT }
-            global.exactSchema(type)?.let { return it to ConfigSource.GLOBAL }
+        pinnedBase?.let { pinned ->
+            val key = pinned.key ?: return null
+            val entry =
+                when (pinned.layer) {
+                    PinLayer.ROOT -> snapshot?.workItemSchemas?.get(key)?.let { BaseSchemaEntry(key, it, ConfigSource.PER_ROOT) }
+                    PinLayer.SERVER -> global.exactSchema(key)?.let { BaseSchemaEntry(key, it, ConfigSource.GLOBAL) }
+                    null -> null
+                }
+            // A pinned key the pinned document lacks resolves schema-free (D7): the one place gates drop without
+            // failing closed, so it is surfaced once per (root, layer, key).
+            if (entry == null && warnedAbsentPins.add("$rootId/${pinned.layer?.wire}/$key")) {
+                logger.warn(
+                    "Pinned schema '{}' ({} layer) is absent from the pinned config of root {}: resolving schema-free",
+                    key,
+                    pinned.layer?.wire,
+                    rootId
+                )
+            }
+            return entry
         }
-        snapshot?.workItemSchemas?.get(DEFAULT_TYPE)?.let { return it to ConfigSource.PER_ROOT }
-        return global.exactSchema(DEFAULT_TYPE)?.let { it to ConfigSource.GLOBAL }
+        if (type != null) {
+            snapshot?.workItemSchemas?.get(type)?.let { return BaseSchemaEntry(type, it, ConfigSource.PER_ROOT) }
+            global.exactSchema(type)?.let { return BaseSchemaEntry(type, it, ConfigSource.GLOBAL) }
+        }
+        snapshot?.workItemSchemas?.get(DEFAULT_TYPE)?.let { return BaseSchemaEntry(DEFAULT_TYPE, it, ConfigSource.PER_ROOT) }
+        return global.exactSchema(DEFAULT_TYPE)?.let { BaseSchemaEntry(DEFAULT_TYPE, it, ConfigSource.GLOBAL) }
     }
 
     /** Fingerprint of the layer that supplied a base schema; the server one is fetched only for GLOBAL. */
@@ -148,5 +185,23 @@ class LayeredConfig(
     private companion object {
         /** The `"default"` schema key, the generic last resort in each layer. */
         const val DEFAULT_TYPE = "default"
+
+        private val logger = LoggerFactory.getLogger(LayeredConfig::class.java)
+
+        /** The absent pinned keys already warned about (bounded by the distinct pins in the database). */
+        private val warnedAbsentPins: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 }
+
+/** The base schema a pinned item resolves to: [key] in [layer], or schema-free when [key] is null. */
+data class PinnedBase(
+    val key: String?,
+    val layer: PinLayer?
+)
+
+/** A resolved base schema: the [schema] declared under [key] by the [source] layer. */
+data class BaseSchemaEntry(
+    val key: String,
+    val schema: WorkItemSchema,
+    val source: ConfigSource
+)

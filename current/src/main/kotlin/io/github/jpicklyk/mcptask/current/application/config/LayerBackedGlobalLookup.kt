@@ -49,6 +49,10 @@ class LayerBackedGlobalLookup(
 
     override fun fingerprint(): String? = layer?.fingerprint
 
+    override fun versionId(): java.util.UUID? = layer?.versionId
+
+    override fun version(): Int? = layer?.version
+
     override fun traitNames(): List<String> = document.traits.keys.toList()
 
     override fun statusLabel(trigger: String): String? {

@@ -107,7 +107,7 @@ object ItemsReadOverview {
                         recordCallResultCounts(view.children.total, null)
                         Outcome.Ok(
                             buildJsonObject {
-                                put("item", ItemView.full(view.item))
+                                put("item", ItemView.full(view.item, pin = env.schemaPinService.view(view.item)))
                                 put("childCounts", countsJson(view.childCounts))
                                 putPage(view.children) { entryView(it) }
                             }

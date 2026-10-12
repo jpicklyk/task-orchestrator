@@ -124,7 +124,9 @@ object SeedV27 : MigrationSeed(27) {
         "created_at" to BaselineDataset.TS,
         "modified_at" to BaselineDataset.TS_PLUS_1,
         "role_changed_at" to BaselineDataset.TS_PLUS_2,
-        "version" to 1
+        "version" to 1,
+        // Pinned like every baseline row: an unpinned row would be pinned by the production pin-backfill step.
+        *BaselineDataset.pinColumns()
     )
 
     override fun seed(conn: Connection) {

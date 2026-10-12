@@ -252,7 +252,8 @@ class TraitsFromPropertiesStepTest {
         for ((id, row) in beforeItems) {
             val now = afterItems.getValue(id)
             for ((column, value) in row) {
-                if (column == "properties") continue
+                // properties is this step's column; the lifecycle and pin columns are pin-backfill's (phase PIN, later).
+                if (column == "properties" || column == "lifecycle" || column.startsWith("pinned_")) continue
                 assertEquals(value, now[column], "work_items $id column $column must not change (no version or modified_at bump)")
             }
         }

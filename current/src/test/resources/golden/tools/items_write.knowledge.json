@@ -64,7 +64,7 @@
             },
             "tags": {
               "type": "array",
-              "description": "Lowercase hyphenated tags. Update: [] clears. [ops: create, update]",
+              "description": "Lowercase, hyphenated. Update: [] clears. [ops: create, update]",
               "items": {
                 "type": "string"
               }
@@ -86,7 +86,7 @@
             },
             "expectedVersion": {
               "type": "integer",
-              "description": "Fails with version_conflict if the item is at another version. [ops: update, delete]"
+              "description": "Fails version_conflict if the item is at another version. [ops: update, delete]"
             },
             "clear": {
               "type": "array",

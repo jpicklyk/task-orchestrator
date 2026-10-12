@@ -135,8 +135,26 @@ object BaselineDataset {
         "created_at" to TS,
         "modified_at" to TS_PLUS_1,
         "role_changed_at" to TS_PLUS_2,
-        "version" to 1
+        "version" to 1,
+        *pinColumns()
     )
+
+    /**
+     * The V26 lifecycle and pin set a seeded `work_items` row carries (dropped by [insert] below V26). Every row seeded at
+     * V26 or later is pinned, so the production `pin-backfill` data step finds nothing to pin on a harness step and
+     * checkUpgrade's column-changed check stays exact. A non-'none' lifecycle needs a non-NULL role (the relation CHECK),
+     * so the baseline never seeds a NULL role.
+     */
+    fun pinColumns(): Array<Pair<String, Any?>> =
+        arrayOf(
+            "lifecycle" to "auto",
+            "pinned_server_cfg" to id("server-config-version"),
+            "pinned_root_cfg" to id("config-version"),
+            // A key other than the rows' type (a pin may name the "default" schema), so the two columns never coincide.
+            "pinned_schema_key" to "default",
+            "pinned_schema_layer" to "root",
+            "pinned_at" to TS_PLUS_3
+        )
 
     @Suppress("LongMethod")
     fun seed(conn: Connection) {
@@ -157,8 +175,7 @@ object BaselineDataset {
             claim: Boolean = false,
             priority: String = "medium",
             requiresVerification: Boolean = false,
-            version: Int = 1,
-            pinned: Boolean = false
+            version: Int = 1
         ) = insert(
             conn,
             "work_items",
@@ -187,14 +204,8 @@ object BaselineDataset {
             "claimed_at" to if (claim) TS else null,
             "claim_expires_at" to if (claim) "2026-03-01 11:15:30" else null,
             "original_claimed_at" to if (claim) DB_TS else null,
-            // V26 lifecycle and pin set on ONE row (absent below V26, so insert drops them). A non-'none' lifecycle needs a
-            // non-NULL role (the relation CHECK), so the baseline never seeds a NULL role.
-            "lifecycle" to if (pinned) "auto" else null,
-            "pinned_server_cfg" to if (pinned) id("server-config-version") else null,
-            "pinned_root_cfg" to if (pinned) id("config-version") else null,
-            "pinned_schema_key" to if (pinned) "feature-task" else null,
-            "pinned_schema_layer" to if (pinned) "root" else null,
-            "pinned_at" to if (pinned) TS_PLUS_3 else null
+            // V26 lifecycle and pin set on EVERY row (absent below V26, so insert drops them): see pinColumns.
+            *pinColumns()
         )
 
         item("root", null, 0, "Baseline root alpha", role = "work", statusLabel = "in-progress", priority = "high", version = 4)
@@ -203,7 +214,7 @@ object BaselineDataset {
         item("task2", "feature", 2, "Task two gamma", role = "terminal", statusLabel = "done", requiresVerification = true, version = 3)
         item("task3", "feature", 2, "Task three delta", role = "terminal", statusLabel = "in-progress")
         item("task4", "feature", 2, "Task four epsilon", role = "work", statusLabel = "in-progress", claim = true)
-        item("task5", "feature", 2, "Task five zeta", pinned = true)
+        item("task5", "feature", 2, "Task five zeta")
         item("task6", "feature", 2, "Task six eta")
         if (typedTraits) {
             for (name in ITEM_NAMES) {

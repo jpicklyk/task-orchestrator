@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigHead
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
@@ -22,6 +23,7 @@ import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
+import io.github.jpicklyk.mcptask.current.application.config.ConfigVersionSource as StoredVersionSource
 
 /**
  * Serves the per-root config document of each project root from the versioned [ConfigStore], exposing the same
@@ -39,6 +41,9 @@ import kotlin.coroutines.coroutineContext
  * its entry is never invalidated). A config pushed from this process or from another one sharing the SQLite file
  * becomes visible on the very next read: the head moved, the new version is loaded once. No restart, no explicit
  * cache-bust call.
+ *
+ * The same cache serves [layerAt], the by-id read a pinned item resolves through (plan section 3.8): a version an item
+ * is pinned to is loaded at most once (one point read on a miss) and then answered from memory.
  *
  * The document is built from the version's stored `canonical_json` (decoded map handed to the parser), never by
  * re-parsing the YAML.
@@ -58,13 +63,15 @@ import kotlin.coroutines.coroutineContext
  *    boundary translates and retries). With nothing to serve, [layer] throws [PerRootConfigUnavailableException] -
  *    this class does NOT silently fall back to the global layer on a read failure. Every public accessor propagates
  *    these exceptions unchanged; callers that need to translate them into a tool/HTTP outcome catch them at their
- *    own boundary.
+ *    own boundary. [layerAt] has no last-known-good: a read fault on an uncached version always throws
+ *    [PerRootConfigUnavailableException] (a pinned item never resolves against a guessed version).
  */
 class PerRootConfigService(
     private val store: ConfigStore,
     private val parser: ConfigDocumentParser = YamlConfigDocumentParser,
 ) : PerRootConfigSource,
-    ServerConfigSource {
+    ServerConfigSource,
+    StoredVersionSource {
     private val logger = LoggerFactory.getLogger(PerRootConfigService::class.java)
 
     private data class LastKnownGood(
@@ -72,14 +79,23 @@ class PerRootConfigService(
         val document: ConfigDocument
     )
 
+    /** One loaded version: its document plus the identity a [ConfigLayer] built from it carries. */
+    private data class VersionEntry(
+        val document: ConfigDocument,
+        val versionId: UUID,
+        val version: Int,
+        val fingerprint: String,
+        val scope: ConfigScope
+    )
+
     /** The last head + document successfully served for each root; evicted only by a confirmed absence. */
     private val lastKnownGood = ConcurrentHashMap<UUID, LastKnownGood>()
 
-    /** Immutable cache: version id -> its document. Versions never change, so entries are never invalidated. */
-    private val documents: MutableMap<UUID, ConfigDocument> =
+    /** Immutable cache: version id -> its loaded entry. Versions never change, so entries are never invalidated. */
+    private val documents: MutableMap<UUID, VersionEntry> =
         Collections.synchronizedMap(
-            object : LinkedHashMap<UUID, ConfigDocument>(DOCUMENT_CACHE_SIZE, 0.75f, true) {
-                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UUID, ConfigDocument>): Boolean = size > DOCUMENT_CACHE_SIZE
+            object : LinkedHashMap<UUID, VersionEntry>(DOCUMENT_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UUID, VersionEntry>): Boolean = size > DOCUMENT_CACHE_SIZE
             }
         )
 
@@ -97,6 +113,31 @@ class PerRootConfigService(
      */
     override suspend fun layer(): ConfigLayer? = readLayer(ConfigScope.SERVER, null)
 
+    /**
+     * The layer of stored version [versionId], served from the version cache (one point read on a miss). Null when no
+     * such row exists or it is a reset version. A read fault throws [PerRootConfigUnavailableException]; a row whose
+     * canonical form is missing or undecodable throws [PerRootConfigInvalidException].
+     */
+    override suspend fun layerAt(versionId: UUID): ConfigLayer? {
+        documents[versionId]?.let { return it.toLayer() }
+        val version =
+            try {
+                store.version(versionId)
+            } catch (e: Throwable) {
+                e.rethrowIfCancellation()
+                logger.warn("Config read failed for pinned config version {}: {}", versionId, e.message)
+                throw PerRootConfigUnavailableException(
+                    null,
+                    "Pinned config version $versionId is temporarily unavailable (read failed)",
+                    e
+                )
+            } ?: return null
+        if (version.source == ConfigVersionSource.RESET) return null
+        val entry = entryOf(version)
+        documents[versionId] = entry
+        return entry.toLayer()
+    }
+
     private suspend fun readLayer(
         scope: ConfigScope,
         rootId: UUID?
@@ -107,27 +148,42 @@ class PerRootConfigService(
                 store.head(scope, rootId)
             } catch (e: Throwable) {
                 e.rethrowIfCancellation()
-                return lastKnownGoodOrThrow(scope, rootId, e)
+                return lastKnownGoodOrThrow(rootId, e)
             }
         if (head == null || head.source == ConfigVersionSource.RESET) {
             lastKnownGood.remove(key)
             return null
         }
 
-        val document =
-            documents[head.versionId] ?: loadDocument(rootId, head)?.also { documents[head.versionId] = it }
-                ?: return lastKnownGoodOrThrow(scope, rootId, IllegalStateException("version row unreadable"))
-        lastKnownGood.put(key, LastKnownGood(head, document))
-        return ConfigLayer(document = document, fingerprint = head.fingerprint, source = sourceOf(scope))
+        val entry =
+            documents[head.versionId] ?: loadEntry(rootId, head)?.also { documents[head.versionId] = it }
+                ?: return lastKnownGoodOrThrow(rootId, IllegalStateException("version row unreadable"))
+        lastKnownGood.put(key, LastKnownGood(head, entry.document))
+        return layerOf(entry.document, head)
     }
+
+    private fun layerOf(
+        document: ConfigDocument,
+        head: ConfigHead
+    ): ConfigLayer =
+        ConfigLayer(
+            document = document,
+            fingerprint = head.fingerprint,
+            source = sourceOf(head.scope),
+            versionId = head.versionId,
+            version = head.version
+        )
+
+    private fun VersionEntry.toLayer(): ConfigLayer =
+        ConfigLayer(document = document, fingerprint = fingerprint, source = sourceOf(scope), versionId = versionId, version = version)
 
     private fun sourceOf(scope: ConfigScope): ConfigSource = if (scope == ConfigScope.SERVER) ConfigSource.GLOBAL else ConfigSource.PER_ROOT
 
-    /** Loads and builds the document of [head]'s version; null only when the store read itself failed under LKG rules. */
-    private suspend fun loadDocument(
+    /** Loads and builds the entry of [head]'s version; null only when the store read itself failed under LKG rules. */
+    private suspend fun loadEntry(
         rootId: UUID?,
         head: ConfigHead
-    ): ConfigDocument? {
+    ): VersionEntry? {
         val version =
             try {
                 store.version(head.versionId)
@@ -135,17 +191,30 @@ class PerRootConfigService(
                 e.rethrowIfCancellation()
                 return null
             } ?: throw PerRootConfigInvalidException(rootId, head.version, "the head version row is missing")
-        val json = version.canonicalJson ?: throw PerRootConfigInvalidException(rootId, head.version, "no canonical JSON stored")
+        return entryOf(version)
+    }
+
+    /** Builds the entry of [version] from its stored canonical JSON (fail closed on a missing or undecodable form). */
+    private fun entryOf(version: ConfigVersion): VersionEntry {
+        val rootId = version.rootId
+        val json = version.canonicalJson ?: throw PerRootConfigInvalidException(rootId, version.version, "no canonical JSON stored")
         val root =
-            CanonicalConfigJson.decode(json) ?: throw PerRootConfigInvalidException(rootId, head.version, "canonical JSON is undecodable")
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            parser.fromRoot(root as Map<String, Any>, warnOnMissingSchemas = false)
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Exception
-        ) {
-            throw PerRootConfigInvalidException(rootId, head.version, "canonical JSON does not build a config document: ${e.message}")
-        }
+            CanonicalConfigJson.decode(json)
+                ?: throw PerRootConfigInvalidException(rootId, version.version, "canonical JSON is undecodable")
+        val document =
+            try {
+                @Suppress("UNCHECKED_CAST")
+                parser.fromRoot(root as Map<String, Any>, warnOnMissingSchemas = false)
+            } catch (
+                @Suppress("TooGenericExceptionCaught") e: Exception
+            ) {
+                throw PerRootConfigInvalidException(
+                    rootId,
+                    version.version,
+                    "canonical JSON does not build a config document: ${e.message}"
+                )
+            }
+        return VersionEntry(document, version.id, version.version, version.fingerprint, version.scope)
     }
 
     /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when it has no config. */
@@ -192,7 +261,6 @@ class PerRootConfigService(
      * when there is nothing to serve (cold cache) or when called inside a unit of work.
      */
     private suspend fun lastKnownGoodOrThrow(
-        scope: ConfigScope,
         rootItemId: UUID?,
         error: Throwable
     ): ConfigLayer {
@@ -201,7 +269,7 @@ class PerRootConfigService(
         logger.warn("Config read failed for {}: {}", subject, error.message)
         if (!insideUnit) {
             lastKnownGood[rootItemId ?: SERVER_KEY]?.let {
-                return ConfigLayer(document = it.document, fingerprint = it.head.fingerprint, source = sourceOf(scope))
+                return layerOf(it.document, it.head)
             }
         }
         // The full store error (which may carry SQL/driver text) stays in the server log above; the exception

@@ -32,7 +32,7 @@ internal suspend fun ToolExecutionContext.itemsWrite(
     profile: ToolProfile? = null
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())["items_write"]) { "items_write is not registered" }
-    // Default: knowledge, unless an op is orchestration-only (create_tree and complete_tree, amendment U23).
+    // Default: knowledge, unless an op is orchestration-only (create_tree, complete_tree and repin, amendment U23).
     val effectiveProfile =
         profile ?: if (ops.any { it.opName() in ORCHESTRATION_ONLY_OPS }) ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
     val arguments =
@@ -45,7 +45,7 @@ internal suspend fun ToolExecutionContext.itemsWrite(
 }
 
 /** The `items_write` ops the knowledge profile hides. */
-private val ORCHESTRATION_ONLY_OPS = setOf("create_tree", "complete_tree")
+private val ORCHESTRATION_ONLY_OPS = setOf("create_tree", "complete_tree", "repin")
 
 private fun JsonObject.opName(): String? = (this["op"] as? JsonPrimitive)?.content
 

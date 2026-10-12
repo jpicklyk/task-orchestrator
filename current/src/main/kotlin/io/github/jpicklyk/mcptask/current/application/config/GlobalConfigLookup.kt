@@ -50,6 +50,12 @@ interface GlobalConfigLookup {
     /** Fingerprint of the server config, or null when none is loaded. */
     fun fingerprint(): String?
 
+    /** The stored server config version this lookup answers from, or null when it is not a stored version. */
+    fun versionId(): java.util.UUID? = null
+
+    /** The number of [versionId]'s version, or null when it is not a stored version. */
+    fun version(): Int? = null
+
     /** Names of every server-declared trait. */
     fun traitNames(): List<String>
 

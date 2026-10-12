@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
+import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
@@ -78,6 +79,24 @@ sealed class DomainEvent {
         override val entityKind: String get() = KIND_ITEM
 
         override fun payload(): Map<String, Any?> = emptyMap()
+    }
+
+    /**
+     * The item's config pin moved: [from] is the previous pin (null on a create), [to] the new one, [reason] which pin
+     * point fired. Recorded only when a pin is written, never by the `pin-backfill` data step. Table-only: not
+     * projected onto the SSE stream.
+     */
+    data class ItemPinned(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val from: PinRef?,
+        val to: PinRef,
+        val reason: PinReason
+    ) : DomainEvent() {
+        override val type: String get() = ITEM_PINNED
+        override val entityKind: String get() = KIND_ITEM
+
+        override fun payload(): Map<String, Any?> = mapOf("from" to from?.payload(), "to" to to.payload(), "reason" to reason.wire)
     }
 
     // ---- transitions ----
@@ -438,6 +457,7 @@ sealed class DomainEvent {
         const val ITEM_UPDATED = "item.updated"
         const val ITEM_REPARENTED = "item.reparented"
         const val ITEM_DELETED = "item.deleted"
+        const val ITEM_PINNED = "item.pinned"
         const val ITEM_TRANSITIONED = "item.transitioned"
         const val TRANSITION_REJECTED = "transition.rejected"
         const val NOTE_UPSERTED = "note.upserted"
@@ -484,6 +504,32 @@ sealed class DomainEvent {
             version: Int
         ): Map<String, Any?> = mapOf("kind" to kind.toDbValue(), "slug" to slug, "version" to version)
     }
+}
+
+/**
+ * One side of an `item.pinned` event: the two pinned config version ids and the pinned base schema key and layer
+ * (all null for a schema-free pin with no config).
+ */
+data class PinRef(
+    val serverVersionId: UUID?,
+    val rootVersionId: UUID?,
+    val key: String?,
+    val layer: PinLayer?
+) {
+    /** The wire shape: `{server, root, key, layer}`. */
+    fun payload(): Map<String, Any?> = mapOf("server" to serverVersionId, "root" to rootVersionId, "key" to key, "layer" to layer?.wire)
+}
+
+/** Which pin point wrote an `item.pinned` row. */
+enum class PinReason(
+    val wire: String
+) {
+    CREATE("create"),
+    REOPEN("reopen"),
+    TYPE_CHANGE("type_change"),
+    TRAIT_CHANGE("trait_change"),
+    REPARENT("reparent"),
+    REPIN("repin")
 }
 
 enum class ReparentSide(

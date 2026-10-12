@@ -16,7 +16,8 @@
                 "update",
                 "delete",
                 "create_tree",
-                "complete_tree"
+                "complete_tree",
+                "repin"
               ]
             },
             "title": {
@@ -66,7 +67,7 @@
             },
             "tags": {
               "type": "array",
-              "description": "Lowercase hyphenated tags. Update: [] clears. [ops: create, update]",
+              "description": "Lowercase, hyphenated. Update: [] clears. [ops: create, update]",
               "items": {
                 "type": "string"
               }
@@ -84,11 +85,11 @@
             },
             "id": {
               "type": "string",
-              "description": "Item UUID or 8+ hex prefix. [ops: update, delete]"
+              "description": "Item UUID or 8+ hex prefix. [ops: update, delete, repin]"
             },
             "expectedVersion": {
               "type": "integer",
-              "description": "Fails with version_conflict if the item is at another version. [ops: update, delete]"
+              "description": "Fails version_conflict if the item is at another version. [ops: update, delete, repin]"
             },
             "clear": {
               "type": "array",
@@ -136,7 +137,7 @@
                 },
                 "tags": {
                   "type": "array",
-                  "description": "Lowercase hyphenated tags. Update: [] clears.",
+                  "description": "Lowercase, hyphenated. Update: [] clears.",
                   "items": {
                     "type": "string"
                   }
@@ -242,7 +243,7 @@
                   },
                   "tags": {
                     "type": "array",
-                    "description": "Lowercase hyphenated tags. Update: [] clears.",
+                    "description": "Lowercase, hyphenated. Update: [] clears.",
                     "items": {
                       "type": "string"
                     }

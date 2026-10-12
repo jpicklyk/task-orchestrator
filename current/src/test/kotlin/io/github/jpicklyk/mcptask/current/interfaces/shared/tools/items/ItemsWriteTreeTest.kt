@@ -1743,7 +1743,8 @@ class ItemsWriteTreeTest {
     fun `S19 items_write lists create_tree and complete_tree, the knowledge profile hides both (amendment U23)`() {
         val spec = assertNotNull(ToolRegistry(buildToolSpecs())["items_write"])
         assertTrue(spec is OpsToolSpec<*>)
-        assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree"), spec.ops.map { it.name })
+        // Q24 (934b25e4) adds repin after the tree ops.
+        assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree", "repin"), spec.ops.map { it.name })
         val knowledge = ToolSchemaRenderer.inputSchema(spec, ToolProfile.KNOWLEDGE).toString()
         val orchestration = ToolSchemaRenderer.inputSchema(spec, ToolProfile.ORCHESTRATION).toString()
         assertTrue("create_tree" !in knowledge, "knowledge hides create_tree")

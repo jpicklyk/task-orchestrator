@@ -1,8 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
@@ -61,6 +64,7 @@ internal object WorkItemRows {
                 claimedAt = readInstant(row, WorkItemsTable.claimedAt, unreadable),
                 claimExpiresAt = readInstant(row, WorkItemsTable.claimExpiresAt, unreadable),
                 originalClaimedAt = readInstant(row, WorkItemsTable.originalClaimedAt, unreadable),
+                pin = readPin(row, unreadable),
                 diagnostics = emptyList()
             )
         val violations = unreadable + item.violations()
@@ -68,6 +72,25 @@ internal object WorkItemRows {
         if (violations.isEmpty()) return item.copy(diagnostics = null)
         rowLogger.warn("Stored WorkItem row {} violates domain invariants: {}", item.id, violations)
         return item.copy(diagnostics = violations)
+    }
+
+    /**
+     * The row's config pin (the V26 `pinned_*` columns and `lifecycle`): present iff `pinned_at` is set. A `lifecycle`
+     * value that names no [LifecycleMode] (such as Q31b's `none`) reads as null.
+     */
+    private fun readPin(
+        row: ResultRow,
+        unreadable: MutableList<String>
+    ): SchemaPin? {
+        val pinnedAt = readInstant(row, WorkItemsTable.pinnedAt, unreadable) ?: return null
+        return SchemaPin(
+            serverVersionId = row[WorkItemsTable.pinnedServerCfg],
+            rootVersionId = row[WorkItemsTable.pinnedRootCfg],
+            schemaKey = row[WorkItemsTable.pinnedSchemaKey],
+            schemaLayer = PinLayer.fromWire(row[WorkItemsTable.pinnedSchemaLayer]),
+            lifecycle = row[WorkItemsTable.lifecycle]?.let { LifecycleMode.fromString(it) },
+            pinnedAt = pinnedAt
+        )
     }
 
     /**

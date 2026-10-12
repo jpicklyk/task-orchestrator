@@ -32,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
+import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
@@ -119,8 +120,18 @@ class ToolExecutionContext(
             unitOfWork,
             resourceLeasesEnforced = { resourceLeasesEnforced },
             clock = clock,
-            claimService = claimService
+            claimService = claimService,
+            schemaPinService = schemaPinService
         )
+    }
+
+    /**
+     * THE pin writer (plan section 3.8), shared by the item command service and every built advance service, and the
+     * pin view the item read surfaces render. Pins are on only when [configResolver] reads stored versions by id.
+     * Lazy for the same reason as [advanceServiceFactoryLazy]; the config store is touched only when pins are on.
+     */
+    val schemaPinService: SchemaPinService by lazy {
+        SchemaPinService(configResolver, if (configResolver.pinsEnabled) repositoryProvider.configStore() else null)
     }
 
     /** The single owner of claim and resource-lease writes and their events. Lazy for the same reason as [advanceServiceFactoryLazy]. */
@@ -144,7 +155,14 @@ class ToolExecutionContext(
      * [advanceServiceFactoryLazy].
      */
     val itemCommandService: ItemCommandService by lazy {
-        ItemCommandService(repositoryProvider, configResolver, unitOfWork, advanceServiceFactory(), claimService)
+        ItemCommandService(
+            repositoryProvider,
+            configResolver,
+            unitOfWork,
+            advanceServiceFactory(),
+            claimService,
+            schemaPinService = schemaPinService
+        )
     }
 
     /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
