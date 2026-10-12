@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.AdvanceParityScenarios
@@ -906,7 +905,7 @@ work_item_schemas:
 
     @Test
     fun `S18 advance_item and claim_item are gone from the tool surface and POST items advance is not routed`() {
-        val names = buildMcpTools().map { it.name }
+        val names = ToolRegistry(buildToolSpecs()).tools.map { it.name }
         assertFalse("advance_item" in names)
         assertFalse("claim_item" in names)
         assertTrue(ToolRegistry(buildToolSpecs()).tools.any { it.name == ADVANCE_TOOL })

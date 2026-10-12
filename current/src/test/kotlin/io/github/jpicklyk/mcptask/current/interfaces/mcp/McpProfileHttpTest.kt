@@ -116,7 +116,6 @@ class McpProfileHttpTest {
         val rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
         val registry = ToolRegistry(buildToolSpecs())
         val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx))
-        val legacy = McpToolAdapter()
 
         fun server(profile: ToolProfile): Server =
             buildProfileServer(
@@ -124,10 +123,7 @@ class McpProfileHttpTest {
                 serverName = "profile-http-test",
                 version = "1.0.0",
                 registry = registry,
-                operationAdapter = adapter,
-                legacyAdapter = legacy,
-                legacyTools = buildMcpTools(),
-                toolContext = rig.ctx
+                operationAdapter = adapter
             )
         return Servers(rig, server(ToolProfile.ORCHESTRATION), server(ToolProfile.KNOWLEDGE))
     }

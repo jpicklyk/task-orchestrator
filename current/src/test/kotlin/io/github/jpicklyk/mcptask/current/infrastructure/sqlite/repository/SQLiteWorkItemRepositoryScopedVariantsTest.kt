@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -17,9 +18,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for the subtree-scoped (`rootIds`) variants of [SQLiteWorkItemRepository.findForNextItem],
- * [SQLiteWorkItemRepository.findClaimable], [SQLiteWorkItemRepository.findByRole], and
- * [SQLiteWorkItemRepository.countByClaimStatus].
+ * Tests for the subtree-scoped (`rootIds`) variants of [SQLiteWorkItemRepository.findEligible],
+ * [SQLiteWorkItemRepository.findEligible], [SQLiteWorkItemRepository.findByRole], and
+ * [SQLiteWorkItemRepository.claimSummary].
  *
  * Follows the coverage pattern of `SQLiteWorkItemRepositoryFindInScopeTest`: sibling-root
  * isolation, unscoped (null) parity with pre-scoping behavior, empty-set scope yielding no
@@ -146,18 +147,18 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // findForNextItem
+    // findEligible
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `findForNextItem unscoped (null) is unchanged`(): Unit =
+    fun `findEligible with includeClaimed unscoped (null) is unchanged`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             val c1 = create(newItem("child-1", parentId = r1.id, depth = 1, role = Role.QUEUE))
             val r2 = create(newItem("root-2"))
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
-            val result = repository.findForNextItem(role = Role.QUEUE, excludeActiveClaims = false, limit = 50)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, includeClaimed = true), limit = 50).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids)
@@ -165,7 +166,7 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `findForNextItem scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
+    fun `findEligible with includeClaimed scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             val c1 = create(newItem("child-1", parentId = r1.id, depth = 1, role = Role.QUEUE))
@@ -173,12 +174,11 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
             val result =
-                repository.findForNextItem(
-                    role = Role.QUEUE,
-                    excludeActiveClaims = false,
-                    limit = 50,
-                    rootIds = setOf(r1.id),
-                )
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, includeClaimed = true, rootIds = setOf(r1.id)),
+                        limit = 50
+                    ).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(r1.id in ids, "R1 root (also QUEUE role) must be included")
@@ -189,23 +189,18 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `findForNextItem with empty rootIds returns nothing`(): Unit =
+    fun `findEligible with includeClaimed with empty rootIds returns nothing`(): Unit =
         runBlocking {
             create(newItem("root-1", role = Role.QUEUE))
 
             val result =
-                repository.findForNextItem(
-                    role = Role.QUEUE,
-                    excludeActiveClaims = false,
-                    limit = 50,
-                    rootIds = emptySet(),
-                )
+                repository.findEligible(EligibilityQuery(role = Role.QUEUE, includeClaimed = true, rootIds = emptySet()), limit = 50).items
             assertNotNull(result)
             assertTrue(result.isEmpty())
         }
 
     @Test
-    fun `findForNextItem scoped includes deep-tree descendants (3+ levels)`(): Unit =
+    fun `findEligible with includeClaimed scoped includes deep-tree descendants (3+ levels)`(): Unit =
         runBlocking {
             val root = create(newItem("root", role = Role.QUEUE))
             val l1 = create(newItem("level-1", parentId = root.id, depth = 1, role = Role.QUEUE))
@@ -216,12 +211,11 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("unrelated-child", parentId = unrelatedRoot.id, depth = 1, role = Role.QUEUE))
 
             val result =
-                repository.findForNextItem(
-                    role = Role.QUEUE,
-                    excludeActiveClaims = false,
-                    limit = 50,
-                    rootIds = setOf(root.id),
-                )
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, includeClaimed = true, rootIds = setOf(root.id)),
+                        limit = 50
+                    ).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(l3.id in ids, "Depth-3 descendant must be included via deep-tree scoping")
@@ -229,18 +223,18 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // findClaimable
+    // findEligible
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `findClaimable unscoped (null) is unchanged`(): Unit =
+    fun `findEligible unscoped (null) is unchanged`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             val c1 = create(newItem("child-1", parentId = r1.id, depth = 1, role = Role.QUEUE))
             val r2 = create(newItem("root-2"))
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, limit = 50)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 50).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids)
@@ -248,14 +242,14 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `findClaimable scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
+    fun `findEligible scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             val c1 = create(newItem("child-1", parentId = r1.id, depth = 1, role = Role.QUEUE))
             val r2 = create(newItem("root-2"))
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = setOf(r1.id))
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(r1.id)), limit = 50).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(r1.id in ids, "R1 root (also QUEUE role) must be included")
@@ -266,17 +260,17 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `findClaimable with empty rootIds returns nothing`(): Unit =
+    fun `findEligible with empty rootIds returns nothing`(): Unit =
         runBlocking {
             create(newItem("root-1", role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = emptySet())
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = emptySet()), limit = 50).items
             assertNotNull(result)
             assertTrue(result.isEmpty())
         }
 
     @Test
-    fun `findClaimable scoped includes deep-tree descendants (3+ levels)`(): Unit =
+    fun `findEligible scoped includes deep-tree descendants (3+ levels)`(): Unit =
         runBlocking {
             val root = create(newItem("root", role = Role.QUEUE))
             val l1 = create(newItem("level-1", parentId = root.id, depth = 1, role = Role.QUEUE))
@@ -286,7 +280,7 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val unrelatedRoot = create(newItem("unrelated", role = Role.QUEUE))
             create(newItem("unrelated-child", parentId = unrelatedRoot.id, depth = 1, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = setOf(root.id))
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(root.id)), limit = 50).items
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
             assertTrue(l3.id in ids, "Depth-3 descendant must be included via deep-tree scoping")
@@ -294,24 +288,24 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // countByClaimStatus
+    // claimSummary
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `countByClaimStatus unscoped (null) is unchanged`(): Unit =
+    fun `claimSummary unscoped (null) is unchanged`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             create(newItem("c1-active", parentId = r1.id, depth = 1, claimed = true))
             val r2 = create(newItem("root-2"))
             create(newItem("c2-active", parentId = r2.id, depth = 1, claimed = true))
 
-            val result = repository.countByClaimStatus()
+            val result = repository.claimSummary()
             assertNotNull(result)
             assertEquals(2, result.active)
         }
 
     @Test
-    fun `countByClaimStatus scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
+    fun `claimSummary scoped to R1 excludes R2's subtree (sibling isolation)`(): Unit =
         runBlocking {
             val r1 = create(newItem("root-1"))
             create(newItem("c1-active", parentId = r1.id, depth = 1, claimed = true))
@@ -321,7 +315,7 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val r2 = create(newItem("root-2"))
             create(newItem("c2-active", parentId = r2.id, depth = 1, claimed = true))
 
-            val result = repository.countByClaimStatus(rootIds = setOf(r1.id))
+            val result = repository.claimSummary(rootIds = setOf(r1.id))
             assertNotNull(result)
             assertEquals(1, result.active, "Only R1's active claim should be counted")
             assertEquals(1, result.expired)
@@ -329,12 +323,12 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `countByClaimStatus with empty rootIds returns all-zero counts`(): Unit =
+    fun `claimSummary with empty rootIds returns all-zero counts`(): Unit =
         runBlocking {
             create(newItem("root-1"))
             create(newItem("c1-active", claimed = true))
 
-            val result = repository.countByClaimStatus(rootIds = emptySet())
+            val result = repository.claimSummary(rootIds = emptySet())
             assertNotNull(result)
             assertEquals(0, result.active)
             assertEquals(0, result.expired)
@@ -342,7 +336,7 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
         }
 
     @Test
-    fun `countByClaimStatus scoped includes deep-tree descendants (3+ levels)`(): Unit =
+    fun `claimSummary scoped includes deep-tree descendants (3+ levels)`(): Unit =
         runBlocking {
             val root = create(newItem("root"))
             val l1 = create(newItem("level-1", parentId = root.id, depth = 1))
@@ -352,23 +346,9 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val unrelatedRoot = create(newItem("unrelated"))
             create(newItem("unrelated-active", parentId = unrelatedRoot.id, depth = 1, claimed = true))
 
-            val result = repository.countByClaimStatus(rootIds = setOf(root.id))
+            val result = repository.claimSummary(rootIds = setOf(root.id))
             assertNotNull(result)
             assertEquals(1, result.active, "Only the depth-3 claimed descendant within scope must be counted")
             assertEquals(3, result.unclaimed, "root + level-1 + level-2 = 3 unclaimed")
-        }
-
-    @Test
-    fun `countByClaimStatus composes rootIds and parentId with AND`(): Unit =
-        runBlocking {
-            val root = create(newItem("root"))
-            val directChildActive = create(newItem("direct-child-active", parentId = root.id, depth = 1, claimed = true))
-            val grandchild = create(newItem("grandchild", parentId = directChildActive.id, depth = 2))
-            create(newItem("grandchild-active", parentId = grandchild.id, depth = 3, claimed = true))
-
-            // Scope to root's subtree AND require direct children of root only.
-            val result = repository.countByClaimStatus(parentId = root.id, rootIds = setOf(root.id))
-            assertNotNull(result)
-            assertEquals(1, result.active, "Only the direct child (not the deeper grandchild) should match parentId AND rootIds")
         }
 }

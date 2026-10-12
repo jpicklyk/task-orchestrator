@@ -79,7 +79,7 @@ suspend fun ConfigStore.delete(rootItemId: UUID): ConfigVersion? {
 suspend fun ConfigStore.upsertGuarded(
     rootItemId: UUID,
     configYaml: String,
-    expectedFingerprint: String? = null,
+    expectedVersion: Int? = null,
     rejectSuperseded: Boolean = false
 ): ConfigAppendOutcome {
     val parsed = YamlConfigDocumentParser.parse(configYaml, warnOnMissingSchemas = false)
@@ -98,7 +98,7 @@ suspend fun ConfigStore.upsertGuarded(
                 reqId = null,
                 warnings = emptyList()
             ),
-        expectedFingerprint = expectedFingerprint,
+        expectedVersion = expectedVersion,
         rejectSuperseded = rejectSuperseded,
         now = Instant.now()
     )

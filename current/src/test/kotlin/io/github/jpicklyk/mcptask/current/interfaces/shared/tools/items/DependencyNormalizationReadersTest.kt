@@ -1,10 +1,9 @@
-package io.github.jpicklyk.mcptask.current.application.tools.workflow
+package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.seedDependencies
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
@@ -24,22 +23,23 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * Independent test authorship for item a19fcf0a (P12, needs-test-author): readers that moved onto the normalized
- * blocking graph. Scenarios S6 (select next) and S12 (NextItemRecommender.isBlocked is fail-closed), plus probes.
+ * blocking graph. Scenarios S6 (select next) and S12 (an unreadable blocker is fail-closed), plus probes.
  *
  * Oracles (frozen plan 3.4 and task-scope item 5a): `a IS_BLOCKED_BY b` means b blocks a, so a stays out of the
  * recommendations while b is below the edge's unblock threshold (terminal by default) and comes back once b reaches
- * it; the recommender is FAIL-CLOSED: a blocker that cannot be read counts as blocking (it was skipped, fail-open,
- * before the item).
+ * it; eligibility is FAIL-CLOSED: a blocker that cannot be read counts as blocking.
  *
- * Response-shape evidence (public): the `items_read` `next` select (data.items[].id, an 8-hex short id), `NextItemRecommenderTest`
- * (the fail-closed expectation with a mocked getById returning null).
+ * Q32 port: S12 asserted the in-memory `NextItemRecommender.isBlocked`, which had no production caller (eligibility is
+ * decided in SQL by `WorkViewSql.dependencyBlocked`) and was deleted. Its intent now runs against that SQL: the blocker
+ * row is deleted with foreign keys off, leaving the edge dangling, and the `next` select must still hold the blocked item
+ * back (the LEFT JOIN yields a NULL role, which ranks below every threshold).
  *
- * EXISTING-SURFACE: S6 goes through the `items_read` `next` select (via the test probe) with real SQLite; S12 calls the existing
- * `isBlocked(item)` on the real repositories with only `getById` of the blocker overridden to return null.
+ * EXISTING-SURFACE: every scenario goes through the `items_read` `next` select (via the test probe) with real SQLite.
  */
 class DependencyNormalizationReadersTest {
     @RegisterExtension
@@ -73,6 +73,12 @@ class DependencyNormalizationReadersTest {
                 if (unblockAt != null) put("unblockAt", JsonPrimitive(unblockAt))
             }
         context.seedDependencies(JsonArray(listOf(spec)))
+    }
+
+    /** Deletes [item]'s row while leaving every edge that names it in place: foreign keys are per connection, off here. */
+    private suspend fun makeUnreadable(item: WorkItem) {
+        rawExec(db.jdbcUrl, "PRAGMA foreign_keys=OFF", "DELETE FROM work_items WHERE title = '${item.title}'")
+        assertNull(context.workItemRepository().getById(item.id), "fixture: the row is really gone")
     }
 
     private suspend fun recommendedIds(): Set<UUID> {
@@ -154,78 +160,44 @@ class DependencyNormalizationReadersTest {
         }
 
     // ------------------------------------------------------------------
-    // S12: NextItemRecommender.isBlocked is fail-closed
+    // S12: an unreadable blocker is fail-closed (the eligibility SQL)
     // ------------------------------------------------------------------
 
-    /** Delegates to the real repository but reports one item as unreadable (by id and in the batched role read). */
-    private class UnreadableItemRepository(
-        private val delegate: WorkItemRepository,
-        private val unreadable: UUID
-    ) : WorkItemRepository by delegate {
-        override suspend fun getById(id: UUID): WorkItem? = if (id == unreadable) null else delegate.getById(id)
-
-        // The recommender reads blocker roles in batch (Q14); the unreadable item is absent from that read too.
-        override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> = delegate.rolesOf(ids) - unreadable
-    }
-
     @Test
-    fun `S12 isBlocked is true when the BLOCKS blocker cannot be read, and false when it is readable and terminal`(): Unit =
+    fun `S12 next holds back an item whose BLOCKS blocker cannot be read, recommended while it is readable and terminal`(): Unit =
         runBlocking {
             val blocker = item("Terminal Blocker", role = Role.TERMINAL)
             val blocked = item("Blocked")
             link(blocker.id, blocked.id, "BLOCKS")
-            val readable = NextItemRecommender(context.workItemRepository(), context.dependencyRepository())
-            val unreadable =
-                NextItemRecommender(UnreadableItemRepository(context.workItemRepository(), blocker.id), context.dependencyRepository())
+            assertTrue(blocked.id in recommendedIds(), "control: a terminal blocker satisfies the default threshold")
 
-            assertFalse(readable.isBlocked(blocked), "control: a terminal blocker satisfies the default threshold")
-            assertTrue(unreadable.isBlocked(blocked), "an unreadable blocker counts as blocking (fail-closed)")
+            makeUnreadable(blocker)
+
+            assertFalse(blocked.id in recommendedIds(), "an unreadable blocker counts as blocking (fail-closed)")
         }
 
     @Test
-    fun `S12 isBlocked is true when the blocker of an IS_BLOCKED_BY input cannot be read`(): Unit =
+    fun `S12 next holds back an item whose IS_BLOCKED_BY blocker cannot be read`(): Unit =
         runBlocking {
             val blocker = item("Terminal Blocker", role = Role.TERMINAL)
             val blocked = item("Blocked")
             link(blocked.id, blocker.id, "IS_BLOCKED_BY")
-            val readable = NextItemRecommender(context.workItemRepository(), context.dependencyRepository())
-            val unreadable =
-                NextItemRecommender(UnreadableItemRepository(context.workItemRepository(), blocker.id), context.dependencyRepository())
+            assertTrue(blocked.id in recommendedIds(), "control: a terminal blocker satisfies the default threshold")
 
-            assertFalse(readable.isBlocked(blocked), "control: a terminal blocker satisfies the default threshold")
-            assertTrue(unreadable.isBlocked(blocked), "an unreadable blocker counts as blocking (fail-closed)")
+            makeUnreadable(blocker)
+
+            assertFalse(blocked.id in recommendedIds(), "an unreadable blocker counts as blocking (fail-closed)")
         }
 
     @Test
-    fun `S12 probe an unreadable item that is only the blocked side does not block anything`(): Unit =
-        runBlocking {
-            val blocker = item("Terminal Blocker", role = Role.TERMINAL)
-            val blocked = item("Blocked")
-            link(blocker.id, blocked.id, "BLOCKS")
-            val recommender =
-                NextItemRecommender(UnreadableItemRepository(context.workItemRepository(), blocked.id), context.dependencyRepository())
-
-            assertFalse(
-                recommender.isBlocked(blocked),
-                "only an unreadable BLOCKER is fail-closed; the blocked item itself is the argument"
-            )
-        }
-
-    @Test
-    fun `S12 probe an item with only a RELATES_TO edge to an unreadable item is not blocked`(): Unit =
+    fun `S12 probe an item with only a RELATES_TO edge to an unreadable item is still recommended`(): Unit =
         runBlocking {
             val related = item("Related", role = Role.TERMINAL)
             val subject = item("Subject")
-            val edge =
-                buildJsonObject {
-                    put("fromItemId", JsonPrimitive(related.id.toString()))
-                    put("toItemId", JsonPrimitive(subject.id.toString()))
-                    put("type", JsonPrimitive("RELATES_TO"))
-                }
-            context.seedDependencies(JsonArray(listOf(edge)))
-            val recommender =
-                NextItemRecommender(UnreadableItemRepository(context.workItemRepository(), related.id), context.dependencyRepository())
+            link(related.id, subject.id, "RELATES_TO")
 
-            assertFalse(recommender.isBlocked(subject), "RELATES_TO carries no blocking semantics")
+            makeUnreadable(related)
+
+            assertTrue(subject.id in recommendedIds(), "RELATES_TO carries no blocking semantics")
         }
 }

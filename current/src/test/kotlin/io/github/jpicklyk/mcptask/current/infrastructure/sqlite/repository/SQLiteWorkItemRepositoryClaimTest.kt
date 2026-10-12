@@ -802,21 +802,21 @@ class SQLiteWorkItemRepositoryClaimTest {
         }
 
     // -----------------------------------------------------------------------
-    // H6: countByClaimStatus invariant — active+expired+unclaimed == total
+    // H6: claimSummary invariant — active+expired+unclaimed == total
     // -----------------------------------------------------------------------
 
     /**
      * H6-I1: Verifies the three-way claim-status invariant holds for a known population.
      *
      * Creates 10 items in defined claim states (3 active, 2 expired, 5 unclaimed) and asserts
-     * that countByClaimStatus returns counts that sum to exactly 10.
+     * that claimSummary returns counts that sum to exactly 10.
      *
      * This pins the invariant: regardless of how the SQL classifies each row, the three
      * buckets must be exhaustive and mutually exclusive — no item can be counted twice or
      * omitted from all three buckets.
      */
     @Test
-    fun `countByClaimStatus invariant active+expired+unclaimed equals total item count`(): Unit =
+    fun `claimSummary invariant active+expired+unclaimed equals total item count`(): Unit =
         runBlocking {
             // 5 unclaimed items (no claim fields set)
             repeat(5) { i -> createItem("Unclaimed-$i") }
@@ -838,7 +838,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             // Move the clock past the 1s TTL so the 2 claims become expired
             clock.advanceSeconds(2)
 
-            val countResult = repository.countByClaimStatus(null)
+            val countResult = repository.claimSummary(null)
             assertNotNull(countResult)
             val counts = countResult
 
@@ -858,7 +858,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      * H6-I2: Invariant holds under concurrent claim toggle.
      *
      * Creates 10 items and spawns 3 threads that each toggle (claim then release) a different
-     * item while countByClaimStatus is being computed. The final invariant
+     * item while claimSummary is being computed. The final invariant
      * active+expired+unclaimed == count(all items) must hold after the concurrent operations
      * complete.
      *
@@ -867,7 +867,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      * any committed snapshot — races just make which snapshot we observe non-deterministic.
      */
     @Test
-    fun `countByClaimStatus invariant holds after concurrent claim toggles`(): Unit =
+    fun `claimSummary invariant holds after concurrent claim toggles`(): Unit =
         runBlocking {
             // Create 10 items
             val items = (1..10).map { i -> createItem("Toggle-Item-$i") }
@@ -898,7 +898,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             executor.shutdown()
 
             // After all concurrent operations complete, measure the invariant on a stable snapshot
-            val countResult = repository.countByClaimStatus(null)
+            val countResult = repository.claimSummary(null)
             assertNotNull(countResult)
             val counts = countResult
 
@@ -980,10 +980,10 @@ class SQLiteWorkItemRepositoryClaimTest {
 
     /**
      * H5-EQP1: Verifies that the non-partial `idx_work_items_claim_expires` index introduced
-     * in V6 is used by the claim-expiry filter that `findForNextItem` relies on.
+     * in V6 is used by the claim-expiry filter that `findEligible` relies on.
      *
      * Background: V5 created a *partial* index WHERE claimed_by IS NOT NULL. The actual
-     * `findForNextItem` query ORs the expiry check with `claimed_by IS NULL`, so the SQLite
+     * `findEligible` query ORs the expiry check with `claimed_by IS NULL`, so the SQLite
      * planner cannot use the partial index (the WHERE clause does not imply `claimed_by IS NOT
      * NULL`). V6 drops the partial index and replaces it with a plain non-partial index, which
      * the planner can use for the OR'd query.
@@ -994,7 +994,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      *      be created explicitly in this test.
      *   2. Insert 100+ rows so that SQLite's cost model prefers an index over a full scan.
      *      (With very few rows SQLite may choose a full scan even with an index.)
-     *   3. Run `EXPLAIN QUERY PLAN` for the exact OR predicate used by findForNextItem and
+     *   3. Run `EXPLAIN QUERY PLAN` for the exact OR predicate used by findEligible and
      *      assert the detail text contains the index name.
      *
      * SQLite EXPLAIN QUERY PLAN output format (v3.8.3+): rows of (id INT, parent INT,
@@ -1008,7 +1008,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      * which is stable across minor SQLite version differences in the exact detail wording.
      */
     @Test
-    fun `idx_work_items_claim_expires non-partial index is used by findForNextItem expiry filter`(): Unit =
+    fun `idx_work_items_claim_expires non-partial index is used by findEligible expiry filter`(): Unit =
         runBlocking {
             // Step 1: the index comes from the migrated V6 schema (SqliteTestDatabase); nothing is created here.
 
@@ -1019,7 +1019,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             }
 
             // Step 3: Collect the EXPLAIN QUERY PLAN output for the OR predicate that
-            // findForNextItem uses when excludeActiveClaims=true:
+            // findEligible uses when excludeActiveClaims=true:
             //   claimed_by IS NULL  OR  claim_expires_at <= <bound instant>
             // We test the second branch (the range scan on claim_expires_at) in isolation
             // so the planner can choose the index on that column.
@@ -1120,7 +1120,7 @@ class SQLiteWorkItemRepositoryClaimTest {
 
     /**
      * BUG2-REGRESSION: Claim with a short TTL produces a claimExpiresAt strictly after claimedAt,
-     * and the expiry comparison in findForNextItem/findClaimable respects the TTL value.
+     * and the expiry comparison in findEligible/findEligible respects the TTL value.
      *
      * Expiry is `now + ttl` computed in Kotlin from the bound clock, so a TTL of 30 seconds produces exactly
      * claimExpiresAt == claimedAt + 30 seconds.

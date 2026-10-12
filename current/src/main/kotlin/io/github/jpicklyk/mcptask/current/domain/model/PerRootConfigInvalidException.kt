@@ -22,7 +22,7 @@ class PerRootConfigInvalidException(
         }
 
     companion object {
-        /** MCP `errorCode` / REST `ErrorDto.error` literal for this failure mode. */
+        /** Error-code literal for this failure mode (the envelope's `config_invalid`). */
         const val CODE = "config_invalid"
     }
 }

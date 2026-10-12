@@ -55,8 +55,7 @@ sealed class ActorParseResult {
  * Mixin interface for tools that accept optional actor claims on write operations.
  * Provides a shared [parseActorClaim] method with default implementation.
  *
- * Tools opt into actor support by implementing this interface rather than inheriting
- * the logic from [BaseToolDefinition] (which is common to all tools).
+ * Callers opt into actor support by implementing this interface.
  */
 interface ActorAware {
     /**
@@ -140,9 +139,9 @@ interface ActorAware {
         /**
          * Applies the [DegradedModePolicy] to determine the trusted actor identity.
          *
-         * This is the central resolution point that `claim_item` (item 4) and
-         * `AdvanceItemTool` ownership checks (item 5) must call when verifying that
-         * the actor performing an operation matches the claim holder.
+         * This is the central resolution point that claim placement and the advance ownership
+         * checks must call when verifying that the actor performing an operation matches the
+         * claim holder.
          *
          * **Policy behaviour:**
          * - [DegradedModePolicy.ACCEPT_CACHED]: Three sub-cases:

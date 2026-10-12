@@ -167,7 +167,7 @@ class ConfigFingerprintTest {
             // the relation is UNKNOWN, not SUPERSEDED -- the push is accepted per the run plan's
             // rollout semantics (one unknown relation + re-push per affected root).
             val rePush =
-                projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
+                projectConfigRepository.upsertGuarded(rootItemId, crlfBody, rejectSuperseded = true)
             assertNotNull(rePush)
             val applied =
                 assertIs<ConfigAppendOutcome.Applied>(
@@ -188,18 +188,7 @@ class ConfigFingerprintTest {
                 "the pre-change raw fingerprint must now be in history"
             )
 
-            // A guarded push using the stale RAW fingerprint as the If-Match precondition must fail --
-            // the CAS `where fingerprint eq observedFingerprint` in #338's attemptGuardedUpsert is
-            // unchanged; only the computed fingerprint value differs now.
-            val staleIfMatch =
-                projectConfigRepository.upsertGuarded(
-                    rootItemId,
-                    crlfBody,
-                    expectedFingerprint = rawFingerprint,
-                    rejectSuperseded = false
-                )
-            assertNotNull(staleIfMatch)
-            val outcome = staleIfMatch
-            assertIs<ConfigAppendOutcome.PreconditionFailed>(outcome)
+            // Q32: the stale-fingerprint If-Match half went with the legacy fingerprint compare-and-set;
+            // the version compare-and-set (expectedVersion) is covered by SqliteConfigStoreTest S5.
         }
 }

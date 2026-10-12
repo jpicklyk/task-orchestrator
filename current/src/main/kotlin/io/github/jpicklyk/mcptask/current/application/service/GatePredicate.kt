@@ -18,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * schema entries are still missing for the relevant trigger, and (2) (A2) which independent_of
  * independence-attestation violations exist for the relevant trigger.
  *
- * Two trigger semantics mirror the historical inline logic in AdvanceItemTool:
+ * Two trigger semantics:
  * - start: only required notes for the item's CURRENT role must be filled.
  * - complete (and cascade-to-terminal): ALL required notes across ALL phases must be filled.
  *

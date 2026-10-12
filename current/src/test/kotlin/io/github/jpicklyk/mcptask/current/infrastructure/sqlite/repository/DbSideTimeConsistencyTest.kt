@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -31,10 +32,10 @@ import kotlin.test.assertTrue
  *
  * The repositories are opened over a [SettableClock], so expiry is tested by moving the clock (no sleeping):
  *
- * 1. `findForNextItem`: a claimed item is excluded while the claim is active and returns once the clock passes
+ * 1. `findEligible`: a claimed item is excluded while the claim is active and returns once the clock passes
  *    the expiry; an expiry equal to now is already expired.
  * 2. The ownership gate decides claim freshness at the snapshot's `now` (the unit instant), not `Instant.now()`.
- * 3. `countByClaimStatus`: active/expired counts follow the clock.
+ * 3. `claimSummary`: active/expired counts follow the clock.
  * 4. `retryAfterMs` is the time left on the bound clock, at least 1.
  */
 class DbSideTimeConsistencyTest {
@@ -64,16 +65,16 @@ class DbSideTimeConsistencyTest {
     }
 
     // -----------------------------------------------------------------------
-    // 1. findForNextItem follows the bound clock
+    // 1. findEligible follows the bound clock
     // -----------------------------------------------------------------------
 
     /**
-     * Claim an item with a 2-second TTL, move the clock past the expiry, then verify findForNextItem
+     * Claim an item with a 2-second TTL, move the clock past the expiry, then verify findEligible
      * (excludeActiveClaims=true) includes the item again. At exactly the expiry instant the claim is already
      * expired (an expiry equal to now is not active).
      */
     @Test
-    fun `findForNextItem includes item once the bound clock passes the claim expiry`(): Unit =
+    fun `findEligible includes item once the bound clock passes the claim expiry`(): Unit =
         runBlocking {
             val item = createItem("Claim-expiry item")
 
@@ -81,18 +82,33 @@ class DbSideTimeConsistencyTest {
             assertIs<ClaimResult.Success>(claimResult)
 
             // Immediately after claiming, the item should be excluded from next-item results.
-            val beforeIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
-            assertTrue(item.id !in beforeIds, "Item should be excluded from findForNextItem while claim is active")
+            val beforeIds =
+                repository
+                    .findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000)
+                    .items
+                    .map { it.id }
+                    .toSet()
+            assertTrue(item.id !in beforeIds, "Item should be excluded from findEligible while claim is active")
 
             // One millisecond before the expiry: still active.
             clock.advance(java.time.Duration.ofMillis(1999))
-            val almostIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
+            val almostIds =
+                repository
+                    .findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000)
+                    .items
+                    .map { it.id }
+                    .toSet()
             assertTrue(item.id !in almostIds, "Item should still be excluded 1 ms before the expiry")
 
             // At exactly the expiry instant: expired.
             clock.advance(java.time.Duration.ofMillis(1))
-            val afterIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
-            assertTrue(item.id in afterIds, "Item should reappear in findForNextItem at the expiry instant")
+            val afterIds =
+                repository
+                    .findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000)
+                    .items
+                    .map { it.id }
+                    .toSet()
+            assertTrue(item.id in afterIds, "Item should reappear in findEligible at the expiry instant")
         }
 
     // -----------------------------------------------------------------------
@@ -176,23 +192,23 @@ class DbSideTimeConsistencyTest {
         }
 
     // -----------------------------------------------------------------------
-    // 3. countByClaimStatus follows the bound clock
+    // 3. claimSummary follows the bound clock
     // -----------------------------------------------------------------------
 
     @Test
-    fun `countByClaimStatus follows the bound clock after the claim TTL elapses`(): Unit =
+    fun `claimSummary follows the bound clock after the claim TTL elapses`(): Unit =
         runBlocking {
             val item = createItem("ClaimStatus count item")
             repository.claim(item.id, "agent-count-test", ttlSeconds = 2)
 
             // Immediately: active=1, expired=0.
-            val beforeResult = repository.countByClaimStatus()
+            val beforeResult = repository.claimSummary()
             assertEquals(1, beforeResult.active, "exactly 1 active claim right after claiming")
             assertEquals(0, beforeResult.expired)
 
             clock.advanceSeconds(3)
 
-            val afterResult = repository.countByClaimStatus()
+            val afterResult = repository.claimSummary()
             assertEquals(0, afterResult.active, "Active claim count should be 0 once the clock passes the TTL")
             assertEquals(1, afterResult.expired, "Expired claim count should be 1 once the clock passes the TTL")
         }

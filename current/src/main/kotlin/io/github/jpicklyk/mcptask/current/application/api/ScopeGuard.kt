@@ -12,9 +12,9 @@ import org.slf4j.LoggerFactory
 import java.util.UUID
 
 /**
- * Transport-neutral twin of the REST `enforceScopeForItem`: decides whether a call's [AccessScope] admits
- * one item. Tool handlers call it for every item an op touches; the dispatcher cannot, because only a
- * handler knows which items an op reads or writes.
+ * The ONE scope predicate (Q32 deleted the REST twin): decides whether a call's [AccessScope] admits
+ * an item. Tool handlers call it for every item an op touches (the dispatcher cannot, because only a
+ * handler knows which items an op reads or writes), and the SSE stream filters tag-scoped events with it.
  *
  * Rules: an unrestricted scope is admitted with no database read. With a root restriction the item or any
  * ancestor must be a listed root; with a tag restriction the item must carry one of the listed tags (the
@@ -55,21 +55,14 @@ object ScopeGuard {
                     logger.warn("Scope check failed to read item {}: {}", itemId, e.message)
                     return Outcome.Err(forbidden(ForbiddenScope.TAG, scope.tagsInclude))
                 } ?: return Outcome.Err(forbidden(ForbiddenScope.TAG, scope.tagsInclude))
-            val tags =
-                item.tags
-                    ?.split(",")
-                    ?.map { it.trim() }
-                    ?.filter { it.isNotEmpty() }
-                    ?.toSet()
-                    ?: emptySet()
-            if (tags.none { it in scope.tagsInclude }) return Outcome.Err(forbidden(ForbiddenScope.TAG, scope.tagsInclude))
+            if (splitTags(item.tags).none { it in scope.tagsInclude }) return Outcome.Err(forbidden(ForbiddenScope.TAG, scope.tagsInclude))
         }
         return Outcome.Ok(Unit)
     }
 
     /**
-     * Batch twin of [check]: the subset of [ids] the [scope] admits, under the same rules as [check] and
-     * `allowedItemIdsForScope`. An unrestricted scope returns [ids] with no database read. A restricted scope
+     * Batch twin of [check]: the subset of [ids] the [scope] admits, under the same rules as [check]. An
+     * unrestricted scope returns [ids] with no database read. A restricted scope
      * costs one `findAncestorChains` (root restriction) and one `findByIds` (tag restriction) over the ids still
      * in the running. A missing item is not admitted, and a lookup fault admits nothing (fail closed).
      */
@@ -105,6 +98,7 @@ object ScopeGuard {
         }
     }
 
+    /** An item's CSV `tags` column as a set: elements trimmed, empty ones dropped; matching is exact and case-sensitive. */
     private fun splitTags(tags: String?): Set<String> =
         tags
             ?.split(",")

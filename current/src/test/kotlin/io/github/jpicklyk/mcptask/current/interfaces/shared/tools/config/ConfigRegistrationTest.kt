@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -212,12 +211,11 @@ class ConfigRegistrationTest {
     // ------------------------------------------------------------------ S19 removal
 
     @Test
-    fun `S19 manage_project_config and query_rules are gone and the legacy MCP tool list is empty`() {
-        val names = buildMcpTools().map { it.name }
-        assertTrue(names.isEmpty(), "control: every 3.x tool is removed, so the 3.x list is empty: $names")
+    fun `S19 manage_project_config and query_rules are gone and config is served`() {
+        val names = ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        assertTrue("config" in names, "control: config is served by the production registry: $names")
         assertTrue("manage_project_config" !in names, "manage_project_config must not be registered: $names")
         assertTrue("query_rules" !in names, "query_rules must not be registered: $names")
-        assertTrue("config" !in names, "config belongs to the shared registry, not the 3.x list: $names")
     }
 
     @Test

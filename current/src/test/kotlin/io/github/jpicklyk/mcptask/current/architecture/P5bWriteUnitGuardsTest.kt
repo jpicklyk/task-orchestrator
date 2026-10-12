@@ -87,9 +87,7 @@ class P5bWriteUnitGuardsTest {
                 "infrastructure/sqlite/repository/WorkItemRows.kt",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
                 "interfaces/api/v1/routes/ItemWriteRoutes.kt",
-                "interfaces/api/v1/routes/ItemRoutes.kt",
-                "application/tools/workflow/ClaimItemTool.kt",
-                "interfaces/mcp/McpToolAdapter.kt"
+                "interfaces/api/v1/routes/ItemRoutes.kt"
             )
         assertEquals(emptyMap(), actual.filterKeys { it in burned }, "task-scope section 7: these files are fully burned down")
         assertTrue(actual.values.sum() <= 59, "actual site count ${actual.values.sum()} must be <= 59")
@@ -97,7 +95,10 @@ class P5bWriteUnitGuardsTest {
     }
 
     private companion object {
-        /** The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt). */
+        /**
+         * The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt),
+         * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again.
+         */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
             CurrentMain.kt 1
@@ -106,17 +107,6 @@ class P5bWriteUnitGuardsTest {
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1
-            application/tools/BaseToolDefinition.kt 1
-            application/tools/PropertiesHelper.kt 2
-            application/tools/compound/CreateWorkTreeTool.kt 2
-            application/tools/dependency/ManageDependenciesTool.kt 2
-            application/tools/items/CreateItemHandler.kt 1
-            application/tools/items/QueryItemsTool.kt 3
-            application/tools/items/UpdateItemHandler.kt 1
-            application/tools/notes/ManageNotesTool.kt 1
-            application/tools/notes/QueryNotesTool.kt 3
-            application/tools/workflow/ClaimItemTool.kt 5
-            application/tools/workflow/GetNextItemTool.kt 1
             infrastructure/config/DidDocumentJwksExtractor.kt 1
             infrastructure/config/DidWebResolver.kt 4
             infrastructure/config/GlobalConfigFile.kt 3
@@ -148,7 +138,6 @@ class P5bWriteUnitGuardsTest {
             interfaces/api/v1/routes/QueryParams.kt 1
             interfaces/api/v1/routes/RuleRoutes.kt 1
             interfaces/mcp/CurrentMcpServer.kt 9
-            interfaces/mcp/McpToolAdapter.kt 4
             """.trimIndent()
                 .lines()
                 .associate { it.substringBeforeLast(' ') to it.substringAfterLast(' ').toInt() }

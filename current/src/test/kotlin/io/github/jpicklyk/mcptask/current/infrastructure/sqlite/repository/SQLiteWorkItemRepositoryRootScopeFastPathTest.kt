@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -28,8 +29,8 @@ import kotlin.test.assertTrue
  * WHERE clause).
  *
  * Item `09205394` test-plan, scenarios S1-S8. None of the seven consumer signatures changed
- * ([WorkItemRepository.findByRole], [WorkItemRepository.findForNextItem],
- * [WorkItemRepository.findClaimable], [WorkItemRepository.countByClaimStatus],
+ * ([WorkItemRepository.findByRole], [WorkItemRepository.findEligible],
+ * [WorkItemRepository.findEligible], [WorkItemRepository.claimSummary],
  * [WorkItemRepository.findInScope], [WorkItemRepository.countInScope],
  * [WorkItemRepository.countInScopeByRole]) -- the fix is a private guard inside
  * [SQLiteWorkItemRepository]: when every requested scope id is a genuine stamped depth-0 root
@@ -227,33 +228,33 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             assertEquals(stampedIds, stampedByRole.map { it.id }.toSet(), "findByRole (fast path)")
             assertEquals(legacyIds, legacyByRole.map { it.id }.toSet(), "findByRole (CTE fallback)")
 
-            val stampedNext = repository.findForNextItem(role = Role.QUEUE, rootIds = setOf(r.id))
-            val legacyNext = repository.findForNextItem(role = Role.QUEUE, rootIds = setOf(ru.id))
+            val stampedNext = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(r.id)), limit = 1000).items
+            val legacyNext = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(ru.id)), limit = 1000).items
             assertNotNull(stampedNext)
             assertNotNull(legacyNext)
-            assertEquals(stampedIds, stampedNext.map { it.id }.toSet(), "findForNextItem (fast path)")
-            assertEquals(legacyIds, legacyNext.map { it.id }.toSet(), "findForNextItem (CTE fallback)")
+            assertEquals(stampedIds, stampedNext.map { it.id }.toSet(), "findEligible (fast path)")
+            assertEquals(legacyIds, legacyNext.map { it.id }.toSet(), "findEligible (CTE fallback)")
 
-            val stampedClaimable = repository.findClaimable(role = Role.QUEUE, rootIds = setOf(r.id))
-            val legacyClaimable = repository.findClaimable(role = Role.QUEUE, rootIds = setOf(ru.id))
+            val stampedClaimable = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(r.id)), limit = 1000).items
+            val legacyClaimable = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(ru.id)), limit = 1000).items
             assertNotNull(stampedClaimable)
             assertNotNull(legacyClaimable)
-            assertEquals(stampedIds, stampedClaimable.map { it.id }.toSet(), "findClaimable (fast path)")
-            assertEquals(legacyIds, legacyClaimable.map { it.id }.toSet(), "findClaimable (CTE fallback)")
+            assertEquals(stampedIds, stampedClaimable.map { it.id }.toSet(), "findEligible (fast path)")
+            assertEquals(legacyIds, legacyClaimable.map { it.id }.toSet(), "findEligible (CTE fallback)")
 
-            val stampedClaimStatus = repository.countByClaimStatus(rootIds = setOf(r.id))
-            val legacyClaimStatus = repository.countByClaimStatus(rootIds = setOf(ru.id))
+            val stampedClaimStatus = repository.claimSummary(rootIds = setOf(r.id))
+            val legacyClaimStatus = repository.claimSummary(rootIds = setOf(ru.id))
             assertNotNull(stampedClaimStatus)
             assertNotNull(legacyClaimStatus)
             assertEquals(
                 ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
                 stampedClaimStatus,
-                "countByClaimStatus (fast path)"
+                "claimSummary (fast path)"
             )
             assertEquals(
                 ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
                 legacyClaimStatus,
-                "countByClaimStatus (CTE fallback)"
+                "claimSummary (CTE fallback)"
             )
 
             val stampedCount = repository.countInScope(rootIds = setOf(r.id))

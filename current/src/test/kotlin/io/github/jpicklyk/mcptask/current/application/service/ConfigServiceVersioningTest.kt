@@ -396,30 +396,11 @@ class ConfigServiceVersioningTest {
         }
 
     @Test
-    fun `S5 the legacy expectedFingerprint behaves the same and force does not skip it`(): Unit =
-        runBlocking {
-            val root = newRoot()
-            val first = pushOk(root, rev(1))
-            val second = pushOk(root, rev(2))
-
-            val stale = assertIs<ConfigPushResult.PreconditionFailed>(service.push(root, rev(3), expectedFingerprint = first.fingerprint))
-            assertEquals(2, stale.currentVersion)
-            assertEquals(second.fingerprint, stale.currentFingerprint)
-            assertIs<ConfigPushResult.PreconditionFailed>(service.push(root, rev(3), force = true, expectedFingerprint = first.fingerprint))
-            assertEquals(2, store.history(ConfigScope.ROOT, root, 50).size)
-
-            val fresh = service.push(root, rev(3), expectedFingerprint = second.fingerprint)
-            assertEquals(3, assertIs<ConfigPushResult.Success>(fresh).version)
-        }
-
-    @Test
-    fun `S5 both guards are ignored while the root has no config`(): Unit =
+    fun `S5 the version guard is ignored while the root has no config`(): Unit =
         runBlocking {
             val rootA = newRoot("A")
-            val rootB = newRoot("B")
 
             assertEquals(1, assertIs<ConfigPushResult.Success>(service.push(rootA, base, expectedVersion = 9)).version)
-            assertEquals(1, assertIs<ConfigPushResult.Success>(service.push(rootB, base, expectedFingerprint = "0".repeat(64))).version)
         }
     // ---------------------------------------------------------------------------------------------
     // S6 - fast-forward guard
@@ -659,7 +640,7 @@ class ConfigServiceVersioningTest {
         }
 
     @Test
-    fun `S10 rollback honours both compare-and-set guards`(): Unit =
+    fun `S10 rollback honours the version compare-and-set guard`(): Unit =
         runBlocking {
             val root = newRoot()
             val first = pushOk(root, rev(1))
@@ -668,9 +649,6 @@ class ConfigServiceVersioningTest {
             val staleVersion = assertIs<ConfigRollbackResult.PreconditionFailed>(service.rollback(root, 1, expectedVersion = 1))
             assertEquals(2, staleVersion.currentVersion)
             assertEquals(second.fingerprint, staleVersion.currentFingerprint)
-            val staleFingerprint =
-                assertIs<ConfigRollbackResult.PreconditionFailed>(service.rollback(root, 1, expectedFingerprint = first.fingerprint))
-            assertEquals(2, staleFingerprint.currentVersion)
             assertEquals(2, store.history(ConfigScope.ROOT, root, 50).size)
 
             val ok = assertIs<ConfigRollbackResult.Success>(service.rollback(root, 1, expectedVersion = 2))

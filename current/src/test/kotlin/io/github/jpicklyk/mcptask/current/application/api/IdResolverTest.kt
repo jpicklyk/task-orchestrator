@@ -29,8 +29,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item `67ba3514` ([Q5]) -- [IdResolver] and [IdResolution.toOutcome].
- * Scenarios S1-S8 of the frozen `test-plan` note (all NEW-SURFACE except S8, which is EXISTING-SURFACE behaviour
- * reached through the new `resolveLegacy` entry point).
+ * Scenarios S1-S7 of the frozen `test-plan` note (all NEW-SURFACE). Q32 deleted S8 with the 3.x entry point it covered.
  *
  * Oracles:
  *  - S1: IdRef KDoc (a canonical 36-character UUID, any case) and `task-scope` item 1 (full UUID -> Resolved with
@@ -42,8 +41,6 @@ import kotlin.test.assertTrue
  *  - S6: envelope line 171 -- a store fault is rethrown, never reported as not_found; the cancellation-safety ratchet --
  *    a CancellationException is never wrapped.
  *  - S7: the hex-prefix definition: a prefix selects exactly the ids whose lowercase dash-free hex starts with it.
- *  - S8: `task-scope` D1 -- the 3.x entry keeps its 4+ hex minimum and the messages' defect classes; the existing
- *    `BaseToolDefinitionTest` pins the wording ("prefix too short", "Invalid ID format").
  *
  * BLINDNESS: authored from the frozen `task-scope`/`test-plan` notes and the orchestrator-supplied declarations block.
  * No `src/main` file, implementer diff or implementer note was opened. The harness is the pre-existing
@@ -89,8 +86,6 @@ class IdResolverTest {
             assertEquals(IdResolution.Resolved(id), strict.resolve(id.toString()))
             assertEquals(IdResolution.Resolved(id), strict.resolve(id.toString().uppercase()))
             assertEquals(IdResolution.Resolved(id), strict.resolve(IdRef(id.toString())))
-            assertEquals(IdResolution.Resolved(id), strict.resolveLegacy(id.toString()))
-            assertEquals(IdResolution.Resolved(id), strict.resolveLegacy(id.toString().uppercase()))
             confirmVerified(store)
         }
 
@@ -184,10 +179,6 @@ class IdResolverTest {
             val ambiguous = assertIs<IdResolution.Ambiguous>(result)
             assertEquals("abcd1234", ambiguous.prefix)
             assertEquals(listOf(low, mid, high), ambiguous.candidates)
-            assertTrue(
-                ambiguous.titles.keys.all { it in ambiguous.candidates },
-                "titles, when present, name only candidates: ${ambiguous.titles}"
-            )
 
             val error = errorOf(result.toOutcome("id"))
             assertEquals(ErrorCode.AMBIGUOUS_ID, error.code)
@@ -317,7 +308,7 @@ class IdResolverTest {
         }
 
     @Test
-    fun `S6 any non-cancellation exception is Failed, through resolve, IdRef and legacy entries`(): Unit =
+    fun `S6 any non-cancellation exception is Failed, through resolve and IdRef`(): Unit =
         runBlocking {
             val boom = IllegalStateException("Database connection failed")
             val store = mockk<ItemStore>()
@@ -326,7 +317,6 @@ class IdResolverTest {
 
             assertSame(boom, assertIs<IdResolution.Failed>(failing.resolve("abcd1234")).cause)
             assertSame(boom, assertIs<IdResolution.Failed>(failing.resolve(IdRef("abcd1234"))).cause)
-            assertSame(boom, assertIs<IdResolution.Failed>(failing.resolveLegacy("abcd")).cause)
             assertFailsWith<IllegalStateException> { failing.resolve("abcd1234").toOutcome("id") }
         }
 
@@ -339,7 +329,6 @@ class IdResolverTest {
 
             assertFailsWith<CancellationException> { cancelling.resolve("abcd1234") }
             assertFailsWith<CancellationException> { cancelling.resolve(IdRef("abcd1234")) }
-            assertFailsWith<CancellationException> { cancelling.resolveLegacy("abcd") }
         }
 
     @Test
@@ -406,81 +395,5 @@ class IdResolverTest {
             seed("00000001-0000-4000-8000-000000000000", "one")
             assertEquals(IdResolution.Resolved(zero), resolver.resolve("00000000"))
             assertEquals(IdResolution.NotFound("00000002"), resolver.resolve("00000002"))
-        }
-
-    // ============================================================================ S8 -- 3.x entry
-
-    @Test
-    fun `S8 the legacy constants keep the 3x rules`() {
-        assertEquals(4, IdResolver.LEGACY_MIN_PREFIX_LENGTH)
-        assertEquals(10, IdResolver.MAX_CANDIDATES)
-        assertTrue(IdResolver.LEGACY_HEX_PATTERN.matches("abcDEF0123"))
-        assertTrue(!IdResolver.LEGACY_HEX_PATTERN.matches("ghij1234"))
-        assertTrue(!IdResolver.LEGACY_HEX_PATTERN.matches("ab-cd"))
-    }
-
-    @Test
-    fun `S8 resolveLegacy accepts a unique prefix of 4 to 7 hex characters that resolve accepts only from 8`(): Unit =
-        runBlocking {
-            val a = seed("9e0b77aa-2222-4222-8222-222222222222")
-            seed("3f2a9c10-1111-4111-8111-111111111111")
-            for (raw in listOf("9e0b", "9e0b7", "9e0b77", "9e0b77a", "9E0B")) {
-                assertEquals(IdResolution.Resolved(a), resolver.resolveLegacy(raw), "legacy '$raw'")
-                assertIs<IdResolution.Invalid>(resolver.resolve(raw), "4.0 '$raw'")
-            }
-        }
-
-    @Test
-    fun `S8 resolveLegacy rejects a prefix shorter than 4 as too short and non-hex text as not hex`() {
-        val tooShort = IdResolver.legacyFormatDefect("abc")
-        assertEquals(IdFormatDefect.TOO_SHORT, assertIs<IdResolution.Invalid>(tooShort).defect)
-        assertEquals("abc", tooShort.raw)
-
-        val notHex = IdResolver.legacyFormatDefect("ghij1234")
-        assertEquals(IdFormatDefect.NOT_HEX, assertIs<IdResolution.Invalid>(notHex).defect)
-        assertEquals("ghij1234", notHex.raw)
-
-        assertNull(IdResolver.legacyFormatDefect("abcd"))
-        assertNull(IdResolver.legacyFormatDefect("12345678"))
-        assertNull(IdResolver.legacyFormatDefect("3f2a9c10-aaaa-4bbb-8ccc-ddddeeeeffff"))
-    }
-
-    @Test
-    fun `S8 resolveLegacy reports the same defect classes through the resolution`(): Unit =
-        runBlocking {
-            val store = mockk<ItemStore>()
-            val strict = IdResolver(store)
-            assertEquals(IdFormatDefect.TOO_SHORT, assertIs<IdResolution.Invalid>(strict.resolveLegacy("abc")).defect)
-            assertEquals(IdFormatDefect.NOT_HEX, assertIs<IdResolution.Invalid>(strict.resolveLegacy("ghij1234")).defect)
-            assertIs<IdResolution.Invalid>(strict.resolveLegacy("ab-cd-ef"))
-            assertIs<IdResolution.Invalid>(strict.resolveLegacy("3f2a9c10-aaaa-4bbb-8ccc-ddddeeeeffgg"))
-            confirmVerified(store)
-        }
-
-    @Test
-    fun `S8 legacy ambiguity carries the titles of the rows the one prefix query returned, with a single store call`(): Unit =
-        runBlocking {
-            val one = WorkItem(id = UUID.fromString("abcd1234-0000-4000-8000-000000000001"), title = "Item One")
-            val two = WorkItem(id = UUID.fromString("abcd1234-7777-4777-8777-777777777777"), title = "Item Two")
-            val store = mockk<ItemStore>()
-            coEvery { store.findByIdPrefix(any(), any()) } returns listOf(one, two)
-            val counting = IdResolver(store)
-
-            val ambiguous = assertIs<IdResolution.Ambiguous>(counting.resolveLegacy("abcd1234"))
-            assertEquals(listOf(one.id, two.id), ambiguous.candidates)
-            assertEquals(mapOf(one.id to "Item One", two.id to "Item Two"), ambiguous.titles)
-            coVerify(exactly = 1) { store.findByIdPrefix(any(), any()) }
-            confirmVerified(store)
-        }
-
-    @Test
-    fun `S8 legacy NotFound and fault behave like the 4x entry`(): Unit =
-        runBlocking {
-            assertEquals(IdResolution.NotFound("dead"), resolver.resolveLegacy("dead"))
-
-            val boom = SQLException("boom")
-            val store = mockk<ItemStore>()
-            coEvery { store.findByIdPrefix(any(), any()) } throws boom
-            assertSame(boom, assertIs<IdResolution.Failed>(IdResolver(store).resolveLegacy("abcd")).cause)
         }
 }

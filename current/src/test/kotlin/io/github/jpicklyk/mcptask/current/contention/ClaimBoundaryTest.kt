@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.contention
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.service.ok
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -73,7 +74,10 @@ class ClaimBoundaryTest {
             d.claimFor(parent, "agent-a")
             val claims = d.raw.claimStore()
 
-            suspend fun claimableFor(agent: String?) = claims.findClaimable(Role.QUEUE, requestingAgentId = agent).map { it.id }
+            suspend fun claimableFor(agent: String?) =
+                claims.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = agent), limit = 1000).items.map {
+                    it.id
+                }
 
             clock.set(claimExpiry.minusMillis(1))
             assertFalse(child.id in claimableFor("agent-b"), "another agent's active ancestor claim hides the child at E - 1 ms")

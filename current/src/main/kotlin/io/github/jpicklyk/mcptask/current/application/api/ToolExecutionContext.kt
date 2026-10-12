@@ -57,10 +57,7 @@ class ToolExecutionContext(
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
     val nextItemRecommender: NextItemRecommender =
-        NextItemRecommender(
-            repositoryProvider.workItemRepository(),
-            repositoryProvider.dependencyRepository()
-        ),
+        NextItemRecommender(repositoryProvider.workItemRepository()),
     perRootConfigService: PerRootConfigSource? = null,
     /**
      * The single resolution entry point every resolver method below delegates to. Defaults to a

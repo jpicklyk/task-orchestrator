@@ -10,12 +10,10 @@ import io.github.jpicklyk.mcptask.current.application.port.EligibilityBreakdown
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.SelectorMatchCounts
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
@@ -245,197 +243,6 @@ class SqliteClaimStore(
         stmt[WorkItemsTable.originalClaimedAt] = null
     }
 
-    override suspend fun findForNextItem(
-        role: Role,
-        parentId: UUID?,
-        excludeActiveClaims: Boolean,
-        limit: Int,
-        rootIds: Set<UUID>?
-    ): List<WorkItem> {
-        val now = if (excludeActiveClaims) clock.unitNow() else null
-        return databaseManager.readTx {
-            val spec = ItemQuerySpec(role = role, parentId = parentId)
-            val conditions = ItemQueries.conditions(spec, rootIds?.let { ScopeResolver.resolve(it) }, now)
-            if (conditions == null) return@readTx emptyList()
-            // Claim filter: exclude items with an active claim, decided on the unit instant.
-            if (now != null) conditions.add(ClaimPredicates.notActive(now))
-            WorkItemsTable
-                .selectAll()
-                .where { conditions.reduce { acc, op -> acc and op } }
-                .limit(limit)
-                .map { WorkItemRows.toWorkItem(it) }
-                .let { WorkItemRows.withTraits(it) }
-        }
-    }
-
-    override suspend fun findClaimable(
-        role: Role,
-        parentId: UUID?,
-        tags: List<String>?,
-        priority: Priority?,
-        type: String?,
-        complexityMax: Int?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        orderBy: NextItemOrder,
-        limit: Int,
-        requestingAgentId: String?,
-        rootIds: Set<UUID>?,
-    ): List<WorkItem> {
-        val now = clock.unitNow()
-        return databaseManager.readTx {
-            val spec =
-                ItemQuerySpec(
-                    role = role,
-                    parentId = parentId,
-                    tags = tags,
-                    priority = priority,
-                    type = type,
-                    complexityMax = complexityMax,
-                    createdAfter = createdAfter,
-                    createdBefore = createdBefore,
-                    modifiedAfter = modifiedAfter,
-                    modifiedBefore = modifiedBefore,
-                    roleChangedAfter = roleChangedAfter,
-                    roleChangedBefore = roleChangedBefore
-                )
-            val conditions = ItemQueries.conditions(spec, rootIds?.let { ScopeResolver.resolve(it) }, now)
-            if (conditions == null) return@readTx emptyList()
-            // Active-claim exclusion is always applied: claim-eligibility by definition requires it.
-            conditions.add(ClaimPredicates.notActive(now))
-
-            val baseQuery = WorkItemsTable.selectAll().where { conditions.reduce { acc, op -> acc and op } }
-            val orderedQuery =
-                when (orderBy) {
-                    NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
-                        baseQuery
-                            .orderBy(ItemQueries.priorityRank(), SortOrder.ASC)
-                            .orderBy(WorkItemsTable.complexity, SortOrder.ASC_NULLS_LAST)
-                    NextItemOrder.OLDEST_FIRST -> baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.ASC)
-                    NextItemOrder.NEWEST_FIRST -> baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
-                }
-
-            val candidates = orderedQuery.limit(limit).map { WorkItemRows.toWorkItem(it) }.let { WorkItemRows.withTraits(it) }
-
-            // Ancestor-claim filter (strict-by-default sub-tree isolation): disqualify a candidate whose ancestor
-            // holds an active claim by a disqualifying agent. With a requesting agent only OTHER agents' claims
-            // disqualify; without one, any active ancestor claim does.
-            val candidatesWithParents = candidates.filter { it.parentId != null }
-            if (candidatesWithParents.isEmpty()) return@readTx candidates
-
-            // Batched BFS upward, seeded from the candidate rows already in memory.
-            val ancestorCache = mutableMapOf<UUID, WorkItem>()
-            candidatesWithParents.forEach { ancestorCache[it.id] = it }
-            var toFetch = candidatesWithParents.mapNotNull { it.parentId }.toSet() - ancestorCache.keys
-            while (toFetch.isNotEmpty()) {
-                val fetched = WorkItemRows.loadByIds(toFetch)
-                fetched.forEach { ancestorCache[it.id] = it }
-                toFetch = fetched.mapNotNull { it.parentId }.toSet() - ancestorCache.keys
-            }
-
-            candidates.filter { candidate ->
-                var parentId = candidate.parentId
-                val visited = mutableSetOf<UUID>()
-                var disqualified = false
-                while (parentId != null && !disqualified) {
-                    if (!visited.add(parentId)) break // cycle guard
-                    val ancestor = ancestorCache[parentId] ?: break
-                    val claim = ClaimState.of(ancestor)
-                    if (claim != null && claim.isActive(now) && (requestingAgentId == null || claim.claimedBy != requestingAgentId)) {
-                        disqualified = true
-                    }
-                    parentId = ancestor.parentId
-                }
-                !disqualified
-            }
-        }
-    }
-
-    override suspend fun countByClaimStatus(
-        parentId: UUID?,
-        rootIds: Set<UUID>?
-    ): ClaimStatusCounts {
-        val now = clock.unitNow()
-        return databaseManager.readTx {
-            val scope = rootIds?.let { ScopeResolver.resolve(it) }
-            if (scope == ResolvedScope.Empty) return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
-
-            fun count(status: ClaimStatus): Int {
-                val conditions = mutableListOf<Op<Boolean>>()
-                parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
-                scope?.let { conditions.add(it.toCondition()) }
-                conditions.add(ClaimPredicates.forStatus(status, now))
-                return WorkItemsTable
-                    .selectAll()
-                    .where { conditions.reduce { acc, op -> acc and op } }
-                    .count()
-                    .toInt()
-            }
-            ClaimStatusCounts(
-                active = count(ClaimStatus.CLAIMED),
-                expired = count(ClaimStatus.EXPIRED),
-                unclaimed = count(ClaimStatus.UNCLAIMED)
-            )
-        }
-    }
-
-    override suspend fun countSelectorMatches(
-        role: Role,
-        parentId: UUID?,
-        tags: List<String>?,
-        priority: Priority?,
-        type: String?,
-        complexityMax: Int?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        rootIds: Set<UUID>?,
-    ): SelectorMatchCounts {
-        val now = clock.unitNow()
-        return databaseManager.readTx {
-            // The same condition builder as findClaimable, minus the active-claim exclusion: this counts matches
-            // WITH claim status broken out, not rows eligible to claim.
-            val spec =
-                ItemQuerySpec(
-                    role = role,
-                    parentId = parentId,
-                    tags = tags,
-                    priority = priority,
-                    type = type,
-                    complexityMax = complexityMax,
-                    createdAfter = createdAfter,
-                    createdBefore = createdBefore,
-                    modifiedAfter = modifiedAfter,
-                    modifiedBefore = modifiedBefore,
-                    roleChangedAfter = roleChangedAfter,
-                    roleChangedBefore = roleChangedBefore
-                )
-            val conditions = ItemQueries.conditions(spec, rootIds?.let { ScopeResolver.resolve(it) }, now)
-            if (conditions == null) return@readTx SelectorMatchCounts(matched = 0, activelyClaimed = 0)
-            val combined = conditions.reduce { acc, op -> acc and op }
-            val matched =
-                WorkItemsTable
-                    .selectAll()
-                    .where { combined }
-                    .count()
-                    .toInt()
-            val activelyClaimed =
-                WorkItemsTable
-                    .selectAll()
-                    .where { combined and ClaimPredicates.active(now) }
-                    .count()
-                    .toInt()
-            SelectorMatchCounts(matched = matched, activelyClaimed = activelyClaimed)
-        }
-    }
-
     override suspend fun findEligible(
         query: EligibilityQuery,
         limit: Int,
@@ -556,7 +363,7 @@ class SqliteClaimStore(
         )
 
     /**
-     * The selector filters of [query] (the same builder as [findClaimable]) AND the visibility of [scope], or null when
+     * The selector filters of [query] AND the visibility of [scope], or null when
      * either is empty.
      * Must run inside a transaction: resolving `rootIds` may probe or walk the hierarchy.
      */

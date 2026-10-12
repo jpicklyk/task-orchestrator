@@ -3,9 +3,8 @@ package io.github.jpicklyk.mcptask.current.application.service
 /**
  * Splits a stashed plan document (already CRLF-normalized to LF by
  * [io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService]) into addressable
- * sections keyed by a deterministic heading slug ("anchor"). Backs `create_work_tree`'s
- * `docRef`/`noteAnchors` materialization path (see
- * [io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool]), which slices
+ * sections keyed by a deterministic heading slug ("anchor"). Backs the `items_write` `create_tree` op's
+ * `docRef`/`noteAnchors` materialization path, which slices
  * a note body out of a larger stashed document by anchor rather than requiring the caller to inline
  * every note's full text.
  *

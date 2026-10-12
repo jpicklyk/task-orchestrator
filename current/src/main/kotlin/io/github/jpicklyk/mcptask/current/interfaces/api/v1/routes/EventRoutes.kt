@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -9,9 +11,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
@@ -182,7 +182,7 @@ private class SseInlineAuthConfig {
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
 
     /**
-     * Repository used to look up item tags for tag-scoped principals (`hasTagScope()`), both
+     * Repository used to look up item tags for tag-scoped principals (a non-empty `scope.tagsInclude`), both
      * here (pre-flight 403 when unavailable) and in the `sse { }` collect body (per-event drop).
      * Null when the caller wired [eventRoutes] without one -- tag-scoped connections are then
      * rejected rather than streamed unfiltered.
@@ -311,7 +311,7 @@ private val sseInlineAuthPlugin =
             // Fail closed: a tag-scoped principal can only be safely streamed to when we can
             // look up item tags per event (the collect-site filter below). Without a repository
             // wired, reject rather than fall back to the pre-fix unfiltered stream.
-            if (principal.hasTagScope() && workItemRepository == null) {
+            if (principal.scope.tagsInclude.isNotEmpty() && workItemRepository == null) {
                 call.respond(
                     HttpStatusCode.Forbidden,
                     mapOf(
@@ -369,8 +369,7 @@ private val sseInlineAuthPlugin =
  *
  * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
  * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
- * the same [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] predicate
- * every other read route uses, via [workItemRepository]. This applies identically to live events
+ * the same [ScopeGuard] predicate every tool and read route uses, via [workItemRepository]. This applies identically to live events
  * and to `Last-Event-ID` replay, since both flow through the one collect site. A tag-scoped
  * principal connecting when [workItemRepository] is null is rejected with 403 in the pre-flight
  * plugin -- fail closed rather than stream unfiltered. Non-tag-scoped principals take exactly
@@ -604,7 +603,7 @@ fun Route.eventRoutes(
  *
  * Fails CLOSED: an unparsable [ApiEvent.itemId], a missing [repository] (should not happen --
  * the pre-flight plugin already rejected this connection in that case), or a repository lookup
- * error (via [allowedItemIdsForTagScope]) all result in the event being dropped.
+ * error (via [ScopeGuard.admitted]) all result in the event being dropped.
  *
  * [cache] holds the per-connection id -> allowed decision. `item.*` and `scope.*` events bypass
  * and refresh the cache so a mid-stream tag change (add/remove) is honoured starting with the
@@ -616,7 +615,7 @@ private suspend fun isEventVisibleToTagScope(
     repository: WorkItemRepository?,
     cache: MutableMap<UUID, Boolean>,
 ): Boolean {
-    if (!principal.hasTagScope()) return true
+    if (principal.scope.tagsInclude.isEmpty()) return true
     val itemId = event.itemId ?: return true
     val uuid =
         try {
@@ -634,7 +633,9 @@ private suspend fun isEventVisibleToTagScope(
         if (repository == null) {
             false
         } else {
-            allowedItemIdsForTagScope(principal, setOf(uuid), repository).contains(uuid)
+            // The tag half only: the root half is applied at the bus subscription (every projected row carries its root).
+            val tagScope = AccessScope.principal(rootIds = null, tagsInclude = principal.scope.tagsInclude)
+            ScopeGuard.admitted(tagScope, setOf(uuid), repository).contains(uuid)
         }
     cache[uuid] = allowed
     return allowed

@@ -7,8 +7,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.logging
  * blow up per-line log cost, or make log output harder to scan, with no ceiling.
  *
  * This caps ONLY the MDC copy of the value — callers still receive and act on the full,
- * untruncated original (see [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter]'s
- * `actorIdFrom` KDoc). It is a logging-hygiene concern, not a validation or business-rule change.
+ * untruncated original (see [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter]'s
+ * `actorIdFrom`). It is a logging-hygiene concern, not a validation or business-rule change.
  */
 object MdcValues {
     /** Appended to a truncated value so log readers can tell it was cut, not naturally short. */

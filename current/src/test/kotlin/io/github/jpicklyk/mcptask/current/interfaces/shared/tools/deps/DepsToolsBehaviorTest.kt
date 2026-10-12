@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -374,7 +373,7 @@ class DepsToolsBehaviorTest {
         val registered = registry.tools.map { it.name }
         assertFalse("manage_dependencies" in registered)
         assertFalse("query_dependencies" in registered)
-        val legacy = buildMcpTools().map { it.name }
+        val legacy = ToolRegistry(buildToolSpecs()).tools.map { it.name }
         assertFalse("manage_dependencies" in legacy, "legacy tool list: $legacy")
         assertFalse("query_dependencies" in legacy, "legacy tool list: $legacy")
     }

@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
  * `items_read` and no `query_items`, and `query_notes` no longer offers a `search` operation.
  *
  * Oracles: task-scope item 1 (tool `items_read`, selects get, list, schema, search, overview, registered in
- * `buildToolSpecs()`), item 12 (the 3.x `QueryItemsTool` and its `buildMcpTools()` entry are deleted; `query_notes` loses its
+ * `buildToolSpecs()`), item 12 (the 3.x `QueryItemsTool` and its 3.x registration are deleted; `query_notes` loses its
  * `search` operation, and the whole tool only if Q11 had already reduced it to search-only, which has not happened: `get` and
  * `list` remain) and the acceptance criterion "tools/list shows items_read (selects get, list, schema, search, overview) and no
  * query_items; query_notes has no search". Forbidden-construct declaration: none.

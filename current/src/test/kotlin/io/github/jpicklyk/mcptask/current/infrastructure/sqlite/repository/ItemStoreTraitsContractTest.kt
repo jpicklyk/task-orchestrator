@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -292,7 +293,7 @@ class ItemStoreTraitsContractTest {
             assertTraits("findDescendants", hierarchy.findDescendants(tree.root.id), expected)
             assertTraits("findRootItems", repo.findRootItems().items, expected)
             assertTraits("findByRole", repo.findByRole(Role.QUEUE, limit = 50), expected)
-            assertTraits("findForNextItem", repo.findForNextItem(Role.QUEUE, excludeActiveClaims = true), expected)
+            assertTraits("findEligible", repo.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items, expected)
             val chains = hierarchy.findAncestorChains(setOf(tree.leaf.id))
             assertTraits("findAncestorChains", chains.getValue(tree.leaf.id), expected)
             assertEquals(listOf("root-a", "root-b"), chains.getValue(tree.leaf.id).first { it.id == tree.root.id }.traits)
@@ -351,7 +352,7 @@ class ItemStoreTraitsContractTest {
                 { items.findChildrenPage(parentId = tree1.root.id, excludeTerminal = false, limit = 200, offset = 0) }
             reads["findDescendants"] = { hierarchy.findDescendants(tree1.root.id) }
             reads["findByRole"] = { repo.findByRole(Role.QUEUE, limit = 200) }
-            reads["findForNextItem"] = { repo.findForNextItem(Role.QUEUE, excludeActiveClaims = true) }
+            reads["findEligible"] = { repo.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items }
 
             suspend fun measure(): Map<String, Int> =
                 reads.mapValues { (_, read) ->

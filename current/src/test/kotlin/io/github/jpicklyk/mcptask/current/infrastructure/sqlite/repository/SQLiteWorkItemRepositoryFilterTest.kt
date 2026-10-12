@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -608,24 +609,24 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     // =====================================================================
-    // findClaimable tests
+    // findEligible tests
     // =====================================================================
 
     @Test
-    fun `findClaimable by role filters correctly`() =
+    fun `findEligible by role filters correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
             repository.create(WorkItem(title = "Work item", role = Role.WORK))
             repository.create(WorkItem(title = "Another queue", role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size)
             assertTrue(result.all { it.role == Role.QUEUE })
         }
 
     @Test
-    fun `findClaimable by parentId filters correctly`() =
+    fun `findEligible by parentId filters correctly`() =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -633,20 +634,20 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Child 2", parentId = parent.id, depth = 1, role = Role.QUEUE))
             repository.create(WorkItem(title = "Orphan", depth = 0, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, parentId = parent.id)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, parentId = parent.id), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size)
             assertTrue(result.all { it.parentId == parent.id })
         }
 
     @Test
-    fun `findClaimable by tags any-match filters correctly`() =
+    fun `findEligible by tags any-match filters correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "Bug item", tags = "bug", role = Role.QUEUE))
             repository.create(WorkItem(title = "Feature item", tags = "feature", role = Role.QUEUE))
             repository.create(WorkItem(title = "No tags", role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, tags = listOf("bug", "feature"))
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, tags = listOf("bug", "feature")), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size)
             val titles = result.map { it.title }.toSet()
@@ -655,40 +656,40 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable by priority filters correctly`() =
+    fun `findEligible by priority filters correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "High", priority = Priority.HIGH, role = Role.QUEUE))
             repository.create(WorkItem(title = "Low", priority = Priority.LOW, role = Role.QUEUE))
             repository.create(WorkItem(title = "Medium", priority = Priority.MEDIUM, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, priority = Priority.HIGH)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, priority = Priority.HIGH), limit = 1000).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("High", result[0].title)
         }
 
     @Test
-    fun `findClaimable by type filters correctly`() =
+    fun `findEligible by type filters correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "Feature task", type = "feature", role = Role.QUEUE))
             repository.create(WorkItem(title = "Bug fix", type = "bug", role = Role.QUEUE))
             repository.create(WorkItem(title = "No type", role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, type = "feature")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, type = "feature"), limit = 1000).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Feature task", result[0].title)
         }
 
     @Test
-    fun `findClaimable by complexityMax filters correctly`() =
+    fun `findEligible by complexityMax filters correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "Simple", complexity = 2, role = Role.QUEUE))
             repository.create(WorkItem(title = "Moderate", complexity = 5, role = Role.QUEUE))
             repository.create(WorkItem(title = "Complex", complexity = 9, role = Role.QUEUE))
             repository.create(WorkItem(title = "No complexity", role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, complexityMax = 5)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, complexityMax = 5), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size)
             val titles = result.map { it.title }.toSet()
@@ -697,7 +698,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable by createdAfter filters correctly`() =
+    fun `findEligible by createdAfter filters correctly`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -705,14 +706,19 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
             repository.create(WorkItem(title = "New", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, createdAfter = Instant.parse("2025-06-01T00:00:00Z"))
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, createdAfter = Instant.parse("2025-06-01T00:00:00Z")),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("New", result[0].title)
         }
 
     @Test
-    fun `findClaimable by createdBefore filters correctly`() =
+    fun `findEligible by createdBefore filters correctly`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -720,14 +726,19 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
             repository.create(WorkItem(title = "New", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, createdBefore = Instant.parse("2025-06-01T00:00:00Z"))
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, createdBefore = Instant.parse("2025-06-01T00:00:00Z")),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Old", result[0].title)
         }
 
     @Test
-    fun `findClaimable by roleChangedAfter filters correctly`() =
+    fun `findEligible by roleChangedAfter filters correctly`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -737,14 +748,19 @@ class SQLiteWorkItemRepositoryFilterTest {
                 WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
             )
 
-            val result = repository.findClaimable(role = Role.QUEUE, roleChangedAfter = Instant.parse("2025-06-01T00:00:00Z"))
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, roleChangedAfter = Instant.parse("2025-06-01T00:00:00Z")),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Recent role change", result[0].title)
         }
 
     @Test
-    fun `findClaimable by roleChangedBefore filters correctly`() =
+    fun `findEligible by roleChangedBefore filters correctly`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -754,14 +770,19 @@ class SQLiteWorkItemRepositoryFilterTest {
                 WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
             )
 
-            val result = repository.findClaimable(role = Role.QUEUE, roleChangedBefore = Instant.parse("2025-06-01T00:00:00Z"))
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, roleChangedBefore = Instant.parse("2025-06-01T00:00:00Z")),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Old role change", result[0].title)
         }
 
     @Test
-    fun `findClaimable with multiple filters combined`() =
+    fun `findEligible with multiple filters combined`() =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -811,27 +832,36 @@ class SQLiteWorkItemRepositoryFilterTest {
             )
 
             val result =
-                repository.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = parent.id,
-                    priority = Priority.HIGH,
-                    complexityMax = 3,
-                    tags = listOf("feature"),
-                )
+                repository
+                    .findEligible(
+                        EligibilityQuery(
+                            role = Role.QUEUE,
+                            parentId = parent.id,
+                            priority = Priority.HIGH,
+                            complexityMax = 3,
+                            tags = listOf("feature")
+                        ),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Match", result[0].title)
         }
 
     @Test
-    fun `findClaimable with PRIORITY_THEN_COMPLEXITY orderBy sorts correctly`() =
+    fun `findEligible with PRIORITY_THEN_COMPLEXITY orderBy sorts correctly`() =
         runBlocking {
             repository.create(WorkItem(title = "Low-simple", priority = Priority.LOW, complexity = 1, role = Role.QUEUE))
             repository.create(WorkItem(title = "High-complex", priority = Priority.HIGH, complexity = 9, role = Role.QUEUE))
             repository.create(WorkItem(title = "High-simple", priority = Priority.HIGH, complexity = 1, role = Role.QUEUE))
             repository.create(WorkItem(title = "Medium-simple", priority = Priority.MEDIUM, complexity = 2, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY)
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(4, result.size)
             // HIGH items first (lowest complexity first within HIGH), then MEDIUM, then LOW
@@ -842,7 +872,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable with OLDEST_FIRST orderBy sorts by createdAt ASC`() =
+    fun `findEligible with OLDEST_FIRST orderBy sorts by createdAt ASC`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -852,7 +882,12 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
             repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.OLDEST_FIRST)
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, orderBy = NextItemOrder.OLDEST_FIRST),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(3, result.size)
             assertEquals("Old", result[0].title)
@@ -861,7 +896,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable with NEWEST_FIRST orderBy sorts by createdAt DESC`() =
+    fun `findEligible with NEWEST_FIRST orderBy sorts by createdAt DESC`() =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -871,7 +906,12 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
             repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3, role = Role.QUEUE))
 
-            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.NEWEST_FIRST)
+            val result =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, orderBy = NextItemOrder.NEWEST_FIRST),
+                        limit = 1000
+                    ).items
             assertNotNull(result)
             assertEquals(3, result.size)
             assertEquals("New", result[0].title)
@@ -880,7 +920,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable always excludes items with active claims`() =
+    fun `findEligible always excludes items with active claims`() =
         runBlocking {
             // Unclaimed item — should be included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
@@ -901,14 +941,14 @@ class SQLiteWorkItemRepositoryFilterTest {
                 )
             )
 
-            val result = repository.findClaimable(role = Role.QUEUE)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items
             assertNotNull(result)
             assertEquals(1, result.size)
             assertEquals("Unclaimed", result[0].title)
         }
 
     @Test
-    fun `findClaimable includes items with expired claims`() =
+    fun `findEligible includes items with expired claims`() =
         runBlocking {
             // Unclaimed — included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
@@ -929,7 +969,7 @@ class SQLiteWorkItemRepositoryFilterTest {
                 )
             )
 
-            val result = repository.findClaimable(role = Role.QUEUE)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size)
             val titles = result.map { it.title }.toSet()
@@ -938,40 +978,45 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findClaimable returns empty list when no matches`() =
+    fun `findEligible returns empty list when no matches`() =
         runBlocking {
             repository.create(WorkItem(title = "Work item", role = Role.WORK))
 
             // Query QUEUE — no items in queue
-            val result = repository.findClaimable(role = Role.QUEUE)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000).items
             assertNotNull(result)
             assertTrue(result.isEmpty())
         }
 
     // =====================================================================
-    // findClaimable ancestor-claim filter tests
+    // findEligible ancestor-claim filter tests
     // =====================================================================
 
     @Test
-    fun `findClaimable root items unaffected by ancestor filter regardless of requestingAgentId`() =
+    fun `findEligible root items unaffected by ancestor filter regardless of requestingAgentId`() =
         runBlocking {
             // Root item (no parent) — the ancestor-claim filter never applies.
             repository.create(WorkItem(title = "Root item", role = Role.QUEUE, depth = 0))
 
             // requestingAgentId=null (strict mode) — root item still claimable
-            val resultStrict = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            val resultStrict = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = null), limit = 1000).items
             assertNotNull(resultStrict)
             assertEquals(1, resultStrict.size)
             assertEquals("Root item", resultStrict[0].title)
 
             // requestingAgentId="agent-x" — root item still claimable
-            val resultAgent = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            val resultAgent =
+                repository
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-x"),
+                        limit = 1000
+                    ).items
             assertNotNull(resultAgent)
             assertEquals(1, resultAgent.size)
         }
 
     @Test
-    fun `findClaimable same-agent re-claim eligibility — child included when parent claimed by same agent`() =
+    fun `findEligible same-agent re-claim eligibility — child included when parent claimed by same agent`() =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -995,14 +1040,14 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(child)
 
             // Same agent — child should be INCLUDED
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-x"), limit = 1000).items
             assertNotNull(result)
             assertEquals(1, result.size, "Child under same-agent claimed parent should be claimable")
             assertEquals("Child", result[0].title)
         }
 
     @Test
-    fun `findClaimable cross-agent exclusion — child excluded when parent claimed by different agent`() =
+    fun `findEligible cross-agent exclusion — child excluded when parent claimed by different agent`() =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -1026,13 +1071,13 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(child)
 
             // Different agent — child should be EXCLUDED
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-y"), limit = 1000).items
             assertNotNull(result)
             assertTrue(result.isEmpty(), "Child under different-agent claimed parent should be excluded")
         }
 
     @Test
-    fun `findClaimable null requestingAgentId strict mode — child excluded when parent claimed by anyone`() =
+    fun `findEligible null requestingAgentId strict mode — child excluded when parent claimed by anyone`() =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -1056,13 +1101,13 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(child)
 
             // Null requestingAgentId — strict mode: any live ancestor claim excludes the child
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = null), limit = 1000).items
             assertNotNull(result)
             assertTrue(result.isEmpty(), "Strict mode: child under any claimed parent should be excluded")
         }
 
     @Test
-    fun `findClaimable multi-level ancestry — claim on grandparent excludes grandchild`() =
+    fun `findEligible multi-level ancestry — claim on grandparent excludes grandchild`() =
         runBlocking {
             val now = Instant.now()
             val grandparent =
@@ -1095,13 +1140,13 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(child)
 
             // agent-y requesting — grandparent claimed by agent-x — grandchild EXCLUDED
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-y"), limit = 1000).items
             assertNotNull(result)
             assertTrue(result.isEmpty(), "Grandchild under claimed grandparent should be excluded from cross-agent perspective")
         }
 
     @Test
-    fun `findClaimable expired parent claim — child is included after TTL expiry`() =
+    fun `findEligible expired parent claim — child is included after TTL expiry`() =
         runBlocking {
             val now = Instant.now()
             // Parent is in WORK role (was being orchestrated when the holding agent crashed).
@@ -1130,14 +1175,14 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(child)
 
             // Expired parent claim — TTL recovery: child becomes claimable
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-y"), limit = 1000).items
             assertNotNull(result)
             assertEquals(1, result.size, "Child should be claimable after parent's TTL expires")
             assertEquals("Child", result[0].title)
         }
 
     @Test
-    fun `findClaimable mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`() =
+    fun `findEligible mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`() =
         runBlocking {
             val now = Instant.now()
             val grandparent =
@@ -1170,13 +1215,13 @@ class SQLiteWorkItemRepositoryFilterTest {
 
             // Mixed ancestry: grandparent claimed by agent-x, parent unclaimed, agent-y requests
             // → child EXCLUDED because a live ancestor claim by a different agent exists
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-y"), limit = 1000).items
             assertNotNull(result)
             assertTrue(result.isEmpty(), "Child should be excluded when any ancestor has a live cross-agent claim")
         }
 
     @Test
-    fun `findClaimable multiple candidates — only children under cross-agent claims are excluded`() =
+    fun `findEligible multiple candidates — only children under cross-agent claims are excluded`() =
         runBlocking {
             val now = Instant.now()
 
@@ -1229,7 +1274,7 @@ class SQLiteWorkItemRepositoryFilterTest {
             // - Task A: excluded (Feature A claimed by agent-x, different agent)
             // - Task B: included (Feature B claimed by agent-y, same agent)
             // - Root task: included (no ancestor)
-            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            val result = repository.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-y"), limit = 1000).items
             assertNotNull(result)
             assertEquals(2, result.size, "Only Task B (same-agent) and Root task should be returned")
             val titles = result.map { it.title }.toSet()

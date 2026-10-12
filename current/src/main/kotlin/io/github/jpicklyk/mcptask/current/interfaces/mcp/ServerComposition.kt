@@ -176,11 +176,7 @@ class ServerComposition(
         val apiWiring = resolveApiWiring(repositoryProvider, clock)
         val effectiveProvider = apiWiring.effectiveProvider
 
-        val nextItemRecommender =
-            NextItemRecommender(
-                effectiveProvider.workItemRepository(),
-                effectiveProvider.dependencyRepository(),
-            )
+        val nextItemRecommender = NextItemRecommender(effectiveProvider.workItemRepository())
         // Per-root schema layer (T3.2): resolveSchema() consults this root's pushed config before
         // falling back to the global config layer. Shares effectiveProvider so MCP tools
         // and REST routes see the same versioned config store.

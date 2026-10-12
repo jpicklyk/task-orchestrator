@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -73,9 +72,9 @@ class ItemsWriteRegistrationTest {
 
     @Test
     fun `S18 manage_items is gone from the MCP tool list while other tools remain`() {
-        val names = buildMcpTools().map { it.name }
-        // Control: every 3.x tool is gone (Q21, Q23), so the served surface that still holds tools is the 4.0 registry.
-        val served = names + ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        val names = ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        // Control: the served surface still holds other tools (Q32 removed the 3.x tool list itself).
+        val served = names
         assertTrue("config" in served && "items_write" in served, "control: the served surface still holds other tools: $served")
         assertTrue("manage_items" !in names, "manage_items must not be registered: $names")
         assertTrue("create_work_tree" !in names, "create_work_tree must not be registered (Q21): $names")

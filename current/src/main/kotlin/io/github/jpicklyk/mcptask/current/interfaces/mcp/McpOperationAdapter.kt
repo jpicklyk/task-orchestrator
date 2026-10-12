@@ -37,11 +37,11 @@ import java.time.Instant
 import kotlin.time.TimeSource
 
 /**
- * Registers 4.0 [ToolSpec] tools on the MCP SDK [Server] and serves their calls through the
- * transport-neutral [ToolDispatcher]. The old [McpToolAdapter] keeps serving the 3.x tools until Q32.
+ * Registers the [ToolSpec] tools on the MCP SDK [Server] and serves their calls through the
+ * transport-neutral [ToolDispatcher].
  *
  * Registration uses the SDK `Tool` from [toolFor]: name, rendered description, generated input schema
- * and MCP annotations. Per call, like [McpToolAdapter]: a fresh [ReqId], MDC correlation fields
+ * and MCP annotations. Per call: a fresh [ReqId], MDC correlation fields
  * (`transport`, `tool`, `sessionId`, `reqId`, a length-capped `actorId`), an [ActorVerificationScope] and
  * a [CallTelemetry] for the MCP surface. The result carries the envelope body as `structuredContent`,
  * `isError = !ok`, one text content (`ok`, or `<code>: <message>`) and `_meta.reqId`. One `call_log`
@@ -160,7 +160,7 @@ class McpOperationAdapter(
     }
 
     companion object {
-        /** Max length of the `actorId` MDC value, as in [McpToolAdapter]. */
+        /** Max length of the `actorId` MDC value. */
         private const val ACTOR_ID_MDC_MAX_LENGTH = 128
 
         /**

@@ -120,8 +120,7 @@ class ToolRegistry(
 }
 
 /**
- * The production 4.0 tools. Each tool item appends its spec here (and deletes the 3.x tools it replaces from
- * `buildMcpTools()`). Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
+ * The production 4.0 tools; Q32 removed the 3.x tool list they replaced. Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
  * `deps_read` and `deps_write`; Q13 added `advance`; Q18 added `items_write`; Q19 added `items_read`; Q25 added
  * `docs_read` and `docs_write`; Q23 added `config`.
  */

@@ -72,7 +72,6 @@ class SqliteConfigStoreTest {
         payload: ConfigAppend,
         now: Instant = t0,
         expectedVersion: Int? = null,
-        expectedFingerprint: String? = null,
         rejectSuperseded: Boolean = false
     ): ConfigAppendOutcome =
         store.append(
@@ -80,7 +79,6 @@ class SqliteConfigStoreTest {
             rootId = root,
             append = payload,
             expectedVersion = expectedVersion,
-            expectedFingerprint = expectedFingerprint,
             rejectSuperseded = rejectSuperseded,
             now = now
         )
@@ -305,33 +303,12 @@ class SqliteConfigStoreTest {
         }
 
     @Test
-    fun `S5 expectedVersion and expectedFingerprint are ignored when the root has no head`(): Unit =
+    fun `S5 expectedVersion is ignored when the root has no head`(): Unit =
         runBlocking {
             val root = newRoot()
 
             val withVersion = append(root, payload("a: 1\n"), at(1), expectedVersion = 7)
             assertEquals(1, assertIs<ConfigAppendOutcome.Applied>(withVersion).version.version)
-
-            val other = newRoot("Other")
-            val withFingerprint = append(other, payload("a: 1\n"), at(1), expectedFingerprint = "f".repeat(64))
-            assertEquals(1, assertIs<ConfigAppendOutcome.Applied>(withFingerprint).version.version)
-        }
-
-    @Test
-    fun `S5 the legacy expectedFingerprint compares against the head fingerprint`(): Unit =
-        runBlocking {
-            val root = newRoot()
-            val v1 = appendApplied(root, "a: 1\n", at(1))
-            val v2 = appendApplied(root, "a: 2\n", at(2))
-
-            val stale = append(root, payload("a: 3\n"), at(3), expectedFingerprint = v1.fingerprint)
-            val failed = assertIs<ConfigAppendOutcome.PreconditionFailed>(stale)
-            assertEquals(2, failed.currentVersion)
-            assertEquals(v2.fingerprint, failed.currentFingerprint)
-            assertEquals(2, store.history(ConfigScope.ROOT, root, 50).size)
-
-            val fresh = append(root, payload("a: 3\n"), at(4), expectedFingerprint = v2.fingerprint)
-            assertEquals(3, assertIs<ConfigAppendOutcome.Applied>(fresh).version.version)
         }
 
     // ---------------------------------------------------------------------------------------------

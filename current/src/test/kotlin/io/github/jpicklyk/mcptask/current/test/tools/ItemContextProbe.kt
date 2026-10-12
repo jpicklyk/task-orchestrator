@@ -2,15 +2,12 @@ package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
-import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -54,26 +51,6 @@ class ItemContextProbe(
         return buildJsonObject {
             put("success", ok)
             if (ok) body["data"]?.let { put("data", it) } else body["error"]?.let { put("error", it) }
-        }
-    }
-
-    /**
-     * This probe as a 3.x [ToolDefinition] named [toolName], for the adapter-level tests (host capture, transport, call log)
-     * that need a registered read tool whose result carries an item title: the removed 3.x `get_context`, driven through the
-     * production select. Test-only; never registered by production.
-     */
-    fun asLegacyTool(toolName: String): ToolDefinition {
-        val probe = this
-        return object : ToolDefinition {
-            override val name = toolName
-            override val description = "Test driver: items_read context as a 3.x tool."
-            override val parameterSchema = ToolSchema()
-            override val category = ToolCategory.WORKFLOW
-
-            override suspend fun execute(
-                params: JsonElement,
-                context: ToolExecutionContext
-            ): JsonElement = probe.execute(params, context)
         }
     }
 }

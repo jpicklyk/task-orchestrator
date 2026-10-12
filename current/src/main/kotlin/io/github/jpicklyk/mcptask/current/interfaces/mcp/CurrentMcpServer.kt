@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -240,23 +239,18 @@ class CurrentMcpServer(
                 runBlocking { callLogWriter.stop() }
             }
 
-            // 3.x tools (shared with tests via buildMcpTools()); they serve the orchestration profile only until Q32.
-            val tools = buildMcpTools()
             val serverName = appConfig.mcpServerName
 
-            // 4.0 tools (ToolSpec registry). A registry name equal to a 3.x name fails startup.
+            // The tools (ToolSpec registry), served by profile.
             val registry = ToolRegistry(buildToolSpecs())
-            checkRegistryDisjoint(registry, tools)
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
             val toolDispatcher = buildToolDispatcher(toolContext)
             val operationAdapter = McpOperationAdapter(toolDispatcher, callLog = callLogWriter)
-            val legacyAdapter = McpToolAdapter(callLog = callLogWriter)
 
-            fun serverFor(profile: ToolProfile): Server =
-                buildProfileServer(profile, serverName, version, registry, operationAdapter, legacyAdapter, tools, toolContext)
+            fun serverFor(profile: ToolProfile): Server = buildProfileServer(profile, serverName, version, registry, operationAdapter)
             logger.info(
                 "Tool profiles: orchestration={} tools, knowledge={} tools",
-                registry.visible(ToolProfile.ORCHESTRATION).size + tools.size,
+                registry.visible(ToolProfile.ORCHESTRATION).size,
                 registry.visible(ToolProfile.KNOWLEDGE).size
             )
 
@@ -540,13 +534,11 @@ class CurrentMcpServer(
  * `listChanged`) and `logging` — no `prompts` or `resources`. Extracted from [CurrentMcpServer]'s
  * private `configureServer` so a test can assert on it directly.
  *
- * `logging` is kept even though the old MCP protocol-level logging service was removed (it never
- * actually emitted anything — see AR-78/item b5081c9b): [McpToolAdapter] still emits
- * `notifications/message` directly (via
- * `clientConnection.sendLoggingMessage`) on validation errors, per-root-config-unavailable
- * failures, and internal errors, and MCP requires servers that emit log notifications to declare
- * the `logging` capability. `prompts`/`resources` are removed because no `addPrompt`/`addResource`
- * exists anywhere in this server — they were advertised-but-empty surfaces.
+ * `logging` is still declared although no tool path emits `notifications/message` any more (the 3.x
+ * adapter that sent them on validation, config-unavailable and internal errors was removed by Q32;
+ * [McpOperationAdapter] sends none). Dropping it would be a client-visible capability change, left
+ * to a later item. `prompts`/`resources` are removed because no `addPrompt`/`addResource` exists
+ * anywhere in this server — they were advertised-but-empty surfaces.
  *
  * `tools.listChanged` stays true, so every tool MUST be registered before any session connects: in
  * kotlin-sdk 0.12.0 a post-connect `addTool` sends `tools/list_changed` from an SDK notification job
@@ -566,19 +558,14 @@ internal fun profileInstructions(profile: ToolProfile): String =
 
 /**
  * Builds the MCP [Server] of [profile] with every tool registered (all before any session connects, see
- * [productionServerCapabilities]). The 4.0 [registry] tools registered are those visible in [profile]; the 3.x
- * [legacyTools] (`manage_project_config`, `query_rules`, replaced by the orchestration-only `config` tool) are
- * registered on the orchestration profile only.
+ * [productionServerCapabilities]): the [registry] tools visible in [profile].
  */
 internal fun buildProfileServer(
     profile: ToolProfile,
     serverName: String,
     version: String,
     registry: ToolRegistry,
-    operationAdapter: McpOperationAdapter,
-    legacyAdapter: McpToolAdapter,
-    legacyTools: List<ToolDefinition>,
-    toolContext: ToolExecutionContext
+    operationAdapter: McpOperationAdapter
 ): Server {
     val server =
         Server(
@@ -586,21 +573,9 @@ internal fun buildProfileServer(
             options = ServerOptions(capabilities = productionServerCapabilities()),
             instructions = profileInstructions(profile)
         )
-    if (profile == ToolProfile.ORCHESTRATION) {
-        legacyAdapter.registerToolsWithServer(server, legacyTools, toolContext)
-    }
     operationAdapter.register(server, registry, profile)
     return server
 }
-
-/**
- * Builds the canonical list of MCP tools registered with the server.
- *
- * Extracted from [CurrentMcpServer.run] so tests can register the exact same tool set the
- * production server exposes (see McpStreamableHttpTransportTest), avoiding a hard-coded tool
- * count or a drifting parallel list.
- */
-internal fun buildMcpTools(): List<ToolDefinition> = listOf()
 
 /** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
 internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =
@@ -610,20 +585,6 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
         BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
         toolContext
     )
-
-/**
- * Fails startup when a 4.0 registry tool reuses a 3.x tool name (U2: no 3.x name is reused), since both
- * register on the same MCP [Server] until Q32 deletes the 3.x tools.
- *
- * @throws IllegalStateException naming the clashing tool names.
- */
-internal fun checkRegistryDisjoint(
-    registry: ToolRegistry,
-    legacyTools: List<ToolDefinition>
-) {
-    val clash = registry.tools.map { it.name }.toSet() intersect legacyTools.map { it.name }.toSet()
-    check(clash.isEmpty()) { "4.0 tool names reuse 3.x tool names: ${clash.sorted()}" }
-}
 
 /**
  * Installs the MCP Streamable HTTP transport at `/mcp` plus the JSON + CORS plugins it shares with
