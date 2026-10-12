@@ -2,7 +2,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.service.ConfigImpactService
 import io.github.jpicklyk.mcptask.current.application.service.ConfigValidateResult
+import io.github.jpicklyk.mcptask.current.application.service.ImpactSide
+import io.github.jpicklyk.mcptask.current.application.service.InFlightImpact
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -13,6 +17,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
@@ -46,7 +53,8 @@ internal val configValidateOp =
             fun report(
                 errors: List<AppViolation>,
                 warnings: List<AppViolation>,
-                diff: JsonElement? = null
+                diff: JsonElement? = null,
+                affected: JsonElement? = null
             ): Outcome<JsonElement> =
                 Outcome.Ok(
                     buildJsonObject {
@@ -55,13 +63,19 @@ internal val configValidateOp =
                         put("errors", JsonArray(errors.map(ConfigSupport::violationJson)))
                         put("warnings", JsonArray(warnings.map(ConfigSupport::violationJson)))
                         diff?.let { put("diff", it) }
+                        affected?.let { put("affectedInFlight", it) }
                     }
                 )
 
             ConfigSupport.guarded {
                 when (val result = service.validate(rootId, req.configYaml)) {
-                    is ConfigValidateResult.Checked ->
-                        report(result.errors, result.warnings, result.diff?.let(ConfigSupport::diffJson))
+                    is ConfigValidateResult.Checked -> {
+                        val impact =
+                            result.candidate
+                                ?.takeIf { result.isValid }
+                                ?.let { ConfigImpactService(env.configResolver, env.unitOfWork).affectedInFlight(rootId, it, ctx.scope) }
+                        report(result.errors, result.warnings, result.diff?.let(ConfigSupport::diffJson), impact?.let(::impactJson))
+                    }
                     is ConfigValidateResult.ParseError ->
                         report(ConfigSupport.parseViolations(result.detail, result.violations), emptyList())
                     is ConfigValidateResult.RootIdMismatch ->
@@ -75,3 +89,49 @@ internal val configValidateOp =
             }
         }
     )
+
+private fun layerWire(source: ConfigSource): String = if (source == ConfigSource.PER_ROOT) "root" else "server"
+
+private fun sideJson(side: ImpactSide?): JsonElement =
+    if (side?.key == null || side.layer == null) {
+        JsonNull
+    } else {
+        buildJsonObject {
+            put("key", side.key)
+            put("layer", layerWire(side.layer))
+        }
+    }
+
+private fun impactJson(impact: InFlightImpact): JsonObject =
+    buildJsonObject {
+        put("count", impact.count)
+        put(
+            "sample",
+            JsonArray(
+                impact.sample.map { item ->
+                    buildJsonObject {
+                        put("itemId", item.itemId.toString())
+                        put("changedNotes", JsonArray(item.changedNotes.map { JsonPrimitive(it) }))
+                        if (item.schemaChanged) {
+                            put(
+                                "schema",
+                                buildJsonObject {
+                                    put("from", sideJson(item.schemaFrom))
+                                    put("to", sideJson(item.schemaTo))
+                                }
+                            )
+                        }
+                        if (item.lifecycleChanged) {
+                            put(
+                                "lifecycle",
+                                buildJsonObject {
+                                    put("from", item.lifecycleFrom?.lowercase()?.let { JsonPrimitive(it) } ?: JsonNull)
+                                    put("to", item.lifecycleTo?.lowercase()?.let { JsonPrimitive(it) } ?: JsonNull)
+                                }
+                            )
+                        }
+                    }
+                }
+            )
+        )
+    }

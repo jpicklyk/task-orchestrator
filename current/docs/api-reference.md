@@ -777,7 +777,7 @@ caller's scope is `forbidden`, never `not_found`.
 | `get` | `rootId`, `version?`, `fingerprint?` | `read` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
 | `history` | `rootId`, `limit?` (1..200, default 50), `before?` | `read` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
 | `push` | `rootId`, `configYaml`, `force?`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
-| `validate` | `rootId`, `configYaml` | `read` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?}` |
+| `validate` | `rootId`, `configYaml` | `read` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?, affectedInFlight?}` |
 | `rollback` | `rootId`, `version`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, source, appended, createdAt}` |
 | `reset` | `rootId` | `write-config` (destructive) | `{rootId, appended}` |
 | `effective` | `rootId?` | `read` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
@@ -812,7 +812,15 @@ head (`effective` after `push` reads the new layer).
 `expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
 including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
-`removed` and `changed` name lists (no head, or a reset head, counts as empty).
+`removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
+`affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked) in the root's subtree, visible
+to the caller, whose resolved schema would differ if the document were pushed and the items repinned. The comparison is
+each item's schema now (at its pin, or at the heads when unpinned) against the schema under the candidate over the
+current server head. A note counts as changed only when its key is added or removed or its `role` or `required` flag
+changes. `count` is exact; `sample` lists the first 20 as `{itemId, changedNotes, schema?, lifecycle?}`, where `schema`
+(`{from, to}` of `{key, layer}` or null) and `lifecycle` (`{from, to}`) appear only when the base schema or lifecycle
+mode differs. An unreadable config is `unavailable`, an undecodable pinned version `config_invalid`; there is no
+partial result.
 
 **`effective`** is one layered read. With `rootId` it is that root's config over the server's; without it, the
 server config alone (no scope check, `read` only). `schemas` lists every registered type resolved (`configSource`
