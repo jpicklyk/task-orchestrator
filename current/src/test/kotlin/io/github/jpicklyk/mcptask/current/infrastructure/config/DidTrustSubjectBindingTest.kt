@@ -12,32 +12,29 @@ import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.service.ActorAware
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.actorJson
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.onlyResult
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.Runs
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
@@ -47,11 +44,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.SecureRandom
 import java.security.Security
 import java.time.Instant
 import java.util.Date
-import java.util.UUID
 
 /**
  * S1-3, S6-9, S16-17 from item a890542c's `test-plan` — sub/iss binding under DID-rooted trust
@@ -62,8 +59,15 @@ import java.util.UUID
  * [io.github.jpicklyk.mcptask.current.domain.model.VerificationResult.verifiedSubject], which is
  * a new field with a `null` default — a plain revert of the fix still compiles against it, so
  * red-first is behavioral, not compile-red.
+ *
+ * Q32 port: S3 and S9 drive the production `advance` tool's `claim` op on a real SQLite database (formerly the removed
+ * 3.x claim_item over a mocked repository): the holder recorded on the row is the oracle for the trusted id.
  */
 class DidTrustSubjectBindingTest {
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         init {
             if (Security.getProvider("BC") == null) {
@@ -197,9 +201,9 @@ class DidTrustSubjectBindingTest {
             assertEquals(A_DID, (cachedResolution as PolicyResolution.Trusted).trustedId)
         }
 
-    // S3: ClaimItemTool, REJECT, real JwksActorVerifier as S2 -> workItemRepo.claim gets agentId A. D2
+    // S3: advance claim, REJECT, real JwksActorVerifier as S2 -> the item is claimed by A. D2
     @Test
-    fun `S3 ClaimItemTool trusts verified DID subject over self-reported actor id under REJECT policy`(): Unit =
+    fun `S3 an advance claim trusts the verified DID subject over the self-reported actor id under REJECT policy`(): Unit =
         runBlocking {
             val jwt = sign(claims(subject = A_DID, issuer = A_DID), aKey)
             val provider = mockProvider(A_DID to aJwks())
@@ -208,52 +212,27 @@ class DidTrustSubjectBindingTest {
                     config = didConfig(requireSubMatch = false),
                     keySetProvider = provider
                 )
-
-            val mockRepo = MockRepositoryProvider()
-            val itemId = UUID.randomUUID()
-            val now = Instant.now()
-            coEvery { mockRepo.workItemRepo.claim(itemId, A_DID, 900) } returns
-                ClaimResult.Success(
-                    WorkItem(
-                        id = itemId,
-                        title = "S3 item",
-                        claimedBy = A_DID,
-                        claimedAt = now,
-                        claimExpiresAt = now.plusSeconds(900),
-                        originalClaimedAt = now
-                    )
-                )
-
+            val item = db.repositoryProvider().workItemRepository().create(WorkItem(title = "S3 item", role = Role.QUEUE))
             val context =
                 ToolExecutionContext(
-                    repositoryProvider = mockRepo.provider,
+                    repositoryProvider = db.repositoryProvider(),
                     actorVerifier = verifier,
-                    degradedModePolicy = DegradedModePolicy.REJECT
+                    degradedModePolicy = DegradedModePolicy.REJECT,
+                    unitOfWork = db.unitOfWork()
                 )
 
-            val params =
-                buildJsonObject {
-                    put(
-                        "claims",
-                        buildJsonArray { add(buildJsonObject { put("itemId", itemId.toString()) }) }
-                    )
-                    put(
-                        "actor",
-                        buildJsonObject {
-                            put("id", "planner")
-                            put("kind", "subagent")
-                            put("proof", jwt)
-                        }
-                    )
-                    put("requestId", UUID.randomUUID().toString())
-                }
+            val result = context.advanceTool(claimOp(item.id), actor = actorJson("planner", proof = jwt)).onlyResult()
 
-            val result = ClaimItemTool().execute(params, context)
-
-            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(itemId, A_DID, 900) }
-            val data = (result as JsonObject)["data"] as JsonObject
-            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
-            assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals(true, result["ok"]?.jsonPrimitive?.content?.toBoolean(), "$result")
+            assertEquals(
+                A_DID,
+                db
+                    .repositoryProvider()
+                    .workItemRepository()
+                    .getById(item.id)!!
+                    .claimedBy,
+                "the claim holder is the DID subject"
+            )
         }
 
     // -------------------------------------------------------------------------
@@ -354,9 +333,9 @@ class DidTrustSubjectBindingTest {
             )
         }
 
-    // S9: ClaimItemTool REJECT, S6 proof -> success=false, claim never called. D1, fleet-deployment.md:345
+    // S9: advance claim REJECT, S6 proof -> the element fails unauthenticated and the item is never claimed. D1, fleet-deployment.md:345
     @Test
-    fun `S9 ClaimItemTool never calls claim when sub-iss mismatch rejected under REJECT policy`(): Unit =
+    fun `S9 an advance claim never claims when a sub-iss mismatch is rejected under REJECT policy`(): Unit =
         runBlocking {
             val jwt = sign(claims(subject = V_DID, issuer = A_DID), aKey)
             val provider = mockProvider(A_DID to aJwks())
@@ -365,39 +344,27 @@ class DidTrustSubjectBindingTest {
                     config = didConfig(requireSubMatch = true),
                     keySetProvider = provider
                 )
-
-            val mockRepo = MockRepositoryProvider()
-            val itemId = UUID.randomUUID()
-
+            val item = db.repositoryProvider().workItemRepository().create(WorkItem(title = "S9 item", role = Role.QUEUE))
             val context =
                 ToolExecutionContext(
-                    repositoryProvider = mockRepo.provider,
+                    repositoryProvider = db.repositoryProvider(),
                     actorVerifier = verifier,
-                    degradedModePolicy = DegradedModePolicy.REJECT
+                    degradedModePolicy = DegradedModePolicy.REJECT,
+                    unitOfWork = db.unitOfWork()
                 )
 
-            val params =
-                buildJsonObject {
-                    put(
-                        "claims",
-                        buildJsonArray { add(buildJsonObject { put("itemId", itemId.toString()) }) }
-                    )
-                    put(
-                        "actor",
-                        buildJsonObject {
-                            put("id", V_DID)
-                            put("kind", "subagent")
-                            put("proof", jwt)
-                        }
-                    )
-                    put("requestId", UUID.randomUUID().toString())
-                }
+            val result = context.advanceTool(claimOp(item.id), actor = actorJson(V_DID, proof = jwt)).onlyResult()
 
-            val result = ClaimItemTool().execute(params, context)
-
-            val resultObj = result as JsonObject
-            assertEquals(false, resultObj["success"]?.jsonPrimitive?.booleanOrNull)
-            coVerify(exactly = 0) { mockRepo.workItemRepo.claim(any(), any(), any()) }
+            assertEquals(false, result["ok"]?.jsonPrimitive?.content?.toBoolean(), "$result")
+            assertEquals("unauthenticated", result.errorCode(), "$result")
+            assertNull(
+                db
+                    .repositoryProvider()
+                    .workItemRepository()
+                    .getById(item.id)!!
+                    .claimedBy,
+                "the claim never happened"
+            )
         }
 
     // -------------------------------------------------------------------------

@@ -3,7 +3,11 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.missingKeys
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -15,14 +19,15 @@ import kotlin.test.*
 /**
  * Integration tests validating the complete schema-gated lifecycle (queue -> work -> review -> terminal)
  * with gate enforcement at each transition. Uses a real SQLite database and inline schema config
- * for test isolation.
+ * for test isolation. Transitions run through the production `advance` tool (Q32: formerly the removed 3.x
+ * advance_item): a gate rejection is the element's `gate_blocked` with the missing keys in `error.detail.missing`, a
+ * suppressed cascade entry is `{applied:false, blocked:"gate", missing:[...]}`.
  */
 class SchemaGatedLifecycleTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
     private lateinit var context: ToolExecutionContext
-    private lateinit var transitionTool: AdvanceItemTool
 
     @BeforeEach
     fun setUp() {
@@ -124,7 +129,6 @@ class SchemaGatedLifecycleTest {
             }
 
         context = ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
-        transitionTool = AdvanceItemTool()
     }
 
     // ──────────────────────────────────────────────
@@ -171,30 +175,15 @@ class SchemaGatedLifecycleTest {
 
     private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId)!!)
 
-    private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    transitions.forEach { add(it) }
-                }
-            )
-        }
+    private suspend fun advance(vararg transitions: JsonObject): JsonObject = context.advanceTool(*transitions)
 
     private fun transitionObj(
         itemId: UUID,
         trigger: String
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId.toString()))
-            put("trigger", JsonPrimitive(trigger))
-        }
+    ): JsonObject = transitionOp(itemId, trigger)
 
-    private fun extractData(result: JsonElement): JsonObject {
-        val obj = result as JsonObject
-        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success response but got: $result")
-        return obj["data"] as JsonObject
-    }
+    /** The `data` of an `advance` envelope (present on success and on a partial failure alike). */
+    private fun extractData(result: JsonElement): JsonObject = assertNotNull((result as JsonObject)["data"] as? JsonObject, "$result")
 
     private fun extractResults(result: JsonElement): JsonArray = extractData(result)["results"]!!.jsonArray
 
@@ -204,11 +193,10 @@ class SchemaGatedLifecycleTest {
     ) {
         val results = extractResults(result)
         val r = results[0].jsonObject
-        assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Expected gate rejection but transition was applied")
-        val error = r["error"]!!.jsonPrimitive.content
-        assertTrue(error.contains("Gate check failed"), "Expected gate check error but got: $error")
+        assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Expected gate rejection but transition was applied")
+        assertEquals("gate_blocked", r.errorCode(), "Expected a gate rejection but got: $r")
         if (expectedMissingKey != null) {
-            assertTrue(error.contains(expectedMissingKey), "Expected error to mention '$expectedMissingKey' but got: $error")
+            assertTrue(expectedMissingKey in r.missingKeys(), "Expected the gate to name '$expectedMissingKey' but got: $r")
         }
     }
 
@@ -218,12 +206,12 @@ class SchemaGatedLifecycleTest {
     ): JsonObject {
         val results = extractResults(result)
         val r = results[0].jsonObject
-        assertTrue(r["applied"]!!.jsonPrimitive.boolean, "Expected successful transition but it was rejected: ${r["error"]}")
+        assertTrue(r["ok"]!!.jsonPrimitive.boolean, "Expected successful transition but it was rejected: ${r["error"]}")
         assertEquals(expectedNewRole, r["newRole"]!!.jsonPrimitive.content)
         return r
     }
 
-    /** Verify that advance_item response matches actual DB state */
+    /** Verify that the advance response matches actual DB state */
     private suspend fun assertResponseMatchesDb(
         result: JsonElement,
         itemId: UUID
@@ -231,7 +219,7 @@ class SchemaGatedLifecycleTest {
         val results = extractResults(result)
         val r = results[0].jsonObject
         val dbItem = getItem(itemId)
-        val applied = r["applied"]!!.jsonPrimitive.boolean
+        val applied = r["ok"]!!.jsonPrimitive.boolean
         if (applied) {
             val reportedRole = r["newRole"]!!.jsonPrimitive.content
             assertEquals(
@@ -240,12 +228,11 @@ class SchemaGatedLifecycleTest {
                 "Response says newRole=$reportedRole but DB has role=${dbItem.role?.name?.lowercase()}"
             )
         } else {
-            // If applied=false, the item should NOT have changed role.
+            // If ok=false, the item should NOT have changed role.
             // We can't assert the exact previous role here without knowing it,
             // but we verify the item is NOT in the target role if one was implied.
-            val error = r["error"]?.jsonPrimitive?.content ?: ""
             assertFalse(
-                dbItem.role == Role.TERMINAL && error.contains("Gate check failed"),
+                dbItem.role == Role.TERMINAL && r.errorCode() == "gate_blocked",
                 "Response says gate failed but DB shows item is terminal — response contradicts DB"
             )
         }
@@ -262,10 +249,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt QUEUE -> WORK without filling queue-phase note -> gate rejection
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start1, "specification")
 
             // Fill the queue-phase note
@@ -273,18 +257,12 @@ class SchemaGatedLifecycleTest {
 
             // Retry QUEUE -> WORK -> success
             val start2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start2, "work")
 
             // Attempt WORK -> REVIEW without filling work-phase note -> gate rejection
             val start3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start3, "implementation-notes")
 
             // Fill the work-phase note
@@ -292,18 +270,12 @@ class SchemaGatedLifecycleTest {
 
             // Retry WORK -> REVIEW -> success
             val start4 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start4, "review")
 
             // Attempt REVIEW -> TERMINAL without filling review-phase note -> gate rejection
             val start5 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start5, "review-checklist")
 
             // Fill the review-phase note
@@ -311,10 +283,7 @@ class SchemaGatedLifecycleTest {
 
             // Retry REVIEW -> TERMINAL -> success
             val start6 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start6, "terminal")
 
             // Verify final role is TERMINAL
@@ -333,10 +302,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt QUEUE -> WORK without filling queue-phase note -> gate rejection
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start1, "diagnosis")
 
             // Fill the queue-phase note
@@ -344,18 +310,12 @@ class SchemaGatedLifecycleTest {
 
             // Retry QUEUE -> WORK -> success
             val start2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start2, "work")
 
             // Attempt WORK -> REVIEW without filling work-phase note -> gate rejection
             val start3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start3, "implementation-notes")
 
             // Fill the work-phase note
@@ -363,18 +323,12 @@ class SchemaGatedLifecycleTest {
 
             // Retry WORK -> REVIEW -> success
             val start4 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start4, "review")
 
             // Attempt REVIEW -> TERMINAL without filling review-phase note -> gate rejection
             val start5 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start5, "review-checklist")
 
             // Fill the review-phase note
@@ -382,10 +336,7 @@ class SchemaGatedLifecycleTest {
 
             // Retry REVIEW -> TERMINAL -> success
             val start6 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start6, "terminal")
 
             // Verify final role is TERMINAL
@@ -404,18 +355,12 @@ class SchemaGatedLifecycleTest {
 
             // QUEUE -> WORK (no gates, succeeds immediately)
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start1, "work")
 
             // WORK -> TERMINAL (schema-free mode skips review)
             val start2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(start2, "terminal")
 
             // Verify final role is TERMINAL
@@ -437,10 +382,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt QUEUE -> WORK -> gate rejection (empty body should not satisfy)
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(start1, "specification")
         }
 
@@ -455,10 +397,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt complete from QUEUE with no notes -> gate rejection
             val complete1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "complete")),
-                    context
-                )
+                advance(transitionObj(item.id, "complete"))
             assertGateRejection(complete1, "specification")
 
             // Fill only the queue-phase note
@@ -466,10 +405,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt complete again -> still fails (work and review notes missing)
             val complete2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "complete")),
-                    context
-                )
+                advance(transitionObj(item.id, "complete"))
             assertGateRejection(complete2, "implementation-notes")
 
             // Fill all 3 notes
@@ -478,10 +414,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt complete -> succeeds, role is TERMINAL
             val complete3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "complete")),
-                    context
-                )
+                advance(transitionObj(item.id, "complete"))
             assertTransitionSuccess(complete3, "terminal")
 
             // Verify final role is TERMINAL
@@ -508,10 +441,7 @@ class SchemaGatedLifecycleTest {
 
             // Advance child: queue -> work (should cascade parent: queue -> work)
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             val r = assertTransitionSuccess(result, "work")
 
             // Verify child response matches DB
@@ -522,7 +452,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.WORK, getItem(parent.id).role)
 
             // Verify cascade is reported in the response
-            val cascades = r["cascadeEvents"]!!.jsonArray
+            val cascades = r["cascades"]!!.jsonArray
             assertTrue(cascades.isNotEmpty(), "Expected cascade event for parent")
             val cascade = cascades[0].jsonObject
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
@@ -550,20 +480,17 @@ class SchemaGatedLifecycleTest {
             // The cascade trigger is "cascade" not "start", so the gate check at line 196
             // (which only fires for trigger=="start") should NOT block it
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(result, "work")
 
             // Parent should remain QUEUE — a START cascade into WORK is now gated on the parent's
             // own required queue-phase notes (item 473e4f49, Path C decision): the cascade is
-            // suppressed exactly like a terminal cascade would be, reporting gateBlocked +
-            // missingNotes, while the child's own advance above still succeeded.
+            // suppressed exactly like a terminal cascade would be, reporting the gate block and the
+            // missing notes, while the child's own advance above still succeeded.
             assertEquals(Role.QUEUE, getItem(parent.id).role)
-            val cascade = extractResults(result)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            val cascade = extractResults(result)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
             assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
-            assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean, "cascade must report gateBlocked")
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content, "cascade must report the gate block")
         }
 
     // ──────────────────────────────────────────────
@@ -585,13 +512,10 @@ class SchemaGatedLifecycleTest {
 
             // Batch advance all three
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(
-                        transitionObj(itemA.id, "start"),
-                        transitionObj(itemB.id, "start"),
-                        transitionObj(itemC.id, "start")
-                    ),
-                    context
+                advance(
+                    transitionObj(itemA.id, "start"),
+                    transitionObj(itemB.id, "start"),
+                    transitionObj(itemC.id, "start")
                 )
 
             val data = extractData(result)
@@ -600,22 +524,22 @@ class SchemaGatedLifecycleTest {
 
             // Item A: should succeed
             val rA = results[0].jsonObject
-            assertTrue(rA["applied"]!!.jsonPrimitive.boolean, "Item A should have succeeded")
+            assertTrue(rA["ok"]!!.jsonPrimitive.boolean, "Item A should have succeeded")
             assertEquals("work", rA["newRole"]!!.jsonPrimitive.content)
 
             // Item B: should fail gate
             val rB = results[1].jsonObject
-            assertFalse(rB["applied"]!!.jsonPrimitive.boolean, "Item B should have failed gate")
-            assertTrue(rB["error"]!!.jsonPrimitive.content.contains("specification"))
+            assertFalse(rB["ok"]!!.jsonPrimitive.boolean, "Item B should have failed gate")
+            assertTrue("specification" in rB.missingKeys(), "$rB")
 
             // Item C: should succeed (schema-free)
             val rC = results[2].jsonObject
-            assertTrue(rC["applied"]!!.jsonPrimitive.boolean, "Item C should have succeeded")
+            assertTrue(rC["ok"]!!.jsonPrimitive.boolean, "Item C should have succeeded")
             assertEquals("work", rC["newRole"]!!.jsonPrimitive.content)
 
             // Verify summary counts
             val summary = data["summary"]!!.jsonObject
-            assertEquals(2, summary["succeeded"]!!.jsonPrimitive.int)
+            assertEquals(2, summary["ok"]!!.jsonPrimitive.int)
             assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
 
             // Verify DB matches responses
@@ -637,10 +561,7 @@ class SchemaGatedLifecycleTest {
 
             // Step 1: Attempt start without spec note → gate rejection
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertGateRejection(r1, "specification")
             assertResponseMatchesDb(r1, child.id)
             assertEquals(Role.QUEUE, getItem(child.id).role)
@@ -649,10 +570,7 @@ class SchemaGatedLifecycleTest {
             // Step 2: Fill spec, advance queue→work (cascades parent)
             createNote(child.id, key = "specification", role = Role.QUEUE)
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(r2, "work")
             assertResponseMatchesDb(r2, child.id)
             assertEquals(Role.WORK, getItem(child.id).role)
@@ -660,10 +578,7 @@ class SchemaGatedLifecycleTest {
 
             // Step 3: Attempt work→review without impl notes → gate rejection
             val r3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertGateRejection(r3, "implementation-notes")
             assertResponseMatchesDb(r3, child.id)
             assertEquals(Role.WORK, getItem(child.id).role) // unchanged
@@ -671,20 +586,14 @@ class SchemaGatedLifecycleTest {
             // Step 4: Fill impl notes, advance work→review
             createNote(child.id, key = "implementation-notes", role = Role.WORK)
             val r4 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(r4, "review")
             assertResponseMatchesDb(r4, child.id)
             assertEquals(Role.REVIEW, getItem(child.id).role)
 
             // Step 5: Attempt review→terminal without review note → gate rejection
             val r5 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertGateRejection(r5, "review-checklist")
             assertResponseMatchesDb(r5, child.id)
             assertEquals(Role.REVIEW, getItem(child.id).role) // unchanged
@@ -692,10 +601,7 @@ class SchemaGatedLifecycleTest {
             // Step 6: Fill review note, advance review→terminal
             createNote(child.id, key = "review-checklist", role = Role.REVIEW)
             val r6 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(r6, "terminal")
             assertResponseMatchesDb(r6, child.id)
             assertEquals(Role.TERMINAL, getItem(child.id).role)
@@ -719,28 +625,19 @@ class SchemaGatedLifecycleTest {
 
             createNote(item.id, key = "diagnosis", role = Role.QUEUE)
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r1, "work")
             assertResponseMatchesDb(r1, item.id)
 
             createNote(item.id, key = "implementation-notes", role = Role.WORK)
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r2, "review")
             assertResponseMatchesDb(r2, item.id)
 
             createNote(item.id, key = "review-checklist", role = Role.REVIEW)
             val r3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r3, "terminal")
             assertResponseMatchesDb(r3, item.id)
 
@@ -767,13 +664,10 @@ class SchemaGatedLifecycleTest {
 
             // Batch advance all three children: queue → work
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(
-                        transitionObj(feature.id, "start"),
-                        transitionObj(bugfix.id, "start"),
-                        transitionObj(untagged.id, "start")
-                    ),
-                    context
+                advance(
+                    transitionObj(feature.id, "start"),
+                    transitionObj(bugfix.id, "start"),
+                    transitionObj(untagged.id, "start")
                 )
 
             val results = extractResults(r1)
@@ -782,7 +676,7 @@ class SchemaGatedLifecycleTest {
             // All should succeed
             for ((i, r) in results.withIndex()) {
                 val obj = r.jsonObject
-                assertTrue(obj["applied"]!!.jsonPrimitive.boolean, "Child $i should advance to work")
+                assertTrue(obj["ok"]!!.jsonPrimitive.boolean, "Child $i should advance to work")
                 assertEquals("work", obj["newRole"]!!.jsonPrimitive.content)
             }
 
@@ -796,10 +690,7 @@ class SchemaGatedLifecycleTest {
 
             // Now complete the untagged child (schema-free → work→terminal)
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(untagged.id, "start")),
-                    context
-                )
+                advance(transitionObj(untagged.id, "start"))
             assertTransitionSuccess(r2, "terminal")
 
             // Parent should still be in WORK (other children not done)
@@ -807,19 +698,16 @@ class SchemaGatedLifecycleTest {
 
             // Complete feature child through full lifecycle
             createNote(feature.id, key = "implementation-notes", role = Role.WORK)
-            transitionTool.execute(buildTransitionParams(transitionObj(feature.id, "start")), context) // → review
+            advance(transitionObj(feature.id, "start")) // → review
             createNote(feature.id, key = "review-checklist", role = Role.REVIEW)
-            transitionTool.execute(buildTransitionParams(transitionObj(feature.id, "start")), context) // → terminal
+            advance(transitionObj(feature.id, "start")) // → terminal
 
             // Complete bugfix child through full lifecycle
             createNote(bugfix.id, key = "implementation-notes", role = Role.WORK)
-            transitionTool.execute(buildTransitionParams(transitionObj(bugfix.id, "start")), context) // → review
+            advance(transitionObj(bugfix.id, "start")) // → review
             createNote(bugfix.id, key = "review-checklist", role = Role.REVIEW)
             val rLast =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(bugfix.id, "start")),
-                    context
-                )
+                advance(transitionObj(bugfix.id, "start"))
             assertTransitionSuccess(rLast, "terminal")
             assertResponseMatchesDb(rLast, bugfix.id)
 
@@ -843,10 +731,7 @@ class SchemaGatedLifecycleTest {
             // Queue phase has "requirements" (required) + "context" (optional)
             // Attempt advance without filling any notes → should fail on "requirements" only
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(r1, "requirements")
             assertResponseMatchesDb(r1, item.id)
             assertEquals(Role.QUEUE, getItem(item.id).role)
@@ -856,10 +741,7 @@ class SchemaGatedLifecycleTest {
 
             // Advance should succeed — optional "context" note is NOT required
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r2, "work")
             assertResponseMatchesDb(r2, item.id)
             assertEquals(Role.WORK, getItem(item.id).role)
@@ -877,21 +759,18 @@ class SchemaGatedLifecycleTest {
 
             // Fill required queue note and advance to work
             createNote(item.id, key = "requirements", role = Role.QUEUE)
-            transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
+            advance(transitionObj(item.id, "start"))
             assertEquals(Role.WORK, getItem(item.id).role)
 
             // Fill required work note and advance to review
             createNote(item.id, key = "design-decisions", role = Role.WORK)
-            transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
+            advance(transitionObj(item.id, "start"))
             assertEquals(Role.REVIEW, getItem(item.id).role)
 
             // Review phase has ONLY optional notes ("review-notes", "follow-ups")
             // Advance should succeed without filling any notes
             val r =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r, "terminal")
             assertResponseMatchesDb(r, item.id)
             assertEquals(Role.TERMINAL, getItem(item.id).role)
@@ -909,10 +788,7 @@ class SchemaGatedLifecycleTest {
 
             // Attempt complete with no notes → should fail on "requirements"
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "complete")),
-                    context
-                )
+                advance(transitionObj(item.id, "complete"))
             assertGateRejection(r1, "requirements")
 
             // Fill only the two required notes (skip all optional)
@@ -921,10 +797,7 @@ class SchemaGatedLifecycleTest {
 
             // Complete should succeed — no required notes in review phase
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "complete")),
-                    context
-                )
+                advance(transitionObj(item.id, "complete"))
             assertTransitionSuccess(r2, "terminal")
             assertResponseMatchesDb(r2, item.id)
             assertEquals(Role.TERMINAL, getItem(item.id).role)
@@ -945,10 +818,7 @@ class SchemaGatedLifecycleTest {
 
             // Advance should still fail — "requirements" (required) is missing
             val r =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertGateRejection(r, "requirements")
             assertResponseMatchesDb(r, item.id)
             assertEquals(Role.QUEUE, getItem(item.id).role)
@@ -966,38 +836,26 @@ class SchemaGatedLifecycleTest {
 
             // QUEUE -> WORK
             val r1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r1, "work")
             assertEquals(Role.WORK, getItem(item.id).role)
 
             // WORK -> TERMINAL (schema-free skips review)
             val r2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r2, "terminal")
             assertEquals(Role.TERMINAL, getItem(item.id).role)
 
             // TERMINAL -> QUEUE via reopen
             val r3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "reopen")),
-                    context
-                )
+                advance(transitionObj(item.id, "reopen"))
             assertTransitionSuccess(r3, "queue")
             assertResponseMatchesDb(r3, item.id)
             assertEquals(Role.QUEUE, getItem(item.id).role)
 
             // Verify item can re-enter WORK via start
             val r4 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionSuccess(r4, "work")
             assertResponseMatchesDb(r4, item.id)
             assertEquals(Role.WORK, getItem(item.id).role)
@@ -1019,20 +877,17 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Only child", parentId = parent.id)
 
             // Advance child through to TERMINAL
-            val rStart = transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            val rStart = advance(transitionObj(child.id, "start"))
             assertEquals(Role.WORK, getItem(child.id).role)
             // Parent should NOT have start-cascaded to WORK — its required "specification" note
             // is unfilled, so the start cascade is gate-blocked (item 473e4f49, Path C decision).
             assertEquals(Role.QUEUE, getItem(parent.id).role)
-            val startCascade = extractResults(rStart)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            val startCascade = extractResults(rStart)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
             assertFalse(startCascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
-            assertTrue(startCascade["gateBlocked"]!!.jsonPrimitive.boolean, "start cascade must report gateBlocked")
+            assertEquals("gate", startCascade["blocked"]!!.jsonPrimitive.content, "start cascade must report the gate block")
 
             val rComplete =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(rComplete, "terminal")
             assertEquals(Role.TERMINAL, getItem(child.id).role)
 
@@ -1043,13 +898,13 @@ class SchemaGatedLifecycleTest {
             // Verify cascade event reports gate block
             val results = extractResults(rComplete)
             val r = results[0].jsonObject
-            val cascades = r["cascadeEvents"]!!.jsonArray
+            val cascades = r["cascades"]!!.jsonArray
             assertTrue(cascades.isNotEmpty(), "Expected a cascade event for parent")
             val cascade = cascades[0].jsonObject
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
             assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should not have been applied")
-            assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean, "Cascade should report gateBlocked")
-            val missingNotes = cascade["missingNotes"]!!.jsonArray
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content, "Cascade should report the gate block")
+            val missingNotes = cascade["missing"]!!.jsonArray
             assertTrue(missingNotes.isNotEmpty(), "Should report missing notes")
             // All three required notes should be listed
             val missingKeys = missingNotes.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
@@ -1076,12 +931,9 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Only child", parentId = parent.id)
 
             // Advance child to TERMINAL
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            advance(transitionObj(child.id, "start"))
             val rComplete =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(rComplete, "terminal")
             assertEquals(Role.TERMINAL, getItem(child.id).role)
 
@@ -1090,9 +942,9 @@ class SchemaGatedLifecycleTest {
 
             // Verify cascade event reports success
             val results = extractResults(rComplete)
-            val cascade = results[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            val cascade = results[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should have been applied")
-            assertNull(cascade["gateBlocked"], "Should not have gateBlocked field")
+            assertNull(cascade["blocked"], "Should not have a blocked field")
         }
 
     // ──────────────────────────────────────────────
@@ -1112,22 +964,19 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Only child", parentId = parent.id)
 
             // Advance child to TERMINAL
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            advance(transitionObj(child.id, "start"))
             val rComplete =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(rComplete, "terminal")
 
             // Parent should NOT cascade to TERMINAL (missing notes)
             assertEquals(Role.WORK, getItem(parent.id).role)
 
             // Verify the cascade event reports exactly the missing notes
-            val cascade = extractResults(rComplete)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            val cascade = extractResults(rComplete)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
             assertFalse(cascade["applied"]!!.jsonPrimitive.boolean)
-            assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean)
-            val missingKeys = cascade["missingNotes"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content)
+            val missingKeys = cascade["missing"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
             assertEquals(setOf("implementation-notes", "review-checklist"), missingKeys)
         }
 
@@ -1146,28 +995,25 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Child task", parentId = parent.id)
 
             // Advance child to TERMINAL
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            advance(transitionObj(child.id, "start"))
             val rComplete =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
             assertTransitionSuccess(rComplete, "terminal")
 
             // Parent should cascade to TERMINAL freely (no schema = no gate)
             assertEquals(Role.TERMINAL, getItem(parent.id).role)
 
-            val cascade = extractResults(rComplete)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            val cascade = extractResults(rComplete)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
         }
 
     // ──────────────────────────────────────────────
-    // H3. expectedNotes contents after advance_item
+    // H3. expectedNotes contents after an advance
     //     transition — inspect array structure
     // ──────────────────────────────────────────────
 
     @Test
-    fun `advance_item response includes expectedNotes with correct fields after queue-to-work transition`(): Unit =
+    fun `the advance response lists the new phase's note keys after a queue-to-work transition`(): Unit =
         runBlocking {
             // Create an item tagged with a schema that has work-phase notes with guidance
             val item = createItem("Feature with expected notes", tags = "feature-implementation")
@@ -1176,42 +1022,15 @@ class SchemaGatedLifecycleTest {
             createNote(item.id, key = "specification", role = Role.QUEUE)
 
             // Advance QUEUE -> WORK
-            val result =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+            val result = advance(transitionObj(item.id, "start"))
             val r = assertTransitionSuccess(result, "work")
 
-            // expectedNotes must be non-empty — the work phase has required notes
+            // expectedNotes is keys-only in 4.0: the new (work) phase's note keys, no schema text and no per-entry fields.
             val expectedNotes = r["expectedNotes"]!!.jsonArray
-            assertTrue(expectedNotes.isNotEmpty(), "expectedNotes should be non-empty after entering work phase")
-
-            // Each entry must have the keys-only structural fields (no schema text)
-            val firstEntry = expectedNotes[0].jsonObject
-            assertNotNull(firstEntry["key"], "expectedNotes entry must have 'key' field")
-            assertNotNull(firstEntry["role"], "expectedNotes entry must have 'role' field")
-            assertNotNull(firstEntry["required"], "expectedNotes entry must have 'required' field")
-            assertNull(firstEntry["description"], "expectedNotes entry must NOT carry 'description' (keys-only)")
-
-            // No notes filled yet, so 'exists' must be false
-            assertFalse(
-                firstEntry["exists"]!!.jsonPrimitive.boolean,
-                "exists should be false — no notes have been filled in the new work phase"
-            )
-
-            // Static guidance text is never in expectedNotes — fetch via query_items operation=schema
-            val hasGuidance = expectedNotes.any { it.jsonObject.containsKey("guidance") }
-            assertFalse(hasGuidance, "expectedNotes entries must not carry 'guidance' text (keys-only contract)")
-
-            // Verify all entries are scoped to the work role
-            expectedNotes.forEach { entry ->
-                assertEquals(
-                    "work",
-                    entry.jsonObject["role"]!!.jsonPrimitive.content,
-                    "All expectedNotes entries should be for the 'work' role"
-                )
-            }
+            assertEquals(listOf("implementation-notes"), expectedNotes.map { it.jsonPrimitive.content }, "the work phase's keys: $r")
+            // The first unfilled required note of the new phase is the guidance pointer.
+            assertEquals("implementation-notes", r["guidanceKey"]!!.jsonPrimitive.content, "$r")
+            assertFalse(r.toString().contains("Document deviations"), "no guidance text in the response: $r")
         }
 
     // ──────────────────────────────────────────────
@@ -1227,8 +1046,8 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Only child", parentId = parent.id)
 
             // Advance child: QUEUE -> WORK -> TERMINAL
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            advance(transitionObj(child.id, "start"))
+            advance(transitionObj(child.id, "start"))
             assertEquals(Role.TERMINAL, getItem(child.id).role)
 
             // Parent should have cascaded to TERMINAL (all children done)
@@ -1236,10 +1055,7 @@ class SchemaGatedLifecycleTest {
 
             // Now reopen the child: TERMINAL -> QUEUE
             val reopenResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "reopen")),
-                    context
-                )
+                advance(transitionObj(child.id, "reopen"))
             val r = assertTransitionSuccess(reopenResult, "queue")
 
             // Child is back to QUEUE
@@ -1250,7 +1066,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.WORK, getItem(parent.id).role)
 
             // Verify the cascade event is reported in the reopen response
-            val cascades = r["cascadeEvents"]!!.jsonArray
+            val cascades = r["cascades"]!!.jsonArray
             assertTrue(cascades.isNotEmpty(), "reopen should report a cascade event for the parent")
             val cascade = cascades[0].jsonObject
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
@@ -1369,23 +1185,6 @@ class SchemaGatedLifecycleTest {
         id: UUID
     ): WorkItem = (ctx.workItemRepository().getById(id)!!)
 
-    private fun advanceParams(
-        itemId: UUID,
-        trigger: String
-    ) = JsonObject(
-        mapOf(
-            "transitions" to
-                JsonArray(
-                    listOf(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId.toString()))
-                            put("trigger", JsonPrimitive(trigger))
-                        }
-                    )
-                )
-        )
-    )
-
     @Test
     fun `type-based schema gates enforce required notes`(): Unit =
         runBlocking {
@@ -1393,15 +1192,15 @@ class SchemaGatedLifecycleTest {
             val item = createItemIn(ctx, "Type-gated item", type = "feature-task")
 
             // Try to advance without required queue note → should fail
-            val result = transitionTool.execute(advanceParams(item.id, "start"), ctx) as JsonObject
+            val result = ctx.advanceTool(transitionOp(item.id, "start"))
             val r = (result["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
-            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Should fail gate without required queue note")
+            assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Should fail gate without required queue note")
 
             // Fill required queue note and retry
             createNoteIn(ctx, item.id, "task-scope", Role.QUEUE)
-            val result2 = transitionTool.execute(advanceParams(item.id, "start"), ctx) as JsonObject
+            val result2 = ctx.advanceTool(transitionOp(item.id, "start"))
             val r2 = (result2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
-            assertTrue(r2["applied"]!!.jsonPrimitive.boolean, "Should advance after filling required note")
+            assertTrue(r2["ok"]!!.jsonPrimitive.boolean, "Should advance after filling required note")
             assertEquals("work", r2["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -1413,14 +1212,14 @@ class SchemaGatedLifecycleTest {
             val child = createItemIn(ctx, "Child task", type = "feature-task", parentId = parent.id)
 
             // Advance parent to WORK (start cascade from child starting)
-            transitionTool.execute(advanceParams(parent.id, "start"), ctx)
+            ctx.advanceTool(transitionOp(parent.id, "start"))
             // Fill child notes and complete it
             createNoteIn(ctx, child.id, "task-scope", Role.QUEUE)
-            transitionTool.execute(advanceParams(child.id, "start"), ctx) // queue→work
+            ctx.advanceTool(transitionOp(child.id, "start")) // queue→work
             createNoteIn(ctx, child.id, "implementation-notes", Role.WORK)
-            transitionTool.execute(advanceParams(child.id, "start"), ctx) // work→review
+            ctx.advanceTool(transitionOp(child.id, "start")) // work→review
             createNoteIn(ctx, child.id, "review-checklist", Role.REVIEW)
-            transitionTool.execute(advanceParams(child.id, "start"), ctx) // review→terminal
+            ctx.advanceTool(transitionOp(child.id, "start")) // review→terminal
 
             // Child should be terminal
             assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
@@ -1435,8 +1234,8 @@ class SchemaGatedLifecycleTest {
             val parent = createItemIn(ctx, "Permanent container", type = "permanent-container")
             val child = createItemIn(ctx, "Child", parentId = parent.id)
 
-            transitionTool.execute(advanceParams(parent.id, "start"), ctx)
-            transitionTool.execute(advanceParams(child.id, "complete"), ctx) // schema-free, direct to terminal
+            ctx.advanceTool(transitionOp(parent.id, "start"))
+            ctx.advanceTool(transitionOp(child.id, "complete")) // schema-free, direct to terminal
 
             assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
             assertEquals(Role.WORK, getItemIn(ctx, parent.id).role)
@@ -1449,8 +1248,8 @@ class SchemaGatedLifecycleTest {
             val parent = createItemIn(ctx, "Auto parent") // no type = schema-free = AUTO default
             val child = createItemIn(ctx, "Child", parentId = parent.id)
 
-            transitionTool.execute(advanceParams(parent.id, "start"), ctx)
-            transitionTool.execute(advanceParams(child.id, "complete"), ctx)
+            ctx.advanceTool(transitionOp(parent.id, "start"))
+            ctx.advanceTool(transitionOp(child.id, "complete"))
 
             assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
             assertEquals(Role.TERMINAL, getItemIn(ctx, parent.id).role)
@@ -1466,19 +1265,19 @@ class SchemaGatedLifecycleTest {
 
             // Fill base required queue note
             createNoteIn(ctx, item.id, "spec", Role.QUEUE)
-            transitionTool.execute(advanceParams(item.id, "start"), ctx) // queue→work
+            ctx.advanceTool(transitionOp(item.id, "start")) // queue→work
 
             assertEquals(Role.WORK, getItemIn(ctx, item.id).role)
 
             // Try to complete — should fail because security-assessment (from trait) is not filled
-            val completeResult = transitionTool.execute(advanceParams(item.id, "complete"), ctx) as JsonObject
+            val completeResult = ctx.advanceTool(transitionOp(item.id, "complete"))
             val r = (completeResult["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
-            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Should fail because trait note security-assessment is missing")
+            assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Should fail because trait note security-assessment is missing")
 
             // Fill the trait-required note and complete
             createNoteIn(ctx, item.id, "security-assessment", Role.REVIEW)
-            val completeResult2 = transitionTool.execute(advanceParams(item.id, "complete"), ctx) as JsonObject
+            val completeResult2 = ctx.advanceTool(transitionOp(item.id, "complete"))
             val r2 = (completeResult2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
-            assertTrue(r2["applied"]!!.jsonPrimitive.boolean, "Should complete after filling trait note")
+            assertTrue(r2["ok"]!!.jsonPrimitive.boolean, "Should complete after filling trait note")
         }
 }

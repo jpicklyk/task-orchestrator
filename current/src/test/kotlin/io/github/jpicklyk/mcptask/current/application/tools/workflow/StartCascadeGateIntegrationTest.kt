@@ -6,15 +6,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,7 +28,8 @@ import kotlin.test.assertTrue
 
 /**
  * Integration coverage for item 473e4f49 ("start cascades bypass the parent note gate") through
- * the real [AdvanceItemTool] JSON contract, backed by an SQLite database.
+ * the production `advance` tool's JSON contract (Q32: formerly the removed 3.x advance_item), backed by an SQLite
+ * database. A suppressed cascade entry reads `{applied:false, blocked:"gate", missing:[{key, role}]}`.
  *
  * Mirrors [SchemaGatedLifecycleTest]'s harness (real SQLite DB + inline server config, no mocks)
  * but is scoped to the three scenarios the item's frozen test-plan note assigns to this file:
@@ -41,7 +41,6 @@ class StartCascadeGateIntegrationTest {
     val db = SqliteTestDatabase.perMethod()
 
     private lateinit var context: ToolExecutionContext
-    private lateinit var transitionTool: AdvanceItemTool
 
     @BeforeEach
     fun setUp() {
@@ -78,7 +77,6 @@ class StartCascadeGateIntegrationTest {
             }
 
         context = ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
-        transitionTool = AdvanceItemTool()
     }
 
     // ──────────────────────────────────────────────
@@ -115,30 +113,14 @@ class StartCascadeGateIntegrationTest {
 
     private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId)!!)
 
-    private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    transitions.forEach { add(it) }
-                }
-            )
-        }
+    private suspend fun advance(vararg transitions: JsonObject): JsonObject = context.advanceTool(*transitions)
 
     private fun transitionObj(
         itemId: UUID,
         trigger: String
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId.toString()))
-            put("trigger", JsonPrimitive(trigger))
-        }
+    ): JsonObject = transitionOp(itemId, trigger)
 
-    private fun extractData(result: JsonElement): JsonObject {
-        val obj = result as JsonObject
-        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success response but got: $result")
-        return obj["data"] as JsonObject
-    }
+    private fun extractData(result: JsonElement): JsonObject = (result as JsonObject)["data"] as JsonObject
 
     private fun extractResults(result: JsonElement): JsonArray = extractData(result)["results"]!!.jsonArray
 
@@ -149,13 +131,13 @@ class StartCascadeGateIntegrationTest {
         expectedNewRole: String
     ): JsonObject {
         val r = firstResult(result)
-        assertTrue(r["applied"]!!.jsonPrimitive.boolean, "Expected successful transition but it was rejected: ${r["error"]}")
+        assertTrue(r["ok"]!!.jsonPrimitive.boolean, "Expected successful transition but it was rejected: ${r["error"]}")
         assertEquals(expectedNewRole, r["newRole"]!!.jsonPrimitive.content)
         return r
     }
 
     private fun singleCascade(r: JsonObject): JsonObject {
-        val cascades = r["cascadeEvents"]!!.jsonArray
+        val cascades = r["cascades"]!!.jsonArray
         assertEquals(1, cascades.size, "expected exactly one cascade event")
         return cascades[0].jsonObject
     }
@@ -174,10 +156,7 @@ class StartCascadeGateIntegrationTest {
             createNote(child.id, key = "specification", role = Role.QUEUE)
 
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
 
             val r = assertTransitionSuccess(result, "work")
             assertEquals(Role.WORK, getItem(child.id).role, "the child's own advance must succeed")
@@ -189,9 +168,9 @@ class StartCascadeGateIntegrationTest {
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
             assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
             assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "cascade must not be applied")
-            assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean, "cascade must report gateBlocked")
-            val missingKeys = cascade["missingNotes"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
-            assertTrue(missingKeys.contains("specification"), "missingNotes must name the unfilled parent note")
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content, "cascade must report the gate block")
+            val missingKeys = cascade["missing"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+            assertTrue(missingKeys.contains("specification"), "missing must name the unfilled parent note")
         }
 
     // ──────────────────────────────────────────────
@@ -208,18 +187,15 @@ class StartCascadeGateIntegrationTest {
             createNote(child.id, key = "specification", role = Role.QUEUE)
 
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "start")),
-                    context
-                )
+                advance(transitionObj(child.id, "start"))
 
             val r = assertTransitionSuccess(result, "work")
             assertEquals(Role.WORK, getItem(parent.id).role, "the parent must cascade into WORK")
 
             val cascade = singleCascade(r)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "cascade must be applied")
-            assertNull(cascade["gateBlocked"], "an applied cascade must not carry gateBlocked")
-            assertNull(cascade["missingNotes"], "an applied cascade must not carry missingNotes")
+            assertNull(cascade["blocked"], "an applied cascade must not carry blocked")
+            assertNull(cascade["missing"], "an applied cascade must not carry missing")
         }
 
     // ──────────────────────────────────────────────
@@ -239,9 +215,9 @@ class StartCascadeGateIntegrationTest {
 
             // Drive the child to TERMINAL; the parent's own notes are all filled so it cascades
             // all the way to TERMINAL too, alongside the child.
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context) // -> work
+            advance(transitionObj(child.id, "start")) // -> work
             val rComplete =
-                transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context) // -> terminal
+                advance(transitionObj(child.id, "start")) // -> terminal
             assertTransitionSuccess(rComplete, "terminal")
             assertEquals(Role.TERMINAL, getItem(parent.id).role, "sanity check: parent must have reached TERMINAL")
 
@@ -249,10 +225,7 @@ class StartCascadeGateIntegrationTest {
             context.noteRepository().deleteByItemId(parent.id)
 
             val reopenResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child.id, "reopen")),
-                    context
-                )
+                advance(transitionObj(child.id, "reopen"))
             val r = assertTransitionSuccess(reopenResult, "queue")
             assertEquals(Role.QUEUE, getItem(child.id).role)
 
@@ -264,6 +237,6 @@ class StartCascadeGateIntegrationTest {
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
             assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "reopen cascade must be applied despite unfilled notes")
-            assertNull(cascade["gateBlocked"], "reopen cascade must never report gateBlocked")
+            assertNull(cascade["blocked"], "reopen cascade must never report a block")
         }
 }

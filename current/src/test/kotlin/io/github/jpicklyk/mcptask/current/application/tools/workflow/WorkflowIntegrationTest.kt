@@ -4,8 +4,13 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.blockerIds
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.errorMessage
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -16,7 +21,8 @@ import kotlin.test.*
 
 /**
  * End-to-end workflow integration tests that exercise multiple tools and services
- * together using a real SQLite database. These tests verify cross-tool
+ * together using a real SQLite database (transitions through the production `advance` tool; Q32: formerly the removed
+ * 3.x advance_item). These tests verify cross-tool
  * workflows where operations happen in sequence and state evolves across calls.
  *
  * The scenarios run twice: under the test fixture's [OutsideUnitPolicy.IMPLICIT]
@@ -36,7 +42,6 @@ abstract class WorkflowIntegrationScenarios(
     val db = SqliteTestDatabase.perMethod(outsideUnitPolicy)
 
     private lateinit var context: ToolExecutionContext
-    private lateinit var transitionTool: AdvanceItemTool
     private lateinit var nextItemTool: ItemContextProbe
     private lateinit var blockedItemsTool: ItemContextProbe
     private lateinit var nextStatusTool: ItemContextProbe
@@ -46,7 +51,6 @@ abstract class WorkflowIntegrationScenarios(
         val repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
-        transitionTool = AdvanceItemTool()
         nextItemTool = ItemContextProbe("next")
         blockedItemsTool = ItemContextProbe("blocked")
         nextStatusTool = ItemContextProbe("context")
@@ -117,26 +121,14 @@ abstract class WorkflowIntegrationScenarios(
             is Outcome.Err -> error("fixture seed '$op' failed: ${outcome.error.message}")
         }
 
-    private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    transitions.forEach { add(it) }
-                }
-            )
-        }
+    /** One `advance` call with [transitions] (`transition` ops); the envelope body. */
+    private suspend fun advance(vararg transitions: JsonObject): JsonObject = context.advanceTool(*transitions)
 
     private fun transitionObj(
         itemId: UUID,
         trigger: String,
         summary: String? = null
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId.toString()))
-            put("trigger", JsonPrimitive(trigger))
-            if (summary != null) put("summary", JsonPrimitive(summary))
-        }
+    ): JsonObject = transitionOp(itemId, trigger, *(if (summary != null) arrayOf("summary" to JsonPrimitive(summary)) else emptyArray()))
 
     private fun extractData(result: JsonElement): JsonObject {
         val obj = result as JsonObject
@@ -144,20 +136,24 @@ abstract class WorkflowIntegrationScenarios(
         return obj["data"] as JsonObject
     }
 
-    private fun extractResults(result: JsonElement): JsonArray = extractData(result)["results"]!!.jsonArray
+    /** The `data` of an `advance` envelope: present on success and on a partial failure alike. */
+    private fun advanceData(result: JsonElement): JsonObject =
+        assertNotNull((result as JsonObject)["data"] as? JsonObject, "the advance envelope carries data: $result")
 
-    private fun extractSummary(result: JsonElement): JsonObject = extractData(result)["summary"]!!.jsonObject
+    private fun extractResults(result: JsonElement): JsonArray = advanceData(result)["results"]!!.jsonArray
+
+    private fun extractSummary(result: JsonElement): JsonObject = advanceData(result)["summary"]!!.jsonObject
 
     private fun assertTransitionApplied(resultObj: JsonObject) {
         assertTrue(
-            resultObj["applied"]!!.jsonPrimitive.boolean,
+            resultObj["ok"]!!.jsonPrimitive.boolean,
             "Expected transition to be applied but got: $resultObj"
         )
     }
 
     private fun assertTransitionFailed(resultObj: JsonObject) {
         assertFalse(
-            resultObj["applied"]!!.jsonPrimitive.boolean,
+            resultObj["ok"]!!.jsonPrimitive.boolean,
             "Expected transition to fail but got: $resultObj"
         )
     }
@@ -181,45 +177,33 @@ abstract class WorkflowIntegrationScenarios(
 
             // Transition child1: QUEUE -> WORK -> TERMINAL
             val startChild1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child1.id, "start")),
-                    context
-                )
+                advance(transitionObj(child1.id, "start"))
             assertTransitionApplied(extractResults(startChild1)[0].jsonObject)
             assertEquals("work", extractResults(startChild1)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
 
             val completeChild1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child1.id, "complete")),
-                    context
-                )
+                advance(transitionObj(child1.id, "complete"))
             assertTransitionApplied(extractResults(completeChild1)[0].jsonObject)
             assertEquals("terminal", extractResults(completeChild1)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
 
             // Parent should NOT cascade yet (child2 still in QUEUE).
             // Empty cascadeEvents is omitted entirely for token efficiency.
             assertNull(
-                extractResults(completeChild1)[0].jsonObject["cascadeEvents"],
-                "cascadeEvents should be omitted when no cascade fires"
+                extractResults(completeChild1)[0].jsonObject["cascades"],
+                "cascades should be omitted when no cascade fires"
             )
 
             // Transition child2: QUEUE -> WORK -> TERMINAL
             val startChild2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child2.id, "start")),
-                    context
-                )
+                advance(transitionObj(child2.id, "start"))
             assertTransitionApplied(extractResults(startChild2)[0].jsonObject)
 
             val completeChild2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child2.id, "complete")),
-                    context
-                )
+                advance(transitionObj(child2.id, "complete"))
             assertTransitionApplied(extractResults(completeChild2)[0].jsonObject)
 
             // Now parent should cascade to TERMINAL
-            val cascadeEvents2 = extractResults(completeChild2)[0].jsonObject["cascadeEvents"]!!.jsonArray
+            val cascadeEvents2 = extractResults(completeChild2)[0].jsonObject["cascades"]!!.jsonArray
             assertEquals(1, cascadeEvents2.size, "Cascade should fire when all children are terminal")
             val cascade = cascadeEvents2[0].jsonObject
             assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
@@ -246,41 +230,27 @@ abstract class WorkflowIntegrationScenarios(
 
             // Try to start B -- should be blocked
             val startB =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemB.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemB.id, "start"))
             val bResult = extractResults(startB)[0].jsonObject
             assertTransitionFailed(bResult)
-            assertTrue(bResult["error"]!!.jsonPrimitive.content.contains("blocking"))
-            assertNotNull(bResult["blockers"])
+            assertTrue(bResult.errorMessage()!!.contains("blocking"), "$bResult")
+            assertEquals("dependency_unmet", bResult.errorCode())
+            assertEquals(listOf(itemA.id.toString()), bResult.blockerIds())
 
             // Transition A: QUEUE -> WORK
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(itemA.id, "start")),
-                context
-            )
+            advance(transitionObj(itemA.id, "start"))
 
             // B should still be blocked (A is at WORK, not TERMINAL)
             val startB2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemB.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemB.id, "start"))
             assertTransitionFailed(extractResults(startB2)[0].jsonObject)
 
             // Complete A -> TERMINAL
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(itemA.id, "complete")),
-                context
-            )
+            advance(transitionObj(itemA.id, "complete"))
 
             // Now B should be startable
             val startB3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemB.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemB.id, "start"))
             val bResult3 = extractResults(startB3)[0].jsonObject
             assertTransitionApplied(bResult3)
             assertEquals("work", bResult3["newRole"]!!.jsonPrimitive.content)
@@ -305,26 +275,17 @@ abstract class WorkflowIntegrationScenarios(
 
             // B is blocked while A is still in QUEUE
             val startB1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemB.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemB.id, "start"))
             assertTransitionFailed(extractResults(startB1)[0].jsonObject)
 
             // Transition A to WORK
             val startA =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemA.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemA.id, "start"))
             assertTransitionApplied(extractResults(startA)[0].jsonObject)
 
             // Now B should be startable (A is at WORK, threshold is WORK)
             val startB2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemB.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemB.id, "start"))
             val bResult = extractResults(startB2)[0].jsonObject
             assertTransitionApplied(bResult)
             assertEquals("work", bResult["newRole"]!!.jsonPrimitive.content)
@@ -345,13 +306,10 @@ abstract class WorkflowIntegrationScenarios(
 
             // Batch transition all three with "start" trigger
             val result =
-                transitionTool.execute(
-                    buildTransitionParams(
-                        transitionObj(item1.id, "start"),
-                        transitionObj(item2.id, "start"),
-                        transitionObj(item3.id, "start")
-                    ),
-                    context
+                advance(
+                    transitionObj(item1.id, "start"),
+                    transitionObj(item2.id, "start"),
+                    transitionObj(item3.id, "start")
                 )
 
             val results = extractResults(result)
@@ -363,26 +321,20 @@ abstract class WorkflowIntegrationScenarios(
 
             // item2 fails (already terminal)
             assertTransitionFailed(results[1].jsonObject)
-            assertTrue(
-                results[1]
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content
-                    .contains("terminal")
-            )
+            assertTrue(results[1].jsonObject.errorMessage()!!.contains("terminal"), "${results[1]}")
 
             // item3 fails (blocked by dependency)
             assertTransitionFailed(results[2].jsonObject)
-            assertTrue(
-                results[2]
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content
-                    .contains("blocking")
-            )
+            assertTrue(results[2].jsonObject.errorMessage()!!.contains("blocking"), "${results[2]}")
 
             val summary = extractSummary(result)
-            assertEquals(3, summary["total"]!!.jsonPrimitive.int)
-            assertEquals(1, summary["succeeded"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["ok"]!!.jsonPrimitive.int)
             assertEquals(2, summary["failed"]!!.jsonPrimitive.int)
+            assertEquals(
+                "partial_failure",
+                (result["error"] as JsonObject)["code"]!!.jsonPrimitive.content,
+                "a mixed batch is a partial failure"
+            )
         }
 
     // ──────────────────────────────────────────────
@@ -396,10 +348,7 @@ abstract class WorkflowIntegrationScenarios(
 
             // Block the item
             val blockResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "block")),
-                    context
-                )
+                advance(transitionObj(item.id, "block"))
             val blockRes = extractResults(blockResult)[0].jsonObject
             assertTransitionApplied(blockRes)
             assertEquals("blocked", blockRes["newRole"]!!.jsonPrimitive.content)
@@ -411,10 +360,7 @@ abstract class WorkflowIntegrationScenarios(
 
             // Resume the item
             val resumeResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "resume")),
-                    context
-                )
+                advance(transitionObj(item.id, "resume"))
             val resumeRes = extractResults(resumeResult)[0].jsonObject
             assertTransitionApplied(resumeRes)
             assertEquals("work", resumeRes["newRole"]!!.jsonPrimitive.content)
@@ -435,10 +381,7 @@ abstract class WorkflowIntegrationScenarios(
             val item = createItem("Work Item", role = Role.WORK)
 
             val cancelResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "cancel")),
-                    context
-                )
+                advance(transitionObj(item.id, "cancel"))
             val cancelRes = extractResults(cancelResult)[0].jsonObject
             assertTransitionApplied(cancelRes)
             assertEquals("terminal", cancelRes["newRole"]!!.jsonPrimitive.content)
@@ -640,10 +583,7 @@ abstract class WorkflowIntegrationScenarios(
             val child2 = createItem("Child 2", parentId = parent.id, role = Role.WORK)
 
             // Complete child1 -- parent should NOT cascade yet
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(child1.id, "complete")),
-                context
-            )
+            advance(transitionObj(child1.id, "complete"))
             assertEquals(Role.WORK, getItem(parent.id).role)
             assertEquals(Role.WORK, getItem(grandparent.id).role)
 
@@ -651,12 +591,9 @@ abstract class WorkflowIntegrationScenarios(
             //   parent -> TERMINAL (all children terminal)
             //   grandparent -> TERMINAL (all children terminal, since parent is only child)
             val completeChild2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(child2.id, "complete")),
-                    context
-                )
+                advance(transitionObj(child2.id, "complete"))
 
-            val cascades = extractResults(completeChild2)[0].jsonObject["cascadeEvents"]!!.jsonArray
+            val cascades = extractResults(completeChild2)[0].jsonObject["cascades"]!!.jsonArray
 
             // Should have cascades for BOTH parent and grandparent
             assertEquals(2, cascades.size, "Expected 2 cascade events (parent + grandparent)")
@@ -693,23 +630,20 @@ abstract class WorkflowIntegrationScenarios(
 
             // Complete A
             val completeA =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemA.id, "complete")),
-                    context
-                )
+                advance(transitionObj(itemA.id, "complete"))
 
             val resultObj = extractResults(completeA)[0].jsonObject
             assertTransitionApplied(resultObj)
 
-            // Check unblockedItems in per-result scope
-            val unblockedItems = resultObj["unblockedItems"]!!.jsonArray
+            // Check the unblocked items in per-result scope
+            val unblockedItems = resultObj["unblocked"]!!.jsonArray
             assertEquals(1, unblockedItems.size)
             assertEquals(itemB.id.toString(), unblockedItems[0].jsonObject["itemId"]!!.jsonPrimitive.content)
             assertEquals("Item B", unblockedItems[0].jsonObject["title"]!!.jsonPrimitive.content)
 
-            // Top-level allUnblockedItems aggregate was dropped (derivable from per-transition unblockedItems).
-            val data = extractData(completeA)
-            assertNull(data["allUnblockedItems"], "top-level allUnblockedItems aggregate dropped")
+            // No top-level aggregate: the unblocked items are per element only.
+            val data = advanceData(completeA)
+            assertEquals(setOf("results", "summary"), data.keys, "the batch data carries only results and summary")
         }
 
     // ──────────────────────────────────────────────
@@ -725,28 +659,19 @@ abstract class WorkflowIntegrationScenarios(
 
             // QUEUE -> WORK
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertEquals("work", extractResults(start1)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
             assertEquals(Role.WORK, getItem(item.id).role)
 
             // WORK -> TERMINAL (schema-free: no review phase)
             val start2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertEquals("terminal", extractResults(start2)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
             assertEquals(Role.TERMINAL, getItem(item.id).role)
 
             // TERMINAL -> start should fail
             val start3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "start")),
-                    context
-                )
+                advance(transitionObj(item.id, "start"))
             assertTransitionFailed(extractResults(start3)[0].jsonObject)
         }
 
@@ -766,38 +691,23 @@ abstract class WorkflowIntegrationScenarios(
 
             // C should be blocked
             val start1 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemC.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemC.id, "start"))
             assertTransitionFailed(extractResults(start1)[0].jsonObject)
 
             // Complete A
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(itemA.id, "complete")),
-                context
-            )
+            advance(transitionObj(itemA.id, "complete"))
 
             // C should still be blocked (B is not terminal)
             val start2 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemC.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemC.id, "start"))
             assertTransitionFailed(extractResults(start2)[0].jsonObject)
 
             // Complete B
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(itemB.id, "complete")),
-                context
-            )
+            advance(transitionObj(itemB.id, "complete"))
 
             // Now C should be startable
             val start3 =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(itemC.id, "start")),
-                    context
-                )
+                advance(transitionObj(itemC.id, "start"))
             assertTransitionApplied(extractResults(start3)[0].jsonObject)
             assertEquals("work", extractResults(start3)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
         }
@@ -813,10 +723,7 @@ abstract class WorkflowIntegrationScenarios(
 
             // Hold the item
             val holdResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "hold")),
-                    context
-                )
+                advance(transitionObj(item.id, "hold"))
             val holdRes = extractResults(holdResult)[0].jsonObject
             assertTransitionApplied(holdRes)
             assertEquals("blocked", holdRes["newRole"]!!.jsonPrimitive.content)
@@ -828,10 +735,7 @@ abstract class WorkflowIntegrationScenarios(
 
             // Resume -- should go back to REVIEW
             val resumeResult =
-                transitionTool.execute(
-                    buildTransitionParams(transitionObj(item.id, "resume")),
-                    context
-                )
+                advance(transitionObj(item.id, "resume"))
             val resumeRes = extractResults(resumeResult)[0].jsonObject
             assertTransitionApplied(resumeRes)
             assertEquals("review", resumeRes["newRole"]!!.jsonPrimitive.content)
@@ -862,10 +766,7 @@ abstract class WorkflowIntegrationScenarios(
             assertFalse(recIds1.contains(downstream.id.toString().take(8)))
 
             // Complete the blocker
-            transitionTool.execute(
-                buildTransitionParams(transitionObj(blocker.id, "complete")),
-                context
-            )
+            advance(transitionObj(blocker.id, "complete"))
 
             // Now downstream should appear in recommendations (blocker no longer in QUEUE)
             val result2 =

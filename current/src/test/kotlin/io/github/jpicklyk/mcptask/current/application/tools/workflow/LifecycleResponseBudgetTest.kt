@@ -1,18 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
-import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -22,18 +22,11 @@ import java.util.UUID
 import kotlin.test.assertTrue
 
 /**
- * Token-efficiency regression guard for per-call response size (see the "MCP
- * Token-Efficiency Program" work referenced in [io.github.jpicklyk.mcptask.current.application.tools.ToolTokenBudgetTest]).
- * That test guards the `tools/list` payload (what a client downloads once per session); this
- * test guards the recurring cost — what a client's context window pays on every tool *call* —
- * by driving a full item lifecycle end-to-end against a real SQLite database and measuring exactly
- * what [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter] hands back to an MCP
- * client: the `userSummary` text plus the compact-JSON `structuredContent` payload. See
- * [measureCall] — it deliberately mirrors `McpToolAdapter.registerToolWithServer`'s isError /
- * userSummary / extractDataPayload-or-extractErrorPayload logic exactly, so a change to either
- * side (the adapter or this test) that drifts from the other would be caught by
- * [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapterTest] rather than silently
- * under- or over-counting here.
+ * Token-efficiency regression guard for per-call response size. The tool registry's `tools/list` payload (what a client
+ * downloads once per session) is guarded by ToolSurfaceGuardsTest S15; this test guards the recurring cost -- what a
+ * client's context window pays on every tool *call* -- by driving a full item lifecycle end-to-end against a real SQLite
+ * database and measuring the envelope body an MCP client receives as `structuredContent` (the 4.0 tools have no separate
+ * summary text; Q32 retired the 3.x advance measurement, which mirrored the removed 3.x adapter).
  *
  * The lifecycle: a tree fixture (root + 2 children + a blocking dep, through the 4.0 `items_write` `create_tree`, not
  * measured here: Q21 retired the 3.x `create_work_tree` this call used to measure) -> items_read context
@@ -46,8 +39,8 @@ import kotlin.test.assertTrue
  * only)" drive_workflow.py script this test's call sequence is modeled on.
  *
  * BUDGET PHILOSOPHY: per-call ceilings below are measured-in-this-repo * 1.15, rounded up to
- * the nearest 50 (same policy as ToolTokenBudgetTest — see that file for the full rationale
- * on when it's OK to raise a ceiling vs. when a failure means "fix the bloat instead"). The
+ * the nearest 50 (raise a ceiling only for a deliberate, reviewed response change; otherwise a failure means "fix the
+ * bloat instead"). The
  * two `assertTrue(... < N ...)` hard caps are a second, independent guard: they pin the
  * *original pre-slimming* sizes from the token-efficiency audit as regression sentinels, so a
  * revert of that work fails loudly even if someone also loosened the per-call ceiling table.
@@ -59,7 +52,6 @@ class LifecycleResponseBudgetTest {
     private lateinit var context: ToolExecutionContext
 
     private val contextProbe = ItemContextProbe("context")
-    private val advanceItemTool = AdvanceItemTool()
     private val nextProbe = ItemContextProbe("next")
 
     /** Insertion-ordered label -> measured response char count, populated by [measureCall]. */
@@ -127,30 +119,15 @@ class LifecycleResponseBudgetTest {
             put("kind", JsonPrimitive("orchestrator"))
         }
 
-    /**
-     * Executes [tool] and records the exact char count an MCP client would receive for this
-     * call: `userSummary` text + compact-JSON `structuredContent`. Mirrors
-     * McpToolAdapter.registerToolWithServer's isError / userSummary / extractDataPayload-or-
-     * extractErrorPayload logic exactly (see class doc).
-     */
-    private suspend fun measureCall(
+    /** Runs one `advance` transition of [itemId] and records the char count of the envelope body (`structuredContent`). */
+    private suspend fun measureAdvance(
         label: String,
-        tool: ToolDefinition,
-        params: JsonElement
+        itemId: String,
+        trigger: String
     ): JsonObject {
-        val result = tool.execute(params, context)
-        val resultObj = result as JsonObject
-        val isError = ResponseUtil.isErrorResponse(resultObj)
-        val summary = tool.userSummary(params, result, isError)
-        val structuredData =
-            if (isError) {
-                ResponseUtil.extractErrorPayload(resultObj)
-            } else {
-                ResponseUtil.extractDataPayload(resultObj) as? JsonObject
-            }
-        val structuredLen = structuredData?.toString()?.length ?: 0
-        measured[label] = summary.length + structuredLen
-        return resultObj
+        val body = context.advanceTool(transitionOp(itemId, trigger), actor = actor())
+        measured[label] = body.toString().length
+        return body
     }
 
     /**
@@ -167,35 +144,17 @@ class LifecycleResponseBudgetTest {
         return body
     }
 
-    private fun transitionParams(
-        itemId: String,
-        trigger: String
-    ) = buildJsonObject {
-        put(
-            "transitions",
-            buildJsonArray {
-                add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId))
-                        put("trigger", JsonPrimitive(trigger))
-                        put("actor", actor())
-                    }
-                )
-            }
-        )
-    }
-
     // ──────────────────────────────────────────────
-    // BUDGET PHILOSOPHY — see class doc. Update via the same process as ToolTokenBudgetTest.
+    // BUDGET PHILOSOPHY — see class doc.
     // ──────────────────────────────────────────────
     private val perCallCeilings: Map<String, Int> =
         mapOf(
             "items_read(context health)" to 500,
             "items_read(context item t1)" to 950,
-            "advance_item(start, gated FAILURE)" to 650,
-            "advance_item(start -> work)" to 850,
-            "advance_item(start -> review)" to 550,
-            "advance_item(start -> terminal)" to 500,
+            "advance(start, gated FAILURE)" to 650,
+            "advance(start -> work)" to 550,
+            "advance(start -> review)" to 400,
+            "advance(start -> terminal)" to 400,
             "items_read(next)" to 300,
         )
 
@@ -269,11 +228,7 @@ class LifecycleResponseBudgetTest {
             )
 
             // ── 4. advance start -> expect gate failure (task-scope unfilled) ──
-            measureCall(
-                "advance_item(start, gated FAILURE)",
-                advanceItemTool,
-                transitionParams(t1Id, "start")
-            )
+            measureAdvance("advance(start, gated FAILURE)", t1Id, "start")
 
             // ── 5. fill the required queue note (fixture write: the note tools have their own budget) ──
             context.putNote(
@@ -286,7 +241,7 @@ class LifecycleResponseBudgetTest {
             )
 
             // ── 6. advance start -> work ──
-            measureCall("advance_item(start -> work)", advanceItemTool, transitionParams(t1Id, "start"))
+            measureAdvance("advance(start -> work)", t1Id, "start")
 
             // ── 7. fill both required work notes ──
             context.putNote(
@@ -305,7 +260,7 @@ class LifecycleResponseBudgetTest {
             )
 
             // ── 8. advance start -> review ──
-            measureCall("advance_item(start -> review)", advanceItemTool, transitionParams(t1Id, "start"))
+            measureAdvance("advance(start -> review)", t1Id, "start")
 
             // ── 9. fill the required review note ──
             context.putNote(
@@ -317,7 +272,7 @@ class LifecycleResponseBudgetTest {
             )
 
             // ── 10. advance start -> terminal ──
-            measureCall("advance_item(start -> terminal)", advanceItemTool, transitionParams(t1Id, "start"))
+            measureAdvance("advance(start -> terminal)", t1Id, "start")
 
             // ── 11. items_read next (t2 should now be unblocked) ──
             measureEnvelope(
@@ -327,7 +282,7 @@ class LifecycleResponseBudgetTest {
             )
 
             // ── Print the measured-size table ──
-            println("── lifecycle per-call measured response sizes (userSummary + structuredContent) ──")
+            println("── lifecycle per-call measured response sizes (structuredContent) ──")
             var total = 0
             measured.forEach { (label, size) ->
                 total += size
@@ -360,8 +315,8 @@ class LifecycleResponseBudgetTest {
                     "regressed toward the pre-slimming size (get_context was 2,968 chars)"
             )
             assertTrue(
-                measured["advance_item(start -> work)"]!! < 1100,
-                "advance_item(start -> work) response is ${measured["advance_item(start -> work)"]} chars, " +
+                measured["advance(start -> work)"]!! < 1100,
+                "advance(start -> work) response is ${measured["advance(start -> work)"]} chars, " +
                     "regressed toward the pre-slimming size (was 2,153 chars)"
             )
         }
