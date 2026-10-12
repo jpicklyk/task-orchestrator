@@ -1,0 +1,344 @@
+package io.github.jpicklyk.mcptask.current.application.api
+
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
+import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
+import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.port.BodySource
+import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
+import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
+import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
+import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
+import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import java.util.UUID
+
+/**
+ * Execution context provided to every tool operation (MCP and REST) during invocation.
+ *
+ * Provides typed access to all repository interfaces via the [RepositoryProvider] and the shared
+ * application services, so operations interact with the persistence layer without direct knowledge
+ * of the repository implementations.
+ */
+class ToolExecutionContext(
+    val repositoryProvider: RepositoryProvider,
+    private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
+    private val actorVerifier: ActorVerifier = NoOpActorVerifier,
+    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+    val nextItemRecommender: NextItemRecommender =
+        NextItemRecommender(repositoryProvider.workItemRepository()),
+    perRootConfigService: PerRootConfigSource? = null,
+    /**
+     * The single resolution entry point every resolver method below delegates to. Defaults to a
+     * resolver with NO server config (an empty server layer) over `perRootConfigService`; production
+     * and any test that needs server schemas pass a resolver built over a real server [LayerBackedGlobalLookup].
+     */
+    val configResolver: EffectiveConfigResolver =
+        EffectiveConfigResolver(
+            LayerBackedGlobalLookup(null),
+            perRootConfigService
+        ),
+    /** Time source for units of work; production wires the system clock. */
+    val clock: Clock = Clock.SYSTEM,
+    /**
+     * The transaction boundary. Production wires the SQLite implementation; the default runs blocks
+     * without a transaction so tests with mocked stores keep constructing the context unchanged.
+     */
+    val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
+    /**
+     * The read model (the `next`, `blocked`, `overview` and `context` views), one read unit per view. Production
+     * builds ONE instance in `ServerComposition`; the default builds one over [unitOfWork].
+     */
+    val workViewQueries: WorkViewQueries = WorkViewQueries(unitOfWork),
+    /** The shared config service; null in tests, where tools build their own over [repositoryProvider]. */
+    val configService: ConfigService? = null,
+    /**
+     * Reads the file a `bodyFromFile` field names. Production wires a `FileBodySource` over the agent config root,
+     * built once in `ServerComposition`; the default rejects every path (fail closed), so a context nobody wired a
+     * root into can never read a file.
+     */
+    val bodySource: BodySource = BodySource.DISABLED,
+    /** The lease kill switch (`AppConfig.resourceLeasesEnforced`, read once at startup). */
+    private val resourceLeasesEnforced: Boolean = true,
+) {
+    /**
+     * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
+     * (most tests) do not build it.
+     */
+    val idempotency: IdempotencyService by lazy { IdempotencyService(unitOfWork) }
+
+    /**
+     * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager
+     * accessor call at construction time; built once per [ToolExecutionContext] instance.
+     */
+    private val advanceServiceFactoryLazy by lazy {
+        AdvanceServiceFactory(
+            workItemRepository(),
+            dependencyRepository(),
+            noteRepository(),
+            repositoryProvider.resourceLeaseRepository(),
+            configResolver,
+            unitOfWork,
+            resourceLeasesEnforced = { resourceLeasesEnforced },
+            clock = clock,
+            claimService = claimService,
+            schemaPinService = schemaPinService
+        )
+    }
+
+    /**
+     * THE pin writer (plan section 3.8), shared by the item command service and every built advance service, and the
+     * pin view the item read surfaces render. Pins are on only when [configResolver] reads stored versions by id.
+     * Lazy for the same reason as [advanceServiceFactoryLazy]; the config store is touched only when pins are on.
+     */
+    val schemaPinService: SchemaPinService by lazy {
+        SchemaPinService(configResolver, if (configResolver.pinsEnabled) repositoryProvider.configStore() else null)
+    }
+
+    /** The single owner of claim and resource-lease writes and their events. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
+
+    /**
+     * The single owner of the note write policy, shared by `notes_write` and `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
+     */
+    val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
+
+    /**
+     * The single owner of the dependency write policy (normalization, duplicate and cycle rules), shared by
+     * `deps_write` and `create_work_tree`. Lazy for the same reason as
+     * [advanceServiceFactoryLazy].
+     */
+    val dependencyCommandService: DependencyCommandService by lazy { DependencyCommandService(repositoryProvider, unitOfWork) }
+
+    /**
+     * The single owner of item creates, patches and deletes (placement, structural rules, item events), shared by
+     * `manage_items`, the REST item routes and `create_work_tree`. Lazy for the same reason as
+     * [advanceServiceFactoryLazy].
+     */
+    val itemCommandService: ItemCommandService by lazy {
+        ItemCommandService(
+            repositoryProvider,
+            configResolver,
+            unitOfWork,
+            advanceServiceFactory(),
+            claimService,
+            schemaPinService = schemaPinService
+        )
+    }
+
+    /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
+    val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
+
+    /** The document write owner, shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val documentService: DocumentService by lazy { DocumentService(repositoryProvider, unitOfWork) }
+
+    /** The link write owner (attach and detach), shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val linkService: LinkService by lazy { LinkService(repositoryProvider, unitOfWork) }
+
+    /**
+     * Full-text search over items and notes, built from [RepositoryProvider.searchIndex] on first use (a provider
+     * without a search index fails only when a search actually runs).
+     */
+    val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
+
+    /**
+     * The `related` read (weighted fusion of dependency, link, tag and text signals), built from
+     * [RepositoryProvider.searchIndex] on first use, like [searchService].
+     */
+    val relatedService: RelatedService by lazy { RelatedService(repositoryProvider.searchIndex(), unitOfWork) }
+
+    /** Access to WorkItem CRUD and query operations. */
+    fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
+
+    /** Access to Note upsert, query, and delete operations. */
+    fun noteRepository(): NoteStore = repositoryProvider.noteRepository()
+
+    /** Access to Dependency graph operations (synchronous, non-suspend). */
+    fun dependencyRepository(): DependencyStore = repositoryProvider.dependencyRepository()
+
+    /** Access to the status label configuration service. */
+    fun statusLabelService(): StatusLabelService = statusLabelService
+
+    /** Access to the actor claim verification service. */
+    fun actorVerifier(): ActorVerifier = actorVerifier
+
+    /** Access to the versioned per-root config store. */
+    fun configStore(): ConfigStore = repositoryProvider.configStore()
+
+    /**
+     * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.
+     * Delegates to [EffectiveConfigResolver.resolveSchema]; see [LayeredConfig] for the one
+     * per-root-over-server precedence rule and [io.github.jpicklyk.mcptask.current.application.config.TraitResolver]
+     * for the trait merge.
+     */
+    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? = configResolver.resolveSchema(item)
+
+    /**
+     * Same resolution as [resolveSchema], but also reports which config layer supplied the BASE
+     * schema and that layer's config fingerprint, which is what `query_items`'s `schema` operation
+     * needs for its `configSource`/`configFingerprint` fields. Delegates to
+     * [EffectiveConfigResolver.resolveSchemaWithSource].
+     */
+    suspend fun resolveSchemaWithSource(item: WorkItem): SchemaMatch? = configResolver.resolveSchemaWithSource(item)
+
+    /**
+     * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
+     * [WorkItem]: no trait merging. Returns null when no layer resolves [type] (its own schema or a `"default"`).
+     */
+    suspend fun resolveTypeSchema(
+        type: String,
+        rootId: UUID?
+    ): SchemaMatch? = configResolver.resolveTypeSchema(type, rootId)
+
+    /**
+     * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase; false when
+     * no schema matches (schema-free mode, skip REVIEW).
+     */
+    suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = configResolver.resolveHasReviewPhase(item)
+
+    /**
+     * Resolves the effective [ResourceRequirement] list for [item]'s traits (config layer only;
+     * nothing here acquires or enforces a lease). Delegates to
+     * [EffectiveConfigResolver.resolveResourceRequirements].
+     */
+    suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> = configResolver.resolveResourceRequirements(item)
+
+    /**
+     * Type-only counterpart to [resolveResourceRequirements]: [defaultTraits] is the complete trait
+     * set. Delegates to [EffectiveConfigResolver.resolveResourceRequirementsForType].
+     */
+    suspend fun resolveResourceRequirementsForType(
+        defaultTraits: List<String>,
+        rootId: UUID?
+    ): List<ResourceRequirement> = configResolver.resolveResourceRequirementsForType(defaultTraits, rootId)
+
+    /**
+     * Resolves the dispatch routing profile for [item] at [role]. Convenience overload for callers
+     * with no already-resolved schema in hand: resolves it via [resolveSchema] first, then delegates
+     * to the 3-arg overload. Callers that already have a resolved schema MUST use the 3-arg overload
+     * instead: this one costs a second, redundant schema resolution (and its own per-root read).
+     */
+    suspend fun resolveDispatchProfile(
+        item: WorkItem,
+        role: Role
+    ): DispatchProfile? {
+        val resolvedSchema = resolveSchema(item)
+        return resolveDispatchProfile(item, role, resolvedSchema)
+    }
+
+    /**
+     * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema]'s
+     * `defaultTraits` instead of re-resolving the schema. A trait-less item costs zero per-root
+     * reads (`AdvanceItemToolTest.kt:2119` pins the rooted, trait-less advance's read count). Trait
+     * order is item traits first, then defaultTraits (the one order every trait merge uses). Delegates to
+     * [EffectiveConfigResolver.resolveDispatchProfile].
+     */
+    suspend fun resolveDispatchProfile(
+        item: WorkItem,
+        role: Role,
+        resolvedSchema: WorkItemSchema?
+    ): DispatchProfile? = configResolver.resolveDispatchProfile(item, role, resolvedSchema)
+
+    /**
+     * Per-phase counterpart to the 3-arg [resolveDispatchProfile]: a profile for EVERY phase
+     * [item]'s traits declare. Delegates to [EffectiveConfigResolver.resolveDispatchProfiles].
+     */
+    suspend fun resolveDispatchProfiles(
+        item: WorkItem,
+        resolvedSchema: WorkItemSchema?
+    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfiles(item, resolvedSchema)
+
+    /**
+     * Type-only counterpart to [resolveDispatchProfiles]: [defaultTraits] is the complete trait set.
+     * Delegates to [EffectiveConfigResolver.resolveDispatchProfilesForType].
+     */
+    suspend fun resolveDispatchProfilesForType(
+        defaultTraits: List<String>,
+        rootId: UUID?
+    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfilesForType(defaultTraits, rootId)
+
+    /**
+     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId]: the
+     * server registry only. Delegates to [EffectiveConfigResolver.resolveResourceRegistry].
+     */
+    suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = configResolver.resolveResourceRegistry(rootId)
+
+    /**
+     * Layered `note_limits.mode` resolution: [rootId]'s per-root explicit value wins, else the
+     * global mode. Delegates to [EffectiveConfigResolver.resolveNoteLimitsMode].
+     */
+    suspend fun resolveNoteLimitsMode(rootId: UUID?): String = configResolver.resolveNoteLimitsMode(rootId)
+
+    /**
+     * Layered `independence:` policy resolution (A2): [rootId]'s per-root block wins WHOLESALE,
+     * else the global policy. Delegates to [EffectiveConfigResolver.resolveIndependencePolicy].
+     */
+    suspend fun resolveIndependencePolicy(rootId: UUID?): IndependencePolicy = configResolver.resolveIndependencePolicy(rootId)
+
+    /**
+     * Layered status-label resolution for a single [trigger]: an explicit per-root key for
+     * [trigger] wins (including an explicit `null` value); otherwise the global label.
+     */
+    suspend fun resolveStatusLabel(
+        trigger: String,
+        rootId: UUID?
+    ): String? = resolveStatusLabels(listOf(trigger), rootId)[trigger]
+
+    /**
+     * Batched counterpart to [resolveStatusLabel]: every trigger in [triggers] from a SINGLE
+     * per-root read. Delegates to [EffectiveConfigResolver.resolveStatusLabels].
+     */
+    suspend fun resolveStatusLabels(
+        triggers: Collection<String>,
+        rootId: UUID?
+    ): Map<String, String?> = configResolver.resolveStatusLabels(triggers, rootId)
+
+    /**
+     * Returns the union of trait names available for the given [rootIds], per-root traits first,
+     * followed by the global trait list, distinct. Delegates to
+     * [EffectiveConfigResolver.availableTraits].
+     */
+    suspend fun availableTraits(rootIds: Collection<UUID>): List<String> = configResolver.availableTraits(rootIds)
+
+    /**
+     * The shared [AdvanceServiceFactory] for this context, backing every `advance_item` /
+     * `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
+     */
+    fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
+
+    /**
+     * The shared read-only [TransitionPreview] (`canAdvance` of `items_read` `select=context`): the same snapshot loader and policy every advance uses.
+     */
+    fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
+}

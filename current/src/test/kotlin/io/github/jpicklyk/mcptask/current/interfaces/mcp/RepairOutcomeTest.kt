@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.Failed
+import io.github.jpicklyk.mcptask.current.bootstrap.Reason
+import io.github.jpicklyk.mcptask.current.bootstrap.RepairCompleted
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager

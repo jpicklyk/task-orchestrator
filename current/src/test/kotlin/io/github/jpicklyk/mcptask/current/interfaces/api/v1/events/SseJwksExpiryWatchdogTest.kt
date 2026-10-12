@@ -206,7 +206,7 @@ class SseJwksExpiryWatchdogTest {
                 "Expected WWW-Authenticate to name invalid_token. Got: $wwwAuthenticate",
             )
             val body = response.bodyAsText()
-            assertTrue(body.contains("\"invalid_token\""), "Expected invalid_token error code in body. Got: $body")
+            assertTrue(body.contains("\"unauthenticated\""), "Expected the unauthenticated envelope code in body. Got: $body")
             assertTrue(
                 body.contains("Invalid or expired token"),
                 "Expected the exp-less outcome to share the same 401 body as any other verifyWithExpiry-null case. Got: $body",

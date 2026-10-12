@@ -2,27 +2,22 @@ package io.github.jpicklyk.mcptask.current.application.api.docs
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.IdResolution
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
@@ -261,9 +256,7 @@ object DocHandlers {
             }
         val principal = ctx.principal
         val written =
-            withEventActor(principal?.claim) {
-                env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal?.claim?.id)
-            }
+            env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal?.claim?.id)
         return when (written) {
             is Outcome.Err -> written
             is Outcome.Ok -> {
@@ -293,12 +286,10 @@ object DocHandlers {
                 is Outcome.Ok -> admitted.value
             }
         val result =
-            withEventActor(ctx.principal?.claim) {
-                if (archive) {
-                    env.documentService.archive(rootId, req.kind.domain, req.slug, expected)
-                } else {
-                    env.documentService.unarchive(rootId, req.kind.domain, req.slug, expected)
-                }
+            if (archive) {
+                env.documentService.archive(rootId, req.kind.domain, req.slug, expected)
+            } else {
+                env.documentService.unarchive(rootId, req.kind.domain, req.slug, expected)
             }
         return when (result) {
             is Outcome.Err -> result
@@ -323,7 +314,7 @@ object DocHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val result = withEventActor(ctx.principal?.claim) { env.documentService.delete(rootId, req.kind.domain, req.slug) }
+        val result = env.documentService.delete(rootId, req.kind.domain, req.slug)
         return when (result) {
             is Outcome.Err -> result
             is Outcome.Ok -> Outcome.Ok(DocWriteOutcome.Deleted(result.value.id, result.value.kind, result.value.slug))
@@ -348,7 +339,7 @@ object DocHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val result = withEventActor(ctx.principal?.claim) { env.linkService.attach(rootId, req.kind.domain, req.slug, itemId) }
+        val result = env.linkService.attach(rootId, req.kind.domain, req.slug, itemId)
         return when (result) {
             is Outcome.Err -> result
             is Outcome.Ok -> Outcome.Ok(DocWriteOutcome.Attached(result.value.id, result.value.from.id, itemId))
@@ -374,7 +365,7 @@ object DocHandlers {
                 is Outcome.Ok -> admitted.value
             }
         scope.stores.documentStore().get(rootId, req.kind.domain, req.slug) ?: return Outcome.Err(documentNotFound(req.slug))
-        val removed = withEventActor(ctx.principal?.claim) { env.linkService.detach(rootId, req.kind.domain, req.slug, itemId) }
+        val removed = env.linkService.detach(rootId, req.kind.domain, req.slug, itemId)
         return Outcome.Ok(DocWriteOutcome.Detached(removed))
     }
 
@@ -418,44 +409,13 @@ object DocHandlers {
         return Outcome.Ok(rootId)
     }
 
-    /**
-     * Resolves [ref] under the call's scope, by the `items_*` rule: an unrestricted scope gets the plain resolution
-     * (`not_found` / `ambiguous_id`). A restricted scope never learns of an id outside it from a prefix: no match is
-     * `forbidden` (never `not_found`), an ambiguous prefix keeps only the candidates [ScopeGuard] admits (none is
-     * `forbidden`, one resolves, several is `ambiguous_id` listing only those).
-     */
+    /** Resolves [ref] under the call's scope by the one rule every tool uses ([ScopedIds.resolve]). */
     private suspend fun resolveScoped(
         stores: RepositoryProvider,
         ctx: CallContext,
         ref: IdRef,
         field: String
-    ): Outcome<UUID> {
-        val resolution = IdResolver(stores.itemStore()).resolve(ref)
-        val scope = ctx.scope
-        if (scope.isUnrestricted) return resolution.toOutcome(field)
-        val repo = stores.workItemRepository()
-        return when (resolution) {
-            is IdResolution.NotFound -> Outcome.Err(scopeDenied(scope))
-            is IdResolution.Ambiguous -> {
-                val admitted = resolution.candidates.filter { ScopeGuard.check(scope, it, repo) is Outcome.Ok }
-                when (admitted.size) {
-                    0 -> Outcome.Err(scopeDenied(scope))
-                    1 -> Outcome.Ok(admitted.single())
-                    else -> IdResolution.Ambiguous(resolution.prefix, admitted).toOutcome(field)
-                }
-            }
-            else -> resolution.toOutcome(field)
-        }
-    }
-
-    private fun scopeDenied(scope: AccessScope): DomainError {
-        val roots = scope.rootIds
-        return if (roots != null) {
-            ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() })
-        } else {
-            ScopeGuard.forbidden(ForbiddenScope.TAG, scope.tagsInclude)
-        }
-    }
+    ): Outcome<UUID> = ScopedIds.resolve(stores.workItemRepository(), ctx.scope, ref, field)
 
     /** Resolves [ref] to an item the call's scope admits: `not_found` / `ambiguous_id` / `forbidden`. */
     private suspend fun admitItem(

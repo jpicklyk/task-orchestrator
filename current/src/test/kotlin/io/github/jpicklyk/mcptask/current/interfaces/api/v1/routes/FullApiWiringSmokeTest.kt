@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -56,7 +57,7 @@ abstract class FullApiWiringSmokeScenarios(
     /** Mirrors CurrentMcpServer's production `/api/v1` registration (same plugins + route order). */
     private fun Application.configureFullApi(repo: DefaultRepositoryProvider) {
         install(ContentNegotiation) { json(McpJson) }
-        install(CORS) { configureCors() }
+        install(CORS) { configureCors(appConfig = AppConfig.fromEnv()) }
         install(SSE)
 
         val bus = ApiEventBus()

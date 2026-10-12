@@ -2,14 +2,13 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -39,22 +38,24 @@ internal object DepsSupport {
         }
     }
 
-    /** Resolves [ref] to an item id, or its `not_found` / `ambiguous_id` error. */
+    /** Resolves [ref] to an item id under the call's scope ([ScopedIds.resolve]): never an existence oracle. */
     suspend fun resolve(
         env: ToolExecutionContext,
+        ctx: CallContext,
         ref: IdRef,
         field: String
-    ): Outcome<UUID> = IdResolver(env.repositoryProvider.itemStore()).resolve(ref).toOutcome(field)
+    ): Outcome<UUID> = ScopedIds.resolve(env.repositoryProvider.workItemRepository(), ctx.scope, ref, field)
 
     /** Resolves every ref in order; the first failure wins. */
     suspend fun resolveAll(
         env: ToolExecutionContext,
+        ctx: CallContext,
         refs: List<IdRef>,
         field: String
     ): Outcome<List<UUID>> {
         val out = ArrayList<UUID>(refs.size)
         for (ref in refs) {
-            when (val r = resolve(env, ref, field)) {
+            when (val r = resolve(env, ctx, ref, field)) {
                 is Outcome.Ok -> out += r.value
                 is Outcome.Err -> return r
             }

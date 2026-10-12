@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.contention
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.service.ok
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -9,9 +10,10 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.SettableClock
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.errorRetryAfterMs
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.github.jpicklyk.mcptask.current.test.text
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
@@ -72,7 +74,10 @@ class ClaimBoundaryTest {
             d.claimFor(parent, "agent-a")
             val claims = d.raw.claimStore()
 
-            suspend fun claimableFor(agent: String?) = claims.findClaimable(Role.QUEUE, requestingAgentId = agent).map { it.id }
+            suspend fun claimableFor(agent: String?) =
+                claims.findEligible(EligibilityQuery(role = Role.QUEUE, requestingAgentId = agent), limit = 1000).items.map {
+                    it.id
+                }
 
             clock.set(claimExpiry.minusMillis(1))
             assertFalse(child.id in claimableFor("agent-b"), "another agent's active ancestor claim hides the child at E - 1 ms")
@@ -96,13 +101,13 @@ class ClaimBoundaryTest {
 
             clock.set(claimExpiry.minusMillis(1))
             val before = d.advance(item, "start", actor = "agent-b")
-            assertEquals(false, before.flag("applied"), "$before")
-            assertEquals("not_claim_holder", before.text("errorCode"), "$before")
+            assertEquals(false, before.flag("ok"), "$before")
+            assertEquals("not_claim_holder", before.errorCode(), "$before")
             assertEquals(Role.QUEUE, d.role(item), "role unchanged by the refused start")
 
             clock.set(claimExpiry)
             val at = d.advance(item, "start", actor = "agent-b")
-            assertEquals(true, at.flag("applied"), "an expired claim no longer gates: $at")
+            assertEquals(true, at.flag("ok"), "an expired claim no longer gates: $at")
             assertEquals(Role.WORK, d.role(item))
         }
 
@@ -118,13 +123,13 @@ class ClaimBoundaryTest {
 
             clock.set(leaseExpiry.minusMillis(1))
             val before = d.advance(contender, "start")
-            assertEquals("resource_unavailable", before.text("errorCode"), "$before")
-            assertEquals("1", before.text("retryAfterMs"), "$before")
+            assertEquals("resource_unavailable", before.errorCode(), "$before")
+            assertEquals(1L, before.errorRetryAfterMs(), "$before")
             assertEquals(Role.QUEUE, d.role(contender))
 
             clock.set(leaseExpiry)
             val at = d.advance(contender, "start")
-            assertEquals(true, at.flag("applied"), "an expired lease no longer gates: $at")
+            assertEquals(true, at.flag("ok"), "an expired lease no longer gates: $at")
             assertEquals(Role.WORK, d.role(contender))
             val intervals = d.raw.resourceLeaseRepository().findRecentIntervals(P11_LEASE_KEY, 10)
             val closed = intervals.single { it.holderItemId == holder.id }

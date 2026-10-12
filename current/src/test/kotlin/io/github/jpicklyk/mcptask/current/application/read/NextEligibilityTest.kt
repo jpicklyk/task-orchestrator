@@ -54,7 +54,7 @@ class NextEligibilityTest {
     private val provider get() = db.repositoryProvider()
     private val items get() = provider.workItemRepository()
     private val deps get() = provider.dependencyRepository()
-    private val recommender get() = NextItemRecommender(items, deps)
+    private val recommender get() = NextItemRecommender(items)
 
     // -----------------------------------------------------------------------------------------------------------
     // Fixture + reference model R
@@ -328,10 +328,7 @@ class NextEligibilityTest {
                     other.unitOfWork().inUnit { seedRandom(f, seed) }
                     f.refresh()
                     val rec =
-                        NextItemRecommender(
-                            other.repositoryProvider().workItemRepository(),
-                            other.repositoryProvider().dependencyRepository()
-                        )
+                        NextItemRecommender(other.repositoryProvider().workItemRepository())
                     assertEquivalent(f, rec, "seed $seed")
                 }
             }
@@ -459,10 +456,7 @@ class NextEligibilityTest {
                         repeat(blockedAhead) { i -> f.link(blocker, f.item("blocked $i", priority = Priority.HIGH, complexity = 1)) }
                     }
                     val rec =
-                        NextItemRecommender(
-                            other.repositoryProvider().workItemRepository(),
-                            other.repositoryProvider().dependencyRepository()
-                        )
+                        NextItemRecommender(other.repositoryProvider().workItemRepository())
 
                     assertEquals(listOf(low.id), ids(rec.recommend(NextItemRecommender.Criteria(), 1)), "$blockedAhead blocked items ahead")
                 }

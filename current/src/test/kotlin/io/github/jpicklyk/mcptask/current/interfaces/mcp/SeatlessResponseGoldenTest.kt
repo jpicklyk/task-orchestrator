@@ -1,8 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -61,7 +62,7 @@ import kotlin.test.fail
  * - MCP captures run through the REAL [ServerComposition.build] over SQLite (LayerBackedGlobalLookup +
  *   PerRootConfigService, exactly as production wires it — pattern:
  *   [ServerCompositionResolverWiringTest]) and execute the REAL tool classes
- *   ([GetContextTool], [ItemSchemaProbe], [AdvanceItemTool]) against the resulting
+ *   (the `items_read` context probe and [ItemSchemaProbe]) against the resulting
  *   `composition.toolContext`.
  * - REST captures run through the REAL [installRestApiRoutes] with `ContentNegotiation` installed
  *   first (pattern: `ItemGateRouteTest`'s S15 production-topology wiring), reusing the SAME
@@ -89,9 +90,8 @@ import kotlin.test.fail
  *
  * GOLDEN MECHANISM: [normalizeGolden] normalizes exactly two field families (full rationale on the
  * function itself) and nothing else:
- * 1. `metadata.timestamp` and `metadata.version` — every MCP tool envelope (`ResponseUtil.createSuccessResponse`/
- *    `createErrorResponse`) always attaches `metadata: {timestamp, version}`
- *    (`ResponseUtilTest` "createMetadata includes timestamp and version"); the wall-clock
+ * 1. `metadata.timestamp` and `metadata.version` — every 3.x MCP tool envelope (and so the 3.x-shaped
+ *    [ItemSchemaProbe] that reproduces it for these goldens) attaches `metadata: {timestamp, version}`; the wall-clock
  *    `timestamp` varies every run, and `version` is the build version, which changes at every
  *    release: the recorded captures pinned `3.15.0` and the 3.16.0 version bump failed all nine
  *    MCP captures, so it is normalized as well. An earlier version of
@@ -305,10 +305,9 @@ class SeatlessResponseGoldenTest {
      * REST capture's `body` sub-object — see [restEnvelope] — gets the same treatment as a
      * top-level MCP envelope):
      *
-     * 1. `metadata.timestamp` — EVERY MCP tool envelope is built by `ResponseUtil.createSuccessResponse`
-     *    / `createErrorResponse`, which always attaches `metadata: {timestamp, version}`
-     *    (`ResponseUtilTest` "createMetadata includes timestamp and version": an ISO-8601
-     *    wall-clock capture time). `metadata.version` (the build version) is normalized in the same
+     * 1. `metadata.timestamp` — the 3.x-shaped [ItemSchemaProbe] envelope always attaches `metadata: {timestamp, version}`
+     *    (an ISO-8601 wall-clock capture time), as every 3.x envelope did when the goldens were recorded.
+     *    `metadata.version` (the build version) is normalized in the same
      *    step: it does not vary run-to-run, but it changes at every release. Confirmed absent from the REST `/gate` and REST
      *    advance-422 response bodies captured here (their fields are `itemId`/`title`/`role`/
      *    `gateStatus`/... and `error`/`details`/... respectively, per `ItemGateRouteTest` /
@@ -560,6 +559,7 @@ class SeatlessResponseGoldenTest {
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val response = client.restContext(FEATURE_TASK_ID, TEST_TOKEN)
@@ -587,6 +587,7 @@ class SeatlessResponseGoldenTest {
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val response = client.restContext(BUG_FIX_ID, TEST_TOKEN)

@@ -35,6 +35,9 @@ import kotlin.test.assertNull
  * block=blocked, cancel=cancelled, cascade=done, resume/reopen/hold=null) and the apply rule (explicit label, else
  * entering BLOCKED preserves, else clears); task-scope 3(f) (a per-root or global status_labels.cancel now takes
  * effect). Labels asserted against configured values use test-chosen strings, never an implementation default.
+ *
+ * Q32 port: the configured-label scenarios drive the production `advance` tool (P11Driver.advance); its element carries the
+ * primary's `statusLabel`, and a cascade's label is read from the parent row (the cascade entry has no label member).
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AdvanceLabelPolicyTest {
@@ -117,7 +120,7 @@ class AdvanceLabelPolicyTest {
 
             val r = d.advance(item, "cancel")
 
-            assertEquals(true, r.flag("applied"), "$r")
+            assertEquals(true, r.flag("ok"), "$r")
             assertEquals("terminal", r.text("newRole"))
             assertEquals("p11-cancel-label", r.text("statusLabel"), "the configured cancel label wins over any built-in one: $r")
             assertEquals("p11-cancel-label", d.reload(item).statusLabel)
@@ -133,7 +136,7 @@ class AdvanceLabelPolicyTest {
 
             val r = d.advance(item, "cancel")
 
-            assertEquals(true, r.flag("applied"), "$r")
+            assertEquals(true, r.flag("ok"), "$r")
             assertEquals("cancelled", r.text("statusLabel"), "documented default for cancel (control for the override test): $r")
         }
 
@@ -155,7 +158,7 @@ class AdvanceLabelPolicyTest {
             val a = d.advance(underA, "cancel")
             val b = d.advance(underB, "cancel")
 
-            assertEquals(true, a.flag("applied"), "$a")
+            assertEquals(true, a.flag("ok"), "$a")
             assertEquals("p11-root-cancel", a.text("statusLabel"), "per-root override wins in its own root: $a")
             assertEquals("p11-cancel-label", b.text("statusLabel"), "a root without an override falls back to the global label: $b")
             assertEquals("p11-root-cancel", d.reload(underA).statusLabel)
@@ -175,7 +178,7 @@ class AdvanceLabelPolicyTest {
             val toTerminal = d.advance(working, "start")
             val toWork = d.advance(queued, "start")
 
-            assertEquals(true, toTerminal.flag("applied"), "$toTerminal")
+            assertEquals(true, toTerminal.flag("ok"), "$toTerminal")
             assertEquals("terminal", toTerminal.text("newRole"))
             assertEquals("p11-complete-label", toTerminal.text("statusLabel"), "start -> TERMINAL is labelled as a completion: $toTerminal")
             assertEquals("work", toWork.text("newRole"))
@@ -209,9 +212,10 @@ class AdvanceLabelPolicyTest {
             val r = d.advance(child, "complete")
 
             assertEquals("p11-complete-label", r.text("statusLabel"), "$r")
-            val cascade = r.arr("cascadeEvents").single().jsonObject
-            assertEquals("p11-cascade-label", cascade.text("statusLabel"), "$cascade")
-            assertEquals("p11-cascade-label", d.reload(parent).statusLabel)
+            val cascade = r.arr("cascades").single().jsonObject
+            assertEquals(parent.id.toString(), cascade.text("itemId"), "$cascade")
+            assertEquals(true, cascade.flag("applied"), "$cascade")
+            assertEquals("p11-cascade-label", d.reload(parent).statusLabel, "the cascade label is stamped on the parent")
             assertEquals("p11-complete-label", d.reload(child).statusLabel)
         }
 
@@ -227,10 +231,10 @@ class AdvanceLabelPolicyTest {
             val resumed = d.advance(blocked, "resume")
             val reopened = d.advance(done, "reopen")
 
-            assertEquals(true, resumed.flag("applied"), "$resumed")
+            assertEquals(true, resumed.flag("ok"), "$resumed")
             assertNull(resumed.text("statusLabel"), "$resumed")
             assertNull(d.reload(blocked).statusLabel)
-            assertEquals(true, reopened.flag("applied"), "$reopened")
+            assertEquals(true, reopened.flag("ok"), "$reopened")
             assertNull(reopened.text("statusLabel"), "$reopened")
             assertNull(d.reload(done).statusLabel)
         }

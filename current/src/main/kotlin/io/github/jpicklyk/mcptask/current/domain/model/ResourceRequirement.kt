@@ -11,7 +11,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * This type carries only the *declaration*; nothing in this task enforces it. Enforcement (a
  * server-side TTL lease acquired at work-phase entry for [ResourceMode.EXCLUSIVE] requirements) is
  * implemented by a follow-on task and layers on top of
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveResourceRequirements].
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveResourceRequirements].
  *
  * @property key Resource identifier. Matched against the optional top-level `resources:` registry
  *   ([ResourceDefinition]) to resolve a default TTL and description; also the lease/lock namespace

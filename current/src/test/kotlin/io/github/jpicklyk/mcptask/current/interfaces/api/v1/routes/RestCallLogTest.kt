@@ -1,24 +1,25 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.MAX_JSON_WRITE_BODY_BYTES
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -41,7 +42,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -97,7 +97,8 @@ class RestCallLogTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            callLog = writer
+            callLog = writer,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -286,9 +287,33 @@ class RestCallLogTest {
             assertNull(row["principal_id"])
             assertNull(row["principal_kind"])
             assertNull(row["proof_status"])
-            val parsed = runCatching { Json.parseToJsonElement(response.bodyAsText()) }.getOrNull() as? JsonObject
-            val typed = parsed?.get("error")?.jsonPrimitive?.content
-            assertEquals(typed ?: "http_401", row["error_code"], "ErrorDto.error when the 401 body is a typed ErrorDto, else http_401")
+            val parsed = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unauthenticated", parsed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, "the 401 body is the envelope")
+            assertEquals("unauthenticated", row["error_code"], "the row records the envelope code (S16)")
+        }
+
+    @Test
+    fun `S16 Q32 the error_code of a 403 and a 413 row is the envelope code`() =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            // The test token does not grant admin, which the lease force-release requires.
+            val forbidden = client.delete("/api/v1/resources/leases/some-key") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.Forbidden, forbidden.status, forbidden.bodyAsText())
+            val tooLarge =
+                client.post("/api/v1/ops/items_read") {
+                    header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("{\"select\":\"list\",\"pad\":\"" + "x".repeat(MAX_JSON_WRITE_BODY_BYTES) + "\"}")
+                }
+            assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+
+            writer.flushNow()
+            val codes = callLogRows().associate { it["tool"] to it["error_code"] }
+            assertEquals("forbidden", codes["DELETE /api/v1/resources/leases/{key}"], "$codes")
+            assertEquals("payload_too_large", codes["POST /api/v1/ops/{tool}"], "$codes")
         }
 
     // ------------------------------------------------------------------ F1
@@ -348,12 +373,10 @@ class RestCallLogTest {
                     serverInfo = Implementation(name = "p10-http", version = "1.0.0"),
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
-            McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools(), rig.ctx)
-            // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
-                installMcpStreamableHttp(server)
+                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv())
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
                 installRestApiRoutes(
                     apiConfig = authConfig,
@@ -367,7 +390,8 @@ class RestCallLogTest {
                     serverConfig = rig.composition.serverConfig,
                     toolContext = rig.composition.toolContext,
                     degradedModePolicy = rig.composition.degradedModePolicy,
-                    callLog = writer
+                    callLog = writer,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val accept = "application/json, text/event-stream"

@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -9,19 +12,19 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.response.header
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
 import io.ktor.server.sse.sse
@@ -64,19 +67,15 @@ private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExp
  *
  * - **absent** — no narrowing requested; the principal's own scope applies. ([roots] empty,
  *   [malformed] false.)
- * - **malformed** ([malformed] true) — the parameter was supplied but yielded no usable UUID at
- *   all (`?root=`, `?root=garbage`). Rejected with 400 rather than silently treated as absent:
- *   dropping every value WIDENS the subscription to the principal's full scope, which is the
- *   opposite of what the caller asked for.
+ * - **malformed** ([malformed] true) — at least one supplied value is not a UUID (`?root=`, `?root=garbage`,
+ *   `?root=<uuid>&root=garbage`). Rejected with 400 `invalid_request`: a value is never silently dropped (Q32 ended
+ *   the AR-59 leniency that accepted a mix of valid and invalid values).
  * - **narrowing** ([roots] non-empty) — intersected with the principal's scope.
- *
- * A request mixing valid and invalid values (`?root=<uuid>&root=garbage`) is NOT malformed: the
- * valid values still narrow, so the drop cannot widen anything.
  */
 private class RootQueryParams(
     /** The values that parsed as UUIDs; empty when the parameter was absent or [malformed]. */
     val roots: Set<UUID>,
-    /** True when the parameter was present but not one value parsed as a UUID. */
+    /** True when the parameter was present and at least one of its values is not a UUID. */
     val malformed: Boolean,
 )
 
@@ -93,15 +92,15 @@ private class RootQueryParams(
 private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
     if (raw == null) return RootQueryParams(roots = emptySet(), malformed = false)
     val parsed =
-        raw
-            .mapNotNull {
-                try {
-                    UUID.fromString(it.trim())
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }.toSet()
-    return RootQueryParams(roots = parsed, malformed = parsed.isEmpty())
+        raw.map {
+            try {
+                UUID.fromString(it.trim())
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
+    if (parsed.isEmpty() || parsed.any { it == null }) return RootQueryParams(roots = emptySet(), malformed = true)
+    return RootQueryParams(roots = parsed.filterNotNull().toSet(), malformed = false)
 }
 
 /**
@@ -109,16 +108,16 @@ private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
  * must be rejected; returns `false` (having responded to nothing) when it may proceed.
  *
  * Two rejections, both fail-closed:
- * - **400 `validation_error`** — `?root=` present but no value parsed as a UUID. Accepting it
- *   would drop every value and WIDEN the subscription to [principal]'s whole scope.
- * - **403 `insufficient_scope`** — [principal] is root-scoped and its scope does not intersect
+ * - **400 `invalid_request`** — `?root=` present with a value that is not a UUID. Dropping it could
+ *   WIDEN the subscription to [principal]'s whole scope.
+ * - **403 `forbidden` {scope: root}** — [principal] is root-scoped and its scope does not intersect
  *   the requested roots. [ApiEventBus.subscribe] treats an empty root set as "all roots", so an
  *   empty intersection must never reach it: a token scoped to one root would otherwise obtain the
  *   full cross-root stream by asking for a root it cannot see. 403 rather than 404 mirrors
- *   `enforceScopeForItem`, which deliberately does not make scope a fuzzing oracle for holders of
+ *   [ScopeGuard], which deliberately does not make scope a fuzzing oracle for holders of
  *   valid tokens.
  *
- * This MUST run in the pre-flight `onCall` handler rather than inside `sse { }`: the SSE handler
+ * Both bodies are the 4.0 error envelope. This MUST run in the pre-flight `onCall` handler rather than inside `sse { }`: the SSE handler
  * executes in the response-body phase, after the 200 status is committed, where neither status
  * can still be sent.
  */
@@ -128,13 +127,7 @@ private suspend fun respondIfRootQueryRejected(
 ): Boolean {
     val rootQuery = parseRootQueryParams(call.request.queryParameters.getAll("root"))
     if (rootQuery.malformed) {
-        call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf(
-                "error" to "validation_error",
-                "error_description" to "root query parameter must be a valid UUID",
-            ),
-        )
+        call.respondEnvelopeError(invalidField("root", "must be a UUID; every value is checked"))
         return true
     }
     val principalRoots = principal.scope.rootIds
@@ -147,13 +140,7 @@ private suspend fun respondIfRootQueryRejected(
             principal.tokenId,
             rootQuery.roots,
         )
-        call.respond(
-            HttpStatusCode.Forbidden,
-            mapOf(
-                "error" to "insufficient_scope",
-                "error_description" to "Requested roots are outside this token's scope",
-            ),
-        )
+        call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.ROOT, principalRoots.map { it.toString() }))
         return true
     }
     return false
@@ -182,7 +169,7 @@ private class SseInlineAuthConfig {
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
 
     /**
-     * Repository used to look up item tags for tag-scoped principals (`hasTagScope()`), both
+     * Repository used to look up item tags for tag-scoped principals (a non-empty `scope.tagsInclude`), both
      * here (pre-flight 403 when unavailable) and in the `sse { }` collect body (per-event drop).
      * Null when the caller wired [eventRoutes] without one -- tag-scoped connections are then
      * rejected rather than streamed unfiltered.
@@ -246,10 +233,7 @@ private val sseInlineAuthPlugin =
 
             if (rawToken == null) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "invalid_request", "error_description" to "Missing bearer token"),
-                )
+                call.respondEnvelopeError(unauthenticated("Missing bearer token."))
                 return@onCall
             }
 
@@ -267,10 +251,7 @@ private val sseInlineAuthPlugin =
                 expiry = entry.expiresAt
                 if (expiry != null && Instant.now().isAfter(expiry)) {
                     call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
-                    )
+                    call.respondEnvelopeError(unauthenticated("Token has expired."))
                     return@onCall
                 }
             } else if (jwksVerifier != null) {
@@ -288,37 +269,23 @@ private val sseInlineAuthPlugin =
 
             if (principal == null) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "invalid_token", "error_description" to "Invalid or expired token"),
-                )
+                call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
                 return@onCall
             }
 
             if (!principal.capabilities.contains(ApiCapability.READ) &&
                 !principal.capabilities.contains(ApiCapability.ADMIN)
             ) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to "Token does not have read capability",
-                    ),
-                )
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, ApiCapability.READ.configName()))
                 return@onCall
             }
 
             // Fail closed: a tag-scoped principal can only be safely streamed to when we can
             // look up item tags per event (the collect-site filter below). Without a repository
             // wired, reject rather than fall back to the pre-fix unfiltered stream.
-            if (principal.hasTagScope() && workItemRepository == null) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to "Tag-scoped tokens require event filtering, which is unavailable",
-                    ),
-                )
+            if (principal.scope.tagsInclude.isNotEmpty() && workItemRepository == null) {
+                // Tag-scoped streaming needs per-event filtering, which is unavailable here: fail closed.
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.TAG, principal.scope.tagsInclude))
                 return@onCall
             }
 
@@ -369,8 +336,7 @@ private val sseInlineAuthPlugin =
  *
  * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
  * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
- * the same [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] predicate
- * every other read route uses, via [workItemRepository]. This applies identically to live events
+ * the same [ScopeGuard] predicate every tool and read route uses, via [workItemRepository]. This applies identically to live events
  * and to `Last-Event-ID` replay, since both flow through the one collect site. A tag-scoped
  * principal connecting when [workItemRepository] is null is rejected with 403 in the pre-flight
  * plugin -- fail closed rather than stream unfiltered. Non-tag-scoped principals take exactly
@@ -564,7 +530,7 @@ fun Route.eventRoutes(
                                 }
                                 // Attribution redaction, on egress only (the events table keeps the
                                 // unredacted principal), so live and Last-Event-ID replay are identical.
-                                // Same rule as AttributionRedactor: hidden only when the flag is on
+                                // Same rule as the tools note redaction: hidden only when the flag is on
                                 // AND the caller is not ADMIN. rootId is never redacted.
                                 val outbound =
                                     if (redactAttribution &&
@@ -604,7 +570,7 @@ fun Route.eventRoutes(
  *
  * Fails CLOSED: an unparsable [ApiEvent.itemId], a missing [repository] (should not happen --
  * the pre-flight plugin already rejected this connection in that case), or a repository lookup
- * error (via [allowedItemIdsForTagScope]) all result in the event being dropped.
+ * error (via [ScopeGuard.admitted]) all result in the event being dropped.
  *
  * [cache] holds the per-connection id -> allowed decision. `item.*` and `scope.*` events bypass
  * and refresh the cache so a mid-stream tag change (add/remove) is honoured starting with the
@@ -616,7 +582,7 @@ private suspend fun isEventVisibleToTagScope(
     repository: WorkItemRepository?,
     cache: MutableMap<UUID, Boolean>,
 ): Boolean {
-    if (!principal.hasTagScope()) return true
+    if (principal.scope.tagsInclude.isEmpty()) return true
     val itemId = event.itemId ?: return true
     val uuid =
         try {
@@ -634,7 +600,9 @@ private suspend fun isEventVisibleToTagScope(
         if (repository == null) {
             false
         } else {
-            allowedItemIdsForTagScope(principal, setOf(uuid), repository).contains(uuid)
+            // The tag half only: the root half is applied at the bus subscription (every projected row carries its root).
+            val tagScope = AccessScope.principal(rootIds = null, tagsInclude = principal.scope.tagsInclude)
+            ScopeGuard.admitted(tagScope, setOf(uuid), repository).contains(uuid)
         }
     cache[uuid] = allowed
     return allowed

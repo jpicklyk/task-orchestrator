@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -9,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
@@ -94,7 +94,8 @@ class RestHostCaptureTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            callLog = writer
+            callLog = writer,
+            appConfig = AppConfig.fromEnv(),
         )
         routing {
             routeGet("/echo-headers") {

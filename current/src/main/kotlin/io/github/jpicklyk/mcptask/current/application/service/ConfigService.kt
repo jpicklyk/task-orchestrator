@@ -58,8 +58,8 @@ class ConfigService(
     private val parser: ConfigDocumentParser,
     /** The transaction boundary: each write ([push], [rollback], [reset]) is ONE write unit. */
     private val unitOfWork: UnitOfWork,
-    /** The admission check run by [push] and [validate]. */
-    private val validator: ConfigValidator = ConfigValidator(),
+    /** The admission check run by [push] and [validate]; production passes `productionConfigValidator()` (no default). */
+    private val validator: ConfigValidator,
     /**
      * The DB-backed server layer a per-root document is validated against (read once per [push] / [validate] call).
      * Null = the validator's own constructor layer.
@@ -74,7 +74,7 @@ class ConfigService(
      * With [force] false, a document that embeds a top-level `project.rootId` differing from [rootItemId] is
      * rejected as [ConfigPushResult.RootIdMismatch], and content whose fingerprint is known-old (SUPERSEDED) is
      * rejected as [ConfigPushResult.Superseded]. [force] bypasses those two guards but never the compare-and-set
-     * ([expectedVersion] / the legacy [expectedFingerprint]), which both run in the same unit as the write. An
+     * ([expectedVersion]), which runs in the same unit as the write. An
      * identical re-push appends nothing and reports `appended = false`.
      */
     suspend fun push(
@@ -82,7 +82,6 @@ class ConfigService(
         configYaml: String,
         force: Boolean = false,
         expectedVersion: Int? = null,
-        expectedFingerprint: String? = null,
     ): ConfigPushResult {
         val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
         if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
@@ -155,10 +154,9 @@ class ConfigService(
                     scope = ConfigScope.ROOT,
                     rootId = rootItemId,
                     append = append,
-                    // Neither compare-and-set is skipped by force: force bypasses the rootId-mismatch and
+                    // The compare-and-set is not skipped by force: force bypasses the rootId-mismatch and
                     // fast-forward guards only, not an explicit precondition the caller supplied.
                     expectedVersion = expectedVersion,
-                    expectedFingerprint = expectedFingerprint,
                     rejectSuperseded = !force,
                     now = now,
                 )
@@ -319,7 +317,6 @@ class ConfigService(
         rootItemId: UUID,
         toVersion: Int,
         expectedVersion: Int? = null,
-        expectedFingerprint: String? = null,
     ): ConfigRollbackResult {
         val store = repositoryProvider.configStore()
         val principalId = currentEventActor()?.id
@@ -342,11 +339,7 @@ class ConfigService(
             if (target.source == ConfigVersionSource.RESET) {
                 // A reset version means "no per-root config": rolling back to it is a reset, not a copy of its empty content.
                 if (head.source == ConfigVersionSource.RESET) {
-                    if (expectedVersion != null &&
-                        expectedVersion != head.version ||
-                        expectedFingerprint != null &&
-                        expectedFingerprint != head.fingerprint
-                    ) {
+                    if (expectedVersion != null && expectedVersion != head.version) {
                         return@writeUnit UnitResult.Commit(
                             ConfigRollbackResult.PreconditionFailed(rootItemId, head.version, head.fingerprint)
                         )
@@ -360,7 +353,6 @@ class ConfigService(
                         rootId = rootItemId,
                         append = resetAppend(principalId, reqId),
                         expectedVersion = expectedVersion,
-                        expectedFingerprint = expectedFingerprint,
                         rejectSuperseded = false,
                         now = now,
                     )
@@ -414,7 +406,6 @@ class ConfigService(
                             warnings = target.warnings,
                         ),
                     expectedVersion = expectedVersion,
-                    expectedFingerprint = expectedFingerprint,
                     rejectSuperseded = false,
                     now = now,
                 )
@@ -613,7 +604,6 @@ class ConfigService(
                     rootId = rootId,
                     append = append,
                     expectedVersion = null,
-                    expectedFingerprint = null,
                     rejectSuperseded = false,
                     now = now,
                 )

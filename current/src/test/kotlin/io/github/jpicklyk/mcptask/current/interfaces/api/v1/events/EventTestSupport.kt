@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventPage
@@ -12,7 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent

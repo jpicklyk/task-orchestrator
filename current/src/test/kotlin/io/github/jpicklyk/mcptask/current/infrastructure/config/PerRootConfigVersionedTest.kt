@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.service.ConfigRollbackResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -129,7 +130,7 @@ class PerRootConfigVersionedTest {
             val root = newRoot()
             val counting = CountingStore(store)
             val service = PerRootConfigService(counting)
-            val configService = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork())
+            val configService = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork(), validator = ConfigValidator())
             push(root, yamlWith("one"))
             push(root, yamlWith("two"))
             assertEquals(listOf("two"), noteKeys(service.layer(root)))
@@ -178,7 +179,7 @@ class PerRootConfigVersionedTest {
     fun `S8 a reset head makes layer and every facet absent, and a later push restores them`(): Unit =
         runBlocking {
             val root = newRoot()
-            val configService = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork())
+            val configService = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork(), validator = ConfigValidator())
             val service = PerRootConfigService(store)
             val yaml = yamlWith("spec")
             push(root, yaml)

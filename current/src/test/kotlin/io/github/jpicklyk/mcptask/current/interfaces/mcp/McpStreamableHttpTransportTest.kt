@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -36,13 +39,12 @@ import org.junit.jupiter.api.extension.RegisterExtension
  * These tests are the regression guard for the SDK-0.12.0 startup crash where an explicit
  * `install(SSE)` collided with the SSE plugin that `mcpStreamableHttp` installs itself
  * (`DuplicatePluginException` → HTTP server never started). They exercise the SAME production
- * wiring function ([installMcpStreamableHttp]) and the SAME tool set ([buildMcpTools]) the real
- * server uses — so re-introducing a duplicate plugin install, or otherwise breaking the `/mcp`
+ * wiring function ([installMcpStreamableHttp]) and the SAME tool registry (`buildToolSpecs()` through
+ * [McpOperationAdapter]) the real server uses — so re-introducing a duplicate plugin install, or otherwise breaking the `/mcp`
  * module, fails the application at first request and trips these tests.
  *
- * Unlike [McpToolAdapterIntegrationTest] (in-process ChannelTransport), this drives the protocol
- * over real HTTP through Ktor's test engine, covering the transport layer the integration test
- * cannot reach.
+ * Unlike the in-process ChannelTransport adapter tests ([McpOperationAdapterTest]), this drives the protocol
+ * over real HTTP through Ktor's test engine, covering the transport layer they cannot reach.
  */
 class McpStreamableHttpTransportTest {
     @RegisterExtension
@@ -64,8 +66,6 @@ class McpStreamableHttpTransportTest {
                     ),
             )
         val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
-        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), context)
-        // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
         McpOperationAdapter(buildToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         return server
     }
@@ -96,7 +96,7 @@ class McpStreamableHttpTransportTest {
     fun `mcpStreamableHttp module wires without SSE conflict and serves initialize`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             val response =
                 client.post("/mcp") {
@@ -122,7 +122,7 @@ class McpStreamableHttpTransportTest {
     fun `rejects cross-origin requests with 403 to guard against DNS rebinding`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             // Streamable HTTP spec security requirement: servers MUST validate the Origin header and
             // respond 403 to an invalid origin (DNS-rebinding protection). This is enforced by the
@@ -147,7 +147,7 @@ class McpStreamableHttpTransportTest {
     fun `tools list and a tool call work over the HTTP transport`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             // 1) initialize → capture the session id
             val init =
@@ -183,9 +183,7 @@ class McpStreamableHttpTransportTest {
                     .jsonArray
                     .map { it.jsonObject["name"]!!.jsonPrimitive.content }
                     .toSet()
-            val expectedNames =
-                buildMcpTools().map { it.name }.toSet() +
-                    ToolRegistry(buildToolSpecs()).visible(ToolProfile.ORCHESTRATION).map { it.name }
+            val expectedNames = ToolRegistry(buildToolSpecs()).visible(ToolProfile.ORCHESTRATION).map { it.name }.toSet()
             assertEquals(expectedNames, servedNames, "tools/list must expose exactly the production tool set")
 
             // 4) tools/call config rules over a directly seeded root -- proves the full stack executes over HTTP

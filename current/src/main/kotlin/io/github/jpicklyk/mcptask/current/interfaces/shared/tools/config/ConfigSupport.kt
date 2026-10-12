@@ -2,12 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDelta
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
@@ -43,9 +44,12 @@ internal object ConfigSupport {
     /** Retry hint of an `unavailable` raised by an unreadable config head. */
     private const val CONFIG_RETRY_MS = 1000L
 
-    /** The service wired at composition, or one built over the context's own stores (tests). */
+    /**
+     * The service wired at composition, or one built over the context's own stores (tests), with the SAME production
+     * validator the composition root builds.
+     */
     fun service(env: ToolExecutionContext): ConfigService =
-        env.configService ?: ConfigService(env.repositoryProvider, YamlConfigDocumentParser, env.unitOfWork)
+        env.configService ?: ConfigService(env.repositoryProvider, YamlConfigDocumentParser, env.unitOfWork, productionConfigValidator())
 
     /**
      * Resolves [ref] to a depth-0 root the call's scope admits. Order: scope (an absent or ambiguous id under a

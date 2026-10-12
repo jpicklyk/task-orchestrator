@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
  * stream `GET /api/v1/events` the reqId is always server-generated (inbound `X-Request-Id` keeps feeding MDC `requestId`
  * only), goes into MDC `reqId` and the `X-Req-Id` response header BEFORE the handler runs, and one record is submitted
  * after the handler; tool = `"<METHOD> <path>"` with UUID segments replaced by `{id}`; outcome `error` iff status >= 400
- * with error_code `http_<status>` when no typed ErrorDto was captured; request_bytes = Content-Length (0 if bodyless);
+ * with error_code `http_<status>` when no envelope error code was recorded; request_bytes = Content-Length (0 if bodyless);
  * response_bytes from the outgoing content length; target ids are the UUID path segments; request_shape holds boolean
  * query params and `limit`.
  */
@@ -196,7 +196,7 @@ class RequestCorrelationCallLogTest {
             for (code in listOf(400, 401, 404, 422, 503)) {
                 val record = byCode.getValue(code)
                 assertEquals(CallLogRecord.OUTCOME_ERROR, record.outcome, "status $code is an error")
-                assertEquals("http_$code", record.errorCode, "no typed ErrorDto, so the code is http_<status>")
+                assertEquals("http_$code", record.errorCode, "no envelope error, so the code is http_<status>")
             }
             assertNull(byCode.getValue(399).errorCode)
         }

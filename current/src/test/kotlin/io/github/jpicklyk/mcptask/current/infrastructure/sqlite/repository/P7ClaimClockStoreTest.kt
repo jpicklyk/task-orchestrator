@@ -2,8 +2,9 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityBreakdown
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.SelectorMatchCounts
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -142,18 +143,28 @@ class P7ClaimClockStoreTest {
 
             assertEquals(
                 setOf(free.id),
-                claims.findClaimable(Role.QUEUE, requestingAgentId = "agent-b").map { it.id }.toSet(),
-                "findClaimable must exclude the actively claimed item"
+                claims
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-b"),
+                        limit = 1000
+                    ).items
+                    .map { it.id }
+                    .toSet(),
+                "findEligible must exclude the actively claimed item"
             )
             assertEquals(
                 setOf(free.id),
-                claims.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet(),
-                "findForNextItem must exclude the actively claimed item"
+                claims
+                    .findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000)
+                    .items
+                    .map { it.id }
+                    .toSet(),
+                "findEligible must exclude the actively claimed item"
             )
-            assertEquals(ClaimStatusCounts(active = 1, expired = 0, unclaimed = 1), claims.countByClaimStatus())
+            assertEquals(ClaimStatusCounts(active = 1, expired = 0, unclaimed = 1), claims.claimSummary())
             assertEquals(
-                SelectorMatchCounts(matched = 2, activelyClaimed = 1),
-                claims.countSelectorMatches(Role.QUEUE)
+                EligibilityBreakdown(matched = 2, activelyClaimed = 1, dependencyBlocked = 0),
+                claims.explainIneligible(EligibilityQuery(role = Role.QUEUE))
             )
             assertEquals(listOf(claimed.id), items.findByFilters(claimStatus = ClaimStatus.CLAIMED).items.map { it.id })
             assertEquals(emptyList(), items.findByFilters(claimStatus = ClaimStatus.EXPIRED).items.map { it.id })
@@ -173,17 +184,27 @@ class P7ClaimClockStoreTest {
 
             assertEquals(
                 setOf(claimed.id, free.id),
-                claims.findClaimable(Role.QUEUE, requestingAgentId = "agent-b").map { it.id }.toSet(),
+                claims
+                    .findEligible(
+                        EligibilityQuery(role = Role.QUEUE, requestingAgentId = "agent-b"),
+                        limit = 1000
+                    ).items
+                    .map { it.id }
+                    .toSet(),
                 "an instant equal to the expiry is expired, so the item is claimable again"
             )
             assertEquals(
                 setOf(claimed.id, free.id),
-                claims.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
+                claims
+                    .findEligible(EligibilityQuery(role = Role.QUEUE), limit = 1000)
+                    .items
+                    .map { it.id }
+                    .toSet()
             )
-            assertEquals(ClaimStatusCounts(active = 0, expired = 1, unclaimed = 1), claims.countByClaimStatus())
+            assertEquals(ClaimStatusCounts(active = 0, expired = 1, unclaimed = 1), claims.claimSummary())
             assertEquals(
-                SelectorMatchCounts(matched = 2, activelyClaimed = 0),
-                claims.countSelectorMatches(Role.QUEUE)
+                EligibilityBreakdown(matched = 2, activelyClaimed = 0, dependencyBlocked = 0),
+                claims.explainIneligible(EligibilityQuery(role = Role.QUEUE))
             )
             assertEquals(emptyList(), items.findByFilters(claimStatus = ClaimStatus.CLAIMED).items.map { it.id })
             assertEquals(listOf(claimed.id), items.findByFilters(claimStatus = ClaimStatus.EXPIRED).items.map { it.id })

@@ -149,169 +149,10 @@ interface ClaimStore {
     suspend fun findLapsedClaims(): List<WorkItem>
 
     /**
-     * Find work items for the "get next" recommendation query, supporting optional claim filtering.
-     *
-     * Returns items in the specified [role] that are not in TERMINAL. When [excludeActiveClaims]
-     * is true, items with a live (non-expired) claim are omitted from the result — i.e., only items
-     * where the claim is not active at the bound instant (`claimed_by IS NULL`, no expiry, or `claim_expires_at <= now`) are returned.
-     *
-     * The claim filter is applied at the DB level to avoid loading and discarding claimed rows.
-     *
-     * @param role            The role to query (e.g. QUEUE, WORK, REVIEW, BLOCKED).
-     * @param parentId        Optional parent UUID to scope results to direct children only.
-     * @param excludeActiveClaims When true, omit items with a live (non-expired) claim.
-     * @param limit           Maximum number of rows to return.
-     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
-     *   identical to the pre-scoping contract. When non-null, results are additionally
-     *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
-     *   resolved the same way as [ItemStore.find]'s `AccessScope.rootIds`. An empty (non-null) set yields an empty result.
-     */
-    suspend fun findForNextItem(
-        role: Role,
-        parentId: UUID? = null,
-        excludeActiveClaims: Boolean = true,
-        limit: Int = 200,
-        rootIds: Set<UUID>? = null
-    ): List<WorkItem>
-
-    /**
-     * Find work items that are eligible to be claimed, combining the filter flexibility of
-     * [ItemStore.find] with the active-claim exclusion logic of [findForNextItem].
-     *
-     * Active-claim exclusion (`claimed_by IS NULL OR claim_expires_at <= now`) is **always** applied —
-     * it is not a parameter because claim-eligibility by definition means the item is unclaimed or
-     * its claim has expired. All filters are combined with AND logic; tags use OR logic within the list.
-     *
-     * **Ancestor-claim filtering (strict-by-default sub-tree isolation):**
-     *
-     * After the initial candidate query, each candidate's ancestor chain is walked to enforce
-     * fleet isolation:
-     *
-     * - When `requestingAgentId` is **non-null**: any candidate whose ancestor chain contains
-     *   a live claim (`claimed_by IS NOT NULL AND claim_expires_at > now`) held by a *different*
-     *   agent is excluded. Candidates whose ancestor is claimed by the *same* agent are retained
-     *   (supporting the hybrid pattern: claim at parent feature, orchestrate sub-tree below).
-     * - When `requestingAgentId` is **null** (default): any candidate whose ancestor chain
-     *   contains a live claim by *any* agent is excluded. This is the strict exclusion mode used
-     *   by read-only callers such as `get_next_item` that do not have actor context.
-     *
-     * Ancestor-claim freshness is evaluated at the bound unit instant (unitNow), consistent with
-     * the existing item-level claim exclusion contract. The walk is a batched BFS over the full
-     * ancestor chain (unbounded depth since V7), so the total extra query cost scales with depth.
-     *
-     * Items with no parent (root items, depth=0) are unaffected by this filter.
-     *
-     * **Filter ordering vs. limit:** [limit] is applied to the candidate query *before* the
-     * ancestor-claim filter runs. The returned list size is therefore at most [limit], and may
-     * be smaller — even when more matching items exist in the DB — if some candidates are
-     * excluded by the ancestor walk, and dependency blocking is not applied at all. Callers that
-     * need the exact eligible set use [findEligible], which applies every predicate in SQL before
-     * the limit (`NextItemRecommender` moved onto it; this method is retained for its existing
-     * callers until the 3.x read paths are removed).
-     *
-     * @param role              The role to query (required — e.g. QUEUE, WORK, REVIEW).
-     * @param parentId          Optional parent UUID to scope results to direct children only.
-     * @param tags              Optional list of tags; items matching ANY tag are included.
-     * @param priority          Optional priority filter.
-     * @param type              Optional type string filter (exact match).
-     * @param complexityMax     Optional upper bound (inclusive) on item complexity.
-     * @param createdAfter      Optional lower bound (inclusive) on [WorkItem.createdAt].
-     * @param createdBefore     Optional upper bound (inclusive) on [WorkItem.createdAt].
-     * @param modifiedAfter     Optional lower bound (inclusive) on [WorkItem.modifiedAt].
-     * @param modifiedBefore    Optional upper bound (inclusive) on [WorkItem.modifiedAt].
-     * @param roleChangedAfter  Optional lower bound (inclusive) on [WorkItem.roleChangedAt].
-     * @param roleChangedBefore Optional upper bound (inclusive) on [WorkItem.roleChangedAt].
-     * @param orderBy           Ordering strategy for the result set (default: priority then complexity).
-     * @param limit             Maximum number of rows to return (default: 200).
-     * @param requestingAgentId Optional agent identifier for sub-tree isolation. When non-null,
-     *                          only ancestor claims held by a *different* agent disqualify a
-     *                          candidate. When null, any live ancestor claim disqualifies the
-     *                          candidate (strict exclusion for callers without actor context).
-     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
-     *   identical to the pre-scoping contract. When non-null, candidates are additionally
-     *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
-     *   resolved the same way as [ItemStore.find]'s `AccessScope.rootIds`. An empty (non-null) set yields an empty result.
-     * @return the list of matching, claimable items (may be empty); a database failure is thrown.
-     */
-    suspend fun findClaimable(
-        role: Role,
-        parentId: UUID? = null,
-        tags: List<String>? = null,
-        priority: Priority? = null,
-        type: String? = null,
-        complexityMax: Int? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-        limit: Int = 200,
-        requestingAgentId: String? = null,
-        rootIds: Set<UUID>? = null,
-    ): List<WorkItem>
-
-    /**
-     * Count work items by claim status within an optional parent scope.
-     *
-     * Returns three counts:
-     * - [ClaimStatusCounts.active]   — items where `claimed_by IS NOT NULL AND claim_expires_at > now`
-     * - [ClaimStatusCounts.expired]  — items where `claimed_by IS NOT NULL AND claim_expires_at <= now`
-     * - [ClaimStatusCounts.unclaimed] — items where `claimed_by IS NULL`
-     *
-     * When [parentId] is provided, counts are scoped to direct children of that item. When null,
-     * counts are global across the entire work-item tree.
-     *
-     * Counts are computed at the DB level (SQL aggregation) — not load-all-rows-then-count.
-     *
-     * @param parentId Optional parent UUID to scope the aggregation.
-     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
-     *   identical to the pre-scoping contract. When non-null, counts are additionally restricted
-     *   to items within the subtree(s) rooted at [rootIds] (roots included), resolved the same
-     *   way as [ItemStore.find]'s `AccessScope.rootIds`. [rootIds] and [parentId] compose with AND. An empty (non-null)
-     *   [rootIds] set yields all-zero counts.
-     */
-    suspend fun countByClaimStatus(
-        parentId: UUID? = null,
-        rootIds: Set<UUID>? = null
-    ): ClaimStatusCounts
-
-    /**
-     * Count how many items match the selector filters used by [findClaimable] — same filter set
-     * (minus [findClaimable]'s `orderBy`, `limit` and `requestingAgentId`, which affect ranking
-     * and ancestor-claim isolation rather than which rows match) — without the active-claim
-     * exclusion [findClaimable] always applies: an empty queue (`matched == 0`) versus a queue that
-     * has matches but none are currently claimable. `NextItemRecommender.explainEmpty` now uses
-     * [explainIneligible], which also counts the dependency-blocked rows exactly; this method is
-     * retained for its existing callers until the 3.x read paths are removed.
-     *
-     * @return [SelectorMatchCounts.matched] — total rows matching the filters, claimed or not.
-     *   [SelectorMatchCounts.activelyClaimed] — subset of [SelectorMatchCounts.matched] with a
-     *   live claim (`claimed_by IS NOT NULL AND claim_expires_at > now`), by any holder including
-     *   the caller.
-     */
-    suspend fun countSelectorMatches(
-        role: Role,
-        parentId: UUID? = null,
-        tags: List<String>? = null,
-        priority: Priority? = null,
-        type: String? = null,
-        complexityMax: Int? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        rootIds: Set<UUID>? = null,
-    ): SelectorMatchCounts
-
-    /**
      * One page of the items eligible under [query], plus the exact eligible count, both decided in
      * SQL in one transaction (no over-fetch window: an eligible item ranked behind any number of
      * ineligible ones is found). An item is eligible when it:
-     * - matches every selector filter of [query] (the same filters as [findClaimable]);
+     * - matches every selector filter of [query] (see [EligibilityQuery]);
      * - is not dependency-blocked: every BLOCKS edge into it has a blocker whose role is at or
      *   beyond the edge threshold (`unblock_at`, TERMINAL when null), and a BLOCKED or missing
      *   blocker never satisfies; RELATES_TO edges are ignored;
@@ -372,10 +213,9 @@ interface ClaimStore {
 }
 
 /**
- * The selector of [ClaimStore.findEligible] and [ClaimStore.explainIneligible]: the filters of
- * [ClaimStore.findClaimable] plus [includeClaimed]. Timestamp bounds are inclusive; [tags] match
- * ANY listed tag as a whole comma-separated token, exactly as [ClaimStore.findClaimable] matches
- * them (the tag is trimmed and lower-cased); [complexityMax] excludes
+ * The selector of [ClaimStore.findEligible] and [ClaimStore.explainIneligible]: the role, parent, tag, priority, type,
+ * complexity and timestamp filters plus [includeClaimed]. Timestamp bounds are inclusive; [tags] match
+ * ANY listed tag as a whole comma-separated token (the tag is trimmed and lower-cased); [complexityMax] excludes
  * items without a complexity; [rootIds] restricts to those subtrees (roots included) and composes
  * with [parentId] (direct children) by AND.
  *
@@ -416,7 +256,7 @@ data class EligibilityBreakdown(
 )
 
 /**
- * Three-way claim-status count returned by [WorkItemRepository.countByClaimStatus].
+ * Three-way claim-status count returned by [ClaimStore.claimSummary] and [ClaimStore.claimSummaryByParent].
  *
  * @property active    Items with a live (non-expired) claim.
  * @property expired   Items that were claimed but the TTL has passed.
@@ -426,15 +266,4 @@ data class ClaimStatusCounts(
     val active: Int,
     val expired: Int,
     val unclaimed: Int
-)
-
-/**
- * Result of [WorkItemRepository.countSelectorMatches].
- *
- * @property matched Total rows matching the selector filters, claimed or not.
- * @property activelyClaimed Subset of [matched] with a live claim (any holder, incl. the caller).
- */
-data class SelectorMatchCounts(
-    val matched: Int,
-    val activelyClaimed: Int
 )

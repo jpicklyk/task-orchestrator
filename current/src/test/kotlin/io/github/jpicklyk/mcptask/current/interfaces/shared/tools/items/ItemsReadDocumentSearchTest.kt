@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
@@ -12,9 +13,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -614,7 +612,6 @@ class ItemsReadDocumentSearchTelemetryTest {
 
     private suspend fun connect(rig: Rig): Pair<Client, Server> {
         val server = Server(serverInfo = Implementation(name = "q26-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpToolAdapter(callLog = rig.writer).registerToolsWithServer(server, buildMcpTools(), rig.rig.ctx)
         McpOperationAdapter(buildToolDispatcher(rig.rig.ctx), callLog = rig.writer)
             .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

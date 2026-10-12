@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
@@ -9,24 +8,24 @@ import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.P11FaultRig
 import io.github.jpicklyk.mcptask.current.test.P11_FAULT_LEASE_KEY
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.completeTreeOp
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.p11FaultResolver
 import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -35,7 +34,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Independent P11 tests (item 919d379e, round r2), gap 2: scenario S9 with NON-POISONING faults, on advance_item and
+ * Independent P11 tests (item 919d379e, round r2), gap 2: scenario S9 with NON-POISONING faults, on the `advance` tool's
+ * `transition` op (Q32: formerly the removed 3.x advance_item) and
  * `items_write` `complete_tree` (the REST surface is AdvanceRestNonPoisoningFaultTest). Q21 (c820b3d0) retargets the
  * complete_tree half to the 4.0 op: its applied transitions share the element's unit, so an apply fault fails the whole
  * element (rolled back) instead of one skipped entry.
@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  * which leave the unit healthy: only an advance that actually fails and rolls back leaves everything unchanged.
  *
  * Oracle: AC1 / task-scope 1.1 step 7 ("Any store fault (primary or cascade apply, release) rolls the whole unit back ->
- * ApplyFailed: no partial advance") and the api-reference advance_item errorCode `apply_failed`. Every test ends with a
+ * ApplyFailed: no partial advance") and the catalog binding of ApplyFailed, `internal` (the removed 3.x `apply_failed`). Every test ends with a
  * same-fixture control (fault disarmed) that applies, so the "unchanged" assertions would fail if the fault were swallowed.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
@@ -55,20 +55,10 @@ class AdvanceNonPoisoningFaultTest {
     @JvmField
     val db = SqliteTestDatabase.perMethod()
 
-    private fun advanceParams(item: WorkItem): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("trigger", "complete")
-                        },
-                    )
-                },
-            )
-        }
+    private suspend fun advance(
+        ctx: ToolExecutionContext,
+        item: WorkItem
+    ): JsonObject = ctx.advanceTool(transitionOp(item.id, "complete")).onlyResult()
 
     private suspend fun completeTree(
         ctx: ToolExecutionContext,
@@ -81,10 +71,6 @@ class AdvanceNonPoisoningFaultTest {
 
     /** The first `items[]` entry of a successful `complete_tree` element. */
     private fun JsonObject.treeEntry(): JsonObject = okResult(0).arr("items")[0].jsonObject
-
-    private fun JsonElement.data(): JsonObject = (this as JsonObject)["data"] as JsonObject
-
-    private fun JsonElement.entry(): JsonObject = data().arr("results")[0].jsonObject
 
     private suspend fun assertWholeAdvanceRolledBack(
         rig: P11FaultRig,
@@ -121,11 +107,11 @@ class AdvanceNonPoisoningFaultTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // advance_item
+    // advance transition
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9 advance_item a plain fault on the cascade's transition row fails the whole advance and changes nothing`(): Unit =
+    fun `S9 advance transition a plain fault on the cascade's transition row fails the whole advance and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
             val ctx =
@@ -139,21 +125,21 @@ class AdvanceNonPoisoningFaultTest {
             assertEquals(listOf(P11_FAULT_LEASE_KEY), before.leases[child.id], "fixture: the child holds the lease")
             rig.transitionStore.arm()
 
-            val r = AdvanceItemTool().execute(advanceParams(child), ctx).entry()
+            val r = advance(ctx, child)
 
-            assertEquals(false, r.flag("applied"), "$r")
-            assertEquals("apply_failed", r.text("errorCode"), "$r")
+            assertEquals(false, r.flag("ok"), "$r")
+            assertEquals("internal", r.errorCode(), "$r")
             assertEquals(2, rig.transitionStore.createCalls, "the fault point (the cascade's row, the 2nd create) was reached")
             assertWholeAdvanceRolledBack(rig, before, parent, child)
 
             rig.transitionStore.disarm()
-            val ok = AdvanceItemTool().execute(advanceParams(child), ctx).entry()
-            assertEquals(true, ok.flag("applied"), "control: $ok")
+            val ok = advance(ctx, child)
+            assertEquals(true, ok.flag("ok"), "control: $ok")
             assertControlApplies(rig, parent, child)
         }
 
     @Test
-    fun `S9 advance_item a plain fault releasing the lease on work exit fails the whole advance and changes nothing`(): Unit =
+    fun `S9 advance transition a plain fault releasing the lease on work exit fails the whole advance and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
             val ctx =
@@ -166,16 +152,16 @@ class AdvanceNonPoisoningFaultTest {
             val before = rig.snapshot(parent, child)
             rig.leaseStore.arm()
 
-            val r = AdvanceItemTool().execute(advanceParams(child), ctx).entry()
+            val r = advance(ctx, child)
 
-            assertEquals(false, r.flag("applied"), "a release fault now fails the advance: $r")
-            assertEquals("apply_failed", r.text("errorCode"), "$r")
+            assertEquals(false, r.flag("ok"), "a release fault now fails the advance: $r")
+            assertEquals("internal", r.errorCode(), "$r")
             assertTrue(rig.leaseStore.releaseCalls >= 1, "the fault point (the release on the WORK exit) was reached")
             assertWholeAdvanceRolledBack(rig, before, parent, child)
 
             rig.leaseStore.disarm()
-            val ok = AdvanceItemTool().execute(advanceParams(child), ctx).entry()
-            assertEquals(true, ok.flag("applied"), "control: $ok")
+            val ok = advance(ctx, child)
+            assertEquals(true, ok.flag("ok"), "control: $ok")
             assertControlApplies(rig, parent, child)
         }
 

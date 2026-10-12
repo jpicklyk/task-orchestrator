@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.request.path
 import io.ktor.server.response.header
-import io.ktor.server.response.respond
 import io.ktor.util.AttributeKey
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
@@ -130,19 +131,13 @@ val ApiBearerAuth =
             if (token == null) {
                 logger.debug("Missing or malformed Authorization header")
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf(
-                        "error" to "invalid_request",
-                        "error_description" to "Missing Authorization header"
-                    )
-                )
+                call.respondEnvelopeError(unauthenticated("Missing Authorization header."))
                 return@onCall
             }
 
             if (token.isEmpty()) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_request", "error_description" to "Empty token"))
+                call.respondEnvelopeError(unauthenticated("Empty token."))
                 return@onCall
             }
 
@@ -182,19 +177,19 @@ val ApiBearerAuth =
             if (principal == null) {
                 logger.debug("Authentication failed for request to {}", call.request.local.uri)
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf(
-                        "error" to "invalid_token",
-                        "error_description" to "Invalid or expired token"
-                    )
-                )
+                call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
                 return@onCall
             }
 
             call.attributes.put(ApiPrincipalKey, principal)
         }
     }
+
+/**
+ * The `unauthenticated` error (401) of a rejected credential. The RFC 6750 `WWW-Authenticate` challenge the caller sets
+ * next to it keeps its `error=` attribute; the body is the 4.0 error envelope.
+ */
+internal fun unauthenticated(message: String): DomainError = DomainError(ErrorCode.UNAUTHENTICATED, message)
 
 /** Computes SHA-256 of the UTF-8 encoding of [input]. */
 private fun sha256(input: String): ByteArray {

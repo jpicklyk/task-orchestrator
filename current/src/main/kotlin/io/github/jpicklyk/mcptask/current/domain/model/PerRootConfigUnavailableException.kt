@@ -11,14 +11,13 @@ import java.util.UUID
  * per-root config resolvers (`PerRootConfigService`, `ToolExecutionContext`) have roughly fifteen
  * call sites across application and interface code, and none of their public signatures change
  * because of this failure mode. Callers that need to convert this into a specific tool/HTTP outcome
- * catch it explicitly at their own boundary (see `McpToolAdapter`, `AdvanceItemTool`,
- * `CompleteTreeTool`, `ItemWriteRoutes`, `ItemRoutes`); callers that don't catch it simply propagate
+ * catch it explicitly at their own boundary (the shared fault classification maps it to the envelope
+ * code `unavailable`); callers that don't catch it simply propagate
  * it, which is the fail-closed behavior this exception exists to guarantee — a config read error
  * must never be silently treated as "no per-root config, fall back to the global layer".
  *
- * The error-code literal callers should surface for this condition is `"config_unavailable"`
- * (MCP `errorCode` / REST `ErrorDto.error`), with `errorKind` `"transient"` — the caller is expected
- * to apply its own backoff, per the documented `ErrorKind` contract.
+ * The legacy literal for this condition is [CODE]; the 4.0 envelope reports it as `unavailable` (kind
+ * `shedding`) — the caller is expected to apply its own backoff, per the documented `ErrorKind` contract.
  */
 class PerRootConfigUnavailableException(
     /** The project root whose read failed; null = the server-scope config. */
@@ -27,7 +26,7 @@ class PerRootConfigUnavailableException(
     cause: Throwable? = null
 ) : RuntimeException(message, cause) {
     companion object {
-        /** MCP `errorCode` / REST `ErrorDto.error` literal for this failure mode. */
+        /** Legacy error-code literal for this failure mode (logs and the head-route fault mapping). */
         const val CODE = "config_unavailable"
     }
 }

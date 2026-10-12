@@ -542,7 +542,7 @@ class TagScopeSseEventsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9a - a tag-scoped subscription is refused with 403 insufficient_scope when no repository is wired`() =
+    fun `S9a - a tag-scoped subscription is refused with 403 forbidden when no repository is wired`() =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), workItemRepository = null) }
@@ -555,7 +555,10 @@ class TagScopeSseEventsTest {
                 "S9a: tag-scoped token + no repository wired must fail closed with 403, not stream unfiltered",
             )
             val body = response.bodyAsText()
-            assertTrue(body.contains("insufficient_scope"), "S9a: 403 body must report insufficient_scope. Got: $body")
+            assertTrue(
+                body.contains("\"forbidden\"") && body.contains("\"scope\":\"tag\""),
+                "S9a: 403 body must be forbidden {scope: tag}. Got: $body"
+            )
         }
 
     @Test

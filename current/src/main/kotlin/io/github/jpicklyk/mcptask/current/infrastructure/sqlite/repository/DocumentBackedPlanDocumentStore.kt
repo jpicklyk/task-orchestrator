@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutc
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
@@ -17,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.model.RefKind
-import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import java.time.Instant
 import java.util.UUID

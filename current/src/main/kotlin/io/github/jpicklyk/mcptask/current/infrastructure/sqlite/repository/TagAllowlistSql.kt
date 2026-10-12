@@ -7,7 +7,7 @@ import org.jetbrains.exposed.v1.core.VarCharColumnType
 
 /**
  * The ONE SQL form of the `tags_include` access rule, shared by the item store ([TagAllowlistOp]) and the search
- * engine, so the two cannot drift from each other or from the REST predicate `allowsItemTags`.
+ * engine, so the two cannot drift from each other or from the scope predicate (`ScopeGuard`).
  *
  * The rule: the item's comma-separated `tags` is split on `,`, every element is trimmed of the characters Kotlin's
  * `Char.isWhitespace` accepts ([TRIM_CHARS]), and the item is admitted when a non-empty element EQUALS a listed tag:

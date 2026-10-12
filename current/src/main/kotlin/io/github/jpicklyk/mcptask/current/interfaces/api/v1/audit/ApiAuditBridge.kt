@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit
 
-import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
-import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
+import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy

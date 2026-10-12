@@ -3,22 +3,18 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.CursorCodec
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.IdResolution
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -218,52 +214,21 @@ enum class KindWire(
 /** The JSON pointer of the top-level request field [name]. */
 internal fun pointer(name: String): String = "/$name"
 
-/**
- * Resolves [ref] (request field [field]) under the caller's scope (plan decision D2), failing closed:
- *
- * - unrestricted scope: the 4.0 outcome (`not_found` / `ambiguous_id` on `/<field>`);
- * - restricted scope: no match is `forbidden` (never `not_found`, so scope is no existence oracle); an ambiguous
- *   prefix keeps only the candidates [ScopeGuard] admits: none is `forbidden`, one resolves, two or more is
- *   `ambiguous_id` listing only those.
- *
- * A resolved id is NOT scope-checked here: a target id goes through [resolveTarget], a filter id is left to the
- * store's scope filter.
- */
+/** [ScopedIds.resolve] of [ref] (request field [field]) under the caller's scope; the resolved id is not scope-checked. */
 internal suspend fun resolveId(
     env: ToolExecutionContext,
     ctx: CallContext,
     ref: IdRef,
     field: String
-): Outcome<UUID> {
-    val repo = env.workItemRepository()
-    val resolution = IdResolver(repo).resolve(ref)
-    val scope = ctx.scope
-    if (scope.isUnrestricted) return resolution.toOutcome(pointer(field))
-    return when (resolution) {
-        is IdResolution.NotFound -> Outcome.Err(scopeDenied(scope))
-        is IdResolution.Ambiguous -> {
-            val admitted = resolution.candidates.filter { ScopeGuard.check(scope, it, repo) is Outcome.Ok }
-            when (admitted.size) {
-                0 -> Outcome.Err(scopeDenied(scope))
-                1 -> Outcome.Ok(admitted.single())
-                else -> IdResolution.Ambiguous(resolution.prefix, admitted).toOutcome(pointer(field))
-            }
-        }
-        else -> resolution.toOutcome(pointer(field))
-    }
-}
+): Outcome<UUID> = ScopedIds.resolve(env.workItemRepository(), ctx.scope, ref, pointer(field))
 
-/** [resolveId] followed by [ScopeGuard.check]: a target id the caller may not see is `forbidden`. */
+/** [ScopedIds.resolveTarget]: a target id the caller may not see is `forbidden`. */
 internal suspend fun resolveTarget(
     env: ToolExecutionContext,
     ctx: CallContext,
     ref: IdRef,
     field: String
-): Outcome<UUID> =
-    when (val resolved = resolveId(env, ctx, ref, field)) {
-        is Outcome.Err -> resolved
-        is Outcome.Ok -> ScopeGuard.check(ctx.scope, resolved.value, env.workItemRepository()).map { resolved.value }
-    }
+): Outcome<UUID> = ScopedIds.resolveTarget(env.workItemRepository(), ctx.scope, ref, pointer(field))
 
 /** [resolveId] of an optional [ref]; null stays null. */
 internal suspend fun resolveOptionalId(
@@ -273,15 +238,8 @@ internal suspend fun resolveOptionalId(
     field: String
 ): Outcome<UUID?> = if (ref == null) Outcome.Ok(null) else resolveId(env, ctx, ref, field)
 
-/** The `forbidden` error a restricted [scope] answers for an id it cannot admit (ScopeGuard's missing-item rule). */
-internal fun scopeDenied(scope: AccessScope): DomainError {
-    val roots = scope.rootIds
-    return if (roots != null) {
-        ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() })
-    } else {
-        ScopeGuard.forbidden(ForbiddenScope.TAG, scope.tagsInclude)
-    }
-}
+/** [ScopedIds.denied]. */
+internal fun scopeDenied(scope: AccessScope): DomainError = ScopedIds.denied(scope)
 
 /**
  * The page a select reads: [limit] (default [default], `invalid_request` on `/limit` outside `1..max`) and [cursor]

@@ -10,9 +10,8 @@ import java.util.Properties
  * `build-info/version.properties` (a `version=<value>` line derived from the root
  * `version.properties`) into the main resources so it lands on the runtime classpath.
  *
- * Used by both the process entry point (log line, `/api/v1/info`, well-known) and
- * [io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil] (envelope `metadata.version`),
- * so both observers agree on the real build version instead of a separately hard-coded constant.
+ * Used by the process entry point (log line, `/api/v1/info`, well-known) and the MCP server identity, so every
+ * observer agrees on the real build version instead of a separately hard-coded constant.
  */
 object BuildInfo {
     private const val RESOURCE_PATH = "/build-info/version.properties"

@@ -34,9 +34,9 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   status is not [VerificationStatus.VERIFIED]. Recommended for cross-org `did:web` deployments.
  *
  * **Downstream integration points (items 4 and 5):**
- * - `claim_item` (item 4): when placing a claim, the trusted actor id is determined by
+ * - the `advance` claim op: when placing a claim, the trusted actor id is determined by
  *   `DegradedModePolicy.resolveTrustedActorId(actorClaim, verificationResult)`.
- * - `AdvanceItemTool` ownership checks (item 5): claim ownership is validated against the
+ * - the `advance` transition ownership checks: claim ownership is validated against the
  *   same trusted actor id resolver to ensure consistent identity resolution.
  */
 enum class DegradedModePolicy {

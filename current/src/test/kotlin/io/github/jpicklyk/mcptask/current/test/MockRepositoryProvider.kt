@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -15,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.mockk.*
 
 /**

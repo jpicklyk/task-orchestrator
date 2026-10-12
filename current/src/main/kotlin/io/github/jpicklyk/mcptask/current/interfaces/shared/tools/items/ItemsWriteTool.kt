@@ -2,15 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.IdResolution
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -190,16 +187,15 @@ internal fun cascadeSummaries(events: List<AdvanceCascadeEvent>): List<CascadeSu
     }
 
 /**
- * Runs [block] as the element's body: the caller's actor is installed for the `item.*` event rows the writes record
- * (the dispatcher installs none), and a per-root config fault escaping the service fails this element as
- * `unavailable` instead of `internal`.
+ * Runs [block] as the element's body (the dispatcher has already installed the caller as the event actor): a per-root
+ * config fault escaping the service fails this element as `unavailable` instead of `internal`.
  */
 internal suspend fun <T> itemWriteBody(
     ctx: CallContext,
     block: suspend () -> Outcome<T>
 ): Outcome<T> =
     try {
-        withEventActor(ctx.principal?.claim, block)
+        block()
     } catch (e: PerRootConfigUnavailableException) {
         Outcome.Err(
             DomainError(
@@ -211,21 +207,15 @@ internal suspend fun <T> itemWriteBody(
     }
 
 /**
- * Resolves [ref] to an item id. Under a restricted scope a prefix that names nothing, or several items, is
- * `forbidden` (fail closed, like [ScopeGuard]): scope must not be an existence oracle or list foreign candidates.
+ * Resolves [ref] to an item id by the one scope-aware rule ([ScopedIds.resolve]): under a restricted scope a prefix
+ * that names nothing admitted is `forbidden`, and an ambiguous prefix lists only the admitted candidates.
  */
 internal suspend fun resolveItemId(
     env: ToolExecutionContext,
     scope: AccessScope,
     ref: IdRef,
     field: String
-): Outcome<UUID> {
-    val resolution = IdResolver(env.workItemRepository()).resolve(ref)
-    if (!scope.isUnrestricted && (resolution is IdResolution.NotFound || resolution is IdResolution.Ambiguous)) {
-        return Outcome.Err(scopeDenied(scope))
-    }
-    return resolution.toOutcome(field)
-}
+): Outcome<UUID> = ScopedIds.resolve(env.workItemRepository(), scope, ref, field)
 
 /** Checks the caller's scope admits item [id] (an unrestricted scope reads nothing). */
 internal suspend fun checkItemScope(

@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
@@ -13,10 +13,8 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -144,20 +142,18 @@ object NoteHandlers {
         val principal = ctx.principal
         val written =
             try {
-                withEventActor(principal?.claim) {
-                    env.noteCommandService.upsert(
-                        NoteUpsertCommand(
-                            itemId = itemId,
-                            key = req.key,
-                            role = req.role,
-                            body = text,
-                            actorClaim = principal?.claim,
-                            verification = principal?.verification,
-                            bodyFromFile = file,
-                            expectedVersion = expected
-                        )
+                env.noteCommandService.upsert(
+                    NoteUpsertCommand(
+                        itemId = itemId,
+                        key = req.key,
+                        role = req.role,
+                        body = text,
+                        actorClaim = principal?.claim,
+                        verification = principal?.verification,
+                        bodyFromFile = file,
+                        expectedVersion = expected
                     )
-                }
+                )
             } catch (e: PerRootConfigUnavailableException) {
                 // Resolving the item's schema (maxLength, note limits) failed with no last-known-good config: nothing was stored.
                 return Outcome.Err(
@@ -197,7 +193,7 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val deleted = withEventActor(ctx.principal?.claim) { env.noteCommandService.delete(itemId, req.key, expected) }
+        val deleted = env.noteCommandService.delete(itemId, req.key, expected)
         return when (deleted) {
             is Outcome.Err -> deleted
             is Outcome.Ok -> Outcome.Ok(NoteWriteOutcome.Deleted(deleted.value.id))
@@ -207,25 +203,22 @@ object NoteHandlers {
     // ---- shared steps -------------------------------------------------------------------------------------
 
     /**
-     * Resolves [rawItemId] and runs [ScopeGuard] on it: `not_found` / `ambiguous_id` for an id that names no single
-     * item, `forbidden` for an item outside the call's scope, else the item id. A restricted scope never learns whether
-     * an item exists ([ScopeGuard] fails closed); an unrestricted one gets `not_found` for a missing item.
+     * Resolves [rawItemId] by the one scope-aware rule ([ScopedIds.resolveTarget]): `not_found` / `ambiguous_id` for an
+     * id that names no single item, `forbidden` for an item outside the call's scope, else the item id. A restricted
+     * scope never learns whether an item exists (no match and out-of-scope matches are both `forbidden`, and an
+     * ambiguous prefix lists only admitted candidates); an unrestricted one gets `not_found` for a missing item.
      */
     private suspend fun admit(
         stores: RepositoryProvider,
         ctx: CallContext,
         rawItemId: String
     ): Outcome<UUID> {
+        val workItems = stores.workItemRepository()
         val itemId =
-            when (val resolved = IdResolver(stores.itemStore()).resolve(rawItemId).toOutcome("/itemId")) {
+            when (val resolved = ScopedIds.resolveTarget(workItems, ctx.scope, rawItemId, "/itemId")) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
-        val workItems = stores.workItemRepository()
-        when (val guard = ScopeGuard.check(ctx.scope, itemId, workItems)) {
-            is Outcome.Err -> return guard
-            is Outcome.Ok -> Unit
-        }
         if (workItems.getById(itemId) == null) {
             return Outcome.Err(
                 DomainError(

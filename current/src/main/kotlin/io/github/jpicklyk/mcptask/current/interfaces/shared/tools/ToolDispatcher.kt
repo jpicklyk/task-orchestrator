@@ -6,12 +6,14 @@ import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -21,7 +23,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
-import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
@@ -70,7 +71,9 @@ data class Dispatched(
  *    profile-hidden one is `invalid_request` `/select` listing the visible names (a hidden name looks
  *    absent, never `forbidden`).
  * 4. **Decode** with [RequestDecoder] (a field of another select/op is `unknown_parameter`, D4).
- * 5. **Run** inside `withConfigSession`; an ops tool runs every element through [BatchRunner] (D5).
+ * 5. **Run** inside `withConfigSession` and with the principal installed as the event actor ([withEventActor]), so
+ *    every `events` row a select or op records is attributed to the caller (q18 D3: one install for every handler);
+ *    an ops tool runs every element through [BatchRunner] (D5).
  *
  * An escaping exception (D9): cancellation is rethrown; a persistence fault that translates to a code other
  * than `internal` is encoded as that error; anything else is the fixed `internal` envelope, the exception
@@ -127,7 +130,7 @@ class ToolDispatcher(
                     val envelope =
                         when (val bound = select.decode(decoder, arguments)) {
                             is Outcome.Err -> EnvelopeEncoder.error(bound.error, reqId)
-                            is Outcome.Ok -> withConfigSession { bound.value.run(env, ctx) }
+                            is Outcome.Ok -> withEventActor(ctx.principal?.claim) { withConfigSession { bound.value.run(env, ctx) } }
                         }
                     Dispatched(envelope, select.name, null)
                 }
@@ -370,11 +373,13 @@ class ToolDispatcher(
 
         val principalId = ctx.principal?.claim?.id ?: NO_PRINCIPAL
         val execution =
-            withConfigSession {
-                batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { index, pending ->
-                    when (pending) {
-                        is Pending.Failed -> Outcome.Err(pending.error)
-                        is Pending.Bound -> rootHandlerFields(pending.op.run.invoke(this, env, ctx), index)
+            withEventActor(ctx.principal?.claim) {
+                withConfigSession {
+                    batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { index, pending ->
+                        when (pending) {
+                            is Pending.Failed -> Outcome.Err(pending.error)
+                            is Pending.Bound -> rootHandlerFields(pending.op.run.invoke(this, env, ctx), index)
+                        }
                     }
                 }
             }

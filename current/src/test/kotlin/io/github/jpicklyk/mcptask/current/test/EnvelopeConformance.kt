@@ -22,8 +22,15 @@ object EnvelopeConformance {
     private val allowedErrorKeys = setOf("code", "kind", "message", "detail", "fix", "retryAfterMs", "index")
     private val codePattern = Regex("^[a-z][a-z_]*$")
 
-    /** Every violation found in [body]; an empty list means the body conforms. */
-    fun violations(body: JsonElement): List<String> {
+    /**
+     * Every violation found in [body]; an empty list means the body conforms. [continuation] marks the answer to a
+     * cursor request: `page.total` still counts every item, so a later page has fewer items than the total without being
+     * truncated, and only "truncated implies items.length < total" is checked.
+     */
+    fun violations(
+        body: JsonElement,
+        continuation: Boolean = false
+    ): List<String> {
         val out = mutableListOf<String>()
         if (body !is JsonObject) return listOf("the envelope is not a JSON object")
         checkNoNulls(body, "$", out)
@@ -48,7 +55,7 @@ object EnvelopeConformance {
             }
         }
 
-        if (data != null) checkData(data, out)
+        if (data != null) checkData(data, continuation, out)
 
         if (ok == false && error is JsonObject) {
             val code = (error["code"] as? JsonPrimitive)?.content
@@ -71,9 +78,10 @@ object EnvelopeConformance {
     /** Fails with every violation when [body] does not conform. */
     fun assertConforms(
         body: JsonElement,
-        label: String = "envelope"
+        label: String = "envelope",
+        continuation: Boolean = false
     ) {
-        val found = violations(body)
+        val found = violations(body, continuation)
         if (found.isNotEmpty()) fail("$label does not conform: $found; body=$body")
     }
 
@@ -140,14 +148,16 @@ object EnvelopeConformance {
 
     private fun checkData(
         data: JsonElement,
+        continuation: Boolean,
         out: MutableList<String>
     ) {
-        if (data is JsonObject && ("items" in data || "page" in data)) checkPage(data, out)
+        if (data is JsonObject && ("items" in data || "page" in data)) checkPage(data, continuation, out)
         if (data is JsonObject && ("results" in data || "summary" in data)) checkBatch(data, out)
     }
 
     private fun checkPage(
         data: JsonObject,
+        continuation: Boolean,
         out: MutableList<String>
     ) {
         val items = data["items"]
@@ -163,7 +173,9 @@ object EnvelopeConformance {
         val truncated = page["truncated"].asBoolean()
         if (truncated == null) out += "page.truncated must be a boolean"
         if ("capped" in page && page["capped"].asBoolean() != true) out += "page.capped is present only as true"
-        if (items is JsonArray && total != null && truncated != null && truncated != (items.size < total)) {
+        val firstPageRuleBroken = !continuation && truncated != (items as? JsonArray)?.let { it.size < (total ?: 0) }
+        val continuationRuleBroken = continuation && truncated == true && items is JsonArray && total != null && items.size >= total
+        if (items is JsonArray && total != null && truncated != null && (firstPageRuleBroken || continuationRuleBroken)) {
             out += "page.truncated must equal items.length < total (items=${items.size}, total=$total, truncated=$truncated)"
         }
         if (truncated == true && page["next"].asString().isNullOrBlank()) out += "page.next is required when truncated"

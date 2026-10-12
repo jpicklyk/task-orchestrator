@@ -48,8 +48,8 @@ import kotlin.test.assertTrue
  * Oracles: envelope section 3 (the HTTP status is a pure function of `error.code` and no route picks a status by hand; the
  * body is the envelope's wire bytes), task-scope D9 and the Contract (a non-cancellation throwable under a path equal to
  * `/api/v1/ops` or starting with `/api/v1/ops/` is logged at ERROR and answered with the `internal` envelope, status 500,
- * never the exception text; every other `/api/v1` path keeps the legacy `ErrorDto` body `{"error","message"}` byte for byte;
- * `/api/v1/opsx` is not the ops prefix) and plan section 3.2 ("`internal` never carries exception text").
+ * never the exception text; Q32 extended that to every `/api/v1` path, so the legacy body is gone) and plan section 3.2
+ * ("`internal` never carries exception text").
  *
  * Harness: the production install order of `ApiStatusPagesTest` (ContentNegotiation, then `installApiStatusPages()`, then
  * routing) over Ktor `testApplication`, with test-owned throwing routes. The sentinel text `SECRET-7f3a` is test-chosen.
@@ -57,7 +57,6 @@ import kotlin.test.assertTrue
  */
 class RespondEnvelopeTest {
     private val secret = "SECRET-7f3a"
-    private val legacyInternal = Json.parseToJsonElement("""{"error":"internal","message":"Internal server error"}""").jsonObject
 
     private fun Application.opsApp() {
         install(ContentNegotiation) { json(McpJson) }
@@ -196,7 +195,7 @@ class RespondEnvelopeTest {
         assertFalse(text.contains(secret), "$label: the exception text must not leak: $text")
         assertFalse(text.contains("cause-"), "$label: the cause text must not leak: $text")
         val body = Json.parseToJsonElement(text).jsonObject
-        assertEquals(listOf("ok", "error", "meta"), body.keys.toList(), "$label: envelope shape, not the legacy ErrorDto")
+        assertEquals(listOf("ok", "error", "meta"), body.keys.toList(), "$label: envelope shape")
         assertEquals(JsonPrimitive(false), body["ok"], label)
         assertEquals(
             Json.parseToJsonElement("""{"code":"internal","kind":"transient","message":"Internal server error"}"""),
@@ -226,30 +225,13 @@ class RespondEnvelopeTest {
         }
 
     @Test
-    fun `S18 control - a throwing route under api v1 items keeps the legacy ErrorDto`() =
+    fun `S18 Q32 every other api v1 path, including look-alikes of the ops prefix, answers the same internal envelope`() =
         testApplication {
             application { opsApp() }
 
-            val response = client.get("/api/v1/items")
-            val text = response.bodyAsText()
-
-            assertEquals(HttpStatusCode.InternalServerError, response.status)
-            assertEquals(legacyInternal, Json.parseToJsonElement(text).jsonObject, "byte-for-byte the legacy body: $text")
-            assertFalse(text.contains(secret))
-            assertFalse("ok" in Json.parseToJsonElement(text).jsonObject)
-        }
-
-    @Test
-    fun `S18 paths that merely resemble the ops prefix keep the legacy ErrorDto`() =
-        testApplication {
-            application { opsApp() }
-
-            for (path in listOf("/api/v1/opsx", "/api/v1/ops2/x", "/api/v1/ops-extra", "/api/v1/items/ops")) {
+            for (path in listOf("/api/v1/items", "/api/v1/opsx", "/api/v1/ops2/x", "/api/v1/ops-extra", "/api/v1/items/ops")) {
                 val response = client.get(path)
-                val text = response.bodyAsText()
-
-                assertEquals(HttpStatusCode.InternalServerError, response.status, path)
-                assertEquals(legacyInternal, Json.parseToJsonElement(text).jsonObject, "$path must not be treated as the ops prefix: $text")
+                assertInternalEnvelope(response, response.bodyAsText(), path)
             }
         }
 

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -167,17 +168,17 @@ class IndependenceConfigParseTest {
     private fun buildComposition(
         tempDir: java.nio.file.Path,
         globalConfig: String
-    ): io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult {
+    ): io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return io.github.jpicklyk.mcptask.current.interfaces.mcp
+        return io.github.jpicklyk.mcptask.current.bootstrap
             .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = ShutdownCoordinator())
             .build()
             .also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         title: String
     ): UUID =
         runBlocking {
@@ -188,7 +189,7 @@ class IndependenceConfigParseTest {
         }
 
     private fun pushPerRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         rootId: UUID,
         yaml: String
     ) {
@@ -272,7 +273,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.configStore() } returns projectConfigRepository
-            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
             val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
@@ -293,7 +294,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.configStore() } returns projectConfigRepository
-            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
             val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"

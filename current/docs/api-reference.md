@@ -131,7 +131,8 @@ transient, `retryAfterMs`). A `properties` object carrying a `traits` key is `in
 `update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
 scope (the new id cannot be a listed root) and, under a tag scope, needs a listed tag in `tags`; `clear: ["parentId"]`
 under a root scope is allowed only when the item itself is a listed root. Under a restricted scope an id that
-resolves to nothing, or is ambiguous, is `forbidden` (scope is no existence oracle).
+resolves to nothing the caller may see is `forbidden` (scope is no existence oracle), and an ambiguous prefix lists only
+the candidates the scope admits (the shared `items_read` "Ids" rule, Q32).
 
 **Actor and events.** The caller's actor (body `actor` over MCP, the bearer principal over REST) is recorded as the
 principal of the `item.created`, `item.updated`, `item.reparented`, `item.deleted` and `item.pinned` events the call
@@ -267,7 +268,8 @@ needs the `READ` capability and honors the root and tag scope of the caller.
 **Ids.** Every id field takes a full UUID or 8 to 32 hex characters of one. A prefix that matches more than
 one item is `ambiguous_id`; no match is `not_found`. Under a restricted scope an id that matches nothing
 the caller may see is `forbidden`, never `not_found`, so scope is no existence oracle, and an ambiguous
-prefix lists only the candidates the scope admits. A target id (`get`, `schema`, `related`, the overview
+prefix lists only the candidates the scope admits. Since Q32 every tool resolves ids by this one rule (`deps_*`,
+`items_write`, `advance`, `notes_*`, `docs_*`), so no tool is an existence oracle under a restricted scope. A target id (`get`, `schema`, `related`, the overview
 `itemId` and `anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
 `search` `itemId` / `ancestorId`) is not scope-checked: an out-of-scope subtree simply selects nothing.
 
@@ -655,9 +657,10 @@ REST `POST /api/v1/ops/deps_read`. Replaces `query_dependencies` (its backlinks 
 (`describe: true`).
 
 **Selects.** `list`, `graph`. Both need the `READ` capability and honor the caller's root and tag
-scope: a subject `item` outside the scope is `forbidden`. Scope is checked before existence for a full
-UUID, so an unknown full UUID is `forbidden` to a restricted caller; a short hex prefix is resolved
-before the scope check, so a prefix that matches nothing can answer `not_found` to a restricted caller.
+scope: a subject `item` outside the scope is `forbidden`. Ids resolve by the shared scope-aware rule (Q32,
+the `items_read` "Ids" rule): under a restricted scope an unknown full UUID, a prefix that matches nothing and a
+prefix that matches only out-of-scope items are all the same `forbidden`, never `not_found`, and an ambiguous
+prefix lists only the candidates the scope admits.
 
 | Select | Fields | Answer (`data`) |
 |---|---|---|

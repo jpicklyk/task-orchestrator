@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
@@ -14,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope

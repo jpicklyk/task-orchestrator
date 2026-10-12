@@ -11,7 +11,13 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.rejections
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.arr
+import io.github.jpicklyk.mcptask.current.test.contendedNames
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.errorDetail
+import io.github.jpicklyk.mcptask.current.test.errorKind
+import io.github.jpicklyk.mcptask.current.test.errorRetryAfterMs
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.missingKeys
 import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -33,11 +39,10 @@ internal object WalScenarios {
     private const val CLAIM_RETRY_MS = 900_000L
     private const val LEASE_RETRY_MS = 600_000L
 
-    private fun List<JsonObject>.applied() = filter { it.flag("applied") == true }
+    // Advance results are elements of the production `advance` tool (P11Driver.advance): {ok, ...} or {ok:false, error}.
+    private fun List<JsonObject>.applied() = filter { it.flag("ok") == true }
 
-    private fun List<JsonObject>.rejected() = filter { it.flag("applied") != true }
-
-    private fun JsonObject.missing(): List<String?> = arr("missingNotes").map { it.jsonObject.text("key") }
+    private fun List<JsonObject>.rejected() = filter { it.flag("ok") != true }
 
     // ---------------------------------------------------------------------------------------------
     // Advance
@@ -58,7 +63,7 @@ internal object WalScenarios {
         assertEquals("terminal", results.applied().single().text("newRole"), "$results")
         assertEquals(racers - 1, results.rejected().size, "$results")
         results.rejected().forEach {
-            assertEquals("invalid_transition", it.text("errorCode"), "a loser is evaluated on the committed state: $it")
+            assertEquals("invalid_transition", it.errorCode(), "a loser is evaluated on the committed state: $it")
         }
         assertEquals(Role.TERMINAL, d.role(item))
         assertEquals(1, d.transitions(item).size, "one item.transitioned row")
@@ -79,10 +84,9 @@ internal object WalScenarios {
         assertEquals(1, results.applied().size, "$results")
         assertEquals("work", results.applied().single().text("newRole"), "$results")
         val loser = results.rejected().single()
-        assertEquals("gate_blocked", loser.text("errorCode"), "$loser")
-        assertEquals(listOf("impl"), loser.missing(), "$loser")
-        assertEquals("work", loser.text("previousRole"), "the loser sees the winner's committed role: $loser")
-        assertEquals("terminal", loser.text("targetRole"), "$loser")
+        assertEquals("gate_blocked", loser.errorCode(), "$loser")
+        assertEquals(listOf("impl"), loser.missingKeys(), "$loser")
+        assertEquals("work", loser.errorDetail()?.text("role"), "the loser is gated in the winner's committed role: $loser")
         assertEquals(Role.WORK, d.role(item))
         val rejections = fx.rig.rowsAfter(mark).rejections()
         assertEquals(1, rejections.size, "exactly one rejection row: $rejections")
@@ -109,12 +113,12 @@ internal object WalScenarios {
         val results = fx.go(children) { i -> fx.driverFor(i).advance(kids[i], "complete") }
 
         assertEquals(children, results.applied().size, "every sibling completes: $results")
-        val carrying = results.filter { it.arr("cascadeEvents").isNotEmpty() }
+        val carrying = results.filter { it.arr("cascades").isNotEmpty() }
         assertEquals(1, carrying.size, "exactly one entry reports the parent cascade: $results")
         val cascade =
             carrying
                 .single()
-                .arr("cascadeEvents")
+                .arr("cascades")
                 .single()
                 .jsonObject
         assertEquals(parent.id.toString(), cascade.text("itemId"), "$cascade")
@@ -138,9 +142,9 @@ internal object WalScenarios {
         val results = fx.go(children) { i -> fx.driverFor(i).advance(kids[i], "complete") }
 
         assertEquals(children, results.applied().size, "$results")
-        val carrying = results.filter { it.arr("cascadeEvents").isNotEmpty() }
+        val carrying = results.filter { it.arr("cascades").isNotEmpty() }
         assertEquals(1, carrying.size, "$results")
-        val cascades = carrying.single().arr("cascadeEvents").map { it.jsonObject }
+        val cascades = carrying.single().arr("cascades").map { it.jsonObject }
         assertEquals(
             listOf(parent.id.toString(), grand.id.toString()),
             cascades.map { it.text("itemId") },
@@ -161,14 +165,14 @@ internal object WalScenarios {
         val results = fx.go(2) { i -> fx.driverFor(i).advance(items[i], "start") }
 
         assertEquals(1, results.applied().size, "$results")
-        val winnerIdx = results.indexOfFirst { it.flag("applied") == true }
+        val winnerIdx = results.indexOfFirst { it.flag("ok") == true }
         val loserIdx = 1 - winnerIdx
         assertEquals("work", results[winnerIdx].text("newRole"), "$results")
         val loser = results[loserIdx]
-        assertEquals("resource_unavailable", loser.text("errorCode"), "$loser")
-        assertEquals("transient", loser.text("errorKind"), "$loser")
-        assertEquals(listOf(P11_LEASE_KEY), loser.arr("contendedResources").map { it.jsonPrimitive.content }, "$loser")
-        assertEquals(LEASE_RETRY_MS.toString(), loser.text("retryAfterMs"), "$loser")
+        assertEquals("resource_unavailable", loser.errorCode(), "$loser")
+        assertEquals("transient", loser.errorKind(), "$loser")
+        assertEquals(listOf(P11_LEASE_KEY), loser.contendedNames(), "$loser")
+        assertEquals(LEASE_RETRY_MS, loser.errorRetryAfterMs(), "$loser")
         assertEquals(Role.QUEUE, d.role(items[loserIdx]))
         assertEquals(0, d.transitions(items[loserIdx]).size)
         val held = d.raw.resourceLeaseRepository().findActiveByKeys(listOf(P11_LEASE_KEY))
@@ -190,21 +194,21 @@ internal object WalScenarios {
                 if (i == 0) fx.driverFor(i).advance(holder, "complete") else fx.driverFor(i).advance(contender, "start")
             }
 
-        assertEquals(true, results[0].flag("applied"), "the holder always completes: ${results[0]}")
+        assertEquals(true, results[0].flag("ok"), "the holder always completes: ${results[0]}")
         assertEquals(Role.TERMINAL, d.role(holder))
         val held = d.raw.resourceLeaseRepository().findActiveByKeys(listOf(P11_LEASE_KEY))
         val c = results[1]
         val leaseRejected = fx.rig.rowsAfter(mark).count { it.type == "lease.rejected" }
         // Holder first: its release frees the key and the contender takes it. Contender first: it is refused.
-        fx.ordering(index0First = c.flag("applied") == true, detail = results)
-        if (c.flag("applied") == true) {
+        fx.ordering(index0First = c.flag("ok") == true, detail = results)
+        if (c.flag("ok") == true) {
             assertEquals(Role.WORK, d.role(contender))
             assertEquals(listOf(contender.id), held.map { it.holderItemId }, "the contender holds the lease alone")
             assertEquals(1, d.transitions(contender).size)
             assertEquals(0, leaseRejected, "no refusal when the holder released first")
         } else {
-            assertEquals("resource_unavailable", c.text("errorCode"), "$c")
-            assertEquals(LEASE_RETRY_MS.toString(), c.text("retryAfterMs"), "$c")
+            assertEquals("resource_unavailable", c.errorCode(), "$c")
+            assertEquals(LEASE_RETRY_MS, c.errorRetryAfterMs(), "$c")
             assertEquals(Role.QUEUE, d.role(contender))
             assertTrue(held.isEmpty(), "the holder release left no lease rows: $held")
             assertEquals(0, d.transitions(contender).size, "a refused contender records no transition event")
@@ -343,11 +347,11 @@ internal object WalScenarios {
         assertIs<ClaimResult.Success>(results[0])
         val advance = results[1] as JsonObject
         // Claim first: B is not the holder. Advance first: B starts the unclaimed item.
-        fx.ordering(index0First = advance.flag("applied") != true, detail = results)
-        if (advance.flag("applied") == true) {
+        fx.ordering(index0First = advance.flag("ok") != true, detail = results)
+        if (advance.flag("ok") == true) {
             assertEquals(Role.WORK, d.role(item), "advance first")
         } else {
-            assertEquals("not_claim_holder", advance.text("errorCode"), "$advance")
+            assertEquals("not_claim_holder", advance.errorCode(), "$advance")
             assertEquals(Role.QUEUE, d.role(item), "claim first")
         }
         assertEquals(a, d.reload(item).claimedBy)

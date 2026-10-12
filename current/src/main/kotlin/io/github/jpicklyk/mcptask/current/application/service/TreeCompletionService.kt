@@ -93,9 +93,15 @@ class TreeCompletionService(
         val ids = distinct.map { it.id }
         val idSet = ids.toSet()
 
-        // Every in-set blocking edge, normalized to blocker -> blocked (RELATES_TO never orders or propagates).
-        val deps = repositoryProvider.dependencyRepository()
-        val stored = distinct.flatMap { deps.findByToItemId(it.id) }.distinctBy { it.id }
+        // Every in-set blocking edge, normalized to blocker -> blocked (RELATES_TO never orders or propagates). One batched
+        // read for the whole target set (AR-96), not one per target.
+        val stored =
+            repositoryProvider
+                .dependencyRepository()
+                .findByItemIds(idSet)
+                .values
+                .flatten()
+                .distinctBy { it.id }
         val edges = DependencyEdges.normalize(stored).blocking.filter { it.blocker in idSet && it.blocked in idSet }
         val dependents = HashMap<UUID, MutableList<UUID>>()
         for (edge in edges) dependents.getOrPut(edge.blocker) { ArrayList() } += edge.blocked

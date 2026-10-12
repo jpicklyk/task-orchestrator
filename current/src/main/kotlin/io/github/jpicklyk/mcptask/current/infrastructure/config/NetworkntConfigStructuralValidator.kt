@@ -14,6 +14,13 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 
 /**
+ * The ONE production admission validator (Q32): the JSON Schema pass ([NetworkntConfigStructuralValidator]) in front of
+ * the strict parser's findings and the semantic rules. The composition root and the `config` tool's fallback service both
+ * build it here, so nothing in production constructs a bare [ConfigValidator] without the structural pass.
+ */
+fun productionConfigValidator(): ConfigValidator = ConfigValidator(NetworkntConfigStructuralValidator())
+
+/**
  * Checks a parsed config root against the published JSON Schema ([ConfigJsonSchema]) with networknt
  * json-schema-validator (draft 2020-12). The schema is compiled once; the validator holds no other state.
  *

@@ -28,14 +28,13 @@ import kotlin.coroutines.CoroutineContext
  * key.
  *
  * The same proof is legitimately verified more than once within a single MCP tool call — e.g.
- * `AdvanceItemTool` verifies once for an idempotency-cache lookup and again per transition,
- * `notes_write`/`CompleteTreeTool` verify once per note/item — and a proof is also reused
+ * a batch verifies once per element — and a proof is also reused
  * across separate calls (heartbeats). An opt-in, one-use [io.github.jpicklyk.mcptask.current.infrastructure.config.JtiReplayCache]
  * would otherwise reject the second in-call verification of the very same (proof, claim) as a
  * "replay".
  *
  * Installing one instance of this element in the [CoroutineContext] for the lifetime of a single
- * MCP call (see `McpToolAdapter`) lets [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.parseActorClaim]
+ * MCP call (see `McpOperationAdapter`) lets [io.github.jpicklyk.mcptask.current.application.service.ActorAware.parseActorClaim]
  * reuse the first verification result for a repeated (proof, claim) pair within that call, so the
  * underlying verifier (and any replay cache it consults) is invoked at most once per distinct
  * (proof, claim) pair per call.

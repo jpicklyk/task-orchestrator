@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -61,7 +62,7 @@ class ConfigServiceTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.configStore() } returns projectConfigRepository
 
-            service = ConfigService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
+            service = ConfigService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork(), validator = ConfigValidator())
 
             rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
             otherRootId = workItemRepository.create(WorkItem(title = "Other Root", type = "project")).id

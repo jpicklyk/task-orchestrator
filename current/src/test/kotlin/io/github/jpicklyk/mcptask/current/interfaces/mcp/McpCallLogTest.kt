@@ -4,9 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
-import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
-import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -18,8 +16,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
-import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -28,7 +26,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,8 +58,6 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.regex.Pattern
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -71,9 +66,13 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
 /**
- * Independent tests for item 8abb69e2 (P10): the MCP surface of the call log, driven through the real [McpToolAdapter]
- * over the in-memory client/server pair, the real production tool set and the real composition (events included).
- * Scenario ids follow the frozen test-plan (S2, S3, S5, S6, S7, S9, S13, S14, S17 plus probes).
+ * Independent tests for item 8abb69e2 (P10): the MCP surface of the call log, driven through the real
+ * [McpOperationAdapter] over the in-memory client/server pair, the real production tool registry and the real composition
+ * (events included). Q32 port: the removed 3.x adapter's probe tools are the 4.0 [FixtureTools] (its `get` select throws
+ * or cancels on magic ids), and the 3.x advance_item/claim_item calls are the production `advance` tool. The 3.x
+ * adapter's per-call MDC log line has no 4.0 counterpart (McpOperationAdapter logs none, a Q23 decision), so S2 asserts
+ * the reqId on `_meta` and on the row only. Scenario ids follow the frozen test-plan (S2, S3, S5, S6, S7, S9, S13, S14,
+ * S17 plus probes).
  *
  * Oracles: plan section 3.8 and the task-scope "Column sources" table and acceptance A1-A3 (frozen at queue phase).
  * Expected byte counts and token estimates are recomputed here from the wire payload the client received (UTF-8 bytes
@@ -97,56 +96,14 @@ class McpCallLogTest {
     private lateinit var client: Client
     private val extraClients = mutableListOf<Pair<Client, Server>>()
 
-    private val uuidPattern = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+    private val fixtures = FixtureTools()
 
-    private fun probeTool(
-        toolName: String,
-        body: suspend (JsonElement) -> JsonElement
-    ): ToolDefinition =
-        object : ToolDefinition {
-            override val name = toolName
-            override val description = "P10 call-log probe"
-            override val parameterSchema = ToolSchema()
-            override val category = ToolCategory.SYSTEM
-
-            override suspend fun execute(
-                params: JsonElement,
-                context: ToolExecutionContext
-            ): JsonElement = body(params)
-        }
-
-    private val extraTools: List<ToolDefinition> =
-        listOf(
-            probeTool("p10_echo") { params ->
-                buildJsonObject {
-                    put("status", "success")
-                    put(
-                        "message",
-                        "echo " + ((params as? JsonObject)?.get("m")?.jsonPrimitive?.contentOrNull ?: "")
-                    )
-                }
-            },
-            // A 3.x-shaped read (an `operation` argument): every MCP-served 3.x read tool is gone, and the 4.0 tools run through
-            // McpOperationAdapter, which logs no per-call MDC line, so S2 exercises McpToolAdapter through this fixture.
-            probeTool("p10_list") {
-                buildJsonObject {
-                    put("status", "success")
-                    put("data", buildJsonObject { put("items", buildJsonArray { }) })
-                }
-            },
-            probeTool("p10_boom") { throw IllegalStateException("kaboom") },
-            probeTool("p10_cancel") { throw CancellationException("cancelled from inside") }
-        )
-
-    private suspend fun connect(
-        adapter: McpToolAdapter,
-        tools: Collection<ToolDefinition>
-    ): Pair<Client, Server> {
+    /** A server with the production registry and the [FixtureTools] registry, both through one [McpOperationAdapter] on [sink]. */
+    private suspend fun connect(sink: CallLogSink): Pair<Client, Server> {
         val srv = Server(serverInfo = Implementation(name = "p10-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        adapter.registerToolsWithServer(srv, tools, rig.ctx)
-        // The 4.0 tools (items_read ...) through the real operation adapter on the same server, writing the same call log.
-        McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
-            .register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = sink)
+        adapter.register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+        adapter.register(srv, fixtures.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val cli =
             Client(
@@ -163,8 +120,7 @@ class McpCallLogTest {
         runBlocking {
             rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
             writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
-            val pair =
-                connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools)
+            val pair = connect(writer)
             client = pair.first
             server = pair.second
         }
@@ -227,78 +183,54 @@ class McpCallLogTest {
 
     private fun ceilQuarter(bytes: Long): Long = (bytes + 3) / 4
 
-    private fun itemsCreateArgs(
-        vararg titles: String,
-        actorId: String? = null,
-        requestId: String? = null
-    ): Array<Pair<String, JsonElement>> {
-        val list =
-            mutableListOf<Pair<String, JsonElement>>(
-                "operation" to jstr("create"),
-                "items" to
-                    buildJsonArray {
-                        titles.forEach { t ->
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", t)
-                                }
-                            )
-                        }
-                    }
-            )
-        if (actorId != null) {
-            list += "actor" to
-                buildJsonObject {
-                    put("id", actorId)
-                    put("kind", "subagent")
-                }
+    /** One `transition` element of an `advance` call. */
+    private fun transition(
+        itemId: String,
+        trigger: String
+    ): JsonObject =
+        buildJsonObject {
+            put("op", "transition")
+            put("itemId", itemId)
+            put("trigger", trigger)
         }
-        if (requestId != null) list += "requestId" to jstr(requestId)
-        return list.toTypedArray()
-    }
+
+    /** The `fx_read` `get` arguments for [id] (one of the [FixtureTools] magic ids steers the handler). */
+    private fun fixtureGet(id: String): Array<Pair<String, JsonElement>> = arrayOf("select" to jstr("get"), "id" to jstr(id))
+
+    /** The structured content without its per-call `meta` (the reqId differs between two calls). */
+    private fun sansMeta(result: CallToolResult): JsonObject? =
+        result.structuredContent?.let { JsonObject(it.filterKeys { k -> k != "meta" }) }
 
     private fun parseAt(text: String): Instant = LocalDateTime.parse(text.replace(' ', 'T')).toInstant(ZoneOffset.UTC)
 
     // ------------------------------------------------------------------ S2 / A1 / A2
 
     @Test
-    fun `S2 a read call carries a valid reqId in meta equal to its MDC reqId and its call_log key`() =
+    fun `S2 a read call carries a valid reqId in meta equal to its call_log key`() =
         runBlocking {
             client.listTools()
             assertEquals(0, flush().size, "tools/list and initialize write no call_log row")
 
-            val capture = LogCapture().attach(McpToolAdapter::class.java.name)
-            val args = arrayOf("operation" to jstr("list"), "rootId" to jstr(rig.seed("S2 read").id.toString()))
+            val args = arrayOf("select" to jstr("get"), "itemId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("p10_list", *args)
+            val result = call("items_read", *args)
             val after = Instant.now()
-            capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
-
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "p10_list" }
-            assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
-            assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
-            assertTrue(
-                uuidPattern.matcher(mdc.mdc["requestId"] ?: "").matches(),
-                "the existing MDC requestId stays a UUID: ${mdc.mdc["requestId"]}"
-            )
 
             val all = flush()
             assertEquals(1, all.size, "exactly one row for one call: $all")
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("p10_list", row["tool"])
-            assertEquals("list", row["operation"])
+            assertEquals("items_read", row["tool"])
+            assertEquals("get", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
             assertEquals(1L, row["attempts"])
             assertEquals(0L, row["replayed"])
-            assertEquals(mdc.mdc["sessionId"], row["session_id"], "session_id is the connection id the adapter logs")
-            assertTrue(!(row["session_id"] as String?).isNullOrBlank())
+            assertTrue(!(row["session_id"] as String?).isNullOrBlank(), "session_id is the connection id")
             assertTrue((row["latency_ms"] as Long) >= 0)
             val at = parseAt(row["at"] as String)
             assertTrue(
@@ -354,49 +286,33 @@ class McpCallLogTest {
             val first = rig.seed("S6 batch a")
             val second = rig.seed("S6 batch b")
             val item = first
-            val notes =
+            val ops =
                 buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", first.id.toString())
-                            put("trigger", "cancel")
-                        }
-                    )
-                    add(
-                        buildJsonObject {
-                            put("itemId", second.id.toString())
-                            put("trigger", "cancel")
-                        }
-                    )
-                    add(
-                        buildJsonObject {
-                            put("itemId", UUID.randomUUID().toString())
-                            put("trigger", "cancel")
-                        }
-                    )
+                    add(transition(first.id.toString(), "cancel"))
+                    add(transition(second.id.toString(), "cancel"))
+                    add(transition(UUID.randomUUID().toString(), "cancel"))
                 }
-            // manage_items is removed (Q18); advance_item is the remaining 3.x batch tool with a summary.failed count.
-            val result = call("advance_item", "transitions" to notes)
-            // The MCP structuredContent is the tool's data payload itself (summary.failed, else failed).
-            val payload = result.structuredContent
+            val result = call("advance", "ops" to ops)
+            // The MCP structuredContent is the envelope body: data.summary.failed counts the failing element.
             val failed =
-                payload
+                result.structuredContent
+                    ?.get("data")
+                    ?.jsonObject
                     ?.get("summary")
                     ?.jsonObject
                     ?.get("failed")
                     ?.jsonPrimitive
                     ?.intOrNull
-                    ?: payload?.get("failed")?.jsonPrimitive?.intOrNull
             assertEquals(
                 1,
                 failed,
-                "fixture: exactly one of the three transitions fails per the tool's own summary: ${result.structuredContent}"
+                "fixture: exactly one of the three transitions fails per the envelope's own summary: ${result.structuredContent}"
             )
             val row = flush().single()
             assertEquals(3L, row["batch_size"])
             assertEquals(1L, row["failed_count"])
             val ids = Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(item.id.toString() in ids, "elements of the top-level transitions array contribute their itemId: $ids")
+            assertTrue(item.id.toString() in ids, "elements of the ops array contribute their itemId: $ids")
         }
 
     @Test
@@ -427,39 +343,46 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 claim_item never sets result or eligible counts`() =
+    fun `S6 an advance claim never sets result or eligible counts`() =
         runBlocking {
             val item = rig.seed("S6 claimable")
-            val claims = buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) }
+            val claims =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("op", "claim")
+                            put("itemId", item.id.toString())
+                        }
+                    )
+                }
             call(
-                "claim_item",
-                "claims" to claims,
+                "advance",
+                "ops" to claims,
                 "actor" to
                     buildJsonObject {
                         put("id", "claimer")
                         put("kind", "subagent")
-                    },
-                "requestId" to jstr(UUID.randomUUID().toString())
+                    }
             )
-            val row = flush().single { it["tool"] == "claim_item" }
+            val row = flush().single { it["tool"] == "advance" }
             assertNull(row["result_count"])
             assertNull(row["eligible_count"])
-            assertEquals(1L, row["batch_size"], "claims is a batch array of length 1")
+            assertEquals(1L, row["batch_size"], "ops is a batch array of length 1")
         }
 
     // ------------------------------------------------------------------ S7
 
     @Test
-    fun `S7 a thrown exception yields INTERNAL_ERROR with a reqId and exactly one row`() =
+    fun `S7 a thrown exception yields internal with a reqId and exactly one row`() =
         runBlocking {
-            val result = call("p10_boom")
+            val result = call("fx_read", *fixtureGet(FixtureTools.GET_SECRET))
             assertEquals(true, result.isError)
             val reqId = assertNotNull(reqIdOf(result))
             val row = flush().single()
             assertEquals(reqId, row["req_id"])
             assertEquals("error", row["outcome"])
-            assertEquals("INTERNAL_ERROR", row["error_code"])
-            assertEquals("p10_boom", row["tool"])
+            assertEquals("internal", row["error_code"])
+            assertEquals("fx_read", row["tool"])
             assertEquals(ceilQuarter(responseBytes(result)), row["response_tokens_est"])
         }
 
@@ -467,16 +390,7 @@ class McpCallLogTest {
     fun `S7 a gate-blocked advance records its row and its rejection event carries the same reqId`() =
         runBlocking {
             val item = rig.seed("S7 gated", tags = EventLogRig.GATED_TAG)
-            val transitions =
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("trigger", "start")
-                        }
-                    )
-                }
-            val result = call("advance_item", "transitions" to transitions)
+            val result = call("advance", "ops" to buildJsonArray { add(transition(item.id.toString(), "start")) })
             val reqId = assertNotNull(reqIdOf(result))
             val row = flush().single()
             assertEquals(reqId, row["req_id"])
@@ -496,6 +410,7 @@ class McpCallLogTest {
                     null
                 }
             assertEquals(expectedCode, row["error_code"])
+            assertEquals(1L, row["failed_count"], "the gate-blocked element is the one failure")
             val rejected = CallLogRows.eventRows(db.jdbcUrl).filter { it.first == "transition.rejected" }
             assertEquals(1, rejected.size, "fixture: exactly one rejection row: $rejected")
             assertEquals(reqId, rejected.single().second, "the rejection event carries the call's reqId")
@@ -509,30 +424,30 @@ class McpCallLogTest {
     fun `S7 a cancelled call writes no row`() =
         runBlocking {
             runCatching {
-                withTimeoutOrNull(2_000) { call("p10_cancel") }
+                withTimeoutOrNull(2_000) { call("fx_read", *fixtureGet(FixtureTools.GET_CANCEL)) }
             } // a closed connection or a timeout are both acceptable outcomes; only the table matters
             val rows = flush()
-            assertTrue(rows.none { it["tool"] == "p10_cancel" }, "a cancelled call must leave no call_log row: $rows")
+            assertTrue(rows.isEmpty(), "a cancelled call must leave no call_log row: $rows")
         }
 
     // ------------------------------------------------------------------ S9
 
     @Test
-    fun `S9 a sink that throws never changes the tool result`() =
+    fun `S9 a sink that throws never changes the tool result`(): Unit =
         runBlocking {
             val throwing = CallLogSink { throw IllegalStateException("sink down") }
-            val withNone = connect(McpToolAdapter(callLog = CallLogSink.NONE), extraTools).also { extraClients += it }
-            val withThrowing = connect(McpToolAdapter(callLog = throwing), extraTools).also { extraClients += it }
+            val withNone = connect(CallLogSink.NONE).also { extraClients += it }
+            val withThrowing = connect(throwing).also { extraClients += it }
             val request =
                 buildCallToolRequest {
-                    name = "p10_echo"
-                    arguments(buildJsonObject { put("m", "hello") })
+                    name = "fx_read"
+                    arguments(JsonObject(mapOf(*fixtureGet(FixtureTools.GET_OK))))
                 }
             val expected = withNone.first.callTool(request)
             val actual = withThrowing.first.callTool(request)
             assertNotEquals(true, actual.isError)
             assertEquals(expected.content, actual.content, "identical content with and without a failing sink")
-            assertEquals(expected.structuredContent, actual.structuredContent)
+            assertEquals(sansMeta(expected), sansMeta(actual), "identical body apart from the per-call reqId")
             assertEquals(expected.isError, actual.isError)
             assertNotNull(reqIdOf(actual), "the result still carries its reqId")
         }
@@ -620,13 +535,4 @@ class McpCallLogTest {
                 )
             }
         }
-
-    /** The deleted 3.x advance/claim tools as test-only drivers: these call-log tests need write tools that reject and record events. */
-    private fun legacyWorkflowTools(): List<io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition> =
-        listOf(
-            io.github.jpicklyk.mcptask.current.application.tools.workflow
-                .AdvanceItemTool(),
-            io.github.jpicklyk.mcptask.current.application.tools.workflow
-                .ClaimItemTool()
-        )
 }

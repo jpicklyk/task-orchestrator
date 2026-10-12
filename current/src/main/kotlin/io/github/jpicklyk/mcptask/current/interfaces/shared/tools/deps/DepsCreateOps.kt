@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsCreateRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanInRequest
@@ -10,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -43,7 +42,7 @@ internal val depsCreateOp =
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
             val ids =
-                when (val r = DepsSupport.resolveAll(env, listOf(req.from, req.to), "/from")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, listOf(req.from, req.to), "/from")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -72,7 +71,7 @@ internal val depsLinearOp =
                 )
             }
             val ids =
-                when (val r = DepsSupport.resolveAll(env, req.ids, "/ids")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.ids, "/ids")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -100,12 +99,12 @@ internal val depsFanOutOp =
                 return@OpSpec Outcome.Err(invalidFields(listOf(FieldViolation("/toIds", "must have at least 1 item", "0"))))
             }
             val from =
-                when (val r = DepsSupport.resolve(env, req.from, "/from")) {
+                when (val r = DepsSupport.resolve(env, ctx, req.from, "/from")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
             val targets =
-                when (val r = DepsSupport.resolveAll(env, req.toIds, "/toIds")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.toIds, "/toIds")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -130,12 +129,12 @@ internal val depsFanInOp =
                 return@OpSpec Outcome.Err(invalidFields(listOf(FieldViolation("/fromIds", "must have at least 1 item", "0"))))
             }
             val sources =
-                when (val r = DepsSupport.resolveAll(env, req.fromIds, "/fromIds")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.fromIds, "/fromIds")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
             val target =
-                when (val r = DepsSupport.resolve(env, req.to, "/to")) {
+                when (val r = DepsSupport.resolve(env, ctx, req.to, "/to")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -184,7 +183,7 @@ private suspend fun WriteScope.createEdges(
                 unblockAt = unblockAt?.wire
             )
         }
-    return when (val r = withEventActor(ctx.principal?.claim) { env.dependencyCommandService.createInUnit(deps) }) {
+    return when (val r = env.dependencyCommandService.createInUnit(deps)) {
         is Outcome.Ok -> r
         is Outcome.Err -> Outcome.Err(redactCyclePath(ctx, r.error, ids.toSet(), items))
     }

@@ -1,16 +1,19 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
@@ -18,13 +21,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -171,7 +173,8 @@ internal fun Application.installParityRestApp(
         degradedModePolicy = rig.composition.degradedModePolicy,
         callLog = callLog,
         toolRegistry = registry,
-        toolDispatcher = buildToolDispatcher(rig.composition.toolContext)
+        toolDispatcher = buildToolDispatcher(rig.composition.toolContext),
+        appConfig = AppConfig.fromEnv()
     )
 }
 
@@ -184,6 +187,18 @@ internal fun parityAccess(token: ParityToken): CallAccess =
     // The same builder the REST route uses, with the default redaction (API_REDACT_NOTE_ATTRIBUTION on): both legs
     // then agree on whether note attribution is visible.
     token.principal().toCallAccess(redactNoteAttribution = true)
+
+/**
+ * Q32 (S6): every body a parity leg receives is checked against the envelope oracle, so each ProductionParity scenario's MCP
+ * and REST bodies conform wherever the catalog runs (this harness, NotesParityTest, DocsParityTest).
+ */
+internal fun assertParityBodyConforms(
+    body: String,
+    label: String,
+    arguments: String = ""
+) {
+    EnvelopeConformance.assertConforms(Json.parseToJsonElement(body), label, continuation = "\"cursor\"" in arguments)
+}
 
 internal class McpResult(
     val isError: Boolean,
@@ -223,6 +238,7 @@ internal suspend fun callMcp(
                     arguments(args)
                 }
             )
+        result.structuredContent?.let { assertParityBodyConforms(it.toString(), "MCP $tool body", args.toString()) }
         return McpResult(
             isError = result.isError == true,
             structured = assertNotNull(result.structuredContent, "MCP result carries structuredContent"),
@@ -312,7 +328,9 @@ class ParityHarness(
                     contentType(ContentType.Application.Json)
                     setBody(s.arguments)
                 }
-            result = RestResult(response.status.value, response.bodyAsText(), response.headers["X-Req-Id"])
+            val text = response.bodyAsText()
+            assertParityBodyConforms(text, "${s.name}: REST body", s.arguments)
+            result = RestResult(response.status.value, text, response.headers["X-Req-Id"])
         }
         return checkNotNull(result) { "REST leg produced no response" }
     }
@@ -328,8 +346,9 @@ class ParityHarness(
             }
         try {
             val rawBefore = rawTables(restLeg.db.jdbcUrl)
+            val mcpRawBefore = rawTables(mcpLeg.db.jdbcUrl)
             val before = project(rawBefore)
-            assertEquals(before, snapshot(mcpLeg.db.jdbcUrl), "${s.name}: the two legs must start from identical seeded databases")
+            assertEquals(before, project(mcpRawBefore), "${s.name}: the two legs must start from identical seeded databases")
             val known = knownIds(rawBefore, s.arguments)
 
             val rest = runRest(restLeg, s)
@@ -369,8 +388,9 @@ class ParityHarness(
 
             val restRawAfter = rawTables(restLeg.db.jdbcUrl)
             val mcpRawAfter = rawTables(mcpLeg.db.jdbcUrl)
-            val (restNorm, restAfter) = tokenizeGeneratedIds(restRawAfter, normalize(rest.body, restReqId), known)
-            val (mcpNorm, mcpAfter) = tokenizeGeneratedIds(mcpRawAfter, normalize(mcp.structured.toString(), mcpReqId), known)
+            val (restNorm, restAfter) = tokenizeGeneratedIds(restRawAfter, normalize(rest.body, restReqId, seededStamps(rawBefore)), known)
+            val (mcpNorm, mcpAfter) =
+                tokenizeGeneratedIds(mcpRawAfter, normalize(mcp.structured.toString(), mcpReqId, seededStamps(mcpRawBefore)), known)
             assertEquals(mcpNorm, restNorm, "${s.name}: body parity between MCP and REST")
 
             val ok = restBody["ok"]?.jsonPrimitive?.boolean ?: error("${s.name}: body has no ok flag")
@@ -407,23 +427,34 @@ class ParityHarness(
         }
     }
 
+    /** Every instant a seeded row of [raw] carries (the seeder stamps work items with the wall clock, not the fixed one). */
+    private fun seededStamps(raw: Map<String, List<Map<String, Any?>>>): Set<Instant> =
+        raw.values
+            .flatten()
+            .flatMap { it.values }
+            .mapNotNull { cell -> (cell as? String)?.let { runCatching { Instant.parse(it) }.getOrNull() } }
+            .toSet()
+
+    /**
+     * A stamp the call wrote is on the fixed clock (Q32: notes are stamped by the unit's clock too), so it is compared
+     * exactly. Only a stamp a SEEDED row carries may be off the fixed clock (the seeder stamps items with the wall clock,
+     * which differs between the legs by milliseconds): it is masked, and only because [seeded] names it.
+     */
     private fun normalize(
         body: String,
-        reqId: String
+        reqId: String,
+        seeded: Set<Instant>
     ): String {
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
-        // A stamp on the fixed clock is compared exactly; a stamp some store takes from the wall clock instead (note rows are
-        // stamped by the repository, not the injected clock) differs between the legs by milliseconds, so it must still be an
-        // ISO-8601 instant and is masked.
         val fixed = PARITY_NOW.toString()
         return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(TIMESTAMP) { match ->
             val value = match.groupValues[2]
             if (value == fixed) {
                 match.value
             } else {
-                Instant.parse(value)
-                "\"${match.groupValues[1]}\":\"<WALL>\""
+                assertTrue(Instant.parse(value) in seeded, "a stamp the call wrote must be the fixed clock's, got $value: $body")
+                "\"${match.groupValues[1]}\":\"<SEEDED>\""
             }
         }
     }

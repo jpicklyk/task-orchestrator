@@ -1,20 +1,18 @@
 package io.github.jpicklyk.mcptask.current.perf
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -31,7 +29,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Advance latency benchmark (P5a performance-baseline). Platform-gated: runs only with TO_PERF=1.
  *
  * Seeds a file-backed SQLite fixture with 8 roots x 50 queue children (no notes-gated schema), then
- * drives `advance_item(start)` through [AdvanceItemTool.execute] (the MCP code path) with 1 and 8
+ * drives an `advance` `transition` start through the production dispatcher (the tool code path every transport shares;
+ * Q32: formerly the removed 3.x advance_item) with 1 and 8
  * concurrent agents, 50 advances each on distinct items, and prints one `PERF_RESULT` line per
  * configuration. The context uses the production unit of work (`db.unitOfWork()`), so each advance
  * commits as one unit exactly as the server runs it, not the default unscoped unit where every write
@@ -57,7 +56,6 @@ class AdvanceLatencyBench {
         SqliteTestDatabase.open().use { db ->
             val provider = db.repositoryProvider()
             val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
-            val tool = AdvanceItemTool()
             val seeded: List<List<UUID>> = runBlocking { seed(context) }
 
             val sampler = PoolSampler(db.databaseManager)
@@ -75,9 +73,8 @@ class AdvanceLatencyBench {
                         .map { agent ->
                             async(dispatcher) {
                                 for (itemId in seeded[agent].take(perAgent)) {
-                                    val params = advanceParams(itemId)
                                     val t0 = System.nanoTime()
-                                    val result = tool.execute(params, context)
+                                    val result = context.advanceTool(transitionOp(itemId, "start"))
                                     val dt = System.nanoTime() - t0
                                     latenciesNs.add(dt)
                                     val outcome = classify(result)
@@ -136,26 +133,11 @@ class AdvanceLatencyBench {
         }
     }
 
-    private fun advanceParams(itemId: UUID): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId.toString()))
-                            put("trigger", JsonPrimitive("start"))
-                        }
-                    )
-                }
-            )
-        }
-
     private enum class Outcome { APPLIED, FAILED, UNAVAILABLE }
 
     private fun classify(result: JsonElement): Outcome {
         val obj = result as? JsonObject ?: return Outcome.FAILED
-        val ok = obj["success"]?.jsonPrimitive?.boolean == true
+        val ok = obj["data"] != null
         val first =
             runCatching {
                 obj["data"]
@@ -165,7 +147,7 @@ class AdvanceLatencyBench {
                     ?.firstOrNull()
                     ?.jsonObject
             }.getOrNull()
-        val applied = first?.get("applied")?.jsonPrimitive?.boolean == true
+        val applied = first?.get("ok")?.jsonPrimitive?.boolean == true
         if (ok && applied) return Outcome.APPLIED
         val text = result.toString().lowercase()
         return if ("unavailable" in text || "busy" in text || "database is locked" in text) Outcome.UNAVAILABLE else Outcome.FAILED

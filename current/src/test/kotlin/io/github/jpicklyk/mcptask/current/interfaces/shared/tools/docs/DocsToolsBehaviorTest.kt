@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -944,7 +943,7 @@ class DocsToolsBehaviorTest {
     @Test
     fun `S16 manage_plan_documents is not registered anywhere`() {
         assertFalse("manage_plan_documents" in registry.tools.map { it.name })
-        val legacy = buildMcpTools().map { it.name }
+        val legacy = ToolRegistry(buildToolSpecs()).tools.map { it.name }
         assertFalse("manage_plan_documents" in legacy, "legacy tool list: $legacy")
     }
 

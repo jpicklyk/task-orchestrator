@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -9,12 +12,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -103,7 +102,6 @@ class SearchRequestShapeTest {
 
     private suspend fun connect(rig: Rig): Pair<Client, Server> {
         val server = Server(serverInfo = Implementation(name = "s13-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpToolAdapter(callLog = rig.writer).registerToolsWithServer(server, buildMcpTools(), rig.rig.ctx)
         McpOperationAdapter(buildToolDispatcher(rig.rig.ctx), callLog = rig.writer)
             .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
@@ -185,7 +183,8 @@ class SearchRequestShapeTest {
             serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
             degradedModePolicy = rig.rig.composition.degradedModePolicy,
-            callLog = rig.writer
+            callLog = rig.writer,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

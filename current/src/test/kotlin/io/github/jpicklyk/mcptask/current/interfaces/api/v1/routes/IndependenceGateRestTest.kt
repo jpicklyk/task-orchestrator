@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -8,20 +10,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -34,7 +28,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -72,8 +65,8 @@ import kotlin.test.assertTrue
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern SeatGateParityRestTest / IndependenceGateMcpTest):
  * a single REAL [ServerComposition.build] over a SQLite test DB supplies the
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] used for BOTH the MCP
- * tool calls ([GetContextTool], [AdvanceItemTool]) and the REST surface, wired through the REAL
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] used for BOTH the MCP
+ * tool calls (the `items_read` context probe) and the REST surface, wired through the REAL
  * [installRestApiRoutes] -- never a hand-built replica, and never two independently constructed
  * contexts that could drift. Actor-bearing notes are written via [ManageNotesTool]'s public
  * `actor: {id, kind}` upsert parameter (pattern: IndependenceGateMcpTest's `upsertNote`), never by
@@ -170,6 +163,7 @@ work_item_schemas:
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -244,31 +238,6 @@ work_item_schemas:
             ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext),
         )
 
-    private suspend fun advanceMcp(
-        composition: CompositionResult,
-        itemId: UUID,
-        trigger: String,
-    ): JsonObject {
-        val result =
-            AdvanceItemTool().execute(
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId.toString()))
-                                    put("trigger", JsonPrimitive(trigger))
-                                },
-                            )
-                        },
-                    )
-                },
-                composition.toolContext,
-            )
-        return extractData(result)["results"]!!.jsonArray[0].jsonObject
-    }
-
     private fun parseJson(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
 
     // ─────────────────────────────────────────────────────────────────────
@@ -278,84 +247,6 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
     // R2 (S7 warn / S2) -- REST advance 200 success carries `violations` in WARN mode.
     // ─────────────────────────────────────────────────────────────────────
-
-    // ─────────────────────────────────────────────────────────────────────
-    // R3 (S9) -- MCP<->REST parity: get_context, REST /gate, advance_item(start), REST advance all
-    // agree on the identical violations array for the same fixture state, in both WARN and REJECT.
-    // ─────────────────────────────────────────────────────────────────────
-
-    private fun runR3(
-        mode: String,
-        tempDir: Path,
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir, globalConfig(mode))
-            application { configureProductionRestApp(composition, "indep-rest-r3-$mode") }
-
-            // Three independently-seeded items, identical fixture state, so each surface is
-            // exercised on its OWN item and no surface's write mutates state the next reads.
-            val contextItem =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "shared-actor")
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = "shared-actor")
-                    i
-                }
-            val mcpContextViolations =
-                runBlocking { getContextMcp(composition, contextItem.id) }["gateStatus"]!!.jsonObject["violations"]!!.jsonArray
-
-            val gateResponse = client.restContext(contextItem.id, WRITE_TOKEN)
-            val restGateViolations = gateResponse.bodyAsText().contextGate()["violations"]!!.jsonArray
-            assertEquals(mcpContextViolations, restGateViolations, "mode=$mode: REST ops context must match the MCP context select")
-
-            val advanceItem =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "shared-actor")
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = "shared-actor")
-                    i
-                }
-            val restAdvanceViolations =
-                if (mode == "reject") {
-                    val resp =
-                        client.post("/api/v1/items/${advanceItem.id}/advance") {
-                            header("Authorization", "Bearer $WRITE_TOKEN")
-                            contentType(ContentType.Application.Json)
-                            setBody("""{"trigger":"start"}""")
-                        }
-                    assertEquals(HttpStatusCode.UnprocessableEntity, resp.status)
-                    parseJson(resp.bodyAsText())["details"]!!.jsonObject["violations"]!!.jsonArray
-                } else {
-                    val resp =
-                        client.post("/api/v1/items/${advanceItem.id}/advance") {
-                            header("Authorization", "Bearer $WRITE_TOKEN")
-                            contentType(ContentType.Application.Json)
-                            setBody("""{"trigger":"start"}""")
-                        }
-                    assertEquals(HttpStatusCode.OK, resp.status)
-                    parseJson(resp.bodyAsText())["violations"]!!.jsonArray
-                }
-
-            val mcpAdvanceItem =
-                runBlocking {
-                    val r = createRoot(composition)
-                    val i = createItem(composition, r, "indep-gate")
-                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "shared-actor")
-                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = "shared-actor")
-                    i
-                }
-            val mcpAdvanceTransition = runBlocking { advanceMcp(composition, mcpAdvanceItem.id, "start") }
-            val mcpAdvanceViolations = mcpAdvanceTransition["violations"]!!.jsonArray
-
-            assertEquals(
-                mcpAdvanceViolations,
-                restAdvanceViolations,
-                "mode=$mode: REST advance violations must match advance_item(start) violations for the identical fixture",
-            )
-            assertEquals(mcpContextViolations, mcpAdvanceViolations, "mode=$mode: sanity -- identical fixtures agree end to end")
-        }
 
     // ─────────────────────────────────────────────────────────────────────
     // R4 (S7 cascade) -- REST advance start cascade: REJECT suppresses the parent cascade on the

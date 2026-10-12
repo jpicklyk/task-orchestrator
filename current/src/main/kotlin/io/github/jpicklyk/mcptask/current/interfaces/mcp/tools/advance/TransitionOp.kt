@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
@@ -8,17 +9,15 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.omitOnConfigUnavailable
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
@@ -88,19 +87,17 @@ private suspend fun WriteScope.runTransition(
     val claim = ctx.principal?.claim
     val outcome =
         try {
-            withEventActor(claim) {
-                env.advanceServiceFactory().forItem(item).advance(
-                    item = item,
-                    trigger = req.trigger.wire,
-                    summary = req.summary?.takeIf { it.isNotBlank() },
-                    actorClaim = claim,
-                    verification = ctx.principal?.verification,
-                    degradedModePolicy = env.degradedModePolicy,
-                    enforceOwnership = true,
-                    credentialRefs = refs,
-                    enforceResourceLeases = true
-                )
-            }
+            env.advanceServiceFactory().forItem(item).advance(
+                item = item,
+                trigger = req.trigger.wire,
+                summary = req.summary?.takeIf { it.isNotBlank() },
+                actorClaim = claim,
+                verification = ctx.principal?.verification,
+                degradedModePolicy = env.degradedModePolicy,
+                enforceOwnership = true,
+                credentialRefs = refs,
+                enforceResourceLeases = true
+            )
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))
         } catch (e: PerRootConfigInvalidException) {
@@ -146,6 +143,6 @@ private suspend fun WriteScope.element(
         phase?.guidanceKey?.let { put("guidanceKey", it) }
         phase?.skillPointer?.let { put("skillPointer", it) }
         dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
-        NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
+        NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
     }
 }

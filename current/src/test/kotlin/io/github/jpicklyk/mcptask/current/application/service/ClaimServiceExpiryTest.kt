@@ -243,8 +243,8 @@ class ClaimServiceExpiryTest {
             val leases = rig.provider.resourceLeaseRepository()
             val counts = rig.provider.workItemRepository()
             // controls: the fixture really holds one lapsed and one active instance of each kind before the sweep
-            assertEquals(1, counts.countByClaimStatus().expired)
-            assertEquals(1, counts.countByClaimStatus().active)
+            assertEquals(1, counts.claimSummary().expired)
+            assertEquals(1, counts.claimSummary().active)
             assertEquals(1, leases.findLapsed().size)
 
             val (swept, rows) = rig.written { rig.service.sweepExpired().ok() }
@@ -254,7 +254,7 @@ class ClaimServiceExpiryTest {
             assertExpiredClaim(rows.single { it.type == "claim.expired" }, f.i, "agent-a")
             assertExpiredLease(rows.single { it.type == "lease.expired" }, f.h, "res-k")
             assertEquals("agent-a", rig.reload(f.i.id).claimedBy, "claims are NOT consumed by detection")
-            assertEquals(1, counts.countByClaimStatus().expired, "the expired-claim inventory keeps its meaning")
+            assertEquals(1, counts.claimSummary().expired, "the expired-claim inventory keeps its meaning")
             assertEquals("agent-c", rig.reload(f.j.id).claimedBy, "the active claim is untouched")
             assertEquals(emptyList(), leases.findLapsed(), "lapsed lease rows ARE consumed")
             assertEquals(1, leases.findActiveByKeys(listOf("res-m")).size, "the active lease is untouched")

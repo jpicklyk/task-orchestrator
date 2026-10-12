@@ -51,13 +51,12 @@ interface ConfigStore {
 
     /**
      * Inside the ambient WRITE unit. Appends head+1 and moves the head in that unit.
-     * [expectedVersion]: compare-and-set on head.version (ignored when no head). [expectedFingerprint]: legacy
-     * compare-and-set on head.fingerprint (ignored when no head). [rejectSuperseded]: fast-forward guard.
+     * [expectedVersion]: compare-and-set on head.version (ignored when no head). [rejectSuperseded]: fast-forward guard.
      * Identical content (fingerprint == head.fingerprint) returns Applied(head, appended=false) and writes nothing.
      * `scope = ROOT` requires a non-null [rootId]; `scope = SERVER` requires a null one (both throw
      * [IllegalArgumentException] otherwise). For SERVER, [rejectSuperseded] is ignored: the server scope has no
      * known-fingerprint epoch ([classifyFingerprint] and `config_known_fingerprints` are root-only); [expectedVersion]
-     * and [expectedFingerprint] still work.
+     * still works.
      */
     @StoreWrite
     suspend fun append(
@@ -65,7 +64,6 @@ interface ConfigStore {
         rootId: UUID?,
         append: ConfigAppend,
         expectedVersion: Int? = null,
-        expectedFingerprint: String? = null,
         rejectSuperseded: Boolean = false,
         now: Instant
     ): ConfigAppendOutcome

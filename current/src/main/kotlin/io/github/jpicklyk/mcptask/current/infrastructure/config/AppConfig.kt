@@ -68,7 +68,7 @@ data class AppConfig(
      *  default empty (loopback-only). Validation and matching semantics live in
      *  `installHostAllowlist` (interfaces.mcp). */
     val mcpAllowedHosts: List<String>,
-    // ---- Database (DatabaseConfig / DatabaseManager) ----
+    // ---- Database (DatabaseManager) ----
     val databasePath: String,
     val logLevel: String,
     val agentConfigDir: String?,
@@ -101,7 +101,7 @@ data class AppConfig(
     val apiSseBufferSize: Int,
     // ---- REST API: bearer tokens ----
     val apiTokensPath: String,
-    // ---- REST API: redaction (AttributionRedactor) ----
+    // ---- REST API: note attribution redaction ----
     val apiRedactNoteAttribution: Boolean,
     // ---- CORS (CorsConfig) ----
     val corsAllowedOrigins: List<String>,
@@ -140,7 +140,7 @@ data class AppConfig(
                 mcpHttpHost = env("MCP_HTTP_HOST") ?: "0.0.0.0",
                 mcpHttpPort = env("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001,
                 mcpAllowedHosts = parseCsv(env("MCP_ALLOWED_HOSTS")) ?: emptyList(),
-                // Database — preserves DatabaseConfig defaults exactly.
+                // Database.
                 databasePath = env("DATABASE_PATH") ?: "data/current-tasks.db",
                 logLevel = env("LOG_LEVEL") ?: "INFO",
                 agentConfigDir = env("AGENT_CONFIG_DIR"),
@@ -196,8 +196,7 @@ data class AppConfig(
 
         /**
          * Resolves DATABASE_BUSY_TIMEOUT_MS: unset → default 5000 ms, unparseable → default,
-         * below the 100 ms floor → 100 ms. Identical logic to the former
-         * `DatabaseConfig.resolveBusyTimeoutMs`.
+         * below the 100 ms floor → 100 ms.
          */
         internal fun resolveBusyTimeoutMs(rawValue: String?): Long {
             rawValue ?: return DEFAULT_BUSY_TIMEOUT_MS

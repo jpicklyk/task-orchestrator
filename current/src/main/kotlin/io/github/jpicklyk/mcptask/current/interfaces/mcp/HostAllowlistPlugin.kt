@@ -1,18 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
-import io.ktor.server.request.path
-import io.ktor.server.response.respond
-import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 
 /** Always-on loopback hosts, already normalized (lowercase; brackets kept for the IPv6 literal). Any port matches. */
@@ -21,8 +19,23 @@ private val DEFAULT_ALLOWED_HOSTS = setOf("localhost", "127.0.0.1", "[::1]")
 /** The single `MCP_ALLOWED_HOSTS` entry that disables the guard entirely. */
 private const val DISABLE_TOKEN = "*"
 
+/** The fixed `required` value of a host rejection. */
+internal const val HOST_REQUIRED = "an allowed Host header"
+
 private const val HOST_REJECTED_MESSAGE =
     "Host header not in the allowed list. Configure MCP_ALLOWED_HOSTS to permit additional hosts."
+
+/**
+ * The one rejection: `forbidden` {scope: host}. `required` is a fixed literal, never the allowlist (which would tell a
+ * rebinding attacker which names to forge) and never the rejected value.
+ */
+private val HOST_REJECTED =
+    DomainError(
+        code = ErrorCode.FORBIDDEN,
+        message = HOST_REJECTED_MESSAGE,
+        detail = ErrorDetail.Forbidden(ForbiddenScope.HOST, HOST_REQUIRED),
+        fixArgs = mapOf("scope" to "host", "required" to HOST_REQUIRED)
+    )
 
 private val hostAllowlistLogger = LoggerFactory.getLogger("HostAllowlistPlugin")
 
@@ -137,12 +150,10 @@ private fun matches(
  *   malformed, or repeated is rejected.
  * - `MCP_ALLOWED_HOSTS=*` (exactly, as one entry) disables the guard entirely, logging a WARN
  *   that names the env var and the rebinding risk. No glob patterns are supported.
- * - Every rejection is HTTP 403. `/mcp` and `/mcp/...` get a JSON-RPC error envelope
- *   (`{"jsonrpc":"2.0","error":{"code":-32000,"message":...}}`, no `id`) — the shape the MCP
- *   Streamable HTTP spec's Security Warning #1 expects for an invalid Origin/Host. Every other
- *   path gets [ErrorDto] with `error = "host_not_allowed"`. Neither response echoes the
- *   rejected `Host` value. A rejected call is finished immediately, so no later plugin or route
- *   handler runs for it.
+ * - Every rejection is HTTP 403 with the 4.0 error envelope `forbidden` {scope: host, required: [HOST_REQUIRED]}, on
+ *   `/mcp`, `/api/v1` and `/.well-known` alike (Q32; the MCP Streamable HTTP spec only says the body MAY be a JSON-RPC
+ *   error). The response never echoes the rejected `Host` value or the allowlist. A rejected call is finished
+ *   immediately, so no later plugin or route handler runs for it.
  */
 internal fun Application.installHostAllowlist(appConfig: AppConfig) {
     if (appConfig.mcpAllowedHosts.any { it == DISABLE_TOKEN }) {
@@ -179,22 +190,5 @@ internal fun Application.installHostAllowlist(appConfig: AppConfig) {
 }
 
 private suspend fun rejectHost(call: ApplicationCall) {
-    val path = call.request.path()
-    if (path == "/mcp" || path.startsWith("/mcp/")) {
-        call.respond(HttpStatusCode.Forbidden, JsonRpcHostRejection())
-    } else {
-        call.respondError(LegacyRestCode.HOST_NOT_ALLOWED, HOST_REJECTED_MESSAGE)
-    }
+    call.respondEnvelopeError(HOST_REJECTED)
 }
-
-@Serializable
-private data class JsonRpcHostRejection(
-    val jsonrpc: String = "2.0",
-    val error: JsonRpcErrorDetail = JsonRpcErrorDetail(),
-)
-
-@Serializable
-private data class JsonRpcErrorDetail(
-    val code: Int = -32000,
-    val message: String = HOST_REJECTED_MESSAGE,
-)

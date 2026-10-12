@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -46,7 +48,7 @@ import kotlin.time.Duration.Companion.hours
  *
  * Oracles: plan Q29 row and F26 (the profile is recorded in `request_shape`, no migration), task-scope item 8 (the value is the
  * profile wire name; the key is server-derived, overrides a client key `profile`, survives the 16-key cap on conforming shape keys (CallLogFieldsTest F1); `request_shape` is
- * therefore non-null on every 4.0 MCP call; 3.x `McpToolAdapter` rows and REST rows get no profile key) and the declared
+ * therefore non-null on every 4.0 MCP call; REST rows get no profile key) and the declared
  * `CallLogFields` constants. Expected values are the literal wire names "knowledge" and "orchestration".
  *
  * Negative-assertion conditions: "3.x rows have no profile key" is paired with a 4.0 row in the same server that does have it
@@ -203,7 +205,7 @@ class McpProfileCallLogTest {
         }
 
     @Test
-    fun `S4 a profile server built by buildProfileServer records its profile for 4_0 rows and none for 3x rows`(): Unit =
+    fun `S4 a profile server built by buildProfileServer records its profile`(): Unit =
         runBlocking {
             for (profile in ToolProfile.entries) {
                 val server =
@@ -212,17 +214,12 @@ class McpProfileCallLogTest {
                         serverName = "profile-call-log-built",
                         version = "1.0.0",
                         registry = ToolRegistry(buildToolSpecs()),
-                        operationAdapter = adapter,
-                        legacyAdapter = McpToolAdapter(callLog = writer),
-                        legacyTools = buildMcpTools(),
-                        toolContext = rig.ctx
+                        operationAdapter = adapter
                     )
                 val client = connect(server)
 
                 val opsRow = rowOf(client.run("items_read", """{"select":"list"}"""))
                 assertEquals(profile.wire, opsRow.shape()!!.profileValue().content, "4.0 row of the ${profile.wire} server")
-
-                // No 3.x control row: the 3.x McpToolAdapter has no registered tools any more (Q23 removed the last two).
             }
         }
 

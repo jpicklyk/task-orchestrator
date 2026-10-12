@@ -32,7 +32,7 @@ internal val configGetOp =
         profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.READ,
         request = serializer<ConfigGetRequest>(),
-        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),
+        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->
             if (req.version != null && req.version < 1) {
                 return@OpSpec Outcome.Err(invalidField("/version", "must be 1 or greater", req.version.toString()))

@@ -2,13 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionResult
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionService
 import io.github.jpicklyk.mcptask.current.application.service.TreeItemOutcome
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.TransitionJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
@@ -140,7 +140,7 @@ private fun payload(
                         result.statusLabel?.let { put("statusLabel", it) }
                         TransitionJson.cascades(result.cascadeEvents)?.let { put("cascades", it) }
                         TransitionJson.unblocked(result.unblockedItems)?.let { put("unblocked", it) }
-                        NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
+                        NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
                     }
                     is TreeItemOutcome.AlreadyTerminal -> {
                         skipped++

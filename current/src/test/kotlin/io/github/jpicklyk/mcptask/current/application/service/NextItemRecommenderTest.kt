@@ -34,7 +34,7 @@ class NextItemRecommenderTest {
 
     private val repo: WorkItemRepository get() = db.repositoryProvider().workItemRepository()
     private val deps: DependencyStore get() = db.repositoryProvider().dependencyRepository()
-    private val recommender: NextItemRecommender get() = NextItemRecommender(repo, deps)
+    private val recommender: NextItemRecommender get() = NextItemRecommender(repo)
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -59,7 +59,7 @@ class NextItemRecommenderTest {
     private fun mockedRecommender(): Pair<WorkItemRepository, NextItemRecommender> {
         val workItemRepo = mockk<WorkItemRepository>()
         coEvery { workItemRepo.findEligible(any(), any(), any()) } returns ItemSlice(emptyList(), 0)
-        return workItemRepo to NextItemRecommender(workItemRepo, mockk())
+        return workItemRepo to NextItemRecommender(workItemRepo)
     }
 
     // -----------------------------------------------------------------------
@@ -226,29 +226,6 @@ class NextItemRecommenderTest {
             assertEquals(listOf(subject.id), result.map { it.id }, "Dep with unblockAt=work satisfied when blocker is WORK")
         }
 
-    @Test
-    fun `blocker item that cannot be read blocks the item (fail-closed)`(): Unit =
-        runBlocking {
-            // A blocker row cannot go missing in SQLite (the FK cascades), so the fail-closed rule is exercised on
-            // isBlocked with the blocker's role unreadable, plus the SQL analogue: a BLOCKED blocker never satisfies.
-            val blocker = item("Blocker", role = Role.TERMINAL)
-            val subject = item("Subject")
-            link(blocker.id, subject.id)
-            val unreadable =
-                object : WorkItemRepository by repo {
-                    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> = repo.rolesOf(ids) - blocker.id
-                }
-
-            assertTrue(!recommender.isBlocked(subject), "control: a readable terminal blocker satisfies the edge")
-            assertTrue(NextItemRecommender(unreadable, deps).isBlocked(subject), "an unreadable blocker counts as blocking")
-
-            val heldBlocker = item("Held Blocker", role = Role.BLOCKED)
-            val heldSubject = item("Held Subject")
-            link(heldBlocker.id, heldSubject.id, unblockAt = "queue")
-            val ids = recommender.recommend(NextItemRecommender.Criteria(), limit = 10).map { it.id }
-            assertTrue(heldSubject.id !in ids, "a BLOCKED blocker never satisfies, even a queue threshold: $ids")
-        }
-
     // -----------------------------------------------------------------------
     // Limit applied AFTER the blocking filter
     // -----------------------------------------------------------------------
@@ -309,7 +286,7 @@ class NextItemRecommenderTest {
             val repoError = IllegalStateException("connection failed")
             coEvery { workItemRepo.findEligible(any(), any(), any()) } throws repoError
 
-            val thrown = assertFails { NextItemRecommender(workItemRepo, mockk()).recommend(NextItemRecommender.Criteria(), limit = 5) }
+            val thrown = assertFails { NextItemRecommender(workItemRepo).recommend(NextItemRecommender.Criteria(), limit = 5) }
 
             assertEquals(repoError, thrown)
         }

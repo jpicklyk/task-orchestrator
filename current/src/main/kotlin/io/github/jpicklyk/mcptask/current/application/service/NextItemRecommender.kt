@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -21,12 +19,8 @@ import java.util.UUID
  */
 class NextItemRecommender(
     private val workItemRepo: WorkItemRepository,
-    private val dependencyRepo: DependencyStore,
 ) {
-    /**
-     * Filter criteria for [recommend]. All fields mirror the parameters of
-     * [WorkItemRepository.findClaimable] and map 1:1 onto an [EligibilityQuery] ([toEligibilityQuery]).
-     */
+    /** Filter criteria for [recommend]; they map 1:1 onto an [EligibilityQuery] ([toEligibilityQuery]). */
     data class Criteria(
         val role: Role = Role.QUEUE,
         val parentId: UUID? = null,
@@ -48,7 +42,7 @@ class NextItemRecommender(
          * *different* agent are excluded; candidates under the same agent's claimed ancestor
          * are retained (enabling the hybrid fleet pattern: claim at parent feature, orchestrate
          * sub-tree below). When null, any live ancestor claim disqualifies the candidate (strict
-         * exclusion for callers without actor context, such as `GetNextItemTool`).
+         * exclusion for callers without actor context, such as the `items_read` `next` select).
          */
         val requestingAgentId: String? = null,
         /**
@@ -110,7 +104,7 @@ class NextItemRecommender(
 
     /**
      * Breaks down why [recommend] returned an empty list for [criteria] into three
-     * non-overlapping-by-construction counts, for `ClaimItemTool`'s selector path to distinguish
+     * non-overlapping-by-construction counts, for the `advance` claim op's selector path to distinguish
      * "queue empty" (nothing matches at all) from "matches exist but none are claimable right
      * now" (transient — worth retrying).
      *
@@ -152,20 +146,5 @@ class NextItemRecommender(
         val dependencyBlocked: Int,
     ) {
         val total: Int get() = claimed + ancestorClaimed + dependencyBlocked
-    }
-
-    /**
-     * Returns true if [item] is dependency-blocked by any unsatisfied dependency: the Kotlin form of the SQL
-     * predicate [WorkItemRepository.findEligible] applies, for a single item.
-     *
-     * Reads the normalized blocking edges into [item] ([DependencyStore.blockingEdgesFor]) and its blockers'
-     * roles ([WorkItemRepository.rolesOf]); [BlockerEvaluator] decides satisfaction. RELATES_TO dependencies carry
-     * no blocking semantics. Fail-closed: a blocker whose role cannot be read (no row) counts as blocking.
-     */
-    internal suspend fun isBlocked(item: WorkItem): Boolean {
-        val edges = dependencyRepo.blockingEdgesFor(setOf(item.id))
-        if (edges.isEmpty()) return false
-        val roles = workItemRepo.rolesOf(edges.map { it.blocker }.toSet())
-        return BlockerEvaluator.unsatisfied(listOf(item.id), edges, roles).getValue(item.id).isNotEmpty()
     }
 }

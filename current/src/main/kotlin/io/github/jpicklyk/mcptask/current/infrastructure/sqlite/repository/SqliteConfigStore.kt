@@ -94,7 +94,6 @@ class SqliteConfigStore(
         rootId: UUID?,
         append: ConfigAppend,
         expectedVersion: Int?,
-        expectedFingerprint: String?,
         rejectSuperseded: Boolean,
         now: Instant
     ): ConfigAppendOutcome {
@@ -118,9 +117,7 @@ class SqliteConfigStore(
                             .single()[ConfigVersionsTable.version.max()] ?: 0
                     return@writeTx ConfigAppendOutcome.Superseded(head.version, headVersion.createdAt, matched)
                 }
-                if ((expectedVersion != null && expectedVersion != head.version) ||
-                    (expectedFingerprint != null && expectedFingerprint != head.fingerprint)
-                ) {
+                if (expectedVersion != null && expectedVersion != head.version) {
                     return@writeTx ConfigAppendOutcome.PreconditionFailed(head.version, head.fingerprint)
                 }
                 // A reset is never "identical" to the head, and nothing is identical to a reset head: the empty

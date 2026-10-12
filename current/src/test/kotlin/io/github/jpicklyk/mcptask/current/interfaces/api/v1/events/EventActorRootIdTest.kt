@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
@@ -9,9 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -25,7 +23,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
 import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.inUnit
@@ -34,6 +34,7 @@ import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.Dispatchers
@@ -139,6 +140,11 @@ class EventActorRootIdTest {
             put("id", id)
             put("kind", kind)
         }
+
+    private fun assertEnvelopeOk(body: JsonObject): JsonObject {
+        assertTrue(body["ok"]!!.jsonPrimitive.boolean, "the call must succeed, got: $body")
+        return body
+    }
 
     private fun assertToolSuccess(result: Any?): JsonObject {
         val obj = result as JsonObject
@@ -569,18 +575,8 @@ class EventActorRootIdTest {
     // S6 -- advance_item with two transitions under different actors [AC4]
     // -------------------------------------------------------------------------
 
-    private fun transition(
-        itemId: UUID,
-        actor: JsonObject?,
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", itemId.toString())
-            put("trigger", "start")
-            actor?.let { put("actor", it) }
-        }
-
     @Test
-    fun `S6 advance_item with two transitions attributes each item advanced to its own actor`(): Unit =
+    fun `S6 two advance calls attribute each item advanced to its own call's actor`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
@@ -590,20 +586,9 @@ class EventActorRootIdTest {
             val x = provider.newRoot("X-s6")
             val y = provider.newRoot("Y-s6")
 
-            val result =
-                AdvanceItemTool().execute(
-                    buildJsonObject {
-                        put(
-                            "transitions",
-                            buildJsonArray {
-                                add(transition(x.id, actorJson("agent-a")))
-                                add(transition(y.id, actorJson("agent-b", kind = "orchestrator")))
-                            },
-                        )
-                    },
-                    ctx,
-                )
-            assertToolSuccess(result)
+            // A 4.0 call carries one top-level actor, so each actor is its own advance call.
+            assertEnvelopeOk(ctx.advanceTool(transitionOp(x.id, "start"), actor = actorJson("agent-a")))
+            assertEnvelopeOk(ctx.advanceTool(transitionOp(y.id, "start"), actor = actorJson("agent-b", kind = "orchestrator")))
 
             val events = bus.drainDelivered("s6", flow)
             assertEquals(dtoPlainA(), events.one(ApiEventType.ITEM_ADVANCED, x.id).actor)
@@ -611,7 +596,7 @@ class EventActorRootIdTest {
         }
 
     @Test
-    fun `S6b a transition without an actor is not attributed to the previous transition actor`(): Unit =
+    fun `S6b a transition without an actor is not attributed to the previous call's actor`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
@@ -621,20 +606,8 @@ class EventActorRootIdTest {
             val x = provider.newRoot("X-s6b")
             val y = provider.newRoot("Y-s6b")
 
-            val result =
-                AdvanceItemTool().execute(
-                    buildJsonObject {
-                        put(
-                            "transitions",
-                            buildJsonArray {
-                                add(transition(x.id, actorJson("agent-a")))
-                                add(transition(y.id, null))
-                            },
-                        )
-                    },
-                    ctx,
-                )
-            assertToolSuccess(result)
+            assertEnvelopeOk(ctx.advanceTool(transitionOp(x.id, "start"), actor = actorJson("agent-a")))
+            assertEnvelopeOk(ctx.advanceTool(transitionOp(y.id, "start")))
 
             val events = bus.drainDelivered("s6b", flow)
             assertEquals(
@@ -759,7 +732,7 @@ class EventActorRootIdTest {
         }
 
     @Test
-    fun `S11e claim_item with a top-level actor attributes the claim item updated`(): Unit =
+    fun `S11e an advance claim with a top-level actor attributes the claim item updated`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
@@ -767,16 +740,7 @@ class EventActorRootIdTest {
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11e")
 
-            val result =
-                ClaimItemTool().execute(
-                    buildJsonObject {
-                        put("claims", buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) })
-                        put("actor", actorJson("agent-a"))
-                        put("requestId", UUID.randomUUID().toString())
-                    },
-                    ctx,
-                )
-            assertToolSuccess(result)
+            assertEnvelopeOk(ctx.advanceTool(claimOp(item.id), actor = actorJson("agent-a")))
 
             val ev = bus.drainDelivered("s11e", flow).one(ApiEventType.ITEM_UPDATED, item.id)
             assertEquals(dtoPlainA(), ev.actor)

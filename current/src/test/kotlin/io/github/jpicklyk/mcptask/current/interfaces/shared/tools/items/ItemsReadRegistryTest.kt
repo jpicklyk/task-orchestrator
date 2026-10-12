@@ -1,10 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -35,7 +33,7 @@ import kotlin.test.assertTrue
  * `items_read` and no `query_items`, and `query_notes` no longer offers a `search` operation.
  *
  * Oracles: task-scope item 1 (tool `items_read`, selects get, list, schema, search, overview, registered in
- * `buildToolSpecs()`), item 12 (the 3.x `QueryItemsTool` and its `buildMcpTools()` entry are deleted; `query_notes` loses its
+ * `buildToolSpecs()`), item 12 (the 3.x `QueryItemsTool` and its 3.x registration are deleted; `query_notes` loses its
  * `search` operation, and the whole tool only if Q11 had already reduced it to search-only, which has not happened: `get` and
  * `list` remain) and the acceptance criterion "tools/list shows items_read (selects get, list, schema, search, overview) and no
  * query_items; query_notes has no search". Forbidden-construct declaration: none.
@@ -61,14 +59,13 @@ class ItemsReadRegistryTest {
     }
 
     @Test
-    fun `S15 the 3x tool list has no query_items and query_notes offers no search operation`() {
-        val tools = buildMcpTools()
+    fun `S15 the registry has no query_items and no query_notes`() {
+        val names = ToolRegistry(buildToolSpecs()).tools.map { it.name }
 
-        assertFalse("query_items" in tools.map { it.name }, "query_items is deleted")
-        // Merge r1: Q11 moved query_notes get/list to notes_read, so with search removed the whole tool is gone.
-        assertFalse("query_notes" in tools.map { it.name }, "query_notes (and so its search operation) is deleted")
-        // Q21 and Q23 removed the last 3.x tools: the list is empty, and items_read is served by the registry instead.
-        assertTrue(ToolRegistry(buildToolSpecs())["items_read"] != null, "control: items_read is registered")
+        // Q21/Q23 removed the last 3.x tools and Q32 their adapter: the registry is the only tool list.
+        assertFalse("query_items" in names, "query_items is deleted")
+        assertFalse("query_notes" in names, "query_notes (and so its search operation) is deleted")
+        assertTrue("items_read" in names, "control: items_read is registered")
     }
 
     @Test
@@ -76,7 +73,6 @@ class ItemsReadRegistryTest {
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val server = Server(serverInfo = Implementation(name = "ir-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-            McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), rig.ctx)
             McpOperationAdapter(buildToolDispatcher(rig.ctx)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
             val client =

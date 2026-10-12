@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.Failed
+import io.github.jpicklyk.mcptask.current.bootstrap.RepairCompleted
+import io.github.jpicklyk.mcptask.current.bootstrap.StartupFailedException
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JvmTimezone
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.Failed
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.RepairCompleted
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.StartupFailedException
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import org.slf4j.LoggerFactory
 

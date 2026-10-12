@@ -1,0 +1,1283 @@
+package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
+
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.missingKeys
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
+import java.util.UUID
+import kotlin.test.*
+
+/**
+ * Integration tests validating the complete schema-gated lifecycle (queue -> work -> review -> terminal)
+ * with gate enforcement at each transition. Uses a real SQLite database and inline schema config
+ * for test isolation. Transitions run through the production `advance` tool (Q32: formerly the removed 3.x
+ * advance_item): a gate rejection is the element's `gate_blocked` with the missing keys in `error.detail.missing`, a
+ * suppressed cascade entry is `{applied:false, blocked:"gate", missing:[...]}`.
+ */
+class SchemaGatedLifecycleTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private lateinit var context: ToolExecutionContext
+
+    @BeforeEach
+    fun setUp() {
+        val repositoryProvider = db.repositoryProvider()
+
+        // Inline server config that mirrors real config.yaml schemas
+        val noteSchemaService =
+            run {
+                val schemas =
+                    mapOf(
+                        "feature-implementation" to
+                            listOf(
+                                NoteSchemaEntry(
+                                    key = "specification",
+                                    role = Role.QUEUE,
+                                    required = true,
+                                    description = "Problem statement, approach, and implementation plan."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "implementation-notes",
+                                    role = Role.WORK,
+                                    required = true,
+                                    description = "Context handoff for downstream agents.",
+                                    guidance = "Document deviations, surprises, and decisions for downstream agents."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "review-checklist",
+                                    role = Role.REVIEW,
+                                    required = true,
+                                    description = "Quality gate - plan alignment, test quality, and simplification review."
+                                )
+                            ),
+                        "bug-fix" to
+                            listOf(
+                                NoteSchemaEntry(
+                                    key = "diagnosis",
+                                    role = Role.QUEUE,
+                                    required = true,
+                                    description = "Reproduction, root cause, and fix approach."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "implementation-notes",
+                                    role = Role.WORK,
+                                    required = true,
+                                    description = "Context handoff for downstream agents."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "review-checklist",
+                                    role = Role.REVIEW,
+                                    required = true,
+                                    description = "Quality gate - fix alignment, test quality, and simplification review."
+                                )
+                            ),
+                        "mixed-schema" to
+                            listOf(
+                                // Queue phase: one required, one optional
+                                NoteSchemaEntry(
+                                    key = "requirements",
+                                    role = Role.QUEUE,
+                                    required = true,
+                                    description = "Required requirements."
+                                ),
+                                NoteSchemaEntry(key = "context", role = Role.QUEUE, required = false, description = "Optional context."),
+                                // Work phase: one required, two optional
+                                NoteSchemaEntry(
+                                    key = "design-decisions",
+                                    role = Role.WORK,
+                                    required = true,
+                                    description = "Required design decisions."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "alternatives",
+                                    role = Role.WORK,
+                                    required = false,
+                                    description = "Optional alternatives considered."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "open-questions",
+                                    role = Role.WORK,
+                                    required = false,
+                                    description = "Optional open questions."
+                                ),
+                                // Review phase: only optional (no required notes)
+                                NoteSchemaEntry(
+                                    key = "review-notes",
+                                    role = Role.REVIEW,
+                                    required = false,
+                                    description = "Optional review observations."
+                                ),
+                                NoteSchemaEntry(
+                                    key = "follow-ups",
+                                    role = Role.REVIEW,
+                                    required = false,
+                                    description = "Optional follow-up items."
+                                )
+                            )
+                    )
+                TestConfigResolver.forSchemas(schemas)
+            }
+
+        context = ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
+    }
+
+    // ──────────────────────────────────────────────
+    // Helpers
+    // ──────────────────────────────────────────────
+
+    private suspend fun createItem(
+        title: String,
+        tags: String? = null,
+        parentId: UUID? = null,
+        type: String? = null,
+        properties: String? = null
+    ): WorkItem {
+        val depth =
+            if (parentId != null) {
+                val parentResult = context.workItemRepository().getById(parentId)
+                parentResult!!.depth + 1
+            } else {
+                0
+            }
+        val item =
+            WorkItem(
+                title = title,
+                tags = tags,
+                parentId = parentId,
+                depth = depth,
+                type = type ?: tags?.substringBefore(",")?.trim(),
+                properties = properties
+            )
+        val result = context.workItemRepository().create(item)
+        return result
+    }
+
+    private suspend fun createNote(
+        itemId: UUID,
+        key: String,
+        role: Role,
+        body: String = "Filled content for $key"
+    ): Note {
+        val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
+        val result = context.noteRepository().upsert(note)
+        return result
+    }
+
+    private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId)!!)
+
+    private suspend fun advance(vararg transitions: JsonObject): JsonObject = context.advanceTool(*transitions)
+
+    private fun transitionObj(
+        itemId: UUID,
+        trigger: String
+    ): JsonObject = transitionOp(itemId, trigger)
+
+    /** The `data` of an `advance` envelope (present on success and on a partial failure alike). */
+    private fun extractData(result: JsonElement): JsonObject = assertNotNull((result as JsonObject)["data"] as? JsonObject, "$result")
+
+    private fun extractResults(result: JsonElement): JsonArray = extractData(result)["results"]!!.jsonArray
+
+    private fun assertGateRejection(
+        result: JsonElement,
+        expectedMissingKey: String? = null
+    ) {
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Expected gate rejection but transition was applied")
+        assertEquals("gate_blocked", r.errorCode(), "Expected a gate rejection but got: $r")
+        if (expectedMissingKey != null) {
+            assertTrue(expectedMissingKey in r.missingKeys(), "Expected the gate to name '$expectedMissingKey' but got: $r")
+        }
+    }
+
+    private fun assertTransitionSuccess(
+        result: JsonElement,
+        expectedNewRole: String
+    ): JsonObject {
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["ok"]!!.jsonPrimitive.boolean, "Expected successful transition but it was rejected: ${r["error"]}")
+        assertEquals(expectedNewRole, r["newRole"]!!.jsonPrimitive.content)
+        return r
+    }
+
+    /** Verify that the advance response matches actual DB state */
+    private suspend fun assertResponseMatchesDb(
+        result: JsonElement,
+        itemId: UUID
+    ) {
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        val dbItem = getItem(itemId)
+        val applied = r["ok"]!!.jsonPrimitive.boolean
+        if (applied) {
+            val reportedRole = r["newRole"]!!.jsonPrimitive.content
+            assertEquals(
+                reportedRole,
+                dbItem.role?.name?.lowercase(),
+                "Response says newRole=$reportedRole but DB has role=${dbItem.role?.name?.lowercase()}"
+            )
+        } else {
+            // If ok=false, the item should NOT have changed role.
+            // We can't assert the exact previous role here without knowing it,
+            // but we verify the item is NOT in the target role if one was implied.
+            assertFalse(
+                dbItem.role == Role.TERMINAL && r.errorCode() == "gate_blocked",
+                "Response says gate failed but DB shows item is terminal — response contradicts DB"
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // 1. feature-implementation schema gates
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `feature-implementation schema enforces gates at every phase transition`(): Unit =
+        runBlocking {
+            val item = createItem("Feature task", tags = "feature-implementation")
+
+            // Attempt QUEUE -> WORK without filling queue-phase note -> gate rejection
+            val start1 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start1, "specification")
+
+            // Fill the queue-phase note
+            createNote(item.id, key = "specification", role = Role.QUEUE)
+
+            // Retry QUEUE -> WORK -> success
+            val start2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start2, "work")
+
+            // Attempt WORK -> REVIEW without filling work-phase note -> gate rejection
+            val start3 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start3, "implementation-notes")
+
+            // Fill the work-phase note
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
+
+            // Retry WORK -> REVIEW -> success
+            val start4 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start4, "review")
+
+            // Attempt REVIEW -> TERMINAL without filling review-phase note -> gate rejection
+            val start5 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start5, "review-checklist")
+
+            // Fill the review-phase note
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
+
+            // Retry REVIEW -> TERMINAL -> success
+            val start6 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start6, "terminal")
+
+            // Verify final role is TERMINAL
+            val finalItem = getItem(item.id)
+            assertEquals(Role.TERMINAL, finalItem.role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 2. bug-fix schema gates
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `bug-fix schema enforces gates at every phase transition`(): Unit =
+        runBlocking {
+            val item = createItem("Bug fix task", tags = "bug-fix")
+
+            // Attempt QUEUE -> WORK without filling queue-phase note -> gate rejection
+            val start1 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start1, "diagnosis")
+
+            // Fill the queue-phase note
+            createNote(item.id, key = "diagnosis", role = Role.QUEUE)
+
+            // Retry QUEUE -> WORK -> success
+            val start2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start2, "work")
+
+            // Attempt WORK -> REVIEW without filling work-phase note -> gate rejection
+            val start3 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start3, "implementation-notes")
+
+            // Fill the work-phase note
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
+
+            // Retry WORK -> REVIEW -> success
+            val start4 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start4, "review")
+
+            // Attempt REVIEW -> TERMINAL without filling review-phase note -> gate rejection
+            val start5 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start5, "review-checklist")
+
+            // Fill the review-phase note
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
+
+            // Retry REVIEW -> TERMINAL -> success
+            val start6 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start6, "terminal")
+
+            // Verify final role is TERMINAL
+            val finalItem = getItem(item.id)
+            assertEquals(Role.TERMINAL, finalItem.role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 3. Schema-free mode (no tags)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item with no schema tag advances freely without gates`(): Unit =
+        runBlocking {
+            val item = createItem("Untagged task")
+
+            // QUEUE -> WORK (no gates, succeeds immediately)
+            val start1 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start1, "work")
+
+            // WORK -> TERMINAL (schema-free mode skips review)
+            val start2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(start2, "terminal")
+
+            // Verify final role is TERMINAL
+            val finalItem = getItem(item.id)
+            assertEquals(Role.TERMINAL, finalItem.role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 4. Empty note body treated as unfilled
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item with schema tag and empty note body is treated as unfilled`(): Unit =
+        runBlocking {
+            val item = createItem("Feature with empty note", tags = "feature-implementation")
+
+            // Create a note with empty body
+            createNote(item.id, key = "specification", role = Role.QUEUE, body = "")
+
+            // Attempt QUEUE -> WORK -> gate rejection (empty body should not satisfy)
+            val start1 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(start1, "specification")
+        }
+
+    // ──────────────────────────────────────────────
+    // 5. Complete trigger requires all phase notes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete trigger requires all phase notes filled`(): Unit =
+        runBlocking {
+            val item = createItem("Feature for complete test", tags = "feature-implementation")
+
+            // Attempt complete from QUEUE with no notes -> gate rejection
+            val complete1 =
+                advance(transitionObj(item.id, "complete"))
+            assertGateRejection(complete1, "specification")
+
+            // Fill only the queue-phase note
+            createNote(item.id, key = "specification", role = Role.QUEUE)
+
+            // Attempt complete again -> still fails (work and review notes missing)
+            val complete2 =
+                advance(transitionObj(item.id, "complete"))
+            assertGateRejection(complete2, "implementation-notes")
+
+            // Fill all 3 notes
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
+
+            // Attempt complete -> succeeds, role is TERMINAL
+            val complete3 =
+                advance(transitionObj(item.id, "complete"))
+            assertTransitionSuccess(complete3, "terminal")
+
+            // Verify final role is TERMINAL
+            val finalItem = getItem(item.id)
+            assertEquals(Role.TERMINAL, finalItem.role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 6. Child advance triggers parent start cascade
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `child start cascades parent to work and response reflects correct state`(): Unit =
+        runBlocking {
+            // Parent container (no schema tag — advances freely)
+            val parent = createItem("Parent container")
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+
+            // Child with schema tag
+            val child = createItem("Child feature", tags = "feature-implementation", parentId = parent.id)
+
+            // Fill child's queue-phase note so it can advance
+            createNote(child.id, key = "specification", role = Role.QUEUE)
+
+            // Advance child: queue -> work (should cascade parent: queue -> work)
+            val result =
+                advance(transitionObj(child.id, "start"))
+            val r = assertTransitionSuccess(result, "work")
+
+            // Verify child response matches DB
+            assertResponseMatchesDb(result, child.id)
+            assertEquals(Role.WORK, getItem(child.id).role)
+
+            // Verify parent cascaded to WORK
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Verify cascade is reported in the response
+            val cascades = r["cascades"]!!.jsonArray
+            assertTrue(cascades.isNotEmpty(), "Expected cascade event for parent")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+    // ──────────────────────────────────────────────
+    // 7. Parent with schema tag — a START cascade IS
+    //    gated on the parent's own required notes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parent with schema tag suppresses the start cascade until its required note is filled`(): Unit =
+        runBlocking {
+            // Parent with schema tag (but cascade trigger is not "start", so gate does not apply)
+            val parent = createItem("Schema parent", tags = "feature-implementation")
+            // Do NOT fill parent's specification note
+
+            // Child with schema tag
+            val child = createItem("Schema child", tags = "feature-implementation", parentId = parent.id)
+            createNote(child.id, key = "specification", role = Role.QUEUE)
+
+            // Advance child: should cascade parent to WORK
+            // The cascade trigger is "cascade" not "start", so the gate check at line 196
+            // (which only fires for trigger=="start") should NOT block it
+            val result =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(result, "work")
+
+            // Parent should remain QUEUE — a START cascade into WORK is now gated on the parent's
+            // own required queue-phase notes (item 473e4f49, Path C decision): the cascade is
+            // suppressed exactly like a terminal cascade would be, reporting the gate block and the
+            // missing notes, while the child's own advance above still succeeded.
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+            val cascade = extractResults(result)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content, "cascade must report the gate block")
+        }
+
+    // ──────────────────────────────────────────────
+    // 8. Batch transitions with mixed gate outcomes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `batch transitions report correct applied state for each item`(): Unit =
+        runBlocking {
+            // Item A: has spec note filled (should pass gate)
+            val itemA = createItem("Batch item A", tags = "feature-implementation")
+            createNote(itemA.id, key = "specification", role = Role.QUEUE)
+
+            // Item B: missing spec note (should fail gate)
+            val itemB = createItem("Batch item B", tags = "feature-implementation")
+
+            // Item C: no schema tag (should pass freely)
+            val itemC = createItem("Batch item C")
+
+            // Batch advance all three
+            val result =
+                advance(
+                    transitionObj(itemA.id, "start"),
+                    transitionObj(itemB.id, "start"),
+                    transitionObj(itemC.id, "start")
+                )
+
+            val data = extractData(result)
+            val results = data["results"]!!.jsonArray
+            assertEquals(3, results.size)
+
+            // Item A: should succeed
+            val rA = results[0].jsonObject
+            assertTrue(rA["ok"]!!.jsonPrimitive.boolean, "Item A should have succeeded")
+            assertEquals("work", rA["newRole"]!!.jsonPrimitive.content)
+
+            // Item B: should fail gate
+            val rB = results[1].jsonObject
+            assertFalse(rB["ok"]!!.jsonPrimitive.boolean, "Item B should have failed gate")
+            assertTrue("specification" in rB.missingKeys(), "$rB")
+
+            // Item C: should succeed (schema-free)
+            val rC = results[2].jsonObject
+            assertTrue(rC["ok"]!!.jsonPrimitive.boolean, "Item C should have succeeded")
+            assertEquals("work", rC["newRole"]!!.jsonPrimitive.content)
+
+            // Verify summary counts
+            val summary = data["summary"]!!.jsonObject
+            assertEquals(2, summary["ok"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+
+            // Verify DB matches responses
+            assertEquals(Role.WORK, getItem(itemA.id).role)
+            assertEquals(Role.QUEUE, getItem(itemB.id).role) // unchanged — gate blocked
+            assertEquals(Role.WORK, getItem(itemC.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 9. Full lifecycle with parent cascade and
+    //    response/DB consistency at every step
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `full lifecycle with parent cascade verifies response matches DB at every transition`(): Unit =
+        runBlocking {
+            val parent = createItem("Feature container")
+            val child = createItem("Implementation task", tags = "feature-implementation", parentId = parent.id)
+
+            // Step 1: Attempt start without spec note → gate rejection
+            val r1 =
+                advance(transitionObj(child.id, "start"))
+            assertGateRejection(r1, "specification")
+            assertResponseMatchesDb(r1, child.id)
+            assertEquals(Role.QUEUE, getItem(child.id).role)
+            assertEquals(Role.QUEUE, getItem(parent.id).role) // no cascade on failure
+
+            // Step 2: Fill spec, advance queue→work (cascades parent)
+            createNote(child.id, key = "specification", role = Role.QUEUE)
+            val r2 =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(r2, "work")
+            assertResponseMatchesDb(r2, child.id)
+            assertEquals(Role.WORK, getItem(child.id).role)
+            assertEquals(Role.WORK, getItem(parent.id).role) // cascaded
+
+            // Step 3: Attempt work→review without impl notes → gate rejection
+            val r3 =
+                advance(transitionObj(child.id, "start"))
+            assertGateRejection(r3, "implementation-notes")
+            assertResponseMatchesDb(r3, child.id)
+            assertEquals(Role.WORK, getItem(child.id).role) // unchanged
+
+            // Step 4: Fill impl notes, advance work→review
+            createNote(child.id, key = "implementation-notes", role = Role.WORK)
+            val r4 =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(r4, "review")
+            assertResponseMatchesDb(r4, child.id)
+            assertEquals(Role.REVIEW, getItem(child.id).role)
+
+            // Step 5: Attempt review→terminal without review note → gate rejection
+            val r5 =
+                advance(transitionObj(child.id, "start"))
+            assertGateRejection(r5, "review-checklist")
+            assertResponseMatchesDb(r5, child.id)
+            assertEquals(Role.REVIEW, getItem(child.id).role) // unchanged
+
+            // Step 6: Fill review note, advance review→terminal
+            createNote(child.id, key = "review-checklist", role = Role.REVIEW)
+            val r6 =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(r6, "terminal")
+            assertResponseMatchesDb(r6, child.id)
+            assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+            // Parent should have cascaded to terminal (only child is done)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 10. Rapid sequential transitions — fill note
+    //     and advance in tight sequence
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rapid sequential note fills and advances maintain response-DB consistency`(): Unit =
+        runBlocking {
+            val item = createItem("Rapid sequence item", tags = "bug-fix")
+
+            // Rapid sequence: fill + advance, fill + advance, fill + advance
+            // No pause between operations — tests that responses stay consistent
+
+            createNote(item.id, key = "diagnosis", role = Role.QUEUE)
+            val r1 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r1, "work")
+            assertResponseMatchesDb(r1, item.id)
+
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
+            val r2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r2, "review")
+            assertResponseMatchesDb(r2, item.id)
+
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
+            val r3 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r3, "terminal")
+            assertResponseMatchesDb(r3, item.id)
+
+            assertEquals(Role.TERMINAL, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 11. Multiple children under one parent —
+    //     mixed schemas, cascades, and batch
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `multiple children with different schemas under shared parent`(): Unit =
+        runBlocking {
+            val parent = createItem("Mixed work container")
+
+            val feature = createItem("Feature child", tags = "feature-implementation", parentId = parent.id)
+            val bugfix = createItem("Bug fix child", tags = "bug-fix", parentId = parent.id)
+            val untagged = createItem("Untagged child", parentId = parent.id)
+
+            // Fill required notes for each
+            createNote(feature.id, key = "specification", role = Role.QUEUE)
+            createNote(bugfix.id, key = "diagnosis", role = Role.QUEUE)
+
+            // Batch advance all three children: queue → work
+            val r1 =
+                advance(
+                    transitionObj(feature.id, "start"),
+                    transitionObj(bugfix.id, "start"),
+                    transitionObj(untagged.id, "start")
+                )
+
+            val results = extractResults(r1)
+            assertEquals(3, results.size)
+
+            // All should succeed
+            for ((i, r) in results.withIndex()) {
+                val obj = r.jsonObject
+                assertTrue(obj["ok"]!!.jsonPrimitive.boolean, "Child $i should advance to work")
+                assertEquals("work", obj["newRole"]!!.jsonPrimitive.content)
+            }
+
+            // Parent should have cascaded to WORK
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Verify each child DB state
+            assertEquals(Role.WORK, getItem(feature.id).role)
+            assertEquals(Role.WORK, getItem(bugfix.id).role)
+            assertEquals(Role.WORK, getItem(untagged.id).role)
+
+            // Now complete the untagged child (schema-free → work→terminal)
+            val r2 =
+                advance(transitionObj(untagged.id, "start"))
+            assertTransitionSuccess(r2, "terminal")
+
+            // Parent should still be in WORK (other children not done)
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Complete feature child through full lifecycle
+            createNote(feature.id, key = "implementation-notes", role = Role.WORK)
+            advance(transitionObj(feature.id, "start")) // → review
+            createNote(feature.id, key = "review-checklist", role = Role.REVIEW)
+            advance(transitionObj(feature.id, "start")) // → terminal
+
+            // Complete bugfix child through full lifecycle
+            createNote(bugfix.id, key = "implementation-notes", role = Role.WORK)
+            advance(transitionObj(bugfix.id, "start")) // → review
+            createNote(bugfix.id, key = "review-checklist", role = Role.REVIEW)
+            val rLast =
+                advance(transitionObj(bugfix.id, "start"))
+            assertTransitionSuccess(rLast, "terminal")
+            assertResponseMatchesDb(rLast, bugfix.id)
+
+            // All children terminal → parent should cascade to terminal
+            assertEquals(Role.TERMINAL, getItem(feature.id).role)
+            assertEquals(Role.TERMINAL, getItem(bugfix.id).role)
+            assertEquals(Role.TERMINAL, getItem(untagged.id).role)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 12. Mixed required/optional — only required
+    //     notes block the gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `gate only blocks on required notes and ignores optional notes`(): Unit =
+        runBlocking {
+            val item = createItem("Mixed schema item", tags = "mixed-schema")
+
+            // Queue phase has "requirements" (required) + "context" (optional)
+            // Attempt advance without filling any notes → should fail on "requirements" only
+            val r1 =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(r1, "requirements")
+            assertResponseMatchesDb(r1, item.id)
+            assertEquals(Role.QUEUE, getItem(item.id).role)
+
+            // Fill only the required note (skip optional "context")
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
+
+            // Advance should succeed — optional "context" note is NOT required
+            val r2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r2, "work")
+            assertResponseMatchesDb(r2, item.id)
+            assertEquals(Role.WORK, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 13. Mixed schema — optional-only review phase
+    //     advances without any notes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `review phase with only optional notes advances freely`(): Unit =
+        runBlocking {
+            val item = createItem("Optional review item", tags = "mixed-schema")
+
+            // Fill required queue note and advance to work
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
+            advance(transitionObj(item.id, "start"))
+            assertEquals(Role.WORK, getItem(item.id).role)
+
+            // Fill required work note and advance to review
+            createNote(item.id, key = "design-decisions", role = Role.WORK)
+            advance(transitionObj(item.id, "start"))
+            assertEquals(Role.REVIEW, getItem(item.id).role)
+
+            // Review phase has ONLY optional notes ("review-notes", "follow-ups")
+            // Advance should succeed without filling any notes
+            val r =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r, "terminal")
+            assertResponseMatchesDb(r, item.id)
+            assertEquals(Role.TERMINAL, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 14. Complete trigger with mixed required/optional
+    //     only checks required notes across all phases
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete trigger only requires required notes not optional ones`(): Unit =
+        runBlocking {
+            val item = createItem("Complete mixed item", tags = "mixed-schema")
+
+            // Attempt complete with no notes → should fail on "requirements"
+            val r1 =
+                advance(transitionObj(item.id, "complete"))
+            assertGateRejection(r1, "requirements")
+
+            // Fill only the two required notes (skip all optional)
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
+            createNote(item.id, key = "design-decisions", role = Role.WORK)
+
+            // Complete should succeed — no required notes in review phase
+            val r2 =
+                advance(transitionObj(item.id, "complete"))
+            assertTransitionSuccess(r2, "terminal")
+            assertResponseMatchesDb(r2, item.id)
+            assertEquals(Role.TERMINAL, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 15. Filling optional note does not satisfy
+    //     the required note gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `filling optional note does not satisfy required note gate`(): Unit =
+        runBlocking {
+            val item = createItem("Optional not enough", tags = "mixed-schema")
+
+            // Fill only the optional queue note, skip the required one
+            createNote(item.id, key = "context", role = Role.QUEUE, body = "Optional context filled")
+
+            // Advance should still fail — "requirements" (required) is missing
+            val r =
+                advance(transitionObj(item.id, "start"))
+            assertGateRejection(r, "requirements")
+            assertResponseMatchesDb(r, item.id)
+            assertEquals(Role.QUEUE, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 16. Full reopen lifecycle
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `full reopen lifecycle - create start complete reopen verify QUEUE start again`(): Unit =
+        runBlocking {
+            // Create an untagged item (schema-free, advances freely)
+            val item = createItem("Reopen lifecycle item")
+
+            // QUEUE -> WORK
+            val r1 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r1, "work")
+            assertEquals(Role.WORK, getItem(item.id).role)
+
+            // WORK -> TERMINAL (schema-free skips review)
+            val r2 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r2, "terminal")
+            assertEquals(Role.TERMINAL, getItem(item.id).role)
+
+            // TERMINAL -> QUEUE via reopen
+            val r3 =
+                advance(transitionObj(item.id, "reopen"))
+            assertTransitionSuccess(r3, "queue")
+            assertResponseMatchesDb(r3, item.id)
+            assertEquals(Role.QUEUE, getItem(item.id).role)
+
+            // Verify item can re-enter WORK via start
+            val r4 =
+                advance(transitionObj(item.id, "start"))
+            assertTransitionSuccess(r4, "work")
+            assertResponseMatchesDb(r4, item.id)
+            assertEquals(Role.WORK, getItem(item.id).role)
+        }
+
+    // ──────────────────────────────────────────────
+    // 17. Cascade-to-TERMINAL blocked by parent's
+    //     schema gate (missing required notes)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal blocked when parent has schema with unfilled required notes`(): Unit =
+        runBlocking {
+            // Parent with schema tag — has required notes across all phases
+            val parent = createItem("Gated parent", tags = "feature-implementation")
+            // Do NOT fill any parent notes
+
+            // Single child (schema-free, advances freely)
+            val child = createItem("Only child", parentId = parent.id)
+
+            // Advance child through to TERMINAL
+            val rStart = advance(transitionObj(child.id, "start"))
+            assertEquals(Role.WORK, getItem(child.id).role)
+            // Parent should NOT have start-cascaded to WORK — its required "specification" note
+            // is unfilled, so the start cascade is gate-blocked (item 473e4f49, Path C decision).
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+            val startCascade = extractResults(rStart)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
+            assertFalse(startCascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
+            assertEquals("gate", startCascade["blocked"]!!.jsonPrimitive.content, "start cascade must report the gate block")
+
+            val rComplete =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(rComplete, "terminal")
+            assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+            // Parent should still be in QUEUE — it never left QUEUE (the start cascade above was
+            // gate-blocked), and the terminal cascade is independently gate-blocked too.
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+
+            // Verify cascade event reports gate block
+            val results = extractResults(rComplete)
+            val r = results[0].jsonObject
+            val cascades = r["cascades"]!!.jsonArray
+            assertTrue(cascades.isNotEmpty(), "Expected a cascade event for parent")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should not have been applied")
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content, "Cascade should report the gate block")
+            val missingNotes = cascade["missing"]!!.jsonArray
+            assertTrue(missingNotes.isNotEmpty(), "Should report missing notes")
+            // All three required notes should be listed
+            val missingKeys = missingNotes.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+            assertTrue(missingKeys.contains("specification"), "Should list specification as missing")
+            assertTrue(missingKeys.contains("implementation-notes"), "Should list implementation-notes as missing")
+            assertTrue(missingKeys.contains("review-checklist"), "Should list review-checklist as missing")
+        }
+
+    // ──────────────────────────────────────────────
+    // 18. Cascade-to-TERMINAL succeeds when parent's
+    //     required notes are all filled
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal succeeds when parent has all required notes filled`(): Unit =
+        runBlocking {
+            // Parent with schema tag — fill ALL required notes upfront
+            val parent = createItem("Fully noted parent", tags = "feature-implementation")
+            createNote(parent.id, key = "specification", role = Role.QUEUE)
+            createNote(parent.id, key = "implementation-notes", role = Role.WORK)
+            createNote(parent.id, key = "review-checklist", role = Role.REVIEW)
+
+            // Single child (schema-free)
+            val child = createItem("Only child", parentId = parent.id)
+
+            // Advance child to TERMINAL
+            advance(transitionObj(child.id, "start"))
+            val rComplete =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(rComplete, "terminal")
+            assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+            // Parent SHOULD have cascaded to TERMINAL (all notes filled)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+            // Verify cascade event reports success
+            val results = extractResults(rComplete)
+            val cascade = results[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should have been applied")
+            assertNull(cascade["blocked"], "Should not have a blocked field")
+        }
+
+    // ──────────────────────────────────────────────
+    // 19. Cascade-to-TERMINAL blocked with partially
+    //     filled notes on parent
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal blocked when parent has only some required notes filled`(): Unit =
+        runBlocking {
+            // Parent with schema tag — fill only ONE of three required notes
+            val parent = createItem("Partial parent", tags = "feature-implementation")
+            createNote(parent.id, key = "specification", role = Role.QUEUE)
+            // Missing: implementation-notes, review-checklist
+
+            // Single child (schema-free)
+            val child = createItem("Only child", parentId = parent.id)
+
+            // Advance child to TERMINAL
+            advance(transitionObj(child.id, "start"))
+            val rComplete =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(rComplete, "terminal")
+
+            // Parent should NOT cascade to TERMINAL (missing notes)
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Verify the cascade event reports exactly the missing notes
+            val cascade = extractResults(rComplete)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("gate", cascade["blocked"]!!.jsonPrimitive.content)
+            val missingKeys = cascade["missing"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+            assertEquals(setOf("implementation-notes", "review-checklist"), missingKeys)
+        }
+
+    // ──────────────────────────────────────────────
+    // 20. Schema-free parent still cascades freely
+    //     (regression guard)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `schema-free parent cascades to terminal without gate check`(): Unit =
+        runBlocking {
+            // Parent with NO schema tag
+            val parent = createItem("Schema-free parent")
+
+            // Single child (also schema-free)
+            val child = createItem("Child task", parentId = parent.id)
+
+            // Advance child to TERMINAL
+            advance(transitionObj(child.id, "start"))
+            val rComplete =
+                advance(transitionObj(child.id, "start"))
+            assertTransitionSuccess(rComplete, "terminal")
+
+            // Parent should cascade to TERMINAL freely (no schema = no gate)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+            val cascade = extractResults(rComplete)[0].jsonObject["cascades"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+    // ──────────────────────────────────────────────
+    // H3. expectedNotes contents after an advance
+    //     transition — inspect array structure
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `the advance response lists the new phase's note keys after a queue-to-work transition`(): Unit =
+        runBlocking {
+            // Create an item tagged with a schema that has work-phase notes with guidance
+            val item = createItem("Feature with expected notes", tags = "feature-implementation")
+
+            // Fill the queue-phase required note so the gate passes
+            createNote(item.id, key = "specification", role = Role.QUEUE)
+
+            // Advance QUEUE -> WORK
+            val result = advance(transitionObj(item.id, "start"))
+            val r = assertTransitionSuccess(result, "work")
+
+            // expectedNotes is keys-only in 4.0: the new (work) phase's note keys, no schema text and no per-entry fields.
+            val expectedNotes = r["expectedNotes"]!!.jsonArray
+            assertEquals(listOf("implementation-notes"), expectedNotes.map { it.jsonPrimitive.content }, "the work phase's keys: $r")
+            // The first unfilled required note of the new phase is the guidance pointer.
+            assertEquals("implementation-notes", r["guidanceKey"]!!.jsonPrimitive.content, "$r")
+            assertFalse(r.toString().contains("Document deviations"), "no guidance text in the response: $r")
+        }
+
+    // ──────────────────────────────────────────────
+    // H4. Reopen cascade — child reopened under a
+    //     terminal parent cascades parent back to WORK
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `reopen child under terminal parent cascades parent back to work`(): Unit =
+        runBlocking {
+            // Create a parent (schema-free) with a single child (schema-free)
+            val parent = createItem("Parent container")
+            val child = createItem("Only child", parentId = parent.id)
+
+            // Advance child: QUEUE -> WORK -> TERMINAL
+            advance(transitionObj(child.id, "start"))
+            advance(transitionObj(child.id, "start"))
+            assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+            // Parent should have cascaded to TERMINAL (all children done)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+            // Now reopen the child: TERMINAL -> QUEUE
+            val reopenResult =
+                advance(transitionObj(child.id, "reopen"))
+            val r = assertTransitionSuccess(reopenResult, "queue")
+
+            // Child is back to QUEUE
+            assertEquals(Role.QUEUE, getItem(child.id).role)
+
+            // Parent should have cascaded from TERMINAL back to WORK
+            // (child is no longer terminal, so parent reverts to an active state)
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Verify the cascade event is reported in the reopen response
+            val cascades = r["cascades"]!!.jsonArray
+            assertTrue(cascades.isNotEmpty(), "reopen should report a cascade event for the parent")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+    // ══════════════════════════════════════════════════════════
+    // Type-based resolution, lifecycle modes, and traits
+    // ══════════════════════════════════════════════════════════
+
+    /**
+     * Creates a context with a schema service that supports type-based lookup,
+     * lifecycle modes, default_traits, and trait note definitions.
+     */
+    private fun createTypeAwareContext(): ToolExecutionContext {
+        val repoProvider = db.repositoryProvider()
+
+        val schemaService =
+            run {
+                val typeSchemas =
+                    mapOf(
+                        "feature-task" to
+                            WorkItemSchema(
+                                type = "feature-task",
+                                lifecycleMode = LifecycleMode.AUTO,
+                                notes =
+                                    listOf(
+                                        NoteSchemaEntry(key = "task-scope", role = Role.QUEUE, required = true, description = "Task scope"),
+                                        NoteSchemaEntry(
+                                            key = "implementation-notes",
+                                            role = Role.WORK,
+                                            required = true,
+                                            description = "Impl notes"
+                                        ),
+                                        NoteSchemaEntry(
+                                            key = "review-checklist",
+                                            role = Role.REVIEW,
+                                            required = true,
+                                            description = "Review"
+                                        )
+                                    )
+                            ),
+                        "container" to
+                            WorkItemSchema(
+                                type = "container",
+                                lifecycleMode = LifecycleMode.MANUAL,
+                                notes = emptyList()
+                            ),
+                        "permanent-container" to
+                            WorkItemSchema(
+                                type = "permanent-container",
+                                lifecycleMode = LifecycleMode.PERMANENT,
+                                notes = emptyList()
+                            ),
+                        "feature-with-traits" to
+                            WorkItemSchema(
+                                type = "feature-with-traits",
+                                lifecycleMode = LifecycleMode.AUTO,
+                                notes =
+                                    listOf(
+                                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
+                                    ),
+                                defaultTraits = listOf("needs-security-review")
+                            )
+                    )
+
+                val traitNotes =
+                    mapOf(
+                        "needs-security-review" to
+                            listOf(
+                                NoteSchemaEntry(
+                                    key = "security-assessment",
+                                    role = Role.REVIEW,
+                                    required = true,
+                                    description = "Security review"
+                                )
+                            )
+                    )
+                TestConfigResolver.resolver(TestConfigResolver.documentOf(typeSchemas, traitNotes))
+            }
+
+        return ToolExecutionContext(repoProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
+    }
+
+    private suspend fun createItemIn(
+        ctx: ToolExecutionContext,
+        title: String,
+        type: String? = null,
+        parentId: UUID? = null,
+        properties: String? = null
+    ): WorkItem {
+        val depth =
+            if (parentId != null) {
+                val p = ctx.workItemRepository().getById(parentId)
+                p!!.depth + 1
+            } else {
+                0
+            }
+        val item = WorkItem(title = title, type = type, parentId = parentId, depth = depth, properties = properties)
+        return (ctx.workItemRepository().create(item)!!)
+    }
+
+    private suspend fun createNoteIn(
+        ctx: ToolExecutionContext,
+        itemId: UUID,
+        key: String,
+        role: Role
+    ) {
+        val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = "Filled")
+        ctx.noteRepository().upsert(note)
+    }
+
+    private suspend fun getItemIn(
+        ctx: ToolExecutionContext,
+        id: UUID
+    ): WorkItem = (ctx.workItemRepository().getById(id)!!)
+
+    @Test
+    fun `type-based schema gates enforce required notes`(): Unit =
+        runBlocking {
+            val ctx = createTypeAwareContext()
+            val item = createItemIn(ctx, "Type-gated item", type = "feature-task")
+
+            // Try to advance without required queue note → should fail
+            val result = ctx.advanceTool(transitionOp(item.id, "start"))
+            val r = (result["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+            assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Should fail gate without required queue note")
+
+            // Fill required queue note and retry
+            createNoteIn(ctx, item.id, "task-scope", Role.QUEUE)
+            val result2 = ctx.advanceTool(transitionOp(item.id, "start"))
+            val r2 = (result2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+            assertTrue(r2["ok"]!!.jsonPrimitive.boolean, "Should advance after filling required note")
+            assertEquals("work", r2["newRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `MANUAL lifecycle parent does not cascade when all children terminal`(): Unit =
+        runBlocking {
+            val ctx = createTypeAwareContext()
+            val parent = createItemIn(ctx, "Manual container", type = "container")
+            val child = createItemIn(ctx, "Child task", type = "feature-task", parentId = parent.id)
+
+            // Advance parent to WORK (start cascade from child starting)
+            ctx.advanceTool(transitionOp(parent.id, "start"))
+            // Fill child notes and complete it
+            createNoteIn(ctx, child.id, "task-scope", Role.QUEUE)
+            ctx.advanceTool(transitionOp(child.id, "start")) // queue→work
+            createNoteIn(ctx, child.id, "implementation-notes", Role.WORK)
+            ctx.advanceTool(transitionOp(child.id, "start")) // work→review
+            createNoteIn(ctx, child.id, "review-checklist", Role.REVIEW)
+            ctx.advanceTool(transitionOp(child.id, "start")) // review→terminal
+
+            // Child should be terminal
+            assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+            // Parent should NOT have cascaded to terminal (MANUAL lifecycle)
+            assertEquals(Role.WORK, getItemIn(ctx, parent.id).role)
+        }
+
+    @Test
+    fun `PERMANENT lifecycle parent does not cascade when all children terminal`(): Unit =
+        runBlocking {
+            val ctx = createTypeAwareContext()
+            val parent = createItemIn(ctx, "Permanent container", type = "permanent-container")
+            val child = createItemIn(ctx, "Child", parentId = parent.id)
+
+            ctx.advanceTool(transitionOp(parent.id, "start"))
+            ctx.advanceTool(transitionOp(child.id, "complete")) // schema-free, direct to terminal
+
+            assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+            assertEquals(Role.WORK, getItemIn(ctx, parent.id).role)
+        }
+
+    @Test
+    fun `AUTO lifecycle parent cascades normally when all children terminal`(): Unit =
+        runBlocking {
+            val ctx = createTypeAwareContext()
+            val parent = createItemIn(ctx, "Auto parent") // no type = schema-free = AUTO default
+            val child = createItemIn(ctx, "Child", parentId = parent.id)
+
+            ctx.advanceTool(transitionOp(parent.id, "start"))
+            ctx.advanceTool(transitionOp(child.id, "complete"))
+
+            assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+            assertEquals(Role.TERMINAL, getItemIn(ctx, parent.id).role)
+        }
+
+    @Test
+    fun `traits add additional required notes to gate enforcement`(): Unit =
+        runBlocking {
+            val ctx = createTypeAwareContext()
+            // feature-with-traits has default_traits: [needs-security-review]
+            // which adds security-assessment (review, required) to the base schema
+            val item = createItemIn(ctx, "Item with traits", type = "feature-with-traits")
+
+            // Fill base required queue note
+            createNoteIn(ctx, item.id, "spec", Role.QUEUE)
+            ctx.advanceTool(transitionOp(item.id, "start")) // queue→work
+
+            assertEquals(Role.WORK, getItemIn(ctx, item.id).role)
+
+            // Try to complete — should fail because security-assessment (from trait) is not filled
+            val completeResult = ctx.advanceTool(transitionOp(item.id, "complete"))
+            val r = (completeResult["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+            assertFalse(r["ok"]!!.jsonPrimitive.boolean, "Should fail because trait note security-assessment is missing")
+
+            // Fill the trait-required note and complete
+            createNoteIn(ctx, item.id, "security-assessment", Role.REVIEW)
+            val completeResult2 = ctx.advanceTool(transitionOp(item.id, "complete"))
+            val r2 = (completeResult2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+            assertTrue(r2["ok"]!!.jsonPrimitive.boolean, "Should complete after filling trait note")
+        }
+}

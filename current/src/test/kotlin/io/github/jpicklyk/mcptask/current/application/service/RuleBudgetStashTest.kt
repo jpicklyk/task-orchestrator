@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -9,9 +12,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
@@ -99,6 +99,7 @@ class RuleBudgetStashTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

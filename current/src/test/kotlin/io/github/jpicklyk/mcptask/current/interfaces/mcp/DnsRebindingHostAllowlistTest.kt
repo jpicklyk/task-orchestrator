@@ -4,9 +4,11 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -18,7 +20,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
@@ -41,10 +42,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -208,33 +206,36 @@ class DnsRebindingHostAllowlistTest {
     // Assertion helpers
     // ------------------------------------------------------------------
 
-    /** D-e: /mcp rejection is a JSON-RPC error envelope, code -32000, id absent or null. */
-    private fun assertJsonRpcHostRejection(
+    /**
+     * Q32: every rejection, `/mcp` included, is the 4.0 error envelope `forbidden` {scope: host, required: the fixed
+     * [HOST_REQUIRED] literal}, whose message names MCP_ALLOWED_HOSTS.
+     */
+    private fun assertHostEnvelope(
         response: HttpResponse,
         body: String,
     ) {
         assertEquals(HttpStatusCode.Forbidden, response.status, "rejected Host must be 403, body: $body")
         val json = rpc.parseToJsonElement(body).jsonObject
-        assertEquals("2.0", json["jsonrpc"]?.jsonPrimitive?.content, "jsonrpc must be \"2.0\": $body")
-        val error = json["error"]?.jsonObject
-        assertTrue(error != null, "expected a JSON-RPC error envelope, got: $body")
-        assertEquals(-32000, error!!["code"]?.jsonPrimitive?.int, "JSON-RPC error code must be -32000: $body")
+        assertEquals("false", json["ok"]?.jsonPrimitive?.content, "an error envelope: $body")
+        val error = json["error"]!!.jsonObject
+        assertEquals("forbidden", error["code"]?.jsonPrimitive?.content, "$body")
+        val detail = error["detail"]!!.jsonObject
+        assertEquals("host", detail["scope"]?.jsonPrimitive?.content, "$body")
+        assertEquals(HOST_REQUIRED, detail["required"]?.jsonPrimitive?.content, "required is the fixed literal, never the allowlist: $body")
         val message = error["message"]?.jsonPrimitive?.content.orEmpty()
         assertTrue(message.contains("MCP_ALLOWED_HOSTS"), "message must name MCP_ALLOWED_HOSTS: $message")
-        val idElement = json["id"]
-        assertTrue(idElement == null || idElement is JsonNull, "id must be absent or null, was: $idElement")
+        assertTrue(json["jsonrpc"] == null, "no JSON-RPC member any more: $body")
     }
 
-    /** D-e: every non-/mcp rejection is an [ErrorDto] with error == "host_not_allowed". */
+    private fun assertJsonRpcHostRejection(
+        response: HttpResponse,
+        body: String,
+    ) = assertHostEnvelope(response, body)
+
     private fun assertErrorDtoHostRejection(
         response: HttpResponse,
         body: String,
-    ) {
-        assertEquals(HttpStatusCode.Forbidden, response.status, "rejected Host must be 403, body: $body")
-        val err = rpc.decodeFromString<ErrorDto>(body)
-        assertEquals("host_not_allowed", err.error, "error code must be host_not_allowed: $body")
-        assertTrue(err.message.contains("MCP_ALLOWED_HOSTS"), "message must name MCP_ALLOWED_HOSTS: ${err.message}")
-    }
+    ) = assertHostEnvelope(response, body)
 
     /** D-e: neither rejection body ever echoes the rejected Host value back to the caller. */
     private fun assertNeverEchoesHost(

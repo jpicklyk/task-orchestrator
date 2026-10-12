@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
@@ -23,19 +21,18 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.serializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFails
 import kotlin.test.assertTrue
 
 /**
- * Independent tests (test-author seat, item 713c5c61) for the registry halves of the guards, scenarios S15 (token budget),
- * S17 (documentation) and S18 (names disjoint from `buildMcpTools()`) of the frozen test-plan. S18's second clause (the 3.x
- * guard tests stay green) is verified by running `ToolTokenBudgetTest`, `ToolDocumentationConsistencyTest` and `LayeringTest`
- * unchanged.
+ * Independent tests (test-author seat, item 713c5c61) for the registry halves of the guards, scenarios S15 (token budget)
+ * and S17 (documentation) of the frozen test-plan. S18 (names disjoint from the 3.x tool list) was retired by Q32 with the
+ * 3.x tools themselves: there is no second tool list left to clash with. These two scenarios are the registry's only
+ * budget and documentation guards (the 3.x ToolTokenBudgetTest and ToolDocumentationConsistencyTest are gone).
  *
  * Oracles: task-scope D11 (budgets measure the compact `tools/list` entry of `toolFor(spec, profile)`: per tool at most 8,000
  * characters in every profile, knowledge total at most 22,000, orchestration total at most 38,000, over the registry only), D12
  * (every property at every depth, including `ops.items` and nested classes, has a non-blank description; every rendered tool
- * description contains `DESCRIBE_HINT`) and the Contract note that startup fails when a registry name equals a 3.x tool name.
+ * description contains `DESCRIBE_HINT`).
  *
  * The measuring and checking functions are the test-support [ToolSurfaceChecks]; boundary behaviour is proved on fixture tools
  * padded to an exact measured size, so a `<` versus `<=` mistake or a wrong-profile rendering changes a result here.
@@ -303,63 +300,5 @@ class ToolSurfaceGuardsTest {
                 assertTrue(ToolSchemaRenderer.DESCRIBE_HINT in tool.description.orEmpty(), "${spec.name}/$profile")
             }
         }
-    }
-
-    // ------------------------------------------------------------------ S18
-
-    // The production 3.x list is empty since Q21/Q23; the test-only 3.x drivers keep the guard checked against real names.
-    private val legacyTools = buildMcpTools() + listOf(AdvanceItemTool(), ClaimItemTool())
-
-    @Test
-    fun `S18 the fixture and production registries are disjoint from the 3x tools`() {
-        val legacyNames = legacyTools.map { it.name }.toSet()
-        assertTrue(legacyNames.isNotEmpty(), "control: the 3.x tool list is not empty")
-        assertEquals(
-            emptySet(),
-            FixtureTools()
-                .registry.tools
-                .map { it.name }
-                .toSet() intersect legacyNames
-        )
-        assertEquals(emptySet(), buildToolSpecs().map { it.name }.toSet() intersect legacyNames)
-        checkRegistryDisjoint(FixtureTools().registry, legacyTools)
-        checkRegistryDisjoint(ToolRegistry(buildToolSpecs()), legacyTools)
-    }
-
-    @Test
-    fun `S18 a registry tool named like a 3x tool fails startup naming the tool`() {
-        for (legacy in legacyTools.map { it.name }) {
-            val clash =
-                OpsToolSpec<String>(
-                    name = legacy,
-                    description = "Clash.",
-                    ops =
-                        listOf(
-                            OpSpec<FixtureTools.CreateReq, String>(
-                                name = "make",
-                                doc = "Make.",
-                                capability = ApiCapability.WRITE_ITEMS,
-                                profile = ToolProfile.KNOWLEDGE,
-                                request = serializer<FixtureTools.CreateReq>(),
-                                execute = { _, _, _ -> Outcome.Ok("x") }
-                            )
-                        ),
-                    codec = FixtureTools.StringCodec,
-                    element = { buildJsonObject { } }
-                )
-            val failure =
-                assertFails(
-                    "a registry tool named '$legacy' must be refused"
-                ) { checkRegistryDisjoint(ToolRegistry(listOf(clash)), legacyTools) }
-            assertTrue(legacy in failure.message.orEmpty(), "the failure must name '$legacy': ${failure.message}")
-        }
-    }
-
-    @Test
-    fun `S18 a clash is found among several non-clashing registry tools`() {
-        val fx = FixtureTools()
-        val clash = SelectToolSpec("claim_item", "Clash.", fx.readTool.selects)
-        val failure = assertFails { checkRegistryDisjoint(ToolRegistry(listOf(fx.readTool, fx.writeTool, clash)), legacyTools) }
-        assertTrue("claim_item" in failure.message.orEmpty(), failure.message)
     }
 }

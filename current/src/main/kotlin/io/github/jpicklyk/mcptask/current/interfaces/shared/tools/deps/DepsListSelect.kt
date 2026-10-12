@@ -4,9 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepDirection
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsListRequest
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -37,7 +37,7 @@ private suspend fun listEdges(
     req: DepsListRequest
 ): Outcome<ListPage<JsonObject>> {
     val item =
-        when (val r = DepsSupport.resolve(env, req.item, "/item")) {
+        when (val r = DepsSupport.resolve(env, ctx, req.item, "/item")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

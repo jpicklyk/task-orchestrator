@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.cleanup
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.setup
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -72,17 +73,17 @@ class PreviewAdvanceParityTest {
                 val outcome = d.advance(item, "start")
 
                 assertEquals(state.allowed, gate.flag("canAdvance"), "$label: canAdvance must equal the expected gate result: $gate")
-                assertEquals(state.allowed, outcome.flag("applied"), "$label: advance(start) must agree with the preview: $outcome")
+                assertEquals(state.allowed, outcome.flag("ok"), "$label: advance(start) must agree with the preview: $outcome")
                 val expectedWire = state.expectedBlockedBy.takeIf { it != "terminal" }
                 assertEquals(expectedWire, gate.text("blockedBy"), "$label: blockedBy names the first failing gate: $gate")
                 if (!state.allowed) assertEquals(before, d.role(item), "$label: a rejected advance changes nothing")
                 if (!state.allowed) {
-                    val code = outcome.text("errorCode")
+                    val code = outcome.errorCode()
                     val expectedCode =
                         mapOf(
                             "terminal" to "invalid_transition",
                             "table" to "invalid_transition",
-                            "dependency" to "dependency_blocked",
+                            "dependency" to "dependency_unmet",
                             "note" to "gate_blocked",
                             "lease" to "resource_unavailable",
                         )[state.expectedBlockedBy]
@@ -118,7 +119,7 @@ class PreviewAdvanceParityTest {
                     null -> {
                         assertEquals(true, gate.flag("canAdvance"), "$label: $gate")
                         assertEquals("start", data["next"]!!.jsonObject.text("trigger"), "$label: $data")
-                        assertEquals(true, outcome.flag("applied"), "$label: Ready agrees with advance: $outcome")
+                        assertEquals(true, outcome.flag("ok"), "$label: Ready agrees with advance: $outcome")
                     }
                     "dependency" -> {
                         assertEquals("dependency", gate.text("blockedBy"), "$label: $gate")
@@ -138,7 +139,7 @@ class PreviewAdvanceParityTest {
                         )
                     }
                 }
-                if (state.expectedBlockedBy != null) assertFalse(outcome.flag("applied") ?: false, "$label: $outcome")
+                if (state.expectedBlockedBy != null) assertFalse(outcome.flag("ok") ?: false, "$label: $outcome")
                 d.cleanup(item, holder)
             }
         }
@@ -157,8 +158,8 @@ class PreviewAdvanceParityTest {
             val byHolder = d.advance(item, "start", actor = "agent-a")
 
             assertEquals(true, gate.flag("canAdvance"), "ownership is excluded from canAdvance: $gate")
-            assertEquals("not_claim_holder", byOther.text("errorCode"), "$byOther")
-            assertEquals(true, byHolder.flag("applied"), "$byHolder")
+            assertEquals("not_claim_holder", byOther.errorCode(), "$byOther")
+            assertEquals(true, byHolder.flag("ok"), "$byHolder")
         }
 
     @Test
@@ -175,7 +176,7 @@ class PreviewAdvanceParityTest {
                 assertEquals(true, gate.flag("canAdvance"), "${item.title}: $gate")
                 assertEquals(null, gate.text("blockedBy"), "${item.title}: blockedBy is absent when canAdvance is true: $gate")
                 assertEquals("start", d.contextData(item)["next"]!!.jsonObject.text("trigger"), item.title)
-                assertEquals(true, d.advance(item, "start").flag("applied"), item.title)
+                assertEquals(true, d.advance(item, "start").flag("ok"), item.title)
             }
         }
 }

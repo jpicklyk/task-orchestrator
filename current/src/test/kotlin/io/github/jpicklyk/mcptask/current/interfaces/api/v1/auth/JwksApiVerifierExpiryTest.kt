@@ -7,17 +7,18 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
@@ -249,7 +250,7 @@ class JwksApiVerifierExpiryTest {
     private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksRestApp(verifier: JwksApiVerifier) {
-        installMcpStreamableHttp(emptyMcpServer())
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv())
         val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = jwksAuthConfig(),
@@ -270,6 +271,7 @@ class JwksApiVerifierExpiryTest {
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

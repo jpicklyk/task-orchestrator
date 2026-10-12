@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -12,19 +11,20 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.SettableClock
+import io.github.jpicklyk.mcptask.current.test.actorJson
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.arr
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -44,6 +44,9 @@ import kotlin.test.assertIs
  * row rules), plan 3.3 / 3.7 (one `item.transitioned` row per applied transition, origin user | cascade), and the
  * transition matrix of P3 as quoted in the test-plan (C6/C7 dependency gates, C8 lifecycle). No expected value is read
  * from the implementation.
+ *
+ * Q32 port: the tool-level scenarios drive the production `advance` tool (its element unit is labelled `advance`; a
+ * cascade entry is `{itemId, previousRole, targetRole, applied, blocked?}`, so the cascade label is read from the row).
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AdvanceUnitOfWorkTest {
@@ -100,7 +103,7 @@ class AdvanceUnitOfWorkTest {
         }
 
     @Test
-    fun `S1 the advance_item tool call opens one write unit per transition and none for a rejected one`(): Unit =
+    fun `S1 the advance tool call opens one write unit per transition and one for a rejected one`(): Unit =
         runBlocking {
             val counting = CountingUnitOfWork(db.unitOfWork())
             val ctx = ToolExecutionContext(db.repositoryProvider(), unitOfWork = counting)
@@ -108,14 +111,14 @@ class AdvanceUnitOfWorkTest {
             val ok = repo.create(WorkItem(title = "ok", role = Role.QUEUE))
             val invalid = repo.create(WorkItem(title = "already terminal", role = Role.TERMINAL))
 
-            val data = AdvanceItemTool().execute(startParams(ok.id), ctx).dataOf()
-            assertEquals(true, data.arr("results")[0].jsonObject.flag("applied"), "control: the advance applied: $data")
+            val applied = ctx.advanceTool(transitionOp(ok.id, "start")).onlyResult()
+            assertEquals(true, applied.flag("ok"), "control: the advance applied: $applied")
             assertEquals(1, counting.writes, "one transition is one write unit; ops=${counting.ops}")
-            assertEquals(listOf("AdvanceService.advance"), counting.ops)
+            assertEquals(listOf("advance"), counting.ops)
 
-            val rejected = AdvanceItemTool().execute(startParams(invalid.id), ctx).dataOf()
-            assertEquals(false, rejected.arr("results")[0].jsonObject.flag("applied"))
-            assertEquals("invalid_transition", rejected.arr("results")[0].jsonObject.text("errorCode"))
+            val rejected = ctx.advanceTool(transitionOp(invalid.id, "start")).onlyResult()
+            assertEquals(false, rejected.flag("ok"))
+            assertEquals("invalid_transition", rejected.errorCode())
             assertEquals(2, counting.writes, "the rejected advance also ran as one unit (it rolls back); ops=${counting.ops}")
         }
 
@@ -130,7 +133,7 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(item, "start")
 
-            assertEquals(true, r.flag("applied"), "$r")
+            assertEquals(true, r.flag("ok"), "$r")
             val rows = d.rig.rowsAfter(mark)
             assertEquals(listOf("item.transitioned"), rows.map { it.type }, "exactly one event row for one applied transition: $rows")
             val row = rows.single()
@@ -158,23 +161,23 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(child, "complete")
 
-            assertEquals(true, r.flag("applied"), "$r")
+            assertEquals(true, r.flag("ok"), "$r")
             assertEquals("terminal", r.text("newRole"))
-            val cascades = r.arr("cascadeEvents").map { it.jsonObject }
+            val cascades = r.arr("cascades").map { it.jsonObject }
             assertEquals(2, cascades.size, "one cascade event per ancestor: $r")
             assertEquals(listOf(parent.id.toString(), grand.id.toString()), cascades.map { it.text("itemId") })
             cascades.forEach {
                 assertEquals(true, it.flag("applied"), "$it")
                 assertEquals("work", it.text("previousRole"))
                 assertEquals("terminal", it.text("targetRole"))
-                assertEquals("done", it.text("statusLabel"), "cascade label default is done: $it")
             }
             assertEquals(Role.TERMINAL, d.role(parent))
             assertEquals(Role.TERMINAL, d.role(grand))
             assertEquals("cascade", d.transitions(parent).single().trigger)
             assertEquals("cascade", d.transitions(grand).single().trigger)
             assertEquals("complete", d.transitions(child).single().trigger)
-            assertEquals("done", d.reload(parent).statusLabel)
+            assertEquals("done", d.reload(parent).statusLabel, "cascade label default is done")
+            assertEquals("done", d.reload(grand).statusLabel, "cascade label default is done")
 
             val rows = d.rig.rowsAfter(mark)
             val transitioned = rows.transitioned()
@@ -198,8 +201,8 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(a, "complete")
 
-            assertEquals(true, r.flag("applied"), "$r")
-            assertEquals(0, r.arr("cascadeEvents").size, "control for the S2 cascade: an active sibling blocks it: $r")
+            assertEquals(true, r.flag("ok"), "$r")
+            assertEquals(0, r.arr("cascades").size, "control for the S2 cascade: an active sibling blocks it: $r")
             assertEquals(Role.WORK, d.role(parent))
         }
 
@@ -219,8 +222,8 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(child, "start")
 
-            assertEquals(true, r.flag("applied"), "$r")
-            val cascade = r.arr("cascadeEvents").single().jsonObject
+            assertEquals(true, r.flag("ok"), "$r")
+            val cascade = r.arr("cascades").single().jsonObject
             assertEquals(parent.id.toString(), cascade.text("itemId"))
             assertEquals(true, cascade.flag("applied"))
             assertEquals("queue", cascade.text("previousRole"))
@@ -250,9 +253,9 @@ class AdvanceUnitOfWorkTest {
 
                 val r = d.advance(child, "start")
 
-                assertEquals(true, r.flag("applied"), "$type: the child itself still starts: $r")
+                assertEquals(true, r.flag("ok"), "$type: the child itself still starts: $r")
                 assertEquals(Role.WORK, d.role(child))
-                assertEquals(0, r.arr("cascadeEvents").size, "$type: NotApplicable yields no cascade event at all: $r")
+                assertEquals(0, r.arr("cascades").size, "$type: NotApplicable yields no cascade event at all: $r")
                 assertEquals(Role.QUEUE, d.role(parent), "$type: lifecycle $type parents are never auto-started")
                 assertEquals(0, d.transitions(parent).size)
                 assertEquals(
@@ -283,13 +286,13 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(child, "reopen")
 
-            assertEquals(true, r.flag("applied"), "$r")
+            assertEquals(true, r.flag("ok"), "$r")
             assertEquals("queue", r.text("newRole"))
-            val cascade = r.arr("cascadeEvents").single().jsonObject
+            val cascade = r.arr("cascades").single().jsonObject
             assertEquals(true, cascade.flag("applied"), "the reopen cascade has no note gate: $cascade")
             assertEquals("terminal", cascade.text("previousRole"))
             assertEquals("work", cascade.text("targetRole"))
-            assertFalse(cascade.flag("gateBlocked") ?: false)
+            assertFalse("blocked" in cascade, "no gate blocked it: $cascade")
             assertEquals(Role.WORK, d.role(parent))
             assertEquals("cascade", d.transitions(parent).single().trigger)
             assertEquals(
@@ -312,8 +315,8 @@ class AdvanceUnitOfWorkTest {
 
             val r = d.advance(child, "reopen")
 
-            assertEquals(true, r.flag("applied"), "$r")
-            assertEquals(0, r.arr("cascadeEvents").size, "$r")
+            assertEquals(true, r.flag("ok"), "$r")
+            assertEquals(0, r.arr("cascades").size, "$r")
             assertEquals(Role.TERMINAL, d.role(parent))
         }
 
@@ -329,47 +332,22 @@ class AdvanceUnitOfWorkTest {
             val repo = db.repositoryProvider()
             val item = repo.workItemRepository().create(WorkItem(title = "keyed", role = Role.QUEUE))
             val key = UUID.randomUUID().toString()
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", item.id.toString())
-                                    put("trigger", "start")
-                                    put(
-                                        "actor",
-                                        buildJsonObject {
-                                            put("id", "agent-1")
-                                            put("kind", "subagent")
-                                        }
-                                    )
-                                },
-                            )
-                        },
-                    )
-                    put("requestId", JsonPrimitive(key))
-                }
 
-            val first =
-                AdvanceItemTool()
-                    .execute(params, ctx)
-                    .dataOf()
-                    .arr("results")[0]
-                    .jsonObject
+            suspend fun call() =
+                ctx
+                    .advanceTool(
+                        transitionOp(item.id, "start", "idempotencyKey" to JsonPrimitive(key)),
+                        actor = actorJson("agent-1")
+                    ).onlyResult()
 
-            assertEquals(true, first.flag("applied"), "$first")
+            val first = call()
+
+            assertEquals(true, first.flag("ok"), "$first")
             assertEquals(1, counting.writes, "the element's unit is the only unit; ops=${counting.ops}")
             assertFalse("AdvanceService.advance" in counting.ops, "the advance JOINS the keyed element unit: ${counting.ops}")
             assertEquals(1, repo.transitionsOf(item.id).size)
 
-            val replay =
-                AdvanceItemTool()
-                    .execute(params, ctx)
-                    .dataOf()
-                    .arr("results")[0]
-                    .jsonObject
+            val replay = call()
 
             assertEquals(true, replay.flag("replayed"), "an identical retry replays: $replay")
             assertEquals(1, repo.transitionsOf(item.id).size, "replay executes nothing")
@@ -385,33 +363,12 @@ class AdvanceUnitOfWorkTest {
             val repo = db.repositoryProvider()
             val item = repo.workItemRepository().create(WorkItem(title = "unkeyed", role = Role.QUEUE))
 
-            AdvanceItemTool().execute(startParams(item.id), ctx)
-            val second =
-                AdvanceItemTool()
-                    .execute(startParams(item.id), ctx)
-                    .dataOf()
-                    .arr("results")[0]
-                    .jsonObject
+            ctx.advanceTool(transitionOp(item.id, "start"))
+            val second = ctx.advanceTool(transitionOp(item.id, "start")).onlyResult()
 
-            assertEquals(null, second.flag("replayed"), "no requestId, no replay: $second")
-            assertEquals(2, counting.ops.count { it == "AdvanceService.advance" }, "each unkeyed call is its own unit: ${counting.ops}")
+            assertEquals(true, second.flag("ok"), "the second start applies (work to the next phase): $second")
+            assertEquals(null, second.flag("replayed"), "no idempotencyKey, no replay: $second")
+            assertEquals(2, counting.ops.count { it == "advance" }, "each unkeyed call is its own unit: ${counting.ops}")
             assertEquals(2, repo.transitionsOf(item.id).size)
         }
-
-    private fun startParams(id: UUID): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", id.toString())
-                            put("trigger", "start")
-                        },
-                    )
-                },
-            )
-        }
-
-    private fun kotlinx.serialization.json.JsonElement.dataOf(): JsonObject = (this as JsonObject)["data"] as JsonObject
 }

@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
@@ -15,20 +13,26 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.actorJson
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
 import io.github.jpicklyk.mcptask.current.test.completeTreeOp
 import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.listNotesVia
 import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.onlyResult
+import io.github.jpicklyk.mcptask.current.test.releaseOp
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
@@ -87,21 +91,21 @@ class EventCoverageTest {
         assertTrue(seqs.first() > EventStore.SEQ_FLOOR, "$label: seq must be above the floor")
     }
 
-    private fun advance(
+    /** One `advance` transition through the rig's production composition; the envelope body. */
+    private suspend fun EventLogRig.advance(
         id: UUID,
         trigger: String,
-    ): Array<Pair<String, JsonElement>> =
-        arrayOf(
-            "transitions" to
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", id.toString())
-                            put("trigger", trigger)
-                        },
-                    )
-                },
-        )
+    ): JsonObject = advanceTool(transitionOp(id, trigger))
+
+    /** [advance] that must succeed. */
+    private suspend fun EventLogRig.advanceOk(
+        id: UUID,
+        trigger: String,
+    ): JsonObject {
+        val body = advance(id, trigger)
+        assertTrue(body["ok"]!!.jsonPrimitive.boolean, "the advance must succeed: $body")
+        return body
+    }
 
     // ---------------------------------------------------------------------------------------------
     // S2 -- API-off composition records rows; root uses its own id
@@ -190,7 +194,7 @@ class EventCoverageTest {
             val parent = rig.seed("S3 parent")
             val child = rig.seed("S3 child", parent)
 
-            val (_, rows) = rig.written { rig.callOk(AdvanceItemTool(), *advance(child.id, "start")) }
+            val (_, rows) = rig.written { rig.advanceOk(child.id, "start") }
 
             assertEquals(listOf("item.transitioned", "item.transitioned"), rows.types(), "no item.updated for a role change: $rows")
             val own = rows.single { it.entityId == child.id }
@@ -505,25 +509,16 @@ class EventCoverageTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S6 claim_item claim and release record claim acquired and claim released`(
+    fun `S6 the advance claim and release ops record claim acquired and claim released`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val rig = rig(dir)
             val item = rig.seed("S6 claim item")
 
-            fun params(key: String): Array<Pair<String, JsonElement>> =
-                arrayOf(
-                    key to buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) },
-                    "actor" to
-                        buildJsonObject {
-                            put("id", "s6-agent")
-                            put("kind", "subagent")
-                        },
-                    "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
-                )
+            val agent = actorJson("s6-agent")
 
-            val (_, claimed) = rig.written { rig.callOk(ClaimItemTool(), *params("claims")) }
+            val (_, claimed) = rig.written { rig.advanceTool(claimOp(item.id), actor = agent).okResult(0) }
             val acquired = claimed.single { it.type == "claim.acquired" }
             assertEquals(item.id, acquired.entityId)
             assertEquals("s6-agent", acquired.str("holder"))
@@ -534,7 +529,7 @@ class EventCoverageTest {
                     .toInt() > 0
             )
 
-            val (_, released) = rig.written { rig.callOk(ClaimItemTool(), *params("releases")) }
+            val (_, released) = rig.written { rig.advanceTool(releaseOp(item.id), actor = agent).okResult(0) }
             val rel = released.single { it.type == "claim.released" }
             assertEquals(item.id, rel.entityId)
             assertEquals("released", rel.str("reason"))
@@ -775,7 +770,7 @@ class EventCoverageTest {
             val rig = rig(dir, EventLogRig.GATED_CONFIG)
             val item = rig.seed("S9 gated", tags = EventLogRig.GATED_TAG)
 
-            val (blocked, rows) = rig.written { rig.call(AdvanceItemTool(), *advance(item.id, "start")) }
+            val (blocked, rows) = rig.written { rig.advance(item.id, "start") }
 
             val result =
                 blocked["data"]!!
@@ -783,8 +778,8 @@ class EventCoverageTest {
                     .jsonArray
                     .single()
                     .jsonObject
-            assertFalse(result["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("gate_blocked", result["errorCode"]!!.jsonPrimitive.content, "the tool response is unchanged: $blocked")
+            assertFalse(result["ok"]!!.jsonPrimitive.boolean)
+            assertEquals("gate_blocked", result.errorCode(), "the tool response is unchanged: $blocked")
             assertEquals(listOf("transition.rejected"), rows.types(), "exactly one rejection row and no transition row: $rows")
             val row = rows.single()
             assertEquals(item.id, row.entityId)
@@ -801,7 +796,7 @@ class EventCoverageTest {
 
             // Control: with the required note present the same start succeeds and records no rejection.
             rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "spec", role = "queue", body = "filled"))
-            val (_, after) = rig.written { rig.callOk(AdvanceItemTool(), *advance(item.id, "start")) }
+            val (_, after) = rig.written { rig.advanceOk(item.id, "start") }
             assertEquals(listOf("item.transitioned"), after.types(), "$after")
         }
 
@@ -815,13 +810,13 @@ class EventCoverageTest {
             val blocked = rig.seed("S9 blocked")
             rig.raw.dependencyRepository().create(Dependency(fromItemId = blocker.id, toItemId = blocked.id, type = DependencyType.BLOCKS))
 
-            val (response, rows) = rig.written { rig.call(AdvanceItemTool(), *advance(blocked.id, "start")) }
+            val (response, rows) = rig.written { rig.advance(blocked.id, "start") }
             assertFalse(
                 response["data"]!!
                     .jsonObject["results"]!!
                     .jsonArray
                     .single()
-                    .jsonObject["applied"]!!
+                    .jsonObject["ok"]!!
                     .jsonPrimitive.boolean,
                 "fixture: the start must be refused: $response",
             )
@@ -832,9 +827,9 @@ class EventCoverageTest {
             assertEquals(listOf(blocker.id.toString()), row.payload()["blockerIds"]!!.jsonArray.map { it.jsonPrimitive.content })
 
             // Control: finish the blocker; the same start then succeeds and adds no further rejection.
-            rig.callOk(AdvanceItemTool(), *advance(blocker.id, "start"))
-            rig.callOk(AdvanceItemTool(), *advance(blocker.id, "complete"))
-            val (_, after) = rig.written { rig.callOk(AdvanceItemTool(), *advance(blocked.id, "start")) }
+            rig.advanceOk(blocker.id, "start")
+            rig.advanceOk(blocker.id, "complete")
+            val (_, after) = rig.written { rig.advanceOk(blocked.id, "start") }
             assertTrue(after.ofType("item.transitioned").any { it.entityId == blocked.id }, "$after")
             assertEquals(1, rig.rows().ofType("transition.rejected").size, "no second rejection row")
         }
@@ -938,7 +933,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `a gate-blocked advance sent with a requestId and a trusted actor still records exactly one transition rejected row`(
+    fun `a gate-blocked advance sent with an idempotencyKey and a trusted actor still records exactly one transition rejected row`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -947,25 +942,9 @@ class EventCoverageTest {
 
             val (response, rows) =
                 rig.written {
-                    rig.call(
-                        AdvanceItemTool(),
-                        "transitions" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", item.id.toString())
-                                        put("trigger", "start")
-                                        put(
-                                            "actor",
-                                            buildJsonObject {
-                                                put("id", "keyed-agent")
-                                                put("kind", "subagent")
-                                            },
-                                        )
-                                    },
-                                )
-                            },
-                        "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
+                    rig.advanceTool(
+                        transitionOp(item.id, "start", "idempotencyKey" to JsonPrimitive(UUID.randomUUID().toString())),
+                        actor = actorJson("keyed-agent"),
                     )
                 }
 
@@ -977,7 +956,7 @@ class EventCoverageTest {
                     .jsonObject
             assertEquals(
                 "gate_blocked",
-                result["errorCode"]!!.jsonPrimitive.content,
+                result.errorCode(),
                 "fixture: the keyed start must be gate blocked: $response"
             )
             assertEquals(
@@ -990,7 +969,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `an AlreadyClaimed claim_item sent with a requestId records exactly one claim rejected row`(
+    fun `a claim_held advance claim sent with an idempotencyKey records exactly one claim rejected row`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -1000,20 +979,15 @@ class EventCoverageTest {
 
             val (response, rows) =
                 rig.written {
-                    rig.call(
-                        ClaimItemTool(),
-                        "claims" to buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) },
-                        "actor" to
-                            buildJsonObject {
-                                put("id", "challenger-agent")
-                                put("kind", "subagent")
-                            },
-                        "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
+                    rig.advanceTool(
+                        claimOp(item.id, "idempotencyKey" to JsonPrimitive(UUID.randomUUID().toString())),
+                        actor = actorJson("challenger-agent"),
                     )
                 }
 
-            assertTrue(
-                response.toString().contains("already_claimed"),
+            assertEquals(
+                "claim_held",
+                response.onlyResult().errorCode(),
                 "fixture: the keyed claim must lose to the live holder: $response"
             )
             assertEquals(
@@ -1038,7 +1012,7 @@ class EventCoverageTest {
 
     @Test
     fun `S17 every tool the server registers is classified as a covered write tool or an allow-listed read-only tool`() {
-        val registered = buildMcpTools().map { it.name }.toSet() + ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        val registered = ToolRegistry(buildToolSpecs()).tools.map { it.name }.toSet()
         val covered = WRITE_TOOLS_COVERED.keys
         assertTrue(covered.intersect(READ_ONLY_TOOLS).isEmpty(), "a tool is either a covered write tool or read-only, not both")
         assertEquals(
@@ -1055,7 +1029,6 @@ class EventCoverageTest {
     ): Unit =
         runBlocking {
             val rig = rig(dir)
-            val tools = buildMcpTools().associateBy { it.name }
             val root = rig.seed("S17 root")
             val child = rig.seed("S17 child", root)
             val other = rig.seed("S17 other", root)
@@ -1080,7 +1053,7 @@ class EventCoverageTest {
                             "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
                             "config" -> rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG))
                             "docs_write" -> rig.ctx.callTool("docs_write", docsUpsert(root.id))
-                            else -> rig.call(tools.getValue(name), *params)
+                            else -> error("unhandled write tool $name")
                         }
                     }
                 val succeeded = (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean
@@ -1108,7 +1081,7 @@ class EventCoverageTest {
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
                         "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
                         "docs_read" -> rig.ctx.callTool("docs_read", docsGet(root.id))
-                        else -> rig.call(tools.getValue(name), *params)
+                        else -> error("unhandled read tool $name")
                     }
                 assertTrue(
                     (result["success"] ?: result["ok"])!!.jsonPrimitive.boolean,

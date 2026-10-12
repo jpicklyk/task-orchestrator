@@ -18,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * schema entries are still missing for the relevant trigger, and (2) (A2) which independent_of
  * independence-attestation violations exist for the relevant trigger.
  *
- * Two trigger semantics mirror the historical inline logic in AdvanceItemTool:
+ * Two trigger semantics:
  * - start: only required notes for the item's CURRENT role must be filled.
  * - complete (and cascade-to-terminal): ALL required notes across ALL phases must be filled.
  *
@@ -39,8 +39,8 @@ object GatePredicate {
 
     /**
      * Compute the set of note keys that count as "filled" -- i.e. notes that exist with a
-     * non-blank body. This is the single source of truth for fill-check logic, matching
-     * NoteSchemaJsonHelpers.buildFilledKeys.
+     * non-blank body. This is the single source of truth for fill-check logic (AR-92: the one
+     * predicate every gate, preview and phase-note view uses).
      */
     fun filledNoteKeys(notes: List<Note>): Set<String> = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
 

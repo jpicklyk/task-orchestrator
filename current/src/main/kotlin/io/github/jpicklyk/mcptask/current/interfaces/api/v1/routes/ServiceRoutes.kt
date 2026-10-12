@@ -3,30 +3,33 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.envelopeReqId
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.ConfigSupport
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * Registers service meta-endpoints under the `/api/v1` route prefix.
  *
  * Endpoints:
- * - `GET /api/v1/info` — authenticated; returns [ServiceInfoDto] with server metadata and
- *   the caller's resolved capabilities.
+ * - `GET /api/v1/info` — authenticated; answers the ok envelope whose `data` is [ServiceInfoDto] (server metadata
+ *   and the caller's resolved capabilities).
  * - `GET /api/v1/health` — unauthenticated; performs a lightweight DB probe and returns
  *   200 OK when the database is reachable or 503 when it is not.
  *
  * Auth note: `/health` intentionally bypasses the auth plugin — the route is registered
  * OUTSIDE the [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth]
- * plugin scope (see [CurrentMcpServer.runHttpTransport] for the routing topology).
+ * plugin scope (see `CurrentMcpServer.runHttpTransport` for the routing topology).
  *
  * @param repositoryProvider Used by `/health` to probe the database. Optional to allow
  *   integration tests to omit it when testing routes that do not hit the DB.
@@ -35,7 +38,7 @@ import kotlinx.serialization.Serializable
  * @param actorAuthEnabled Whether the actor_authentication feature is enabled in the runtime config.
  * @param configService When given, `/info` reports the stored server config head's warnings as
  *   [ServiceInfoDto.configWarnings] (the reasons recorded when the global file was imported at boot). A server-head read
- *   fault answers 503 `config_unavailable`; `/health` never reads it.
+ *   fault answers 503 `unavailable`, an unloadable head 422 `config_invalid`; `/health` never reads it.
  */
 fun Route.serviceRoutes(
     repositoryProvider: RepositoryProvider? = null,
@@ -48,19 +51,18 @@ fun Route.serviceRoutes(
     get("/info") {
         val principal = call.attributes.getOrNull(ApiPrincipalKey)
         val capabilities = principal?.capabilities?.map { it.name.lowercase().replace('_', '-') } ?: emptyList()
+        // A server-head fault answers as the config tool's typed head faults: unreadable -> unavailable, unloadable ->
+        // config_invalid.
         val configWarnings =
-            try {
-                configService?.serverHead()?.warnings ?: emptyList()
-            } catch (e: PerRootConfigUnavailableException) {
-                call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
-                return@get
-            } catch (e: PerRootConfigInvalidException) {
-                call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
-                return@get
+            when (val head = ConfigSupport.guarded { Outcome.Ok(configService?.serverHead()?.warnings ?: emptyList()) }) {
+                is Outcome.Ok -> head.value
+                is Outcome.Err -> {
+                    call.respondEnvelopeError(head.error)
+                    return@get
+                }
             }
 
-        call.respond(
-            HttpStatusCode.OK,
+        val info =
             ServiceInfoDto(
                 serverName = serverName,
                 version = serverVersion,
@@ -70,7 +72,11 @@ fun Route.serviceRoutes(
                 actorAuthenticationEnabled = actorAuthEnabled,
                 features = ServerFeatures.ADVERTISED,
                 configWarnings = configWarnings,
-            ),
+            )
+        call.respondEnvelope(
+            EnvelopeEncoder.outcome(Outcome.Ok(info), call.envelopeReqId()) {
+                infoJson.encodeToJsonElement(ServiceInfoDto.serializer(), it)
+            }
         )
     }
 
@@ -99,7 +105,14 @@ fun Route.serviceRoutes(
     }
 }
 
-// DTO for GET /api/v1/info
+/** Encodes [ServiceInfoDto] as the `data` of the `/info` envelope (every field, nulls omitted). */
+private val infoJson =
+    Json {
+        encodeDefaults = true
+        explicitNulls = false
+    }
+
+// DTO for GET /api/v1/info (the envelope `data`)
 @Serializable
 data class ServiceInfoDto(
     val serverName: String,

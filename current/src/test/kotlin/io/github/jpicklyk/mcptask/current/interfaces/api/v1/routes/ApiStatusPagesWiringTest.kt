@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
  *
  * Oracle: task-scope Build step 7 and AC4 -- an uncaught `/api/v1` exception returns 500
  * `{"error":"internal","message":"Internal server error"}` and never exception text; other paths keep Ktor's default
- * 500 (no ErrorDto body).
+ * 500 (no envelope body).
  *
  * Red proof (orchestrator-run, disposable copy): delete the `installApiStatusPages()` call from `installRestApiRoutes`
  * -> the /api/v1 test turns red (empty 500 body).
@@ -86,7 +86,8 @@ class ApiStatusPagesWiringTest {
             actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy
+            degradedModePolicy = composition.degradedModePolicy,
+            appConfig = AppConfig.fromEnv(),
         )
         routing {
             get("/api/v1/p16-wiring-boom") { throw RuntimeException("SELECT secret FROM tokens WHERE v = 'hunter2'") }
@@ -109,14 +110,15 @@ class ApiStatusPagesWiringTest {
         val body = response.bodyAsText()
         assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
         val json = Json.parseToJsonElement(body).jsonObject
-        assertEquals(setOf("error", "message"), json.keys, "body: $body")
-        assertEquals("internal", json["error"]?.jsonPrimitive?.content)
-        assertEquals("Internal server error", json["message"]?.jsonPrimitive?.content)
+        assertEquals(setOf("ok", "error", "meta"), json.keys, "body: $body")
+        val error = json["error"]!!.jsonObject
+        assertEquals("internal", error["code"]?.jsonPrimitive?.content)
+        assertEquals("Internal server error", error["message"]?.jsonPrimitive?.content)
         assertFalse(body.contains("SELECT") || body.contains("hunter2"), "the exception text must never reach the client: $body")
     }
 
     @Test
-    fun `N2 probe a path outside api v1 keeps Ktor's default 500 with no ErrorDto body`(
+    fun `N2 probe a path outside api v1 keeps Ktor's default 500 with no envelope body`(
         @TempDir tempDir: Path
     ) = testApplication {
         val composition = buildComposition(tempDir)
@@ -126,6 +128,6 @@ class ApiStatusPagesWiringTest {
 
         val body = response.bodyAsText()
         assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
-        assertTrue(!body.contains("\"error\":\"internal\""), "no ErrorDto outside /api/v1: $body")
+        assertTrue(!body.contains("\"code\":\"internal\""), "no envelope outside /api/v1: $body")
     }
 }

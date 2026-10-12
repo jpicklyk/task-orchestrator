@@ -148,7 +148,7 @@ internal object WalReparentScenarios {
         val moveSeq = eventRows.first { it.type == "item.reparented" }.seq
         fx.ordering(index0First = moveSeq < createSeq, detail = results)
         val started = results[2] as JsonObject
-        assertEquals(true, started.flag("applied"), "$started")
+        assertEquals(true, started.flag("ok"), "$started")
         assertEquals("work", started.text("newRole"), "$started")
 
         assertEquals(after, snapshot(drv.jdbcUrl, subtree), "the whole subtree is restamped")

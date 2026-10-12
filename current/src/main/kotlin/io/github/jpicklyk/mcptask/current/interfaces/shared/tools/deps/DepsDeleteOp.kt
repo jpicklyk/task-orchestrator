@@ -2,10 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsDeleteRequest
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -71,7 +70,7 @@ private suspend fun WriteScope.deleteById(
         stores.dependencyRepository().findById(id)
             ?: return Outcome.Err(DepsSupport.notFound(EntityKind.DEPENDENCY, id.toString()))
     DepsSupport.forbiddenIfAny(ctx, listOf(dep.fromItemId, dep.toItemId), stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return withEventActor(ctx.principal?.claim) { env.dependencyCommandService.deleteById(id) }.map { if (it) 1 else 0 }
+    return env.dependencyCommandService.deleteById(id).map { if (it) 1 else 0 }
 }
 
 private suspend fun WriteScope.deleteByItem(
@@ -80,7 +79,7 @@ private suspend fun WriteScope.deleteByItem(
     ref: IdRef
 ): Outcome<Int> {
     val item =
-        when (val r = DepsSupport.resolve(env, ref, "/item")) {
+        when (val r = DepsSupport.resolve(env, ctx, ref, "/item")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
@@ -90,7 +89,7 @@ private suspend fun WriteScope.deleteByItem(
         touched += dep.toItemId
     }
     DepsSupport.forbiddenIfAny(ctx, touched, stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return withEventActor(ctx.principal?.claim) { env.dependencyCommandService.deleteByItemId(item) }
+    return env.dependencyCommandService.deleteByItemId(item)
 }
 
 private suspend fun WriteScope.deleteByEnds(
@@ -99,12 +98,10 @@ private suspend fun WriteScope.deleteByEnds(
     req: DepsDeleteRequest
 ): Outcome<Int> {
     val ids =
-        when (val r = DepsSupport.resolveAll(env, listOf(requireNotNull(req.from), requireNotNull(req.to)), "/from")) {
+        when (val r = DepsSupport.resolveAll(env, ctx, listOf(requireNotNull(req.from), requireNotNull(req.to)), "/from")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
     DepsSupport.forbiddenIfAny(ctx, ids, stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return withEventActor(ctx.principal?.claim) {
-        env.dependencyCommandService.deleteByRelationship(ids[0], ids[1], req.type?.domain)
-    }
+    return env.dependencyCommandService.deleteByRelationship(ids[0], ids[1], req.type?.domain)
 }

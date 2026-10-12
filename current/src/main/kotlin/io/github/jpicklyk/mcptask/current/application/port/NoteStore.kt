@@ -16,7 +16,7 @@ data class NoteRef(
 
 /**
  * A note without its body ([NoteStore.findSummariesByItemId]): what a list needs. [bodyLength] is the body's length
- * in characters.
+ * in Unicode code points, as SQLite's `LENGTH` counts it (a supplementary character is one, not two UTF-16 chars).
  */
 data class NoteSummary(
     val id: UUID,
@@ -92,7 +92,7 @@ interface NoteStore {
                     it.key,
                     it.role,
                     it.version,
-                    it.body.length,
+                    it.body.codePointCount(0, it.body.length),
                     it.modifiedAt,
                     it.actorClaim,
                     it.verification

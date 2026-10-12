@@ -26,8 +26,8 @@ data class ApiPrincipal(
  * Synthetic principal attached to every request when [ApiAuthConfig.Unauthenticated] is active.
  *
  * Granted [ApiCapability.ADMIN] (implies all other capabilities via the existing
- * `hasCapability`/`requireCapability` logic) and an unrestricted [ApiScope] (`rootIds = null`),
- * so `requireCapability` and `enforceScopeForItem` pass unchanged for every route -- no
+ * `grants`/`requireCapability` logic) and an unrestricted [ApiScope] (`rootIds = null`),
+ * so `requireCapability` and every scope check pass unchanged for every route -- no
  * authorization-layer special-casing is needed for this mode.
  *
  * Audited as actor `api:local-unauth` via the existing [ApiAuditBridge] (tokenId-derived).

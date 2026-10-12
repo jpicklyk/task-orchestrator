@@ -3,7 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -11,8 +12,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
@@ -62,20 +61,6 @@ internal class EventLogRig(
         val mark = maxSeq()
         val result = block()
         return result to rowsAfter(mark)
-    }
-
-    suspend fun call(
-        tool: ToolDefinition,
-        vararg params: Pair<String, JsonElement>,
-    ): JsonObject = tool.execute(JsonObject(mapOf(*params)), ctx) as JsonObject
-
-    suspend fun callOk(
-        tool: ToolDefinition,
-        vararg params: Pair<String, JsonElement>,
-    ): JsonObject {
-        val result = call(tool, *params)
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "${tool.name} must succeed: $result")
-        return result
     }
 
     /** [call] for the `items_read` context probe (the removed 3.x `get_context`): the 3.x test shape `{success, data}`. */

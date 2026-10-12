@@ -10,6 +10,12 @@ import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.Failed
+import io.github.jpicklyk.mcptask.current.bootstrap.Reason
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.StartupOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
@@ -389,7 +395,8 @@ class BootImportTest {
                 Json
                     .parseToJsonElement(
                         info.bodyAsText()
-                    ).jsonObject["configWarnings"]!!
+                    ).jsonObject["data"]!!
+                    .jsonObject["configWarnings"]!!
                     .jsonArray
                     .map { it.jsonPrimitive.content }
             assertEquals(stored, warnings, "/info.configWarnings equals the stored server head warnings")
@@ -421,6 +428,7 @@ class BootImportTest {
             val warnings =
                 Json
                     .parseToJsonElement(info.bodyAsText())
+                    .jsonObject["data"]!!
                     .jsonObject["configWarnings"]
                     ?.jsonArray
                     .orEmpty()

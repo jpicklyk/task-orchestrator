@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -698,9 +697,9 @@ class NotesReadToolTest {
             assertEquals(name, McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE)?.name, "$name is exposed in the knowledge profile")
         }
 
-        val legacy = buildMcpTools()
-        // Q21 and Q23 removed the last 3.x tools, so the list is empty; the control is that notes_* are served (above).
-        assertFalse(legacy.any { it.name == "manage_notes" }, "manage_notes is deleted")
-        assertFalse(legacy.any { it.name == "query_notes" }, "query_notes is deleted (its search moved to items_read in Q19)")
+        val served = ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        // Q32 removed the 3.x tool list itself; the control is that notes_* are served (above).
+        assertFalse("manage_notes" in served, "manage_notes is deleted")
+        assertFalse("query_notes" in served, "query_notes is deleted (its search moved to items_read in Q19)")
     }
 }
