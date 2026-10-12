@@ -39,6 +39,10 @@ junit = "5.12.2"
 # versions (>= 2.4.20) are a known incompatibility (KoInternalException) -- see LayeringTest.kt.
 konsist = "0.17.3"
 
+# ASM (test-only): bytecode reader for the request-field consumption guard (RequestFieldConsumption.kt).
+# 9.9 reads class-file major 65 (JVM 21 target).
+asm = "9.9"
+
 # YAML
 snakeyaml = "2.6"
 
@@ -122,6 +126,7 @@ junit-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "jun
 junit-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
 konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
+asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
