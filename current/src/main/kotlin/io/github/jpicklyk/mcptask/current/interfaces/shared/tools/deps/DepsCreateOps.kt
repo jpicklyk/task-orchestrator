@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -184,7 +183,7 @@ private suspend fun WriteScope.createEdges(
                 unblockAt = unblockAt?.wire
             )
         }
-    return when (val r = withEventActor(ctx.principal?.claim) { env.dependencyCommandService.createInUnit(deps) }) {
+    return when (val r = env.dependencyCommandService.createInUnit(deps)) {
         is Outcome.Ok -> r
         is Outcome.Err -> Outcome.Err(redactCyclePath(ctx, r.error, ids.toSet(), items))
     }

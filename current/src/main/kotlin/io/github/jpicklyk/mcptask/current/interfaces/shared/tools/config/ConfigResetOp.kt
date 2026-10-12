@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -40,7 +39,7 @@ internal val configResetOp =
                 }
             val service = ConfigSupport.service(env)
             ConfigSupport.guarded {
-                when (val outcome = withEventActor(ctx.principal?.claim) { service.reset(rootId) }) {
+                when (val outcome = service.reset(rootId)) {
                     is Outcome.Err -> outcome
                     is Outcome.Ok -> {
                         if (outcome.value) evictConfigSession(rootId)

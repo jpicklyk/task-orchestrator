@@ -15,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -261,9 +260,7 @@ object DocHandlers {
             }
         val principal = ctx.principal
         val written =
-            withEventActor(principal?.claim) {
-                env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal?.claim?.id)
-            }
+            env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal?.claim?.id)
         return when (written) {
             is Outcome.Err -> written
             is Outcome.Ok -> {
@@ -293,12 +290,10 @@ object DocHandlers {
                 is Outcome.Ok -> admitted.value
             }
         val result =
-            withEventActor(ctx.principal?.claim) {
-                if (archive) {
-                    env.documentService.archive(rootId, req.kind.domain, req.slug, expected)
-                } else {
-                    env.documentService.unarchive(rootId, req.kind.domain, req.slug, expected)
-                }
+            if (archive) {
+                env.documentService.archive(rootId, req.kind.domain, req.slug, expected)
+            } else {
+                env.documentService.unarchive(rootId, req.kind.domain, req.slug, expected)
             }
         return when (result) {
             is Outcome.Err -> result
@@ -323,7 +318,7 @@ object DocHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val result = withEventActor(ctx.principal?.claim) { env.documentService.delete(rootId, req.kind.domain, req.slug) }
+        val result = env.documentService.delete(rootId, req.kind.domain, req.slug)
         return when (result) {
             is Outcome.Err -> result
             is Outcome.Ok -> Outcome.Ok(DocWriteOutcome.Deleted(result.value.id, result.value.kind, result.value.slug))
@@ -348,7 +343,7 @@ object DocHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val result = withEventActor(ctx.principal?.claim) { env.linkService.attach(rootId, req.kind.domain, req.slug, itemId) }
+        val result = env.linkService.attach(rootId, req.kind.domain, req.slug, itemId)
         return when (result) {
             is Outcome.Err -> result
             is Outcome.Ok -> Outcome.Ok(DocWriteOutcome.Attached(result.value.id, result.value.from.id, itemId))
@@ -374,7 +369,7 @@ object DocHandlers {
                 is Outcome.Ok -> admitted.value
             }
         scope.stores.documentStore().get(rootId, req.kind.domain, req.slug) ?: return Outcome.Err(documentNotFound(req.slug))
-        val removed = withEventActor(ctx.principal?.claim) { env.linkService.detach(rootId, req.kind.domain, req.slug, itemId) }
+        val removed = env.linkService.detach(rootId, req.kind.domain, req.slug, itemId)
         return Outcome.Ok(DocWriteOutcome.Detached(removed))
     }
 

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -61,9 +60,7 @@ internal val configPushOp =
             val service = ConfigSupport.service(env)
             ConfigSupport.guarded {
                 val result =
-                    withEventActor(ctx.principal?.claim) {
-                        service.push(rootId, req.configYaml, req.force, expectedVersion = req.expectedVersion)
-                    }
+                    service.push(rootId, req.configYaml, req.force, expectedVersion = req.expectedVersion)
                 when (result) {
                     is ConfigPushResult.Success -> {
                         if (result.appended) evictConfigSession(rootId)

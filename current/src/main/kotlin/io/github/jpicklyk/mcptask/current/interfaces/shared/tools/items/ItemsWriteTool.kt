@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -190,16 +189,15 @@ internal fun cascadeSummaries(events: List<AdvanceCascadeEvent>): List<CascadeSu
     }
 
 /**
- * Runs [block] as the element's body: the caller's actor is installed for the `item.*` event rows the writes record
- * (the dispatcher installs none), and a per-root config fault escaping the service fails this element as
- * `unavailable` instead of `internal`.
+ * Runs [block] as the element's body (the dispatcher has already installed the caller as the event actor): a per-root
+ * config fault escaping the service fails this element as `unavailable` instead of `internal`.
  */
 internal suspend fun <T> itemWriteBody(
     ctx: CallContext,
     block: suspend () -> Outcome<T>
 ): Outcome<T> =
     try {
-        withEventActor(ctx.principal?.claim, block)
+        block()
     } catch (e: PerRootConfigUnavailableException) {
         Outcome.Err(
             DomainError(

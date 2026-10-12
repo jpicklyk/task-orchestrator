@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ConfigRollbackResult
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -48,9 +47,7 @@ internal val configRollbackOp =
             val service = ConfigSupport.service(env)
             ConfigSupport.guarded {
                 val result =
-                    withEventActor(ctx.principal?.claim) {
-                        service.rollback(rootId, req.version, expectedVersion = req.expectedVersion)
-                    }
+                    service.rollback(rootId, req.version, expectedVersion = req.expectedVersion)
                 when (result) {
                     is ConfigRollbackResult.Success -> {
                         if (result.appended) evictConfigSession(rootId)

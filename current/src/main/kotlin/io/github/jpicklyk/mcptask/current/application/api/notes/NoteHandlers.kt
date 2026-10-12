@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
-import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -144,20 +143,18 @@ object NoteHandlers {
         val principal = ctx.principal
         val written =
             try {
-                withEventActor(principal?.claim) {
-                    env.noteCommandService.upsert(
-                        NoteUpsertCommand(
-                            itemId = itemId,
-                            key = req.key,
-                            role = req.role,
-                            body = text,
-                            actorClaim = principal?.claim,
-                            verification = principal?.verification,
-                            bodyFromFile = file,
-                            expectedVersion = expected
-                        )
+                env.noteCommandService.upsert(
+                    NoteUpsertCommand(
+                        itemId = itemId,
+                        key = req.key,
+                        role = req.role,
+                        body = text,
+                        actorClaim = principal?.claim,
+                        verification = principal?.verification,
+                        bodyFromFile = file,
+                        expectedVersion = expected
                     )
-                }
+                )
             } catch (e: PerRootConfigUnavailableException) {
                 // Resolving the item's schema (maxLength, note limits) failed with no last-known-good config: nothing was stored.
                 return Outcome.Err(
@@ -197,7 +194,7 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val deleted = withEventActor(ctx.principal?.claim) { env.noteCommandService.delete(itemId, req.key, expected) }
+        val deleted = env.noteCommandService.delete(itemId, req.key, expected)
         return when (deleted) {
             is Outcome.Err -> deleted
             is Outcome.Ok -> Outcome.Ok(NoteWriteOutcome.Deleted(deleted.value.id))
