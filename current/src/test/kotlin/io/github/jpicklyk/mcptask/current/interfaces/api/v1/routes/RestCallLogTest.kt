@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.MAX_JSON_WRITE_BODY_BYTES
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -17,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -286,6 +288,30 @@ class RestCallLogTest {
             val parsed = Json.parseToJsonElement(response.bodyAsText()).jsonObject
             assertEquals("unauthenticated", parsed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, "the 401 body is the envelope")
             assertEquals("unauthenticated", row["error_code"], "the row records the envelope code (S16)")
+        }
+
+    @Test
+    fun `S16 Q32 the error_code of a 403 and a 413 row is the envelope code`() =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            // The test token does not grant admin, which the lease force-release requires.
+            val forbidden = client.delete("/api/v1/resources/leases/some-key") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.Forbidden, forbidden.status, forbidden.bodyAsText())
+            val tooLarge =
+                client.post("/api/v1/ops/items_read") {
+                    header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("{\"select\":\"list\",\"pad\":\"" + "x".repeat(MAX_JSON_WRITE_BODY_BYTES) + "\"}")
+                }
+            assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+
+            writer.flushNow()
+            val codes = callLogRows().associate { it["tool"] to it["error_code"] }
+            assertEquals("forbidden", codes["DELETE /api/v1/resources/leases/{key}"], "$codes")
+            assertEquals("payload_too_large", codes["POST /api/v1/ops/{tool}"], "$codes")
         }
 
     // ------------------------------------------------------------------ F1

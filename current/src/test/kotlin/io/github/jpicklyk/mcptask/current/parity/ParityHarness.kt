@@ -25,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptio
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -185,6 +186,17 @@ internal fun parityAccess(token: ParityToken): CallAccess =
     // then agree on whether note attribution is visible.
     token.principal().toCallAccess(redactNoteAttribution = true)
 
+/**
+ * Q32 (S6): every body a parity leg receives is checked against the envelope oracle, so each ProductionParity scenario's MCP
+ * and REST bodies conform wherever the catalog runs (this harness, NotesParityTest, DocsParityTest).
+ */
+internal fun assertParityBodyConforms(
+    body: String,
+    label: String
+) {
+    EnvelopeConformance.assertConforms(Json.parseToJsonElement(body), label)
+}
+
 internal class McpResult(
     val isError: Boolean,
     val structured: JsonObject,
@@ -223,6 +235,7 @@ internal suspend fun callMcp(
                     arguments(args)
                 }
             )
+        result.structuredContent?.let { assertParityBodyConforms(it.toString(), "MCP $tool body") }
         return McpResult(
             isError = result.isError == true,
             structured = assertNotNull(result.structuredContent, "MCP result carries structuredContent"),
@@ -312,7 +325,9 @@ class ParityHarness(
                     contentType(ContentType.Application.Json)
                     setBody(s.arguments)
                 }
-            result = RestResult(response.status.value, response.bodyAsText(), response.headers["X-Req-Id"])
+            val text = response.bodyAsText()
+            assertParityBodyConforms(text, "${s.name}: REST body")
+            result = RestResult(response.status.value, text, response.headers["X-Req-Id"])
         }
         return checkNotNull(result) { "REST leg produced no response" }
     }

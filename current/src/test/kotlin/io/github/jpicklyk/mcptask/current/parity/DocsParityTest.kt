@@ -97,7 +97,9 @@ internal class DocsParityRunner(
                     contentType(ContentType.Application.Json)
                     setBody(s.arguments)
                 }
-            result = RestResult(response.status.value, response.bodyAsText(), response.headers["X-Req-Id"])
+            val text = response.bodyAsText()
+            assertParityBodyConforms(text, "${s.name}: REST body")
+            result = RestResult(response.status.value, text, response.headers["X-Req-Id"])
         }
         return checkNotNull(result) { "REST leg produced no response" }
     }
