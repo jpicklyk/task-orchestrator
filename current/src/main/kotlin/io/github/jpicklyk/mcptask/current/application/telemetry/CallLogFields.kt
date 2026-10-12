@@ -57,6 +57,9 @@ object CallLogFields {
     /** Most flags kept in `request_shape`. */
     const val MAX_SHAPE_KEYS = 16
 
+    /** The `request_shape` key naming the MCP tool profile a call was served under (server-derived). */
+    const val PROFILE_KEY = "profile"
+
     /** The `request_shape` key of a `related` call's per-signal page contribution counts. */
     const val RELATED_SIGNALS_KEY = "relatedSignals"
 
@@ -135,15 +138,18 @@ object CallLogFields {
     /**
      * [requestShapeJson] plus the server-derived [searchShape] of a search call (`queryHash`, `termCount`,
      * `matchMode`, and `hitsByKind` once the search ran) and the [relatedSignals] of a `related` call
-     * (`relatedSignals`: per signal, the returned-page hits it contributed to), which always survive the
+     * (`relatedSignals`: per signal, the returned-page hits it contributed to) and the MCP tool [profile] wire value
+     * (`profile`), which always survive the
      * [MAX_SHAPE_KEYS] limit and replace a client flag of the same name. The query text is never part of it.
      */
     fun requestShapeJson(
         arguments: JsonObject?,
         searchShape: CallTelemetry.SearchShape?,
-        relatedSignals: Map<String, Int>? = null
+        relatedSignals: Map<String, Int>? = null,
+        profile: String? = null
     ): String? {
         val extras = (searchShape?.let { searchShapeFields(it) } ?: emptyMap()).toMutableMap()
+        profile?.let { extras[PROFILE_KEY] = JsonPrimitive(it) }
         relatedSignals?.let { signals ->
             extras[RELATED_SIGNALS_KEY] = JsonObject(signals.toSortedMap().mapValues { JsonPrimitive(it.value) })
         }

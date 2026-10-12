@@ -15,7 +15,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every MCP tool** — full read, write, and delete of the entire work-item graph.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile) and `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) using the Streamable HTTP transport; both are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every MCP tool** — full read, write, and delete of the entire work-item graph.
 
 This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
 

@@ -89,6 +89,8 @@ data class AppConfig(
     val ignoredUseFlywaySet: Boolean = false,
     /** Raw `SCHEMA_MODE` (`migrate` | `validate`); parsed by `SchemaMode.parse` where the schema manager is built, so a bad value still fails startup there. */
     val schemaModeRaw: String? = null,
+    /** Raw `MCP_TOOL_PROFILE` (`knowledge` | `orchestration`); parsed by `ToolProfile.parse` at startup (infrastructure must not import the interfaces layer). Absent/blank means orchestration. */
+    val mcpToolProfileRaw: String? = null,
     /** `FTS_INTEGRITY` (`startup` default | `off`) -- whether startup runs the FTS5 integrity check ([FtsIntegrityMode]). */
     val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP,
     /** `RESOURCE_LEASES_ENFORCED` -- the lease kill switch, read ONCE at startup (restart to change). Default true; false skips the lease gate and acquisition on every advance. */
@@ -151,6 +153,7 @@ data class AppConfig(
                 dbCompactOnUpgrade = EnvBoolean.parse("DB_COMPACT_ON_UPGRADE", env("DB_COMPACT_ON_UPGRADE"), true),
                 ignoredUseFlywaySet = env("USE_FLYWAY") != null,
                 schemaModeRaw = env("SCHEMA_MODE"),
+                mcpToolProfileRaw = env("MCP_TOOL_PROFILE"),
                 ftsIntegrity = FtsIntegrityMode.parse(env("FTS_INTEGRITY")),
                 resourceLeasesEnforced = EnvBoolean.parse("RESOURCE_LEASES_ENFORCED", env("RESOURCE_LEASES_ENFORCED"), true),
                 // REST API SSE / events.

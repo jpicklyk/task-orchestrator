@@ -311,7 +311,7 @@ class McpOperationAdapterTest {
             assertNull(record.batchSize)
             assertNull(record.failedCount)
             assertNull(record.resultCount, "a single-value read has no items")
-            assertEquals(CallLogFields.requestShapeJson(args(text)), record.requestShape)
+            assertEquals(CallLogFields.requestShapeJson(args(text), null, null, ToolProfile.ORCHESTRATION.wire), record.requestShape)
             val expectedBytes = utf8(result.text()) + utf8(assertNotNull(result.structuredContent).toString())
             assertEquals(expectedBytes, record.responseBytes?.toLong(), "UTF-8 text bytes plus compact structuredContent bytes")
         }
@@ -391,7 +391,7 @@ class McpOperationAdapterTest {
             client.run("fx_read", text)
             val record = only()
             assertEquals("describe", record.operation)
-            assertEquals(CallLogFields.requestShapeJson(args(text)), record.requestShape)
+            assertEquals(CallLogFields.requestShapeJson(args(text), null, null, ToolProfile.ORCHESTRATION.wire), record.requestShape)
             assertTrue("describe" in record.requestShape.orEmpty(), "the shape names the describe flag: ${record.requestShape}")
             assertNull(record.errorCode)
         }
@@ -428,6 +428,6 @@ class McpOperationAdapterTest {
             val text = """{"ops":[{"op":"create","title":"top-secret-title"}]}"""
             client.run("fx_write", text)
             val shape = only().requestShape.orEmpty()
-            assertEquals(CallLogFields.requestShapeJson(args(text)), only().requestShape)
+            assertEquals(CallLogFields.requestShapeJson(args(text), null, null, ToolProfile.ORCHESTRATION.wire), only().requestShape)
         }
 }
