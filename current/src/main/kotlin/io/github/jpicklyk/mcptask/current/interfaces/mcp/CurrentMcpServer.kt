@@ -40,13 +40,18 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.request.path
+import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -107,7 +112,7 @@ class CurrentMcpServer(
     // DatabaseManager is constructed early (a field, before run()) and reads DB env, so the snapshot
     // must exist before it.
     private val databaseManager = DatabaseManager(appConfig = appConfig)
-    private var mcpSdkServer: Server? = null
+    private var mcpSdkServers: List<Server> = emptyList()
 
     /**
      * Runs the server (see [runServer]) and, for any outcome that never reached serving, closes the
@@ -153,6 +158,18 @@ class CurrentMcpServer(
                 val detail = "Failed to clear stale readiness marker at ${readinessMarker.path}: ${e.message}"
                 logger.error(detail, e)
                 return@runBlocking Failed(Reason.READINESS_MARKER, detail)
+            }
+
+            // MCP_TOOL_PROFILE is validated on both transports (fail closed, like an unknown MCP_TRANSPORT) but
+            // applied to stdio only: HTTP serves both profiles on their own paths. Checked before anything is
+            // opened, so a bad value never touches the database or writes the readiness marker.
+            val toolProfile = ToolProfile.parse(appConfig.mcpToolProfileRaw)
+            if (toolProfile == null) {
+                val detail =
+                    "Unknown MCP_TOOL_PROFILE: '${appConfig.mcpToolProfileRaw}'. Valid values: " +
+                        ToolProfile.entries.joinToString(", ") { it.wire }
+                logger.error(detail)
+                return@runBlocking Failed(Reason.UNKNOWN_TOOL_PROFILE, detail)
             }
 
             // Initialize database (DatabaseManager already holds the AppConfig snapshot)
@@ -224,31 +241,25 @@ class CurrentMcpServer(
                 runBlocking { callLogWriter.stop() }
             }
 
-            // Build tool list (shared with tests via buildMcpTools())
+            // 3.x tools (shared with tests via buildMcpTools()); they serve the orchestration profile only until Q32.
             val tools = buildMcpTools()
-
-            // Configure MCP server
             val serverName = appConfig.mcpServerName
-            val toolNames = tools.joinToString(", ") { it.name }
-            val server = configureServer(serverName, tools.size, toolNames)
-            mcpSdkServer = server
 
-            // Register MCP tools
-            val adapter = McpToolAdapter(callLog = callLogWriter)
-            adapter.registerToolsWithServer(server, tools, toolContext)
-            logger.info("Registered ${tools.size} MCP tools")
-
-            // 4.0 tools (ToolSpec registry) are served beside the 3.x tools until Q32, at the orchestration
-            // profile on this one Server until Q29. A registry name equal to a 3.x name fails startup.
+            // 4.0 tools (ToolSpec registry). A registry name equal to a 3.x name fails startup.
             val registry = ToolRegistry(buildToolSpecs())
             checkRegistryDisjoint(registry, tools)
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
             val toolDispatcher = buildToolDispatcher(toolContext)
             val operationAdapter = McpOperationAdapter(toolDispatcher, callLog = callLogWriter)
-            operationAdapter.register(server, registry, ToolProfile.ORCHESTRATION)
-            logger.info("Registered ${registry.visible(ToolProfile.ORCHESTRATION).size} 4.0 tools")
+            val legacyAdapter = McpToolAdapter(callLog = callLogWriter)
 
-            val toolCount = tools.size
+            fun serverFor(profile: ToolProfile): Server =
+                buildProfileServer(profile, serverName, version, registry, operationAdapter, legacyAdapter, tools, toolContext)
+            logger.info(
+                "Tool profiles: orchestration={} tools, knowledge={} tools",
+                registry.visible(ToolProfile.ORCHESTRATION).size + tools.size,
+                registry.visible(ToolProfile.KNOWLEDGE).size
+            )
 
             // Transport dispatch
             val transportType = appConfig.mcpTransport
@@ -266,13 +277,18 @@ class CurrentMcpServer(
                                     "recorded; nothing streams from this process."
                             )
                         }
-                        runStdioTransport(server, serverName, toolCount, readinessMarker)
+                        val server = serverFor(toolProfile)
+                        mcpSdkServers = listOf(server)
+                        runStdioTransport(server, serverName, readinessMarker)
                     }
-                    "http" ->
+                    "http" -> {
+                        val server = serverFor(ToolProfile.ORCHESTRATION)
+                        val knowledgeServer = serverFor(ToolProfile.KNOWLEDGE)
+                        mcpSdkServers = listOf(server, knowledgeServer)
                         runHttpTransport(
                             server,
+                            knowledgeServer,
                             serverName,
-                            toolCount,
                             apiWiring,
                             serverConfig,
                             toolContext,
@@ -283,6 +299,7 @@ class CurrentMcpServer(
                             registry,
                             toolDispatcher
                         )
+                    }
                     else -> {
                         logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
                         Failed(
@@ -300,19 +317,19 @@ class CurrentMcpServer(
      * Closes the MCP server. Can be called from external shutdown triggers.
      */
     suspend fun close() {
-        mcpSdkServer?.close()
+        mcpSdkServers.forEach { it.close() }
     }
 
-    private fun registerCommonCleanup(server: Server) {
+    /** ONE cleanup action that closes every built [servers] (the name is pinned by ShutdownDrainOrderTest). */
+    private fun registerCommonCleanup(servers: List<Server>) {
         shutdownCoordinator.addCleanupAction("Close MCP Server") {
-            runBlocking { server.close() }
+            runBlocking { servers.forEach { it.close() } }
         }
     }
 
     private suspend fun runStdioTransport(
         server: Server,
         serverName: String,
-        toolCount: Int,
         readinessMarker: ReadinessMarker
     ): StartupOutcome {
         logger.info("Starting MCP server with stdio transport...")
@@ -323,7 +340,7 @@ class CurrentMcpServer(
                 outputStream = stdioOutput().asSink().buffered()
             )
 
-        registerCommonCleanup(server)
+        registerCommonCleanup(listOf(server))
 
         val done = Job()
 
@@ -356,7 +373,7 @@ class CurrentMcpServer(
             return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
         }
 
-        logger.info("Current (v3) MCP server running as '$serverName' v$version with $toolCount tools")
+        logger.info("Current (v3) MCP server running as '$serverName' v$version over stdio")
         try {
             done.join()
         } catch (e: Exception) {
@@ -376,8 +393,8 @@ class CurrentMcpServer(
 
     private suspend fun runHttpTransport(
         server: Server,
+        knowledgeServer: Server,
         serverName: String,
-        toolCount: Int,
         apiWiring: ApiWiring,
         serverConfig: ServerConfigSource,
         toolContext: ToolExecutionContext,
@@ -450,7 +467,7 @@ class CurrentMcpServer(
                 // installMcpStreamableHttp() and installRestApiRoutes() so the SAME production code
                 // path is exercised by tests (see McpStreamableHttpTransportTest). The MCP mount must
                 // come first: mcpStreamableHttp installs the SSE plugin that the events route reuses.
-                installMcpStreamableHttp(server, appConfig)
+                installMcpStreamableHttp(server, appConfig, knowledgeServer)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = eventBus,
@@ -480,7 +497,7 @@ class CurrentMcpServer(
 
         // Registered MCP-close first, then HTTP stop: the LIFO drain stops HTTP, closes MCP, then
         // (registered earlier still) the JWKS providers and the database.
-        registerCommonCleanup(server)
+        registerCommonCleanup(listOf(server, knowledgeServer))
         shutdownCoordinator.addCleanupAction("Stop HTTP Server") {
             if (httpStarted.get()) ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
             done.complete()
@@ -507,7 +524,7 @@ class CurrentMcpServer(
             return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
         }
 
-        logger.info("Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp with $toolCount tools")
+        logger.info("Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge)")
         try {
             done.join()
         } catch (e: Exception) {
@@ -517,27 +534,6 @@ class CurrentMcpServer(
         }
         return Started
     }
-
-    /**
-     * Configures the MCP SDK server with capabilities for tools and logging.
-     */
-    private fun configureServer(
-        serverName: String,
-        toolCount: Int,
-        toolNames: String
-    ): Server =
-        Server(
-            serverInfo =
-                Implementation(
-                    name = serverName,
-                    version = version
-                ),
-            options =
-                ServerOptions(
-                    capabilities = productionServerCapabilities()
-                ),
-            instructions = "Current (v3) MCP Task Orchestrator — $toolCount tools: $toolNames"
-        )
 }
 
 /**
@@ -563,6 +559,40 @@ internal fun productionServerCapabilities(): ServerCapabilities =
         tools = ServerCapabilities.Tools(listChanged = true),
         logging = JsonObject(emptyMap())
     )
+
+/** The `initialize` `instructions` of [profile]'s Server: one sentence, no tool-name list (plan section 3.1). */
+internal fun profileInstructions(profile: ToolProfile): String =
+    "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
+        "for its selects, operations and parameters."
+
+/**
+ * Builds the MCP [Server] of [profile] with every tool registered (all before any session connects, see
+ * [productionServerCapabilities]). The 4.0 [registry] tools registered are those visible in [profile]; the 3.x
+ * [legacyTools] (`manage_project_config`, `query_rules`, replaced by the orchestration-only `config` tool) are
+ * registered on the orchestration profile only.
+ */
+internal fun buildProfileServer(
+    profile: ToolProfile,
+    serverName: String,
+    version: String,
+    registry: ToolRegistry,
+    operationAdapter: McpOperationAdapter,
+    legacyAdapter: McpToolAdapter,
+    legacyTools: List<ToolDefinition>,
+    toolContext: ToolExecutionContext
+): Server {
+    val server =
+        Server(
+            serverInfo = Implementation(name = serverName, version = version),
+            options = ServerOptions(capabilities = productionServerCapabilities()),
+            instructions = profileInstructions(profile)
+        )
+    if (profile == ToolProfile.ORCHESTRATION) {
+        legacyAdapter.registerToolsWithServer(server, legacyTools, toolContext)
+    }
+    operationAdapter.register(server, registry, profile)
+    return server
+}
 
 /**
  * Builds the canonical list of MCP tools registered with the server.
@@ -631,6 +661,7 @@ internal fun checkRegistryDisjoint(
 internal fun Application.installMcpStreamableHttp(
     server: Server,
     appConfig: AppConfig = AppConfig.fromEnv(),
+    knowledgeServer: Server? = null,
 ) {
     installHostAllowlist(appConfig)
     install(ContentNegotiation) {
@@ -639,10 +670,31 @@ internal fun Application.installMcpStreamableHttp(
     install(CORS) {
         configureCors(appConfig)
     }
-    mcpStreamableHttp(enableDnsRebindingProtection = false) {
-        server
+    if (knowledgeServer == null) {
+        mcpStreamableHttp(enableDnsRebindingProtection = false) {
+            server
+        }
+        return
+    }
+    // Two profiles, ONE mount: a second mcpStreamableHttp call would install(SSE) again and throw
+    // DuplicatePluginException. The route takes an optional segment and the Server factory (called only for a new
+    // session) picks the profile from the exact path, so a session keeps the profile it was initialised with.
+    // Any other /mcp/<x> is a 404 at the Setup phase, right after the Host guard: it never reaches the mount (so it
+    // never falls back to the orchestration Server) and never reaches ApiBearerAuth (so it is not a 401).
+    intercept(ApplicationCallPipeline.Setup) {
+        val path = call.request.path()
+        if (path.startsWith("/mcp/") && path != MCP_KNOWLEDGE_PATH && path != "/mcp/") {
+            call.respond(HttpStatusCode.NotFound)
+            finish()
+        }
+    }
+    mcpStreamableHttp(path = "/mcp/{profile?}", enableDnsRebindingProtection = false) {
+        if (call.request.path() == MCP_KNOWLEDGE_PATH) knowledgeServer else server
     }
 }
+
+/** The exact, case-sensitive path of the knowledge-profile MCP endpoint. */
+internal const val MCP_KNOWLEDGE_PATH = "/mcp/knowledge"
 
 /**
  * Registers the REST API routes under `/api/v1` when the API is enabled. No-op when
@@ -702,7 +754,7 @@ internal fun Application.installRestApiRoutes(
                 //   ApiBearerAuth's header-only check. publicPaths matches on the request path with
                 //   NO query string (see AuthenticationPlugin.kt), so this exact entry also matches
                 //   "/api/v1/events?token=<...>".
-                publicPaths = publicPaths + "/mcp" + "/api/v1/events"
+                publicPaths = publicPaths + "/mcp" + MCP_KNOWLEDGE_PATH + "/api/v1/events"
             }
             serviceRoutes(
                 repositoryProvider = effectiveProvider,

@@ -116,6 +116,7 @@ class FixtureTools {
         SelectSpec.Single<GetReq, String>(
             name = "get",
             doc = "Read one thing by id.",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<GetReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             handler = { _, ctx, req ->
@@ -135,6 +136,7 @@ class FixtureTools {
         SelectSpec.Paged<ListReq, String>(
             name = "list",
             doc = "List things.",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<ListReq>(),
             handler = { _, ctx, req ->
                 seen += ctx
@@ -175,6 +177,7 @@ class FixtureTools {
             name = "create",
             doc = "Create a thing.",
             capability = ApiCapability.WRITE_ITEMS,
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<CreateReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->
@@ -193,6 +196,7 @@ class FixtureTools {
             name = "rename",
             doc = "Rename a thing.",
             capability = ApiCapability.WRITE_ITEMS,
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<RenameReq>(),
             execute = { _, ctx, req ->
                 seen += ctx

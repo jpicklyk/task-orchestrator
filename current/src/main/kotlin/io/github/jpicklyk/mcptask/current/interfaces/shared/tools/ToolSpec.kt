@@ -55,7 +55,7 @@ sealed class SelectSpec<R : Any, T>(
     class Single<R : Any, T>(
         name: String,
         doc: String,
-        profile: ToolProfile = ToolProfile.KNOWLEDGE,
+        profile: ToolProfile,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
@@ -73,7 +73,7 @@ sealed class SelectSpec<R : Any, T>(
     class Paged<R : Any, T>(
         name: String,
         doc: String,
-        profile: ToolProfile = ToolProfile.KNOWLEDGE,
+        profile: ToolProfile,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
@@ -142,7 +142,7 @@ class OpsToolSpec<R>(
 class OpSpec<E : Any, R>(
     val name: String,
     val doc: String,
-    val profile: ToolProfile = ToolProfile.KNOWLEDGE,
+    val profile: ToolProfile,
     val destructive: Boolean = false,
     val capability: ApiCapability,
     val request: KSerializer<E>,

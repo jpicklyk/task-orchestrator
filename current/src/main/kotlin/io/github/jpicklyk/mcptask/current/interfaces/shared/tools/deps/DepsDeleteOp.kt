@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -31,6 +32,7 @@ internal val depsDeleteOp =
                 "item (every edge touching it). An unknown id is not_found; a from/to or item that matches nothing deletes 0.",
         destructive = true,
         capability = ApiCapability.MANAGE_DEPENDENCIES,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DepsDeleteRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

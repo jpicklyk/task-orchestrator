@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
@@ -45,6 +46,7 @@ internal fun createItemOp(): OpSpec<CreateItemRequest, ItemWriteResult> =
         name = CreateItemOp.NAME,
         doc = "Create an item in queue.",
         capability = ApiCapability.WRITE_ITEMS,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<CreateItemRequest>(),
         errors =
             setOf(
