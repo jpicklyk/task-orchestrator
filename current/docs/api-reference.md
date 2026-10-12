@@ -88,7 +88,7 @@ lists. `clear` lists optional fields to set to null: `description`, `statusLabel
 
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
-in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself.
+in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself. Surviving items pinned to a deleted root's config are re-pinned first; a re-pin that would change a survivor's lifecycle class fails `invalid_transition` (`trigger` `repin`, `itemId` the survivor) and nothing is deleted.
 
 **Pins.** Every item is pinned to the config it resolves against: the server and root config versions that were the
 heads when the pin was taken, and the base schema (key and layer) its type resolved to under them. Its schema,
