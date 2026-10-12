@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.LinksTabl
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.javaUuidSqlite
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.utcTimestamp
@@ -38,7 +37,6 @@ import java.util.UUID
  *    DocumentsTable, document_id), LinksTable (depends on WorkItemsTable, root_item_id; its ends carry no FK)
  * 6. NotesTable (depends on WorkItemsTable)
  * 7. DependenciesTable (depends on WorkItemsTable)
- * 8. RoleTransitionsTable (depends on WorkItemsTable)
  *
  * Virtual tables (FTS5, follow their backing tables):
  * 9. work_items_fts_trigram (external-content over WorkItemsTable)
@@ -68,7 +66,6 @@ class DirectDatabaseSchemaManager(
             LinksTable,
             NotesTable,
             DependenciesTable,
-            RoleTransitionsTable,
         )
 
     // FTS5 virtual table DDL statements (external-content mode, SQLite >= 3.45)

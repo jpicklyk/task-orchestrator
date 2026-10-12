@@ -5,21 +5,24 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.testClaimService
-import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.toRoleTransition
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -50,7 +53,6 @@ class AdvanceServiceLeaseGateTest {
 
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
-    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
     private lateinit var advanceStores: AdvanceMockStores
     private lateinit var leaseRepo: LeaseStore
@@ -59,14 +61,12 @@ class AdvanceServiceLeaseGateTest {
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
         advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -107,7 +107,6 @@ class AdvanceServiceLeaseGateTest {
     ): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
             schemaResolver = { schema },
@@ -117,16 +116,25 @@ class AdvanceServiceLeaseGateTest {
             },
             resourceRegistryResolver = { registry },
             resourceLeasesEnforced = resourceLeasesEnforced,
-            unitOfWork = unscopedUnitOfWork(),
-            claimService = testClaimService(workItemRepo, leaseRepository, unscopedUnitOfWork())
+            unitOfWork = unit(),
+            claimService = testClaimService(workItemRepo, leaseRepository, unit())
         )
 
-    /** Captures the [RoleTransition] audit row written by the primary transition. */
-    private fun captureTransition(): io.mockk.CapturingSlot<RoleTransition> {
-        val slot = slot<RoleTransition>()
-        coEvery { roleTransitionRepo.create(capture(slot)) } returns mockk()
-        return slot
-    }
+    /** The event log the unit of work writes to: an applied transition is recorded as one `item.transitioned` row. */
+    private val events = InMemoryEventStore()
+
+    private fun unit(): UnitOfWork =
+        UnscopedUnitOfWork(
+            mockk<RepositoryProvider>(relaxed = true).also { every { it.eventStore() } returns events }
+        )
+
+    /** The credentials the primary transition recorded on its `item.transitioned` event. */
+    private fun recordedCredentials(): List<String> =
+        events
+            .all()
+            .single { it.type == DomainEvent.ITEM_TRANSITIONED }
+            .toRoleTransition()
+            .consumedCredentials
 
     private fun exclusive(
         key: String,
@@ -166,7 +174,6 @@ class AdvanceServiceLeaseGateTest {
     fun `no declared resources leaves caller credentialRefs untouched`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
             serviceWith().advanceSeeded(
                 advanceStores,
@@ -182,7 +189,7 @@ class AdvanceServiceLeaseGateTest {
 
             // Rung-1 behavior preserved: with no declarations and an empty registry there is no
             // set-membership check, so an arbitrary (well-formatted) label still passes through.
-            assertEquals(listOf("some-unregistered-label"), transition.captured.consumedCredentials)
+            assertEquals(listOf("some-unregistered-label"), recordedCredentials())
         }
 
     // ──────────────────────────────────────────────
@@ -255,7 +262,6 @@ class AdvanceServiceLeaseGateTest {
             assertEquals(45_000L, blocked.retryAfterMs)
             assertEquals(Role.WORK, blocked.targetRole)
             // Nothing was persisted — the transition never reached applyTransition.
-            coVerify(exactly = 0) { roleTransitionRepo.create(any()) }
         }
 
     @Test
@@ -281,14 +287,12 @@ class AdvanceServiceLeaseGateTest {
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val applyFailed = assertIs<AdvanceFailure.ApplyFailed>(failure.failure)
             assertTrue(applyFailed.message.contains("SQLITE_BUSY_SNAPSHOT"), "message should carry the store fault")
-            coVerify(exactly = 0) { roleTransitionRepo.create(any()) }
         }
 
     @Test
     fun `advisory requirement is never leased but IS derived into consumedCredentials`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
             val outcome =
                 serviceWith(requirements = listOf(advisory("shared-runner"))).advanceSeeded(
@@ -304,14 +308,13 @@ class AdvanceServiceLeaseGateTest {
 
             assertIs<AdvanceOutcome.Success>(outcome)
             coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
-            assertEquals(listOf("shared-runner"), transition.captured.consumedCredentials)
+            assertEquals(listOf("shared-runner"), recordedCredentials())
         }
 
     @Test
     fun `derived keys precede caller extras and duplicates collapse`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
             serviceWith(
                 requirements = listOf(exclusive("staging-db"), advisory("shared-runner")),
@@ -331,7 +334,7 @@ class AdvanceServiceLeaseGateTest {
 
             assertEquals(
                 listOf("staging-db", "shared-runner", "extra-cred"),
-                transition.captured.consumedCredentials
+                recordedCredentials()
             )
         }
 

@@ -32,8 +32,6 @@ class BaselineColumnCoverageTest {
                     "NULL by invariant since V17: the scrub NULLs every raw bearer proof and 3.16 never writes one " +
                     "(proofs are stored as actor_proof_sha256 / actor_proof_claims). Below V17 the dataset does seed " +
                     "raw proofs so the scrub is exercised; at the latest schema the value must be NULL.",
-                "role_transitions.actor_proof" to
-                    "NULL by invariant since V17, same as notes.actor_proof."
             )
 
         /**

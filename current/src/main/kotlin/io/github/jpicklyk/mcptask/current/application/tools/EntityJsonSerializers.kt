@@ -143,8 +143,8 @@ fun Dependency.toJson(): JsonObject =
  * responses expose only [io.github.jpicklyk.mcptask.current.domain.model.VerificationResult]
  * (status/verifier) as the non-secret signal that a proof was checked. Since migration V17, the
  * raw proof is never persisted at all — only forensic evidence (a SHA-256 hash and, when
- * VERIFIED, the verified JWT claims) is stored (see `SQLiteNoteRepository`/
- * `SQLiteRoleTransitionRepository`, `VerificationResult.proofSha256`/`proofClaims`), and that
+ * VERIFIED, the verified JWT claims) is stored (see `SQLiteNoteRepository` and the
+ * `item.transitioned` event payload, `VerificationResult.proofSha256`/`proofClaims`), and that
  * evidence is likewise never surfaced on the MCP surface — only on the REST admin view via
  * `verification.proof` (see `AttributionRedactor`, `Dtos.ProofEvidenceDto`).
  */

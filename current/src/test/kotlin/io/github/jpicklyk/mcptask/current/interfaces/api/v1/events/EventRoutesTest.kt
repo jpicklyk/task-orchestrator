@@ -318,7 +318,6 @@ class EventRoutesTest {
             val service =
                 AdvanceService(
                     workItemRepository = decorated.workItemRepository(),
-                    roleTransitionRepository = decorated.roleTransitionRepository(),
                     dependencyRepository = decorated.dependencyRepository(),
                     noteRepository = decorated.noteRepository(),
                     schemaResolver = { null },

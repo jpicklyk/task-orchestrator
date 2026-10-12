@@ -2,14 +2,15 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
+import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import java.time.Instant
@@ -26,11 +27,14 @@ internal const val P11_FAULT_LEASE_KEY = "p11-fault-db"
 
 internal const val P11_FAULT_TRAIT = "needs-p11-fault-db"
 
-/** Throws a plain [RuntimeException] on the [failOnNth] create() call after [arm]; passes everything else through. */
+/**
+ * Throws a plain [RuntimeException] on the [failOnNth] `item.transitioned` row appended after [arm] (the audit write
+ * of an applied transition); passes everything else through.
+ */
 internal class P11FailingTransitionStore(
-    private val delegate: TransitionStore,
+    private val delegate: EventStore,
     private val failOnNth: Int = 2,
-) : TransitionStore by delegate {
+) : EventStore by delegate {
     @Volatile var armed: Boolean = false
     private val calls = AtomicInteger()
 
@@ -43,14 +47,18 @@ internal class P11FailingTransitionStore(
         armed = false
     }
 
-    /** create() calls seen since the last [arm]. */
+    /** `item.transitioned` rows appended since the last [arm]. */
     val createCalls: Int get() = calls.get()
 
-    override suspend fun create(transition: RoleTransition): RoleTransition {
-        if (armed && calls.incrementAndGet() == failOnNth) {
-            throw RuntimeException("p11 injected plain fault on create #$failOnNth (item ${transition.itemId})")
+    override suspend fun append(records: List<EventRecord>): List<EventRecord> {
+        if (armed) {
+            for (record in records.filter { it.type == DomainEvent.ITEM_TRANSITIONED }) {
+                if (calls.incrementAndGet() == failOnNth) {
+                    throw RuntimeException("p11 injected plain fault on transition append #$failOnNth (item ${record.entityId})")
+                }
+            }
         }
-        return delegate.create(transition)
+        return delegate.append(records)
     }
 }
 
@@ -85,10 +93,10 @@ internal class P11FailingLeaseStore(
 /** A provider that hands out the given (wrapped) stores and delegates everything else. */
 internal class P11FaultProvider(
     private val delegate: RepositoryProvider,
-    private val transitions: TransitionStore,
+    private val transitions: EventStore,
     private val leases: LeaseStore,
 ) : RepositoryProvider by delegate {
-    override fun roleTransitionRepository(): TransitionStore = transitions
+    override fun eventStore(): EventStore = transitions
 
     override fun resourceLeaseRepository(): LeaseStore = leases
 }
@@ -107,7 +115,7 @@ internal fun p11FaultResolver(): EffectiveConfigResolver =
 internal class P11FaultRig(
     val raw: DefaultRepositoryProvider,
 ) {
-    val transitionStore = P11FailingTransitionStore(raw.roleTransitionRepository())
+    val transitionStore = P11FailingTransitionStore(raw.eventStore())
     val leaseStore = P11FailingLeaseStore(raw.resourceLeaseRepository())
     val provider: RepositoryProvider = P11FaultProvider(raw, transitionStore, leaseStore)
 
@@ -136,7 +144,7 @@ internal class P11FaultRig(
                     val current = raw.workItemRepository().getById(it.id)!!
                     P11ItemState(it.id, current.role, current.previousRole, current.statusLabel, current.roleChangedAt)
                 },
-            transitionRows = items.associate { it.id to raw.roleTransitionRepository().findByItemId(it.id, limit = 500).size },
+            transitionRows = items.associate { it.id to raw.transitionsOf(it.id).size },
             leases = items.associate { it.id to raw.resourceLeaseRepository().findActiveForItem(it.id).map { l -> l.resourceKey } },
             events = raw.eventStore().readAfter(0L, null, 100_000).map { it.seq to it.type },
         )

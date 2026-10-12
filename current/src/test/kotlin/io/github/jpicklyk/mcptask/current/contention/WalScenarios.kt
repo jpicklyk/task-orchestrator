@@ -61,7 +61,7 @@ internal object WalScenarios {
             assertEquals("invalid_transition", it.text("errorCode"), "a loser is evaluated on the committed state: $it")
         }
         assertEquals(Role.TERMINAL, d.role(item))
-        assertEquals(1, d.transitions(item).size, "one role_transitions row")
+        assertEquals(1, d.transitions(item).size, "one item.transitioned row")
         val rows = fx.rig.rowsAfter(mark)
         assertEquals(1, rows.transitioned().size, "one item.transitioned event: $rows")
         assertEquals(0, rows.rejections().size, "a table rejection records no row: $rows")
@@ -207,7 +207,7 @@ internal object WalScenarios {
             assertEquals(LEASE_RETRY_MS.toString(), c.text("retryAfterMs"), "$c")
             assertEquals(Role.QUEUE, d.role(contender))
             assertTrue(held.isEmpty(), "the holder release left no lease rows: $held")
-            assertEquals(0, d.transitions(contender).size, "a refused contender records no transition row")
+            assertEquals(0, d.transitions(contender).size, "a refused contender records no transition event")
             assertEquals(1, leaseRejected, "exactly one lease.rejected row")
         }
         d.freeLease(contender)

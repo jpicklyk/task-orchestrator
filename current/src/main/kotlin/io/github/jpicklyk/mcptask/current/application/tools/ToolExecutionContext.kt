@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
@@ -112,7 +111,6 @@ class ToolExecutionContext(
     private val advanceServiceFactoryLazy by lazy {
         AdvanceServiceFactory(
             workItemRepository(),
-            roleTransitionRepository(),
             dependencyRepository(),
             noteRepository(),
             repositoryProvider.resourceLeaseRepository(),
@@ -194,9 +192,6 @@ class ToolExecutionContext(
 
     /** Access to Dependency graph operations (synchronous, non-suspend). */
     fun dependencyRepository(): DependencyStore = repositoryProvider.dependencyRepository()
-
-    /** Access to RoleTransition audit trail operations. */
-    fun roleTransitionRepository(): TransitionStore = repositoryProvider.roleTransitionRepository()
 
     /** Access to the status label configuration service. */
     fun statusLabelService(): StatusLabelService = statusLabelService

@@ -38,7 +38,7 @@ import java.util.UUID
 /**
  * The 4.0 `items_read` tool (plan section 4.1, Q19, Q22): one select per file (`ItemsRead<Select>.kt`), assembled here,
  * so later items add a select by adding a file. Every select needs READ; `get`, `list`, `schema`, `search` and
- * `overview` are KNOWLEDGE-profile, `context`, `next` and `blocked` ORCHESTRATION-only (plan section 3.1).
+ * `overview` are KNOWLEDGE-profile, `context`, `next`, `blocked` and `history` ORCHESTRATION-only (plan section 3.1).
  *
  * Shared request fields (a name used by two selects) take their documentation from [ItemsReadDocs], so every select
  * generates the identical schema for them (the registry rejects a mismatch). The shared strings name only knowledge
@@ -68,6 +68,7 @@ object ItemsReadTool {
                 ItemsReadContext.select,
                 ItemsReadNext.select,
                 ItemsReadBlocked.select,
+                ItemsReadHistory.select,
             )
         )
 }

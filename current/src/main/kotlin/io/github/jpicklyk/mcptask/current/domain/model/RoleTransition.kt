@@ -4,8 +4,8 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Audit trail entry for a role change on a WorkItem.
- * Records the transition, trigger, and optional summary.
+ * One applied role change on a WorkItem: the in-memory value an advance result is built from. It is persisted as an
+ * `item.transitioned` event (the audit record), not as a row of its own.
  */
 data class RoleTransition(
     val id: UUID = UUID.randomUUID(),

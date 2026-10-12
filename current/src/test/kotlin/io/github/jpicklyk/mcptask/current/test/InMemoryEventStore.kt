@@ -1,8 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.EventPage
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
@@ -11,20 +14,33 @@ import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import java.time.Instant
 import java.util.UUID
 
 /**
  * An in-memory [EventStore] for tests over mocked repositories (no database, so nothing rolls back: tests of
- * rollback semantics use a real SQLite unit of work instead). Seqs start above [EventStore.SEQ_FLOOR].
+ * rollback semantics use a real SQLite unit of work instead). Seqs start above [EventStore.SEQ_FLOOR]; [seed] places
+ * rows at an explicit seq (a backfilled row sits below the floor). Mirrors the SQLite store's floor: [maxSeq] and
+ * [readAfter] never go below [EventStore.SEQ_FLOOR]. [itemTags] answers an entity's tag text for a tag-scoped
+ * [findByTypes] (null = the item is gone or untagged, so invisible to a tag-scoped caller).
  */
-class InMemoryEventStore : EventStore {
+class InMemoryEventStore(
+    private val itemTags: (UUID) -> String? = { null }
+) : EventStore {
     private val rows = ArrayList<EventRecord>()
 
     fun all(): List<EventRecord> = synchronized(rows) { rows.toList() }
+
+    /** Adds [records] at the seq they carry (history rows below the floor), keeping the list in seq order. */
+    fun seed(records: List<EventRecord>) {
+        synchronized(rows) {
+            rows.addAll(records)
+            rows.sortBy { it.seq }
+        }
+    }
 
     override suspend fun append(records: List<EventRecord>): List<EventRecord> =
         synchronized(rows) {
@@ -40,7 +56,8 @@ class InMemoryEventStore : EventStore {
         limit: Int
     ): List<EventRecord> =
         synchronized(rows) {
-            rows.filter { it.seq > afterSeq && (rootIds == null || it.rootId in rootIds) }.take(limit)
+            val from = maxOf(afterSeq, EventStore.SEQ_FLOOR)
+            rows.filter { it.seq > from && (rootIds == null || it.rootId in rootIds) }.take(limit)
         }
 
     override suspend fun latestOfType(
@@ -51,7 +68,48 @@ class InMemoryEventStore : EventStore {
             rows.filter { it.type == type && it.entityId in entityIds }.groupBy { it.entityId }.mapValues { (_, v) -> v.maxBy { it.seq } }
         }
 
-    override suspend fun maxSeq(): Long = synchronized(rows) { rows.lastOrNull()?.seq ?: EventStore.SEQ_FLOOR }
+    override suspend fun maxSeq(): Long = synchronized(rows) { maxOf(rows.lastOrNull()?.seq ?: EventStore.SEQ_FLOOR, EventStore.SEQ_FLOOR) }
+
+    override suspend fun findByEntity(
+        entityId: UUID,
+        types: Set<String>,
+        page: PageRequest,
+        since: Instant?,
+        until: Instant?
+    ): EventPage =
+        synchronized(rows) {
+            val hits =
+                rows
+                    .filter { it.entityId == entityId && it.type in types }
+                    .filter { since == null || !it.occurredAt.isBefore(since) }
+                    .filter { until == null || !it.occurredAt.isAfter(until) }
+                    .sortedByDescending { it.seq }
+            EventPage(hits.drop(page.offset).take(page.limit), hits.size)
+        }
+
+    override suspend fun findByTypes(
+        types: Set<String>,
+        since: Instant?,
+        until: Instant?,
+        scope: AccessScope,
+        page: PageRequest
+    ): EventPage =
+        synchronized(rows) {
+            val hits =
+                rows
+                    .filter { it.type in types }
+                    .filter { since == null || !it.occurredAt.isBefore(since) }
+                    .filter { until == null || !it.occurredAt.isAfter(until) }
+                    .filter { scope.rootIds == null || it.rootId in scope.rootIds!! }
+                    .filter { row ->
+                        scope.tagsInclude.isEmpty() ||
+                            itemTags(row.entityId)
+                                ?.split(',')
+                                ?.map { it.trim().lowercase() }
+                                ?.any { tag -> scope.tagsInclude.any { it.lowercase() == tag } } == true
+                    }.sortedByDescending { it.seq }
+            EventPage(hits.drop(page.offset).take(page.limit), hits.size)
+        }
 }
 
 /**
@@ -79,8 +137,6 @@ private class StoresOnlyProvider(
     override fun noteRepository(): NoteStore = unsupported()
 
     override fun dependencyRepository(): DependencyStore = unsupported()
-
-    override fun roleTransitionRepository(): TransitionStore = unsupported()
 
     override fun configStore(): ConfigStore = unsupported()
 

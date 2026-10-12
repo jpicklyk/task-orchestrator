@@ -258,44 +258,6 @@ components:
           type: string
           nullable: true
 
-    RoleTransitionDto:
-      type: object
-      required: [id, itemId, toRole, trigger, occurredAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        itemId:
-          type: string
-          format: uuid
-        fromRole:
-          type: string
-          nullable: true
-        toRole:
-          type: string
-        trigger:
-          type: string
-        statusLabel:
-          type: string
-          nullable: true
-        occurredAt:
-          type: string
-          format: date-time
-        actor:
-          $ref: "#/components/schemas/ActorClaimDto"
-        verification:
-          $ref: "#/components/schemas/VerificationDto"
-        consumedCredentials:
-          type: array
-          nullable: true
-          items:
-            type: string
-          description: >-
-            Opaque audit labels for credentials/resources this transition consumed — caller-supplied
-            credentialRefs unioned with any resource-lease keys the gate auto-derived. Omitted/null
-            when empty. NOT subject to API_REDACT_NOTE_ATTRIBUTION — visible to any READ caller,
-            unlike actor/verification on this same DTO.
-
     DependenciesDto:
       type: object
       required: [blocks, blockedBy, related]
@@ -1149,76 +1111,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
-
-  /items/{id}/transitions:
-    get:
-      summary: Role-transition audit history for an item
-      operationId: getItemTransitions
-      tags: [transitions]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Paginated transition history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/RoleTransitionDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /transitions:
-    get:
-      summary: Recent transitions across all items
-      operationId: listTransitions
-      tags: [transitions]
-      description: >-
-        Scope-filtered by ancestor chain for root_ids-scoped tokens. A scope.tags_include token is
-        additionally filtered to transitions on items carrying an allowed tag (item-level exact
-        match) — a tag scope matching nothing returns 200 with an empty page, never 403.
-
-        Scan cap: the underlying fetch is bounded at 1000 rows regardless of how many transitions
-        match `since`. Beyond that cap, pages come back truncated (hasMore reads false even though
-        older matching transitions exist past the scan limit). Narrow `since` rather than paging
-        deeper to stay under the cap.
-      parameters:
-        - name: since
-          in: query
-          schema:
-            type: string
-            format: date-time
-          description: Default 24 hours ago when absent or blank. An unparsable value returns 400 validation_error.
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Scope-filtered transition history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/RoleTransitionDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
 
   /config/schema:
     get:

@@ -203,7 +203,7 @@ internal class P11Driver(
 
     suspend fun reload(item: WorkItem): WorkItem = raw.workItemRepository().getById(item.id)!!
 
-    suspend fun transitions(item: WorkItem) = raw.roleTransitionRepository().findByItemId(item.id, limit = 500)
+    suspend fun transitions(item: WorkItem) = raw.transitionsOf(item.id)
 
     fun advanceParams(
         item: WorkItem,

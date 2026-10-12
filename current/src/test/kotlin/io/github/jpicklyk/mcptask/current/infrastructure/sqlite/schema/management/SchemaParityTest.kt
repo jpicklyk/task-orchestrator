@@ -199,7 +199,6 @@ class SchemaParityTest {
                 "work_items",
                 "notes",
                 "dependencies",
-                "role_transitions",
                 "config_versions",
                 "documents",
                 "document_versions",
@@ -209,7 +208,7 @@ class SchemaParityTest {
             )
         assertTrue(
             tables.containsAll(expectedAtLeast),
-            "all 10 tables (the V17 set with plan_documents re-homed by V24 and project_config by V25) must be covered, got $tables"
+            "all 9 tables (the V17 set with plan_documents re-homed by V24, project_config by V25 and role_transitions by V29) must be covered, got $tables"
         )
     }
 

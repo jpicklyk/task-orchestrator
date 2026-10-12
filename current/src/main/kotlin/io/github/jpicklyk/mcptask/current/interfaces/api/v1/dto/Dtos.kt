@@ -102,26 +102,6 @@ data class ProofEvidenceDto(
     val alg: String? = null,
 )
 
-/** DTO for a single role-transition row (append-only audit surface). */
-@Serializable
-data class RoleTransitionDto(
-    val id: String,
-    val itemId: String,
-    val fromRole: String?,
-    val toRole: String,
-    val trigger: String,
-    val statusLabel: String?,
-    val occurredAt: String,
-    val actor: ActorClaimDto?,
-    val verification: VerificationDto?,
-    /**
-     * Opaque credential/secret labels consumed by this transition (e.g. "vault/prod-db-password"),
-     * never raw secret material. Omitted (null) when empty. Deliberately NOT subject to attribution
-     * redaction — the labels themselves are not sensitive.
-     */
-    val consumedCredentials: List<String>? = null,
-)
-
 /** DTO for the combined dependencies view of a work item. */
 @Serializable
 data class DependenciesDto(

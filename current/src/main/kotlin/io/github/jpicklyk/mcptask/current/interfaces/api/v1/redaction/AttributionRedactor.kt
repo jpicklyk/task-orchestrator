@@ -89,29 +89,8 @@ class AttributionRedactor(
 }
 
 /**
- * Redacts actor attribution from [VerificationDto] context based on admin status.
- * (Standalone helper for routes that expose [io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto].)
- *
- * When [redactAttribution] is true and the caller lacks admin, the whole [VerificationDto] is
- * nulled. Otherwise it is shown, but [VerificationDto.proof] is stripped for a non-admin caller
- * regardless of [redactAttribution] — `verification.proof` is admin-only, independent of the
- * attribution-redaction toggle (mirrors the `AttributionRedactor.redact` NoteDto path).
- */
-fun redactVerification(
-    verification: VerificationDto?,
-    call: ApplicationCall,
-    redactAttribution: Boolean,
-): VerificationDto? {
-    val principal = call.attributes.getOrNull(ApiPrincipalKey)
-    val isAdmin = principal?.capabilities?.contains(ApiCapability.ADMIN) ?: false
-    if (redactAttribution && !isAdmin) return null
-    return stripProofUnlessAdmin(verification, isAdmin)
-}
-
-/**
  * `verification.proof` (hash + verified claims) is admin-only — independent of
- * `API_REDACT_NOTE_ATTRIBUTION`. Single home for that rule, shared by the note and transition
- * paths.
+ * `API_REDACT_NOTE_ATTRIBUTION`. Single home for that rule.
  */
 private fun stripProofUnlessAdmin(
     verification: VerificationDto?,

@@ -38,7 +38,7 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 12. [Endpoints - Notes (Write)](#12-endpoints---notes-write)
 13. [Endpoints — Dependencies](#13-endpoints--dependencies)
 14. [Endpoints — Resource Leases](#14-endpoints--resource-leases)
-15. [Endpoints — Transitions (Audit)](#15-endpoints--transitions-audit)
+15. [Endpoints — Transitions (Audit), moved to `items_read` `history`](#15-endpoints--transitions-audit-moved-to-items_read-history)
 16. [Endpoints — Search](#16-endpoints--search)
 17. [Endpoints — Config JSON Schema](#17-endpoints--config-json-schema)
 18. [Project Config (Per-Root), moved to the `config` tool](#18-project-config-per-root-moved-to-the-config-tool)
@@ -215,7 +215,7 @@ drift apart.
   dependencies, links, tags, text) before fusion and the cap, so a dropped relative is never named and
   never counted (a document is visible exactly when its root item is);
   `ancestors` stop at the caller's scope root and drop ancestors that fail `tags_include`
-- `GET /transitions` - a `tags_include` token sees only rows for items it is allowed to see
+- `items_read` `history` (the transition audit trail) - a root scope sees only its roots' rows and a `tags_include` token only rows for items it is allowed to see
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
@@ -232,7 +232,7 @@ to root) under `root_ids` is allowed only when the item itself is a listed root.
 
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
-`ancestors`, `GET /transitions`) gets `200 OK` with an empty or partially filtered result; `403` is
+`ancestors`, an `items_read` `history` page) gets `200 OK` with an empty or partially filtered result; `403` is
 reserved for a single item named directly.
 
 **Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
@@ -954,35 +954,17 @@ No pruning/retention in v1 — the table is append-only and grows with lease-eve
 
 ---
 
-## 15. Endpoints — Transitions (Audit)
+## 15. Endpoints — Transitions (Audit), moved to `items_read` `history`
 
-All require `READ`. `actor` and `verification` fields are redacted (null) for non-admin callers; admin callers see them subject to `API_REDACT_NOTE_ATTRIBUTION`. `verification.proof` (forensic hash + verified claims) requires `ADMIN`.
-
-### GET /items/{id}/transitions
-
-Per-item role-transition history (append-only audit log), paginated. Newest first (`transitionedAt` descending); accepts the standard `page` and `pageSize` parameters.
-
-**Response:** `200 OK` → `PageDto<RoleTransitionDto>`
-
-### GET /transitions
-
-Recent transitions across all items. Default window: last 24 hours.
-
-**Query parameters:**
-- `since` — ISO-8601 timestamp; default: 24 hours ago when absent or blank; an unparsable value returns `400 validation_error`
-- Standard pagination params
-
-Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check). If the scope lookup fails, every scoped row in that scan is dropped (fail closed) rather than returned unfiltered.
-
-**Scan cap:** the underlying fetch is bounded at 1000 rows (`minOf(offset + pageSize + 1, 1000)`)
-regardless of how many transitions actually occurred since `since`. If more than 1000 transitions
-match the window, pages beyond that cap come back truncated — `hasMore` reads `false` once the scan
-limit is hit even though older matching transitions exist beyond it. This is not reflected in
-`totalItems`/`hasMore` as a distinct signal, so a caller paging deep into a busy window can silently
-stop short of the true history. **Narrow `since` rather than paging deeper** — a tighter time window
-keeps the match count under the cap instead of walking a truncated scan.
-
-**Response:** `200 OK` → `PageDto<RoleTransitionDto>`
+`GET /items/{id}/transitions` and `GET /transitions` were removed in 4.0 (they answer `404`). The transition audit
+trail is the `history` select of `items_read`, called as `POST /ops/items_read` (section 20a) with
+`{"select": "history", "itemId": "<id>"}` for one item or `{"select": "history", "since": "<ISO-8601>"}` across
+every item the token may see. It reads the `item.transitioned` rows of the event log, newest first, with an exact
+`page.total`, `limit` 1 to 200 (default 50), and optional inclusive `since`/`until` bounds; there is no default time
+window and no scan cap. Rows that predate 4.0 were copied from `role_transitions` when the server first started on
+the new schema (migration V29) and carry `backfilled: true`. `actor` and `verification` follow the attribution rule
+of the notes reads (hidden unless the caller may see attribution); the proof hash and verified claims are never
+returned on any surface. See `api-reference.md`, `items_read`, for the entry shape.
 
 ---
 
@@ -1316,7 +1298,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 
-**`item.advanced` note:** This event is the projection of the transition row a role change records (via the `advance` tool, `items_write` `complete_tree`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
+**`item.advanced` note:** This event is the projection of the `item.transitioned` event a role change records (via the `advance` tool, `items_write` `complete_tree`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
 
 **Claim/release note:** A successful claim or release through the `advance` tool's `claim` and `release` ops (MCP or `POST /ops/advance`) emits `item.updated` for the claimed/released item -- and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item. A transition that ends a held claim (for example completing a claimed item) also emits `item.updated` for that item since 4.0.
 
@@ -1344,7 +1326,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 - `kind` = `"external"` (distinguishes API writes from MCP agent writes)
 - `parent` = `null`
 
-**Attribution redaction (applies to notes and transitions):**
+**Attribution redaction (applies to notes and the `items_read` `history` select):**
 - Non-admin callers: `actor` and `verification` fields are `null` in responses
 - Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION`
 - `verification.proof`: the evidence that replaced the raw proof — a SHA-256 hash of the proof

@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -61,7 +60,6 @@ import kotlin.test.assertTrue
 class AdvanceServiceApplyFailureLeaseTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
-    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
     private lateinit var advanceStores: AdvanceMockStores
     private lateinit var leaseRepo: LeaseStore
@@ -70,14 +68,12 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
         advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -114,7 +110,6 @@ class AdvanceServiceApplyFailureLeaseTest {
     ): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
             schemaResolver = schemaResolver ?: { schema },

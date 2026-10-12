@@ -229,7 +229,7 @@ segment, and the raw request path is never stored; `operation` is kept only when
 matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
 
 On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
-`ActorClaim` cap (the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says
+`ActorClaim` cap (the same bound as actor ids already stored in notes and in the `events` table's `principal_id`); `proof_status` says
 whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
@@ -835,8 +835,9 @@ and `create_work_tree` all omit the `proof` field from the `actor` object they e
 `verification` object (`status`/`verifier`) is the non-secret signal that a proof was checked.
 
 **Since migration `V17__Store_Actor_Proof_Evidence.sql`, the raw proof (the JWT) is not persisted
-at all.** Only forensic *evidence about* the proof is stored on the `notes` and `role_transitions`
-rows:
+at all.** Only forensic *evidence about* the proof is stored on the `notes` rows and in the `item.transitioned`
+event payload (`events.data`; before 4.0 it was the `role_transitions` table, whose rows migration V29 copied
+into `events`):
 - a lowercase hex SHA-256 hash of the proof's UTF-8 bytes, whenever a non-blank proof was
   supplied (independent of verification outcome), and
 - the cryptographically verified JWT claims (`iss`, `sub`, `aud`, `jti`, `iat`, `exp`, `kid`,
@@ -1091,7 +1092,7 @@ The identity resolution chain:
 | `work_items.claimed_by` | Current claim holder identity |
 | Audit notes (every write) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
 | `query_notes` body content | Audit notes are readable via standard note queries |
-| `notes.actor_proof_claims` / `role_transitions.actor_proof_claims` (V17) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
+| `notes.actor_proof_claims` / the `actorProofClaims` key of an `item.transitioned` event's `data` (V17; formerly `role_transitions.actor_proof_claims`) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
 Operators are responsible for choosing a `sub` value with appropriate sensitivity for their compliance regime. Pseudonymous identifiers (UUIDs, `did:web` identifiers, opaque session tokens) avoid PII concerns entirely. Email-as-`sub` is supported but creates compliance obligations downstream.
 

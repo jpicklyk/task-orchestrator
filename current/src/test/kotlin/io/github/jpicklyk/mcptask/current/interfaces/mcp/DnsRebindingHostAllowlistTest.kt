@@ -301,7 +301,13 @@ class DnsRebindingHostAllowlistTest {
     fun `S4 loopback Host with same-origin Origin reaches the REST API`() =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
-            val response = client.apiCall(HttpMethod.Get, "/api/v1/transitions", host = "localhost:3001", origin = "http://localhost:3001")
+            val response =
+                client.apiCall(
+                    HttpMethod.Get,
+                    "/api/v1/resources/leases",
+                    host = "localhost:3001",
+                    origin = "http://localhost:3001"
+                )
             assertEquals(HttpStatusCode.OK, response.status, "S4: loopback Host + same-origin Origin must reach /api/v1")
         }
 
@@ -313,7 +319,7 @@ class DnsRebindingHostAllowlistTest {
             val response =
                 client.apiCall(
                     HttpMethod.Get,
-                    "/api/v1/transitions",
+                    "/api/v1/resources/leases",
                     host = "localhost:3001",
                     origin = "https://dash.example.com",
                 )

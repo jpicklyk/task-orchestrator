@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -158,7 +159,7 @@ class GoldenV17UpgradeTest {
                 assertNotNull(note, "attributed note unreadable: $note")
                 val deps = provider.dependencyRepository().findByItemId(BaselineDataset.uuid("task1"))
                 assertTrue(deps.size >= 2, "task1 must have its BLOCKS and RELATES_TO edges, got ${deps.size}")
-                val transitions = provider.roleTransitionRepository().findByItemId(BaselineDataset.uuid("task2"))
+                val transitions = provider.transitionsOf(BaselineDataset.uuid("task2"))
                 assertTrue(transitions.size == 2, "task2 transitions unreadable: $transitions")
                 val config = provider.configStore().head(ConfigScope.ROOT, BaselineDataset.uuid("root"))
                 assertTrue(config != null, "project_config unreadable: $config")
