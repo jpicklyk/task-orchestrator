@@ -39,7 +39,8 @@ data class InFlightImpact(
 )
 
 /**
- * Which non-terminal items of a root's subtree would resolve a different schema if [candidate] were pushed and the
+ * Which non-terminal items of a root's subtree (lifecycle-free items included: a candidate can change their schema or
+ * flip their lifecycle) would resolve a different schema if [candidate] were pushed and the
  * items repinned. The "now" side is [EffectiveConfigResolver.forItem] (pin, else heads); the "after" side is the Q9
  * precedence walk over the candidate as the per-root layer and the current server head (what a repin would pin to).
  * A note counts as changed only when its key is added or removed, or its role or required flag changes.
@@ -68,7 +69,7 @@ class ConfigImpactService(
             val sample = ArrayList<AffectedItem>()
             var offset = 0
             while (true) {
-                val page = store.findByRoles(IN_FLIGHT, setOf(rootId), PAGE_SIZE, offset, scope)
+                val page = store.findByRoles(IN_FLIGHT, setOf(rootId), PAGE_SIZE, offset, scope, includeLifecycleFree = true)
                 for (item in page.items) {
                     val pin = item.pin
                     val groupKey: List<Any?> =

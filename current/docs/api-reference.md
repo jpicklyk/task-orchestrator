@@ -846,7 +846,7 @@ head (`effective` after `push` reads the new layer).
 including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
 `removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
-`affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked) in the root's subtree, visible
+`affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked, and lifecycle-free) in the root's subtree, visible
 to the caller, whose resolved schema would differ if the document were pushed and the items repinned. The comparison is
 each item's schema now (at its pin, or at the heads when unpinned) against the schema under the candidate over the
 current server head. A note counts as changed only when its key is added or removed or its `role` or `required` flag

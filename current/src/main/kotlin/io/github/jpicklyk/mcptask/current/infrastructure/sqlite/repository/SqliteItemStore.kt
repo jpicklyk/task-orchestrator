@@ -567,8 +567,9 @@ class SqliteItemStore(
         limit: Int,
         offset: Int,
         scope: AccessScope,
+        includeLifecycleFree: Boolean,
     ): ItemSlice {
-        if (roles.isEmpty() || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
+        if ((roles.isEmpty() && !includeLifecycleFree) || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
         return databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (rootIds != null) {
@@ -577,7 +578,8 @@ class SqliteItemStore(
                 conditions.add(resolved.toCondition())
             }
             conditions.addAll(visibilityConditions(scope) ?: return@readTx ItemSlice(emptyList(), 0))
-            conditions.add(WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) })
+            val roleMatch = WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) }
+            conditions.add(if (includeLifecycleFree) roleMatch or WorkItemsTable.role.isNull() else roleMatch)
             val condition = conditions.reduce { acc, op -> acc and op }
             val items =
                 WorkItemsTable

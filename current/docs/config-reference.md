@@ -99,7 +99,7 @@ when its canonical JSON differs. With no head (or a reset head) everything is `a
 failure) comes back in the result as `valid: false`, not as an error.
 
 A valid document also reports `affectedInFlight`: `{count, sample}` for the in-flight items (queue, work, review,
-blocked) of the root that the caller can see and whose resolved schema would change on a repin after the push. Pinned
+blocked, and lifecycle-free) of the root that the caller can see and whose resolved schema would change on a repin after the push. Pinned
 items are compared at their pin, unpinned items at the heads, against the candidate over the current server config. Only
 gate-relevant changes count (a note key added or removed, or its role or required flag changed, a different base schema
 or a different lifecycle mode); guidance and description edits do not. `sample` holds the first 20 item ids.
