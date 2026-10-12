@@ -13,8 +13,8 @@ const val UNOWNED_SEAT_BUCKET = "unowned"
 
 /**
  * Buckets [missingKeys] — required note keys still missing for some gate check — by the seat that
- * owns each one, for the `missingBySeat` response field served by `get_context`, `query_items`'s
- * REST gate route, and `advance_item`/REST-advance gate-failure payloads.
+ * owns each one, for the `missingBySeat` response field served by `items_read` `select=context` and the
+ * `advance` `transition` gate-failure payloads.
  *
  * Returns `null` when [schema] is `null` or not seat-aware ([WorkItemSchema.isSeatAware] false) —
  * a seat-less schema never serves a `missingBySeat` key (byte-identity with pre-A1 responses).

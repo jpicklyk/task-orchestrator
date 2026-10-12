@@ -31,7 +31,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property description Human-readable description of what the note should contain
  * @property guidance Optional detailed instructions for filling the note
  * @property maxLength Optional maximum note body length in characters. When set, every note write path
- *   (`notes_write` over MCP and `POST /api/v1/ops/notes_write`, `create_work_tree`) enforces it through the shared
+ *   (`notes_write` over MCP and `POST /api/v1/ops/notes_write`, `items_write` `create_tree`) enforces it through the shared
  *   note command service, after body/bodyFromFile resolution and CRLF-to-LF normalization, per the
  *   configured `note_limits.mode` (warn or reject). Null means no limit is enforced.
  * @property seat Name of the [io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition] that

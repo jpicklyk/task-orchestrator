@@ -23,9 +23,9 @@ object NoteSchemaJson {
 
     /**
      * Builds the `violations` array for every A2 surface OTHER than `gateStatus`
-     * (advance success, cascade events, 422 details, and advance_item/complete_tree failure AND
-     * applied entries): the key is emitted only when the list is non-null AND non-empty. Unlike
-     * [buildViolationsArray] (used solely by `gateStatus` / get_context / REST `/gate`, which
+     * (advance success, cascade events, `gate_blocked` details, and `advance` `transition` /
+     * `complete_tree` failure AND applied entries): the key is emitted only when the list is non-null AND non-empty. Unlike
+     * [buildViolationsArray] (used solely by `gateStatus` of `items_read` `select=context`, which
      * emits the key for a non-null EMPTY list too), an empty list here returns null so the caller's
      * `?.let { put(...) }` omits the key entirely.
      */

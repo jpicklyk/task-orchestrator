@@ -189,14 +189,13 @@ Each JSON line carries:
 **MDC correlation fields**, propagated via `kotlinx-coroutines-slf4j`'s `MDCContext` so they
 survive coroutine dispatcher hops:
 
-- MCP tool calls (`McpToolAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, a
-  server-generated `requestId` (UUID, per call — the MCP SDK handler has no JSON-RPC request id to
-  reuse), and `actorId` when the call's top-level `arguments.actor.id` is a JSON string (this is
-  self-reported and unverified — independent of `actor_authentication` verification). `actorId` is
-  length-capped at 128 chars (`MdcValues.bounded`, truncated with a `...[truncated]` marker) — the
-  cap applies only to this MDC copy, never to what tools themselves receive. Also `reqId`: the
-  call's 8-character correlation id (lowercase Crockford base32, 40 random bits), see "Call log and
-  `reqId`" below.
+- MCP tool calls (`McpOperationAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, `reqId`
+  (the call's 8-character correlation id, lowercase Crockford base32, 40 random bits; the MCP SDK handler
+  has no JSON-RPC request id to reuse, see "Call log and `reqId`" below), and `actorId` when the call's
+  top-level `arguments.actor.id` is a JSON string (this is self-reported and unverified - independent of
+  `actor_authentication` verification). `actorId` is length-capped at 128 chars (`MdcValues.bounded`,
+  truncated with a `...[truncated]` marker) - the cap applies only to this MDC copy, never to what tools
+  themselves receive.
 - REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
   `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
   `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line). `httpPath`
@@ -209,11 +208,11 @@ survive coroutine dispatcher hops:
 ### Call log and `reqId`
 
 Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
-(`_meta.reqId` on every MCP tool result, including errors; the `X-Req-Id` response header on REST),
+(`meta.reqId` in every response envelope and `_meta.reqId` on every MCP tool result, errors included; the `X-Req-Id` response header on REST),
 set as the MDC `reqId` key, stamped as `req_id` on every `events` row the call writes, and is the
 primary key of that call's row in the `call_log` table (migration V21). A row records who called
 (principal id, kind, proof status, session), what (surface `mcp`/`rest`, tool or the REST route
-template `METHOD /api/v1/<route>` exactly as declared in routing (for example `GET /api/v1/items/{id}/schema`), `operation`,
+template `METHOD /api/v1/<route>` exactly as declared in routing (for example `GET /api/v1/items/{id}`; a `POST /api/v1/ops/{tool}` call records the registry tool name instead), `operation` (the select or op name),
 target ids and versions, boolean/`limit` request shape), the
 outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
 and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
@@ -326,7 +325,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
 | `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
 | `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match,X-Client-Host` | Comma-separated request headers. |
-| `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID,Retry-After` | Response headers JS may read. `Retry-After` is exposed by default so browser dashboards can read the resource-lease contention backoff hint directly off `POST /items/{id}/advance`'s `409` response (see Resource Leasing below) without falling back to the `details.retryAfterMs` body field. |
+| `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID,Retry-After,X-Req-Id` | Response headers JS may read. `Retry-After` is exposed by default so browser dashboards can read the resource-lease contention backoff hint directly off the `409 resource_unavailable` response of `POST /api/v1/ops/advance` (see Resource Leasing below) without falling back to the `error.retryAfterMs` body field; `X-Req-Id` carries the call's correlation id. |
 | `CORS_MAX_AGE_SECONDS` | CORS enabled | `3600` | Preflight cache duration. |
 | `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Last-Event-ID replay window, in event ids (seqs of the durable `events` table): a resume further behind the newest event gets `sync.lost` `buffer_evicted`. `0` = no replay. |
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
@@ -356,7 +355,7 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 When `API_AUTH_MODE=jwks`, a JWT reaching a REST write route has already passed full validation in `ApiBearerAuth` — so its audit-trail verification status is always `VERIFIED`, and every `DEGRADED_MODE_POLICY` (including `reject`) trusts a `VERIFIED` result. REST write endpoints therefore never actually return `401 verification_failed` in practice, regardless of `DEGRADED_MODE_POLICY`. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
 
-This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result — that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+This is different from the MCP actor `reject` policy, which governs MCP tool calls (the `advance` tool's `claim`, `release`, `heartbeat` and `transition` ops) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result - that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
 
 ### Client-side config sync (SessionStart hook)
 
@@ -380,13 +379,14 @@ the happy path — a per-root config read failing with a transient database erro
 from "no per-root config for this root." `PerRootConfigService` never falls back to the mounted
 global config on a read error: it serves that root's last-known-good cached config instead, without
 evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL — the very
-next successful read refreshes it — and is held per service instance, so MCP and each REST route
-maintain their own independent cache. A root this instance has never successfully read before (a
+next successful read refreshes it - and is held by the one `EffectiveConfigResolver` the server builds
+at startup, so MCP and REST share a single cache. A root this process has never successfully read before (a
 cold cache, e.g. right after a restart, before any request has resolved that root's config) has
-nothing to serve on a read error and fails closed: the `advance` tool fails the element with `unavailable` (`retryAfterMs` 1000) and `complete_tree` reports a transient
-`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST
-`gate` route responds `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
-Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is orthogonal to
+nothing to serve on a read error and fails closed, and so does a read made inside a unit of work
+(every write and the `items_read` `context` preview). The failure is the `unavailable` error
+(kind `shedding`, `retryAfterMs` 1000): per element for a write batch, for the whole call otherwise
+- see the [Response envelope and Error catalog](api-reference.md#response-envelope) of the API
+reference and [api-rest.md](api-rest.md) section 6 for the exact shapes. This is orthogonal to
 `config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
 back to when the DB itself is transiently unreachable.
 
@@ -406,8 +406,9 @@ against a bearer/jwks server, a `TASK_ORCHESTRATOR_API_TOKEN` scoped with the `r
 token needed against an unauthenticated server). Without a reachable API URL it fails open — no
 subagent is ever blocked. See
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md) for full
-hook behavior and [api-rest.md §9](api-rest.md#9-endpoints--items-read) for the `GET
-/items/{id}/gate` route it calls once per subagent stop.
+hook behavior. The hook calls the removed `GET /items/{id}/gate` route once per subagent stop; its 4.0
+replacement is `items_read` `select: context` (`data.gateStatus`, see [api-rest.md section 10](api-rest.md#10-removed-3x-routes)),
+and the hook is re-pointed in the plugin work, so until then it fails open against a 4.0 server.
 
 ---
 
@@ -415,13 +416,13 @@ hook behavior and [api-rest.md §9](api-rest.md#9-endpoints--items-read) for the
 
 ## Scope
 
-This guide covers **server-side configuration**: identity policy, capacity tuning, observability, and lifecycle. The **agent/client side** — calling `claim_item`, attaching verified `actor.proof` JWTs, sequencing claim/heartbeat/release, retrying on `already_claimed`, integrating with your identity provider and audit infrastructure — is the implementer's responsibility.
+This guide covers **server-side configuration**: identity policy, capacity tuning, observability, and lifecycle. The **agent/client side** - calling the `advance` tool's `claim` op, attaching verified `actor.proof` JWTs, sequencing claim/heartbeat/release, retrying on `claim_held`, integrating with your identity provider and audit infrastructure - is the implementer's responsibility.
 
 ### The Bundled Claude Code Plugin Is Not a Fleet Driver
 
-The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance_item` called directly by each agent) — not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
+The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance` `transition` called directly by each agent) - not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
 
-- The bundled orchestration context and skills do not reference `claim_item` and assume unclaimed items
+- The bundled orchestration context and skills do not reference the `advance` `claim` op and assume unclaimed items
 - The bundled `enforce-actor-attribution` hook checks for an `actor` field on writes but does not enforce claim ownership precedence
 - Subagent dispatch templates do not include claim acquisition steps
 
@@ -431,9 +432,9 @@ Treat the bundled plugin's behavior in claim mode as undefined. Build your own c
 
 TO publishes the following as the integration seam — the surface fleet implementers build against:
 
-- **MCP tools** — `claim_item` (acquire/heartbeat/release), `advance_item` (with ownership enforcement on claimed items), `get_context(itemId)` (operator diagnostic with full claim detail), `query_items(claimStatus=...)` (filtered discovery, identity-redacted), `get_next_item(includeClaimed=...)` (work discovery)
+- **MCP tools** - `advance` ops `claim`, `heartbeat` and `release` (acquire/refresh/release), `advance` `transition` (with ownership enforcement on claimed items), `items_read` `context` with an `itemId` (operator diagnostic with full claim detail), `items_read` `list` with `claimStatus` (filtered discovery, identity-redacted), `items_read` `next` with `includeClaimed` (work discovery)
 - **Configuration** — `.taskorchestrator/config.yaml` `actor_authentication` block (server policy)
-- **Audit log** — actor claims persisted on every write regardless of any flag, queryable via `query_notes`
+- **Audit log** - actor claims persisted on every write regardless of any flag, queryable via `notes_read` and `items_read` `history`
 
 Anything else (specific skill instructions, hook behavior, orchestration-context conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
 
@@ -443,9 +444,9 @@ Anything else (specific skill instructions, hook behavior, orchestration-context
 
 Choose the topology that fits your workload. The four canonical patterns are listed from simplest to most powerful. The **hybrid pattern (Scenario D) is the recommended default for feature-based development work**.
 
-### Scenario A — Pure Orchestration (no claim_item)
+### Scenario A - Pure Orchestration (no claims)
 
-A single orchestrator agent owns all dispatch decisions. It calls `advance_item` to move children through the pipeline. No `claim_item` is used.
+A single orchestrator agent owns all dispatch decisions. It calls `advance` `transition` to move children through the pipeline. No `claim` op is used.
 
 **Characteristics:**
 - Simple. No identity configuration required.
@@ -453,11 +454,11 @@ A single orchestrator agent owns all dispatch decisions. It calls `advance_item`
 - Chain continuity is implicit: the orchestrator transitions A→terminal then immediately dispatches B. No inter-agent race possible.
 - Works for single-dev or low-concurrency setups.
 
-**Ancestor-claim behavior:** Not applicable — `claim_item` is never called.
+**Ancestor-claim behavior:** Not applicable - `claim` is never called.
 
 ### Scenario B — Pure Claim, Flat Items (no parent→child relationships)
 
-Independent items with no hierarchical relationship. Fleet agents each call `claim_item(selector=...)` and work items from a shared queue.
+Independent items with no hierarchical relationship. Fleet agents each call `advance` `claim` with a `select` and work items from a shared queue.
 
 **Characteristics:**
 - Horizontally scalable. Many agents drain the queue independently.
@@ -470,7 +471,7 @@ Independent items with no hierarchical relationship. Fleet agents each call `cla
 
 Dependent items (A→B→C) where each item is independently claimed from the queue by competing fleet agents.
 
-**Anti-pattern warning:** This topology has a fundamental limitation — the **post-completion race**. When A completes and its dependency on B is cleared, B becomes claimable by every fleet agent simultaneously. Whichever agent calls `claim_item(selector=...)` first wins B, regardless of which agent has the most context from working A. The system architecture's answer to context continuity is notes as the handoff contract, but notes cannot capture an agent's working mental model.
+**Anti-pattern warning:** This topology has a fundamental limitation - the **post-completion race**. When A completes and its dependency on B is cleared, B becomes claimable by every fleet agent simultaneously. Whichever agent calls `advance` `claim` with a `select` first wins B, regardless of which agent has the most context from working A. The system architecture's answer to context continuity is notes as the handoff contract, but notes cannot capture an agent's working mental model.
 
 **Ancestor-claim behavior:** While A is in progress and claimed, B (a child of A) is protected from other agents' broad selectors. However, once A reaches terminal, A's claim is a stale record — the protection expires. B then becomes immediately available to all fleet agents (post-completion race). For tightly-coupled chains, use Scenario D instead.
 
@@ -478,24 +479,24 @@ Dependent items (A→B→C) where each item is independently claimed from the qu
 
 ### Scenario D — Hybrid (RECOMMENDED): Claim at Parent, Orchestrate Sub-tree
 
-Fleet agents claim at the **feature level** (top-level items). Each claiming agent then orchestrates its own sub-tree using `advance_item` — not `claim_item` — for children.
+Fleet agents claim at the **feature level** (top-level items). Each claiming agent then orchestrates its own sub-tree using `advance` `transition` - not `claim` - for children.
 
 ```
 Fleet agent work loop:
-  claim_item(selector={tags:"feature", role:"queue"})  → claim a feature
-    → advance_item(trigger="start") on the feature
-    → advance_item(trigger="start") on child A      [orchestrate, no claim_item]
+  advance claim {select: {tags: ["feature"], role: "queue"}}   -> claim a feature
+    -> advance transition {itemId: feature, trigger: "start"}
+    -> advance transition {itemId: A, trigger: "start"}         [orchestrate, no claim]
     → ... wait for A to complete ...
-    → advance_item(trigger="start") on child B      [orchestrate, no claim_item]
-    → advance_item(trigger="complete") on feature
-  claim_item(releases=[featureId])                    → release
+    -> advance transition {itemId: B, trigger: "start"}         [orchestrate, no claim]
+    -> advance transition {itemId: feature, trigger: "complete"}
+  advance release {itemId: feature}                             -> release
 ```
 
 **Why this is the recommended topology:**
 
 1. **No post-completion race.** Sub-items are never exposed to the claim-eligibility pool. The orchestrating agent transitions A→terminal then advances B immediately; no other agent ever sees B in a claimable state.
 2. **Full chain-context continuity.** One agent owns the entire feature sub-tree. Notes from A are in its context when it starts B. No inter-agent handoff required.
-3. **Sub-tree protection (selector mode only).** The ancestor-claim filter runs on the read side, in selector mode and `get_next_item`, so a `claim_item(selector={role:"queue"})` call from a competing agent will skip children whose ancestor is claimed. It does not protect ID-mode claims: `claim_item` by explicit id only checks the target item's own claim state, so an agent holding a stale id from before the ancestor was claimed can still claim a child directly. Claims coordinate cooperating agents that go through the selector/recommender path — they do not authorize.
+3. **Sub-tree protection (selector mode only).** The ancestor-claim filter runs on the read side, in selector mode and `items_read` `next`, so an `advance` `claim` with `select: {role: "queue"}` from a competing agent will skip children whose ancestor is claimed. It does not protect ID-mode claims: `claim` by explicit `itemId` only checks the target item's own claim state, so an agent holding a stale id from before the ancestor was claimed can still claim a child directly. Claims coordinate cooperating agents that go through the selector/recommender path - they do not authorize.
 4. **TTL-as-recovery-vector.** If the orchestrating agent crashes, the feature's claim TTL expires. Recovery agents can then claim the feature and read `session-tracking` notes to resume orchestration. No manual intervention needed.
 
 **Recommended TTL guidance for hybrid pattern:**
@@ -506,7 +507,7 @@ Fleet agent work loop:
 | Medium feature (4–10 sub-tasks, 1–4 hours) | 3600s (1 hour) | 1800s (30 min) |
 | Large feature (10+ sub-tasks, multi-hour) | 7200s–14400s | TTL/4 |
 
-Heartbeat: re-call `claim_item(claims=[{itemId: featureId}])` at the recommended cadence while orchestration is in progress. Each heartbeat refreshes `claimExpiresAt` without changing `originalClaimedAt`.
+Heartbeat: call `advance` `heartbeat` with the feature's `itemId` at the recommended cadence while orchestration is in progress. Each heartbeat refreshes `claimExpiresAt` without changing `originalClaimedAt`.
 
 **Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features. Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter skips sub-items in selector mode), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
 
@@ -734,11 +735,11 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 
 1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true` in the clients' workspace or user config (the plugin hook reads it; the server does not). Clients that don't pass `actor` will fail writes once attribution enforcement is active.
 2. **Stage 1 → Stage 2.** Configure the JWKS source and have clients begin attaching `actor.proof` JWTs. Stage 2 is forgiving — clients without `actor.proof` continue to work via self-reported fallback. Use this stage to confirm verification metadata in responses (`verification.status: VERIFIED` for upgraded clients).
-3. **Stage 2 → Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `rejected_by_policy` on `claim_item` and on `advance_item` for claimed items.
+3. **Stage 2 -> Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `unauthenticated` on the `advance` tool's `claim`, `release` and `heartbeat` ops and on `transition` for claimed items.
 
 ### Rolling Back
 
-Each stage is reversible. Loosening `degraded_mode_policy` (e.g., `reject` → `accept-cached`) immediately allows previously-rejected operations to succeed. Disabling actor authentication entirely reverts to default-mode semantics — claims still work, but `advance_item` no longer enforces ownership.
+Each stage is reversible. Loosening `degraded_mode_policy` (e.g., `reject` -> `accept-cached`) immediately allows previously-rejected operations to succeed. Disabling actor authentication entirely reverts to default-mode semantics - claims still work, but `advance` `transition` no longer enforces ownership.
 
 Existing claim records persist across policy changes. If a claim was placed under Stage 2 and the policy is loosened to Stage 1, the claim remains valid; ownership comparison still uses whatever identity scheme was in effect when the claim was placed.
 
@@ -778,7 +779,7 @@ Config key `actor_authentication.verifier.jti_replay_protection` (default `false
 
 - Every presented JWT must carry a non-blank `jti` claim; a token without one is rejected.
 - The `(iss, jti)` pair is tracked in an in-memory, single-instance cache (retained through `exp + 60s`, inclusive — the same instant through which the verifier still accepts the token); a second presentation of the same pair within that window is rejected with `reason: "jti replay detected"`, `failureKind: policy`.
-- **Off by default** because the same proof is legitimately re-verified more than once inside a single MCP call (e.g. `advance_item`'s idempotency-key lookup plus its per-transition verification, or `complete_tree`'s per-item verification) and reused across heartbeats/retries by design (see `claim_item` heartbeats above). TO installs a per-call memo so repeated verification of the *same* (proof, claim) pair within one call is never treated as a replay — but **a client that enables this flag must mint a fresh `proof` for every distinct call, including retries and heartbeats**, or those calls will be rejected as replays. This is separate from the idempotency cache: a fresh proof presented with the *same* `requestId` still hits the `IdempotencyCache` and is re-verified — the idempotency key, not the proof, is what makes that retry idempotent — so an idempotent retry with a fresh proof is not rejected as a jti replay.
+- **Off by default** because the same proof is legitimately re-verified more than once inside a single MCP call (a batch verifies the actor once per element, for example one `advance` `transition` call over several items) and reused across heartbeats/retries by design (see `advance` `heartbeat` above). TO installs a per-call memo so repeated verification of the *same* (proof, claim) pair within one call is never treated as a replay - but **a client that enables this flag must mint a fresh `proof` for every distinct call, including retries and heartbeats**, or those calls will be rejected as replays. This is separate from idempotency: the `idempotencyKey` of a batch element, not the proof, is what makes a retry idempotent, so an idempotent retry must still carry a fresh proof when this flag is on.
 - This protection only has an observable effect under `degraded_mode_policy: reject` — `accept-cached` and `accept-self-reported` fall back to the self-reported `actor.id` on a REJECTED verification (see [Identity Configuration — `auth.degradedModePolicy`](#identity-configuration--authdegradedmodepolicy) above), so a replay rejection is silently absorbed under those policies.
 - Not persisted or shared across instances: a restart, or a second server instance behind a load balancer, reopens the replay window for tokens still inside their `max_token_lifetime_seconds` cap. This is a single-instance mitigation, not a distributed one.
 - **Bounded capacity, best-effort:** the cache holds at most 10,000 `(iss, jti)` entries. When a new entry must be admitted at capacity, expired entries are purged first; if that still isn't enough, the oldest-inserted entry is evicted (rate-limited WARN logged) — regardless of which issuer it belongs to. Under a flood of distinct valid proofs large enough to evict a still-live entry before its retention window elapses, that entry's token can be replayed. Treat this as a best-effort, per-instance control, not a hard guarantee — raise the cache's capacity or lower `max_token_lifetime_seconds` if this is a concern for your issuer mix.
@@ -824,17 +825,17 @@ JWKS key material is cached for `cache_ttl_seconds` (default: 300). When a cache
 | Fresh hit (within TTL) | JWT verified, identity = `sub` | Same | Same |
 | Expired, refresh succeeds | JWT verified against fresh JWKS, identity = `sub` | Same | Same |
 | Expired, refresh fails, `stale_on_error: true`, prior fetch exists | Stale cache served, JWT verified, status = `VERIFIED` with `verifiedFromCache: true` metadata, identity = `sub` | Same | Same (verification still succeeds; stale-cache is invisible to the policy gate) |
-| Expired, refresh fails, `stale_on_error: false` or no prior fetch | Status = `UNAVAILABLE`; identity = self-reported `actor.id` | Identity = self-reported `actor.id` | Operation rejected with `rejected_by_policy` |
+| Expired, refresh fails, `stale_on_error: false` or no prior fetch | Status = `UNAVAILABLE`; identity = self-reported `actor.id` | Identity = self-reported `actor.id` | Operation rejected with `unauthenticated` |
 
 Stale-cache success is reported as `VERIFIED` (with `verifiedFromCache: true` and `cacheAgeSeconds: N` in `verification.metadata`) — operators can scrape that metadata to alert on prolonged JWKS outages.
 
 ### JWT `exp` vs Claim TTL
 
-JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but it does affect subsequent operations that re-verify identity (`claim_item` heartbeat, `advance_item` on the claimed item).
+JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but it does affect subsequent operations that re-verify identity (`advance` `heartbeat`, `advance` `transition` on the claimed item).
 
 When a presented JWT is past `exp`, the verifier returns a non-`VERIFIED` status. The resolution chain then applies:
 - Under `accept-cached`: identity falls back to the self-reported `actor.id`. If that value matches the claim's existing `claimedBy`, the operation succeeds. Holders that consistently pass the same self-reported `actor.id` they used at claim time will continue to operate even after their JWT expires.
-- Under `reject`: the operation is rejected with `rejected_by_policy`.
+- Under `reject`: the operation is rejected with `unauthenticated`.
 
 For long-running work under `reject`, size JWT lifetime to comfortably exceed the heartbeat cadence so the holder always presents a fresh token. Under `accept-cached`, JWT expiry is non-fatal as long as the holder's `actor.id` is stable.
 
@@ -842,9 +843,9 @@ The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime �
 
 ### Proof handling
 
-`actor.proof` is never returned in an MCP response — `manage_notes`, `query_notes`, `advance_item`,
-and `create_work_tree` all omit the `proof` field from the `actor` object they echo back; the
-`verification` object (`status`/`verifier`) is the non-secret signal that a proof was checked.
+`actor.proof` is never returned in an MCP response - no tool echoes it: the `actor` objects that
+`notes_read` and `items_read` `history` return carry only `id`, `kind` and `parent`, and the `verification`
+object (`status`, `verifier`, `reason`) is the non-secret signal that a proof was checked.
 
 **Since migration `V17__Store_Actor_Proof_Evidence.sql`, the raw proof (the JWT) is not persisted
 at all.** Only forensic *evidence about* the proof is stored on the `notes` rows and in the `item.transitioned`
@@ -855,8 +856,8 @@ into `events`):
 - the cryptographically verified JWT claims (`iss`, `sub`, `aud`, `jti`, `iat`, `exp`, `kid`,
   `alg`) — only when the proof was `VERIFIED`.
 
-Over REST, this evidence is exposed as `verification.proof` and is visible only to a caller with
-the `ADMIN` capability — independent of `API_REDACT_NOTE_ATTRIBUTION`. `ActorClaimDto` carries no
+This evidence is stored for forensics only: no MCP tool or REST route returns it, `ADMIN` included
+(3.x exposed it as `verification.proof` to `ADMIN`), and `ActorClaimDto` carries no
 proof field at all; the historical opt-out mechanisms for this behavior were removed after their
 one-release deprecation window (see CHANGELOG.md) and are now ignored like any unrecognized
 include value or env variable.
@@ -1054,8 +1055,8 @@ At 30 agents with a steady work rate: approximately 30–60 transitions/minute +
 ### Recommended Ceiling
 
 **A single SQLite instance realistically supports approximately 50–150 independent polling agents** under steady workload. Past that, write lock saturation becomes the bottleneck. Symptoms:
-- Agents frequently receive `SQLITE_BUSY` or `TRANSIENT` kind errors from tool calls
-- `advance_item` latency grows beyond 500ms per call
+- Agents frequently receive `unavailable` (kind `shedding`) errors from tool calls
+- `advance` latency grows beyond 500ms per call
 - `DATABASE_BUSY_TIMEOUT_MS` at 30s still produces timeout errors
 
 These are signals to partition the work, not to increase the timeout further.
@@ -1067,7 +1068,7 @@ The cleanest fleet partition is by work tree:
 - Instance B handles feature containers N–Z
 - Each agent targets a specific instance based on its assignment
 
-Agents use `parentId` scoping on `get_next_item(parentId=...)` to restrict their search to their assigned subtree, avoiding cross-instance work stealing.
+Agents use `parentId` scoping on `items_read` `next` (`parentId`) to restrict their search to their assigned subtree, avoiding cross-instance work stealing.
 
 ---
 
@@ -1085,7 +1086,7 @@ The `claimedBy` field on a `WorkItem` is an uninterpreted opaque string. The ser
 
 ### JWKS-Verified Identity Override
 
-When a JWKS verifier is configured and the `actor.proof` JWT is valid, the server uses the JWT `sub` claim as the trusted identity. This overrides any `agentId` parameter on individual claim entries.
+When a JWKS verifier is configured and the `actor.proof` JWT is valid, the server uses the JWT `sub` claim as the trusted identity. The verified identity, not a caller-supplied value, becomes the claim holder.
 
 Under **DID trust** (`did_allowlist`/`did_pattern` configured), the verifier additionally binds `sub` to `iss` (see [`require_sub_match`](#require_sub_match)), so the identity used here is the verified `did:web` DID — the same value whether or not `require_sub_match` is set. Under plain (non-DID) JWKS verification, this override applies only when `require_sub_match: true`, since `sub` is otherwise not read.
 
@@ -1093,7 +1094,7 @@ The identity resolution chain:
 1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy` (under DID trust: the DID, bound equal to `iss`)
 2. `actor.proof` missing/invalid, `degradedModePolicy=accept-cached` → use self-reported `actor.id`
 3. `actor.proof` missing/invalid, `degradedModePolicy=accept-self-reported` → use self-reported `actor.id`
-4. `actor.proof` missing/invalid, `degradedModePolicy=reject` → reject the operation (`rejected_by_policy`)
+4. `actor.proof` missing/invalid, `degradedModePolicy=reject` -> reject the operation (`unauthenticated`)
 
 ### `claimedBy` and PII
 
@@ -1103,7 +1104,7 @@ The identity resolution chain:
 |---|---|
 | `work_items.claimed_by` | Current claim holder identity |
 | Audit notes (every write) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
-| `query_notes` body content | Audit notes are readable via standard note queries |
+| `notes_read` body content | Audit notes are readable via standard note reads |
 | `notes.actor_proof_claims` / the `actorProofClaims` key of an `item.transitioned` event's `data` (V17; formerly `role_transitions.actor_proof_claims`) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
 Operators are responsible for choosing a `sub` value with appropriate sensitivity for their compliance regime. Pseudonymous identifiers (UUIDs, `did:web` identifiers, opaque session tokens) avoid PII concerns entirely. Email-as-`sub` is supported but creates compliance obligations downstream.
@@ -1122,21 +1123,21 @@ The server intentionally restricts where `claimedBy` identity is visible. This d
 
 | Surface | Claim data exposed |
 |---|---|
-| `get_context(itemId)` | Full claim detail: `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired` |
+| `items_read` `context` with an `itemId` | Full claim detail (`claimDetail`): `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired` |
 | `advance` `claim` op success result | Own claim metadata only: `claimedAt`, `expiresAt`, `originalClaimedAt` |
-| `advance` `claim` op `claim_held` error | `expiresAt` and `retryAfterMs` only — competing agent identity never disclosed |
-| `get_next_item(includeClaimed=true)` | `isClaimed: boolean` per item only — no identity |
-| `query_items(search, claimStatus=...)` | `isClaimed: boolean` per item only — no identity |
-| `query_items(overview, global)` | `claimSummary: { active, expired, unclaimed }` per root — counts only |
-| `get_context()` health-check | `claimSummary: { active, expired }` globally — counts only |
+| `advance` `claim` op `claim_held` error | `detail.expiresAt` and `retryAfterMs` only - competing agent identity never disclosed |
+| `items_read` `next` with `includeClaimed: true` | `isClaimed: boolean` per item only - no identity |
+| `items_read` `list` with `claimStatus` | The filter only: entries carry no claim data |
+| `items_read` `overview` (global) | `claimSummary: { active, expired, unclaimed }` per root - counts only |
+| `items_read` `context` without an `itemId` (health view) | `claimSummary: { active, expired, unclaimed }` - counts only |
 
-`get_context(itemId)` is the operator diagnostic tool. All other surfaces use count-only or boolean signals.
+`items_read` `context` with an `itemId` is the operator diagnostic. All other surfaces use count-only or boolean signals.
 
 ---
 
 ## Resource Leasing
 
-Resource leasing is a **separate primitive from `claim_item`**, deliberately: a claim leases a work
+Resource leasing is a **separate primitive from the `advance` `claim` op**, deliberately: a claim leases a work
 *item* to a single actor; a resource lease serializes access to a shared *external* resource
 (a staging slot, a test database, a deploy credential, a fleet-wide deployment mutex) across
 whichever items declare it. An agent can hold a work-item claim and one or more resource leases
@@ -1166,8 +1167,8 @@ Default TTL is **3600 seconds** (1 hour), configurable per resource key up to a 
 trait's `ttlSeconds` (precedence: `requirement.ttlSeconds` > `registry.defaultTtlSeconds` > 3600,
 clamped to `[1, 86400]`). This is a materially longer default than the work-item claim TTL (900s) —
 size it to the resource, not the item: a resource lease should comfortably outlast the WORK phase
-of the item holding it, since there is no lease heartbeat/renewal call (unlike `claim_item`, which
-agents heartbeat explicitly). A lease that expires while the holding item is still legitimately in
+of the item holding it, since there is no lease heartbeat/renewal call (unlike a claim, which
+agents heartbeat explicitly with `advance` `heartbeat`). A lease that expires while the holding item is still legitimately in
 WORK does not get cleaned up automatically — the item keeps working, but a contending item could
 then acquire the "expired" key out from under it (a lost-exclusivity edge case; size TTL generously
 enough that this is a non-event in practice).
@@ -1202,7 +1203,7 @@ REST-only, by design (see Non-Goals in the implementation plan: no MCP acquire/r
 
 **Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add
 `ADMIN` to see `acquiredByActorId`) lists every active lease with its `holderItemId` and
-`expiresAt`. Cross-reference `holderItemId` against `get_context(itemId=<that-uuid>)` (MCP) to
+`expiresAt`. Cross-reference `holderItemId` against `items_read` `context` with that `itemId` (MCP) to
 confirm the holder is actually dead (stale `roleChangedAt`, no recent transitions) before force-
 releasing — a live holder that gets force-released will simply lose its lease silently; there is no
 notification back to the holder.
@@ -1224,7 +1225,7 @@ logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the v
 
 ## Observability Gaps
 
-As of v3.4, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration, no `/metrics` HTTP path, and no structured event stream.
+As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE, see [api-rest.md](api-rest.md) section 21).
 
 Fleet operators should treat this as a known gap when planning production rollouts.
 
@@ -1232,12 +1233,12 @@ Fleet operators should treat this as a known gap when planning production rollou
 
 | Signal | How to access |
 |---|---|
-| Active claim count | `get_context()` → `claimSummary.active` |
-| Expired claim count | `get_context()` → `claimSummary.expired` |
-| Per-root claim breakdown | `query_items(operation="overview")` → `claimSummary` per root item |
-| Stalled items (missing required notes) | `get_context()` → `stalledItems` |
+| Active claim count | `items_read` `context` (health view) -> `claimSummary.active` |
+| Expired claim count | `items_read` `context` (health view) -> `claimSummary.expired` |
+| Per-root claim breakdown | `items_read` `overview` -> `claimSummary` per root item |
+| Stalled items (missing required notes) | `items_read` `context` (health view) -> `stalled` |
 | Recent role transitions | `items_read` select `history` (`since`/`until`, optional `itemId`) |
-| Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `query_notes` and `get_context` session-resume mode |
+| Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `notes_read` and `items_read` `history` |
 
 The audit log of persisted actor claims is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
 
@@ -1261,30 +1262,31 @@ Lifecycle and edge-case behaviors that operators encounter once a claim-mode fle
 
 ### Atomic Claim Acquisition (Selector Mode)
 
-Fleet agents can eliminate the **user-facing** race window inherent in the two-call `get_next_item → claim_item(itemId=...)` pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match in a single MCP call. (A much smaller server-side window between recommend and claim remains and surfaces as `already_claimed` — typically rare in practice.)
+Fleet agents can eliminate the **user-facing** race window inherent in the two-call `items_read` `next` -> `advance` `claim` (by `itemId`) pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match in a single MCP call. (A much smaller server-side window between recommend and claim remains and surfaces as `claim_held` - typically rare in practice.)
 
 ```json
 {
-  "claims": [{
-    "selector": { "orderBy": "oldest", "priority": "high" },
-    "ttlSeconds": 900
+  "ops": [{
+    "op": "claim",
+    "select": { "orderBy": "oldest", "priority": "high" },
+    "ttlSeconds": 900,
+    "idempotencyKey": "<fresh key per iteration>"
   }],
-  "actor": { "id": "worker-pod-12", "kind": "subagent" },
-  "requestId": "<fresh UUID per iteration>"
+  "actor": { "id": "worker-pod-12", "kind": "subagent" }
 }
 ```
 
-`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When nothing matches the selector filters at all, agents receive `outcome: "queue_empty"` with `kind: "permanent"` — the queue is genuinely drained, no point retrying the same filters soon. When items match but every one is claimed, ancestor-claimed, or dependency-blocked, agents instead receive `outcome: "none_eligible"` with `kind: "transient"`, a `retryAfterMs` hint, and an aggregate `excluded` breakdown — signal to back off and retry rather than idle for good.
+`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When nothing matches the selector filters at all, the element is ok with `claimed: false` and no `reason` - the queue is genuinely drained, no point retrying the same filters soon. When items match but every one is claimed, ancestor-claimed, or dependency-blocked, the element is ok with `claimed: false`, a `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and an aggregate `excluded` breakdown - signal to back off and retry rather than idle for good.
 
-The filter shape accepted by `claim_item.selector` is identical to the `get_next_item` filter parameters — both tools share the same underlying eligibility logic.
+The `select` filters of the `claim` op are a subset of the `items_read` `next` filters, and both share the same eligibility rules.
 
 ### Graceful Drain
 
 There is no built-in drain command. The intended sequence to stop a TO instance with active claims:
 
 1. Stop dispatching new work to agents talking to this instance (orchestration-side, outside TO).
-2. Let in-flight claims complete naturally. Agents call `claim_item(releases=[...])` after `advance_item(trigger="complete")`, or skip the release and let TTL elapse.
-3. Monitor `get_context()` → `claimSummary.active` until it reaches zero, or until residual claims age past their TTL into `claimSummary.expired`.
+2. Let in-flight claims complete naturally. Agents call `advance` `release` after `advance` `transition` with `trigger: "complete"` (a transition into `terminal` also clears the claim), or skip the release and let TTL elapse.
+3. Monitor `items_read` `context` (health view) -> `claimSummary.active` until it reaches zero, or until residual claims age past their TTL into `claimSummary.expired`.
 4. Stop the server.
 
 If you stop the server while claims are active, no data is lost — claim records persist in the database. On the next startup, expired claims are filtered at read time as usual; non-expired claims will reach their TTL and become reclaimable.
@@ -1301,11 +1303,11 @@ Claims are per-instance. Agents do not cross-claim across partitioned TO instanc
 
 ### `actor.parent` in Fleet Mode
 
-When an external dispatcher (not a TO subagent) spawns workers, set `actor.parent` to a stable identifier that ties workers back to their dispatcher. The audit log preserves the value verbatim and it is queryable via `query_notes` body content. TO does not interpret the value — it is a string for downstream correlation.
+When an external dispatcher (not a TO subagent) spawns workers, set `actor.parent` to a stable identifier that ties workers back to their dispatcher. The audit log preserves the value verbatim and it is queryable via `notes_read` body content. TO does not interpret the value - it is a string for downstream correlation.
 
 ### Reopen and Claim TTL
 
-If a terminal item is reopened (`advance_item(trigger="reopen")`) while the original claim TTL is still alive, the original holder retains ownership. Other agents see `already_claimed` until the TTL elapses or the holder explicitly releases. To reopen and reassign in one motion, call `claim_item(releases=[...])` first, then `advance_item(trigger="reopen")`, then have the new holder claim.
+A transition into `terminal` clears the claim (see "Does completing or cancelling release the claim?" below), so an item reopened with `advance` `transition` (`trigger: "reopen"`) always starts unclaimed: any agent can claim it, and there is no original holder to release first.
 
 ---
 
@@ -1313,30 +1315,30 @@ If a terminal item is reopened (`advance_item(trigger="reopen")`) while the orig
 
 Common operator scenarios when running a multi-agent fleet against the claim mechanism.
 
-### Repeated `already_claimed` on the same item
+### Repeated `claim_held` on the same item
 
-An agent retrying a claim and getting `already_claimed` back-to-back is **expected** behavior — another agent holds the item and retry will not change that until the existing TTL elapses or the holder explicitly releases.
+An agent retrying a claim and getting `claim_held` back-to-back is **expected** behavior - another agent holds the item and retry will not change that until the existing TTL elapses or the holder explicitly releases.
 
 | Symptom | Recommended response |
 |---|---|
-| `retryAfterMs` < ~10s | Pick a different unclaimed item via `get_next_item`. Holder is actively working. |
+| `retryAfterMs` < ~10s | Pick a different unclaimed item via `items_read` `next`. Holder is actively working. |
 | `retryAfterMs` close to full TTL | Holder either just claimed or just heartbeated. Pick a different item. |
-| Same item, repeated retries, never resolves | Use `get_context(itemId)` to read `claimDetail.originalClaimedAt`. If the value is hours old, suspect a crashed holder — see "Stale `originalClaimedAt`" below. |
+| Same item, repeated retries, never resolves | Use `items_read` `context` with the `itemId` to read `claimDetail.originalClaimedAt`. If the value is hours old, suspect a crashed holder - see "Stale `originalClaimedAt`" below. |
 
-`already_claimed` never discloses the competing agent's identity by design (see Tiered Claim Disclosure above). Use `get_context(itemId)` for full diagnostics.
+`claim_held` never discloses the competing agent's identity by design (see Tiered Claim Disclosure above). Use `items_read` `context` with the `itemId` for full diagnostics.
 
-### `rejected_by_policy` on `claim_item` or `advance_item`
+### `unauthenticated` from the `advance` tool under `reject`
 
 This outcome means `degradedModePolicy=reject` is configured and the caller's actor proof did not produce a fully-verified identity (the verifier returned `ABSENT`, `REJECTED`, or `UNAVAILABLE`).
 
 **Recovery checklist:**
 
 1. Check the verifier configuration — `oidc_discovery` URL or `jwks_uri` must be reachable from the server.
-2. Inspect the `verification.metadata` object on the failing call's response — `failureKind` (`crypto | claims | policy | network | internal`) tells you which layer rejected.
+2. Read the error `message`, which names the verification status and reason, and the verification metadata - `failureKind` (`crypto | claims | policy | network | internal`) tells you which layer rejected.
 3. If `failureKind=network`, the JWKS endpoint is unreachable. Either restore connectivity or temporarily lower `degradedModePolicy` to `accept-cached` so the stale-cache fallback can serve.
 4. If `failureKind=crypto` or `claims`, the JWT itself is invalid — check `iss`, `aud`, and signing key alignment with the verifier's `algorithms` allowlist.
 
-`rejected_by_policy` is a **batch-level** rejection on `claim_item`: if one item in the batch fails policy, none of the claims succeed. Releases in the same call are not attempted.
+The rejection concerns the call's actor, so every element of the call that needs a verified identity fails `unauthenticated` (alone in a non-atomic call; with `atomic: true` the first failure rolls the whole call back).
 
 ### Stale `originalClaimedAt` — diagnosing crashed holders
 
@@ -1349,7 +1351,7 @@ This outcome means `degradedModePolicy=reject` is configured and the caller's ac
 | Hours/days old, `claimExpiresAt` in the past | Agent crashed mid-work. Claim is passively expired; any agent can now claim it. |
 | Hours/days old, `claimExpiresAt` still being refreshed | Agent is alive but stuck in a long-running operation, or the heartbeat cadence is too aggressive. Investigate the holder's logs. |
 
-Expired claims are filtered at read time — `get_next_item()` will surface items whose holders crashed once their TTL has elapsed. Nothing is cleared: the claim columns stay as they were (so `claimStatus=expired` and the health-check expired counts keep their meaning), and an hourly sweep, an advance that evaluates the item and a contender's claim each record one `claim.expired` event for the lapsed claim (see [Fleet-wide expired-claim sweep](#fleet-wide-expired-claim-sweep)).
+Expired claims are filtered at read time - `items_read` `next` will surface items whose holders crashed once their TTL has elapsed. Nothing is cleared: the claim columns stay as they were (so `claimStatus=expired` and the health-check expired counts keep their meaning), and an hourly sweep, an advance that evaluates the item and a contender's claim each record one `claim.expired` event for the lapsed claim (see [Fleet-wide expired-claim sweep](#fleet-wide-expired-claim-sweep)).
 
 ### Heartbeat scheduling — implementation patterns
 
@@ -1361,26 +1363,26 @@ The recommended cadence is **TTL/2** (450s for the 900s default). This matches t
 - **As a coroutine/task scheduled at TTL/2.** Simpler to reason about, but the agent must guarantee the timer fires while it's actually progressing — a paused or blocked agent that lets the timer fire anyway is silently extending a stale claim.
 - **Avoid** background-only timers that fire regardless of work progress. Tying the heartbeat to forward progress is what gives crash recovery its meaning.
 
-**Cross-restart behavior:** A re-launched agent process does not preserve its prior claim. After restart, call `claim_item` again — if the prior TTL has not elapsed, the re-claim succeeds (refreshing TTL, preserving `originalClaimedAt`); if it has, the item may have been picked up by another agent and you'll receive `already_claimed`.
+**Cross-restart behavior:** A re-launched agent process does not preserve its prior claim. After restart, call `advance` `claim` again - if the prior TTL has not elapsed, the re-claim succeeds (refreshing TTL, preserving `originalClaimedAt`); if it has, the item may have been picked up by another agent and you'll receive `claim_held`.
 
 ### Does completing or cancelling release the claim?
 
-**Yes.** `advance_item(trigger="complete" | "cancel")` — and any other transition, path or cascade that lands the item in TERMINAL — clears `claimedBy`, `claimedAt`, `claimExpiresAt` and `originalClaimedAt` as part of the same transition (`complete_tree` and the REST advance route behave the same). A terminal item therefore carries no claim, and `reopen` always starts it unclaimed.
+**Yes.** `advance` `transition` with `trigger: "complete"` or `"cancel"` - and any other transition, path or cascade that lands the item in TERMINAL - clears `claimedBy`, `claimedAt`, `claimExpiresAt` and `originalClaimedAt` as part of the same transition (`items_write` `complete_tree` and `POST /api/v1/ops/advance` behave the same). A terminal item therefore carries no claim, and `reopen` always starts it unclaimed.
 
 The clear is recorded as a `claim.released` event with reason `cleared`; if the claim had already lapsed it is recorded as `claim.expired` instead (a lapsed claim is never reported as released).
 
-Calling `claim_item(releases=[{itemId}])` before completing is not needed for claim hygiene; it only makes an early release explicit in the audit trail.
+Calling `advance` `release` before completing is not needed for claim hygiene; it only makes an early release explicit in the audit trail.
 
 ### Fleet-wide expired-claim sweep
 
 Operators who want to inventory expired claims (e.g., during incident review) can run:
 
-```
-query_items(operation="search", claimStatus="expired")
+```json
+{ "select": "list", "claimStatus": "expired" }
 ```
 
-Results include only `isClaimed: boolean` per item — identity remains hidden. To get holder identity for a specific stuck item, drill in with `get_context(itemId)`, which is the only surface that exposes `claimDetail.claimedBy`.
+(`items_read`.) Entries carry no claim data - identity remains hidden. To get holder identity for a specific stuck item, drill in with `items_read` `context` and its `itemId`, which is the only surface that exposes `claimDetail.claimedBy`.
 
 No cleanup action is required for correctness. The data is informational — it tells you which agents likely crashed and which work items are now available for re-claim.
 
-**Expiry events.** The server reports expiry in the `events` table (audit rows; they are not streamed over SSE). A claim whose TTL has elapsed (`claimExpiresAt <= now`) gets exactly one `claim.expired` row (`holder`, `expiresAt`), written by whichever of these notices it first: an agent that claims, releases or re-claims over it, a transition (`advance_item`, `complete_tree`, REST advance) of that item that commits, or the hourly sweep that also runs once at server start. The claim columns are **not** cleared by this, so the inventory above is unchanged. Lapsed resource leases are different: the sweep, or a contender's acquire, removes the lapsed row (its history interval closes as `expired`) and records one `lease.expired` row (`key`, `expiresAt`). When a lapsed claim or lease is overwritten, cleared or removed, the row is `*.expired` rather than `claim.released` / `lease.released`. Read-only tools never write, so they never record expiry; the sweep covers items nobody touches. The detector is whoever runs the sweep: rows written by the scheduled sweeper carry no principal, while a `sweepExpired` call made inside a request records that request's principal as the detector (the event is still `*.expired`, never `released`). A sweep failure is logged at WARN and never stops the server.
+**Expiry events.** The server reports expiry in the `events` table (audit rows; they are not streamed over SSE). A claim whose TTL has elapsed (`claimExpiresAt <= now`) gets exactly one `claim.expired` row (`holder`, `expiresAt`), written by whichever of these notices it first: an agent that claims, releases or re-claims over it, a transition (`advance` `transition`, `items_write` `complete_tree`) of that item that commits, or the hourly sweep that also runs once at server start. The claim columns are **not** cleared by this, so the inventory above is unchanged. Lapsed resource leases are different: the sweep, or a contender's acquire, removes the lapsed row (its history interval closes as `expired`) and records one `lease.expired` row (`key`, `expiresAt`). When a lapsed claim or lease is overwritten, cleared or removed, the row is `*.expired` rather than `claim.released` / `lease.released`. Read-only tools never write, so they never record expiry; the sweep covers items nobody touches. The detector is whoever runs the sweep: rows written by the scheduled sweeper carry no principal, while a `sweepExpired` call made inside a request records that request's principal as the detector (the event is still `*.expired`, never `released`). A sweep failure is logged at WARN and never stops the server.

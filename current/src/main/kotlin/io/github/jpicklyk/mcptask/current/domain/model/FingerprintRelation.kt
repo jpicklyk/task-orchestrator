@@ -6,7 +6,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * [io.github.jpicklyk.mcptask.current.application.port.ConfigStore.classifyFingerprint]
  * and consumed by [io.github.jpicklyk.mcptask.current.application.service.ConfigService.push]
  * (rejects a push classified [SUPERSEDED] unless `force: true`) and surfaced read-side by
- * `GET /roots/{rootId}/config?fingerprint=...` and the MCP `manage_project_config` `get` operation.
+ * the `config` tool's `get` op with a `fingerprint`.
  */
 enum class FingerprintRelation {
     /** Matches the root's current stored fingerprint — the caller's local copy is up to date. */

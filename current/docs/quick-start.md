@@ -1,5 +1,7 @@
 # Quick Start: MCP Task Orchestrator
 
+> **4.0 notice.** The server contract changed in 4.0 (new tool names, call shapes and response envelope). The call examples below still show the 3.x shapes and are being rewritten with the 4.0 plugin; the 4.0 contract is in the [API Reference](./api-reference.md).
+
 MCP Task Orchestrator gives AI agents persistent, structured task tracking that survives across sessions. Instead of loading your entire project state into context on every prompt, agents read and write a shared graph of `WorkItem` entities — keeping context lean and work visible.
 
 > **Working across multiple projects?** Set up one persistent server with the REST API enabled, and

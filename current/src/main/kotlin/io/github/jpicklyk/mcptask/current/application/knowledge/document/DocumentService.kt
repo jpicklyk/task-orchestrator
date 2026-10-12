@@ -195,7 +195,7 @@ class DocumentService(
     /**
      * Records that [adoptedByItemId] adopted the PLAN document [slug] under [rootId]: inserts the `adopted_by` link
      * (document -> item) and records `document.adopted`, in one write unit (joining the caller's unit, so a composite
-     * such as `create_work_tree` commits or rolls the adoption back with its tree). Returns the (unchanged) document.
+     * such as `items_write` `create_tree` commits or rolls the adoption back with its tree). Returns the (unchanged) document.
      * Errors: `invalid_request` ([kind] is not PLAN), `not_found` (no such document), `duplicate` (already adopted).
      */
     suspend fun adopt(

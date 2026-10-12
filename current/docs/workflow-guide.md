@@ -1,5 +1,7 @@
 # v3 MCP Task Orchestrator — Workflow Guide
 
+> **4.0 notice.** The server contract changed in 4.0 (new tool names, call shapes and response envelope). The call examples in this guide still show the 3.x shapes and are being rewritten with the 4.0 plugin; the 4.0 contract is in the [API Reference](./api-reference.md).
+
 This guide covers the role-based workflow, note schema system, dependency blocking, and efficient query patterns for v3 MCP Task Orchestrator.
 
 ---
@@ -606,25 +608,9 @@ Returns items blocked by unsatisfied dependencies and items explicitly in `block
 get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 ```
 
-### Cascade Behavior in `advance_item`
+### Cascade Behavior
 
-`advance_item` automatically cascades role transitions up the hierarchy. Every cascade is evaluated by the same transition policy as a direct advance, applies only under the parent's `auto` lifecycle (never under `manual` or `permanent`), and commits in the SAME transaction as the child's transition: if a cascade cannot be applied (a persistence fault), the whole advance fails and nothing is persisted.
-
-**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This applies to the immediate parent only — it does not recurse further up the ancestor chain — and is skipped when the parent has an unmet blocking dependency (`dependencyBlocked`), its current-phase required notes are missing (`gateBlocked`), or a declared resource lease is contended (`resourceBlocked`). See [`advance_item`](./api-reference.md#advance) for the full cascade contract.
-
-**Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain. It is suppressed (`applied: false`, and the climb stops) when the parent is `blocked` (`roleBlocked`), has an unmet blocking dependency (`dependencyBlocked` + `blockers`), or has unfilled required notes (`gateBlocked`); a cancel-originated cascade bypasses only the note gate.
-
-**Reopen cascade (child TERMINAL → QUEUE):** When a child item is reopened under a terminal parent, the parent is automatically reopened to WORK, unless it has an unmet blocking dependency (`dependencyBlocked`) or a contended resource (`resourceBlocked`). This only applies to the immediate parent — no recursion.
-
-All cascade types appear in `cascadeEvents` in the response:
-
-```json
-{
-  "cascadeEvents": [
-    { "itemId": "feat-uuid", "title": "Auth Feature", "previousRole": "queue", "targetRole": "work", "applied": true }
-  ]
-}
-```
+A transition can re-evaluate the item's immediate parent in the same transaction (a start cascade moves a queued parent into `work`, a terminal cascade completes a parent whose children are all terminal and climbs while each ancestor qualifies, a reopen cascade reopens a terminal parent), and a cascade stopped by a gate is reported with its reason rather than failing the child's transition. The rules (lifecycle, gates, suppression reasons, what is and is not reported) are specified once, in the `advance` section of the API reference: [Cascades](./api-reference.md#advance).
 
 ### Unblock Reporting in `advance_item`
 

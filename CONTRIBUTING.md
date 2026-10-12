@@ -93,10 +93,10 @@ We follow **conventional commits** style:
 
 **Examples**:
 ```
-feat(tools): add get_next_task tool for work prioritization
+feat(tools): add items_read next select for work prioritization
 
-Implements smart task recommendation based on priority and complexity.
-Filters out blocked tasks automatically.
+Implements ranked pick-up candidates based on priority and complexity.
+Filters out blocked and claimed items automatically.
 
 Closes #42
 ```
@@ -104,7 +104,7 @@ Closes #42
 ```
 fix(dependencies): prevent circular dependency creation
 
-Add cycle detection in CreateDependencyTool to prevent infinite loops.
+Add cycle detection in the deps_write create op to prevent infinite loops.
 
 Fixes #53
 ```
@@ -133,13 +133,13 @@ Fixes #53
 - Use meaningful variable and function names
 - Add KDoc comments for public APIs
 - Keep functions focused and small
-- Use dependency injection via `ToolExecutionContext`
+- Handlers receive collaborators through the one `ToolExecutionContext` (`env`); do not construct services inline
 
 **Architecture**:
 - Follow the layer model — domain → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
-- Tools should extend `BaseToolDefinition`
+- A tool is a `ToolSpec` of selects or ops registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`); its request classes live in `application/api/<area>/`
 - Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist),
   with known pre-existing violations tracked in the checked-in, two-way-ratcheted baseline
   `current/src/test/resources/architecture/layering-baseline.txt` — new violations fail the test;
@@ -150,14 +150,13 @@ Fixes #53
 See the `add-component` skill (`.claude/skills/add-component/SKILL.md`) for the full step-by-step checklist, including the tool-documentation single-source policy.
 
 **Summary**:
-- [ ] Extend `BaseToolDefinition`
-- [ ] Define clear parameter and output schemas
-- [ ] Implement `validateParams()` with proper validation
-- [ ] Implement `execute()` with business logic
-- [ ] Handle `Result<T>` from repositories properly
-- [ ] Add comprehensive tests (happy path, failure/error cases, and edge cases)
-- [ ] Register in `buildMcpTools()` (`current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/mcp/CurrentMcpServer.kt`)
-- [ ] Document in `current/docs/api-reference.md`
+- [ ] Write the request class with `@Doc` on every field (`current/src/main/kotlin/.../application/api/<area>/`)
+- [ ] Add one select/op file with its name, `doc`, profile, capability and `errors` (`interfaces/shared/tools/<area>/`)
+- [ ] Return `Outcome` values from the handler (domain errors, never exceptions, for expected failures)
+- [ ] Register the select/op in its tool, and a new tool in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`)
+- [ ] Run `./gradlew :current:regenerateToolGoldens` and `./gradlew :current:regenerateApiReference`, and commit both outputs
+- [ ] Add parity scenarios (happy path and scope-forbidden) and focused tests (failure cases and edge cases)
+- [ ] Write the behavior prose in `current/docs/api-reference.md` (the field tables are generated)
 
 ### Creating Custom Skills
 
@@ -348,7 +347,7 @@ For schema changes, follow the migration checklist in [.claude/skills/add-compon
 ./gradlew :current:test
 
 # Specific test class
-./gradlew :current:test --tests "GetNextItemToolTest"
+./gradlew :current:test --tests "ItemsReadNextTest"
 
 # Migration tests
 ./gradlew :current:test --tests "*migration*"
@@ -386,20 +385,25 @@ typical duration, or when it pins CPU. To run one directly use
   `UpgradeHarnessTest` and `GoldenV17UpgradeTest`).
 
 **Test Structure**:
+Tool tests drive a select or op through the production topology, `POST /api/v1/ops/{tool}`, against a per-method SQLite database (see `ItemsReadGetTest` and `ItemsReadRig` for the pattern):
+
 ```kotlin
-class MyToolTest {
+class MySelectTest {
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod()
+
+    @TempDir
+    lateinit var dir: Path
+
     @Test
-    fun `should return success when valid parameters provided`() {
-        // Arrange
-        val tool = MyTool()
-        val params = buildJsonObject { }
-
-        // Act
-        val result = runBlocking { tool.execute(params, context) }
-
-        // Assert
-        assertThat(result["success"]?.jsonPrimitive?.boolean).isTrue()
-    }
+    fun `get answers the lean view of an existing item`() =
+        irApp(db.db, dir) { rig ->
+            val item = rig.make("Top")
+            val r = select("""{"select":"get","itemId":"${item.id}"}""")
+            assertEquals(200, r.status)
+            assertTrue(r.ok, r.raw)
+        }
 }
 ```
 
@@ -408,7 +412,7 @@ class MyToolTest {
 ### Documentation Updates
 
 When adding features, update:
-- **`current/docs/api-reference.md`** - Tool usage examples and AI patterns
+- **`current/docs/api-reference.md`** - Behavior prose and examples (the field tables and error catalog are generated: run `./gradlew :current:regenerateApiReference`)
 - **`CLAUDE.md`** - Developer guidance (if architectural changes)
 - **README.md** - Only for major feature additions
 - **`claude-plugins/task-orchestrator/skills/`** - If Skills change

@@ -238,10 +238,10 @@ data class AdvanceUnblockedItem(
  *
  * Carries everything the caller needs to build its response without re-querying: the role
  * change, the applied item, the resolved schema + target role (for expectedNotes /
- * guidancePointer / noteProgress), and the cascade + unblock side effects.
+ * guidanceKey / skillPointer), and the cascade + unblock side effects.
  *
- * Contains NO JSON — the MCP tool maps this to its JSON response shape and the REST route maps
- * it to [io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto].
+ * Contains NO JSON - the `advance` tool's `transition` op maps this to its response element (MCP and
+ * `POST /api/v1/ops/advance` share the mapping).
  */
 data class AdvanceResult(
     val itemId: UUID,
@@ -274,8 +274,8 @@ data class AdvanceResult(
 )
 
 /**
- * The unified advance pipeline shared by the MCP `advance_item` tool, `complete_tree`, and the REST
- * `POST /items/{id}/advance` route.
+ * The unified advance pipeline shared by the `advance` tool's `transition` op (MCP and `POST /api/v1/ops/advance`) and `items_write`
+ * `complete_tree`.
  *
  * One advance is ONE write unit (`AdvanceService.advance`), which joins the ambient unit of an
  * idempotency-keyed element and is otherwise the only unit:

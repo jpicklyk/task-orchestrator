@@ -130,20 +130,20 @@ class ToolExecutionContext(
     val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
 
     /**
-     * The single owner of the note write policy, shared by `notes_write` and `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
+     * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
      */
     val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
 
     /**
      * The single owner of the dependency write policy (normalization, duplicate and cycle rules), shared by
-     * `deps_write` and `create_work_tree`. Lazy for the same reason as
+     * `deps_write` and `items_write` `create_tree`. Lazy for the same reason as
      * [advanceServiceFactoryLazy].
      */
     val dependencyCommandService: DependencyCommandService by lazy { DependencyCommandService(repositoryProvider, unitOfWork) }
 
     /**
      * The single owner of item creates, patches and deletes (placement, structural rules, item events), shared by
-     * `manage_items`, the REST item routes and `create_work_tree`. Lazy for the same reason as
+     * `items_write` (`create`, `update`, `delete`, `create_tree`) and the structural edits that cascade. Lazy for the same reason as
      * [advanceServiceFactoryLazy].
      */
     val itemCommandService: ItemCommandService by lazy {
@@ -157,7 +157,7 @@ class ToolExecutionContext(
         )
     }
 
-    /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
+    /** The plan-document write owner (stash, and the adoption `items_write` `create_tree` runs in its unit). */
     val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
 
     /** The document write owner, shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
@@ -206,7 +206,7 @@ class ToolExecutionContext(
 
     /**
      * Same resolution as [resolveSchema], but also reports which config layer supplied the BASE
-     * schema and that layer's config fingerprint, which is what `query_items`'s `schema` operation
+     * schema and that layer's config fingerprint, which is what `items_read` `select=schema`
      * needs for its `configSource`/`configFingerprint` fields. Delegates to
      * [EffectiveConfigResolver.resolveSchemaWithSource].
      */
@@ -260,7 +260,7 @@ class ToolExecutionContext(
     /**
      * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema]'s
      * `defaultTraits` instead of re-resolving the schema. A trait-less item costs zero per-root
-     * reads (`AdvanceItemToolTest.kt:2119` pins the rooted, trait-less advance's read count). Trait
+     * reads. Trait
      * order is item traits first, then defaultTraits (the one order every trait merge uses). Delegates to
      * [EffectiveConfigResolver.resolveDispatchProfile].
      */
@@ -332,8 +332,8 @@ class ToolExecutionContext(
     suspend fun availableTraits(rootIds: Collection<UUID>): List<String> = configResolver.availableTraits(rootIds)
 
     /**
-     * The shared [AdvanceServiceFactory] for this context, backing every `advance_item` /
-     * `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
+     * The shared [AdvanceServiceFactory] for this context, backing every `advance` `transition` /
+     * `items_write` `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
      */
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 

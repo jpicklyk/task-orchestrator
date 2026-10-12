@@ -8,7 +8,7 @@ import java.util.UUID
  * kind never needs a table recreation.
  *
  * - [PLAN]: a planning document, adoptable into a work item (the 3.x plan documents).
- * - [RULE]: git-tracked rule text served by `query_rules` (the 3.x `rule/<key>` plan documents).
+ * - [RULE]: git-tracked rule text served by the `config` tool's `rules` op (the 3.x `rule/<key>` plan documents).
  * - [PAGE]: a free-standing knowledge page (written by later surfaces; nothing in 4.0 phase 2 creates one yet).
  */
 enum class DocumentKind(
