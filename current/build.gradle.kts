@@ -126,6 +126,9 @@ dependencies {
     // Konsist — architecture layering test (LayeringTest.kt)
     testImplementation(libs.konsist)
 
+    // ASM - bytecode reader for the request-field consumption guard (RequestFieldConsumptionGuardTest.kt); test classpath only
+    testImplementation(libs.asm)
+
     // Compile-only access to KotlinLoggingConfiguration for KotlinLoggingBannerGuardTest.kt
     // (O5 drift guard). Does NOT change test-runtime resolution: kotlin-logging-jvm still reaches
     // the test classpath only transitively via the MCP SDK, same as production compileOnly above.
