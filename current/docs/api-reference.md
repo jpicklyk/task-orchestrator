@@ -24,7 +24,7 @@ select or op looks absent: `invalid_request`).
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
-| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | all nine 4.0 tools, plus `manage_project_config` and `query_rules` |
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
 
 `/mcp/knowledge` is exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the profile it was
