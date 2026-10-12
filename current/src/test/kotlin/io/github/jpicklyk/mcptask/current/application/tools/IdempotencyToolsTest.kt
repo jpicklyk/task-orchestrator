@@ -1,19 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.actorArg
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sansReplay
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
-import io.mockk.coEvery
-import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,9 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -31,7 +28,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for `requestId` idempotency parameter wiring across the six mutating tools.
+ * Tests for per-element `idempotencyKey` wiring on the mutating tools (Q32: the 3.x `requestId` of advance_item and
+ * claim_item is gone; their keyed paths are the `advance` tool's elements).
  *
  * Each test verifies:
  * 1. First call with (actor, requestId) executes the operation and stores the result.
@@ -130,353 +128,116 @@ class IdempotencyToolsTest {
         }
 
     // ──────────────────────────────────────────────
-    // AdvanceItemTool — transition idempotency
+    // advance — transition and claim idempotency (per-element idempotencyKey; the 3.x requestId is gone)
     // ──────────────────────────────────────────────
 
+    private fun keyed(key: String) = "idempotencyKey" to JsonPrimitive(key)
+
     @Test
-    fun `advance_item caches response on requestId`() =
+    fun `advance transition caches the element on idempotencyKey`() =
         runBlocking {
-            val tool = AdvanceItemTool()
-            val itemId = createTestItem().toString()
-            val requestId = UUID.randomUUID().toString()
+            val itemId = createTestItem()
+            val key = UUID.randomUUID().toString()
 
-            val first =
-                tool.execute(
-                    params(
-                        "transitions" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("trigger", JsonPrimitive("start"))
-                                        put("actor", actor())
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId)
-                    ),
-                    context
-                ) as JsonObject
+            val first = context.advanceTool(transitionOp(itemId, "start", keyed(key)), actor = actor())
+            val second = context.advanceTool(transitionOp(itemId, "start", keyed(key)), actor = actor())
 
-            val second =
-                tool.execute(
-                    params(
-                        "transitions" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("trigger", JsonPrimitive("start"))
-                                        put("actor", actor())
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId)
-                    ),
-                    context
-                ) as JsonObject
-
+            assertTrue(envelopeOk(first), "first call: $first")
+            assertTrue("\"replayed\":true" in second.toString(), "the second call is served from the stored record: $second")
             // Cached response is identical
             assertEquals(first.sansReplay(), second.sansReplay())
             assertEquals(1, db.idempotencyRecordCount())
+            assertEquals(Role.WORK, context.workItemRepository().getById(itemId)!!.role, "the start ran once")
         }
-
-    // ──────────────────────────────────────────────
-    // Cross-tool: cache isolation via actorId+requestId composite key
-    // ──────────────────────────────────────────────
-
-    // ──────────────────────────────────────────────
-    // ClaimItemTool — claim idempotency (TEST-I10a, TEST-I10b)
-    //
-    // NOTE: claim_item's repository.claim() uses HEX(id) / datetime('now') claim SQL.
-    // These tests use a mocked WorkItemRepository (via MockRepositoryProvider)
-    // to test the idempotency wiring directly, without depending on claim SQL.
-    // ──────────────────────────────────────────────
-
-    private fun buildClaimParams(
-        itemId: String,
-        agentId: String,
-        requestId: String
-    ): JsonObject =
-        buildJsonObject {
-            put(
-                "claims",
-                JsonArray(
-                    listOf(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId))
-                            put("ttlSeconds", JsonPrimitive(900))
-                        }
-                    )
-                )
-            )
-            put("actor", actor(agentId))
-            put("requestId", JsonPrimitive(requestId))
-        }
-
-    private fun buildClaimParamsNoRequestId(
-        itemId: String,
-        agentId: String
-    ): JsonObject =
-        buildJsonObject {
-            put(
-                "claims",
-                JsonArray(
-                    listOf(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId))
-                            put("ttlSeconds", JsonPrimitive(900))
-                        }
-                    )
-                )
-            )
-            put("actor", actor(agentId))
-        }
-
-    private fun claimSuccessItem(
-        id: UUID,
-        claimedBy: String
-    ): WorkItem {
-        val now = Instant.now()
-        return WorkItem(
-            id = id,
-            title = "Test Claim Item",
-            claimedBy = claimedBy,
-            claimedAt = now,
-            claimExpiresAt = now.plusSeconds(900),
-            originalClaimedAt = now
-        )
-    }
 
     /**
-     * TEST-I10a: claim_item with requestId returns cached response on retry, no double-mutation.
-     *
-     * First call mutates state (places the claim). Second call with same (actor, requestId)
-     * returns the cached response without calling repository.claim() again.
-     * Verified via mock invocation count — claim() is only called once.
+     * TEST-I10a: a keyed claim returns the stored element on retry, no double-mutation. The claim instant of the first
+     * call survives the retry (a re-executed claim by the holder would be a refresh).
      */
     @Test
-    fun `claim_item with requestId returns cached response on retry, no double-mutation`() =
+    fun `advance claim with idempotencyKey returns the stored element on retry, no double-mutation`() =
         runBlocking {
-            val mockRepo = MockRepositoryProvider()
-            val claimContext =
-                ToolExecutionContext(
-                    repositoryProvider = mockRepo.provider,
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val tool = ClaimItemTool()
-            val itemId = UUID.randomUUID()
-            val requestId = UUID.randomUUID().toString()
+            val itemId = createTestItem("Test Claim Item")
+            val key = UUID.randomUUID().toString()
             val agentId = "agent-claimer"
 
-            // Set up mock: claim() returns success
-            coEvery {
-                mockRepo.workItemRepo.claim(itemId, agentId, 900)
-            } returns
-                ClaimResult.Success(
-                    claimSuccessItem(itemId, agentId)
-                )
+            val first = context.advanceTool(claimOp(itemId, "ttlSeconds" to JsonPrimitive(900), keyed(key)), actor = actor(agentId))
+            assertTrue(first.okResult(0).isNotEmpty(), "first call succeeds: $first")
+            val claimedAt = context.workItemRepository().getById(itemId)!!.claimedAt
 
-            val claimParams = buildClaimParams(itemId.toString(), agentId, requestId)
+            val second = context.advanceTool(claimOp(itemId, "ttlSeconds" to JsonPrimitive(900), keyed(key)), actor = actor(agentId))
 
-            val firstResult = tool.execute(claimParams, claimContext) as JsonObject
-
-            // Verify first call succeeded
-            val firstData = firstResult["data"] as JsonObject
-            val firstClaimResults = firstData["claimResults"] as JsonArray
-            assertEquals(1, firstClaimResults.size)
-            assertEquals("success", firstClaimResults[0].jsonObject["outcome"]!!.jsonPrimitive.content)
-
-            // Second call: same (actor, requestId) — must return cached response
-            val secondResult = tool.execute(claimParams, claimContext) as JsonObject
-
-            // Responses must be identical (cached)
-            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
-
-            // Verify only ONE cache entry exists
+            assertEquals(first.sansReplay(), second.sansReplay(), "the retry is the stored element")
+            assertTrue("\"replayed\":true" in second.toString(), "$second")
             assertEquals(1, db.idempotencyRecordCount())
-
-            // The repository.claim() must have been called exactly ONCE (cached on retry)
-            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(itemId, agentId, 900) }
-        }
-
-    /**
-     * TEST-I10b-revised: claim_item without requestId is rejected at validation.
-     *
-     * requestId is required for claim_item — fleet-mode idempotency is a hard contract.
-     * A call missing requestId must throw ToolValidationException and must not reach
-     * the repository at all.
-     */
-    @Test
-    fun `claim_item without requestId is rejected at validation`() =
-        runBlocking {
-            val mockRepo = MockRepositoryProvider()
-            val claimContext =
-                ToolExecutionContext(
-                    repositoryProvider = mockRepo.provider,
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val tool = ClaimItemTool()
-            val itemId = UUID.randomUUID()
-            val agentId = "agent-no-request-id"
-
-            val exception =
-                assertThrows<ToolValidationException> {
-                    tool.validateParams(buildClaimParamsNoRequestId(itemId.toString(), agentId))
-                }
-
-            assertTrue(
-                exception.message!!.contains("requestId is required"),
-                "Exception message must explain that requestId is required, got: ${exception.message}"
-            )
-
-            // Repository must not be called — validation rejected before execution
-            coVerify(exactly = 0) { mockRepo.workItemRepo.claim(any(), any(), any()) }
-
-            // Cache must be untouched
-            assertEquals(0, db.idempotencyRecordCount(), "Cache must remain empty after validation rejection")
+            assertEquals(claimedAt, context.workItemRepository().getById(itemId)!!.claimedAt, "the claim was placed exactly once")
         }
 
     // ──────────────────────────────────────────────
     // C3: Concurrent-retry race test (bug 3b — getOrCompute atomicity)
     //
-    // Fires N concurrent coroutines with the same (actor, requestId). With getOrCompute,
-    // only ONE underlying mutation executes; all others receive the cached response.
+    // Fires N concurrent coroutines with the same (actor, key). Only ONE underlying mutation executes; all others receive
+    // the stored element.
     // ──────────────────────────────────────────────
 
-    /**
-     * TEST-C3b: AdvanceItemTool concurrent-retry race — only one transition executes.
-     *
-     * Launches 10 concurrent coroutines all calling advance_item(start) with the same
-     * (actor, requestId). Verifies the item transitions to WORK exactly once.
-     */
+    /** TEST-C3b: concurrent keyed retries of one `advance` transition: only one transition executes. */
     @Test
-    fun `advance_item getOrCompute prevents concurrent double-transition race`(): Unit =
+    fun `advance keyed element prevents a concurrent double-transition race`(): Unit =
         runBlocking {
-            val tool = AdvanceItemTool()
-            val itemId = createTestItem("Race Item").toString()
-            val requestId = UUID.randomUUID().toString()
+            val itemId = createTestItem("Race Item")
+            val key = UUID.randomUUID().toString()
 
-            // Track how many times the actual DB mutation path runs by checking the result
-            // (if transition is applied twice, the second would fail with a wrong-state error)
             val results =
                 (1..10)
                     .map {
                         async(Dispatchers.IO) {
-                            tool.execute(
-                                params(
-                                    "transitions" to
-                                        JsonArray(
-                                            listOf(
-                                                buildJsonObject {
-                                                    put("itemId", JsonPrimitive(itemId))
-                                                    put("trigger", JsonPrimitive("start"))
-                                                    put("actor", actor("race-agent"))
-                                                }
-                                            )
-                                        ),
-                                    "requestId" to JsonPrimitive(requestId)
-                                ),
-                                context
-                            ) as JsonObject
+                            context.advanceTool(transitionOp(itemId, "start", keyed(key)), actor = actor("race-agent"))
                         }
                     }.awaitAll()
 
-            // All responses should be identical (cached)
+            // All responses should be identical (stored)
             val firstResponse = results[0]
             for (result in results) {
                 assertEquals(
                     firstResponse.sansReplay(),
                     result.sansReplay(),
-                    "All concurrent retries must return the identical cached response"
+                    "All concurrent retries must return the identical stored element"
                 )
             }
 
             // Item should be in WORK (transitioned exactly once)
-            val item = context.workItemRepository().getById(UUID.fromString(itemId))
+            val item = context.workItemRepository().getById(itemId)
             assertNotNull(item)
-            assertEquals("work", item.role?.toJsonString())
+            assertEquals(Role.WORK, item.role)
 
             assertEquals(1, db.idempotencyRecordCount())
         }
 
     // ──────────────────────────────────────────────
-    // C3: Identity-resolution-before-cache test (bug 3a — trusted ID as cache key)
+    // C3: Identity-resolution-before-cache test (bug 3a — principal id as the record key)
     //
-    // With accept-self-reported policy, two retries with the SAME requestId but DIFFERENT
-    // self-reported actor.ids must get DIFFERENT cache entries (different trusted IDs).
+    // Two calls with the SAME key but DIFFERENT actors must get DIFFERENT records.
     // ──────────────────────────────────────────────
 
-    /**
-     * TEST-C3c: advance_item caches under trusted actor id, not self-reported id.
-     *
-     * With accept-self-reported policy, actor.id IS the trusted id (no JWKS).
-     * Two calls with the same requestId but different actor.id must NOT share a cache entry —
-     * they have different trusted identities so must produce independent executions.
-     */
+    /** TEST-C3c: the element record is keyed under the call's actor, so two actors never share one. */
     @Test
-    fun `advance_item caches under trusted actor id not self-reported id`(): Unit =
+    fun `advance keyed elements are stored per actor, never shared across actors`(): Unit =
         runBlocking {
-            val tool = AdvanceItemTool()
-            val itemId = createTestItem("Identity Test Item").toString()
-            val sharedRequestId = UUID.randomUUID().toString()
+            val itemId = createTestItem("Identity Test Item")
+            val sharedKey = UUID.randomUUID().toString()
 
-            // Call 1: actor "victim-agent" starts the item
-            val first =
-                tool.execute(
-                    params(
-                        "transitions" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("trigger", JsonPrimitive("start"))
-                                        put("actor", actor("victim-agent"))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(sharedRequestId)
-                    ),
-                    context
-                )
+            val first = context.advanceTool(transitionOp(itemId, "start", keyed(sharedKey)), actor = actor("victim-agent"))
+            // The same key under another actor executes afresh (the item is already in WORK, so this start moves it on).
+            val second = context.advanceTool(transitionOp(itemId, "start", keyed(sharedKey)), actor = actor("attacker-agent"))
 
-            // Call 2: actor "attacker-agent" with the SAME requestId
-            // With the fix, this is a DIFFERENT trusted actor id → different cache key → fresh execution
-            // (The second start will fail because item is already WORK, but it will NOT get victim's cache)
-            val second =
-                tool.execute(
-                    params(
-                        "transitions" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("trigger", JsonPrimitive("start"))
-                                        put("actor", actor("attacker-agent"))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(sharedRequestId)
-                    ),
-                    context
-                )
-
-            // The second call must NOT return the first call's cached response
-            // (different trusted actor ids → different cache slots)
             assertNotEquals(
-                first,
-                second,
-                "Different actor.ids must produce different cache entries even with the same requestId"
+                first.sansReplay(),
+                second.sansReplay(),
+                "Different actor ids must produce different records even with the same key"
             )
+            assertTrue("\"replayed\":true" !in second.toString(), "the second actor is not served the first actor's record: $second")
 
-            // Two separate cache entries (one per trusted actor)
-            assertEquals(2, db.idempotencyRecordCount(), "Each trusted actor gets its own cache slot")
+            // Two separate records (one per actor)
+            assertEquals(2, db.idempotencyRecordCount(), "Each actor gets its own record")
         }
-
-    // ──────────────────────────────────────────────
-    // C3: getOrCompute regression — single-thread existing tests still pass
-    // (same-key retry gets cached result across all migrated tools)
-    // ──────────────────────────────────────────────
 }

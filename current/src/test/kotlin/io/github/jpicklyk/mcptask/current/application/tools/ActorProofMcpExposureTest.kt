@@ -2,18 +2,20 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.listNotesVia
 import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -52,7 +54,6 @@ class ActorProofMcpExposureTest {
 
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
-    private lateinit var advanceItemTool: AdvanceItemTool
 
     /** A unique, JWT-shaped bearer credential used as the actor proof in a scenario. */
     private fun freshSecret(): String = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.${UUID.randomUUID()}"
@@ -61,7 +62,6 @@ class ActorProofMcpExposureTest {
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
-        advanceItemTool = AdvanceItemTool()
     }
 
     /** Creates a WorkItem directly via the repository and returns its UUID string. */
@@ -142,40 +142,22 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S3 — advance_item never echoes proof
+    // S3 — the advance transition never echoes proof
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S3 advance_item start omits proof from echoed actor and response is SECRET-free`(): Unit =
+    fun `S3 an advance start echoes no actor and its response is SECRET-free`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val secret = freshSecret()
 
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", itemId)
-                                    put("trigger", "start")
-                                    put("actor", actorJson(id = "agent-3", proof = secret))
-                                }
-                            )
-                        }
-                    )
-                }
+            val result = context.advanceTool(transitionOp(itemId, "start"), actor = actorJson(id = "agent-3", proof = secret))
+            assertFalse(result.toString().contains(secret), "the advance response must be SECRET-free")
 
-            val result = advanceItemTool.execute(params, context) as JsonObject
-            assertFalse(result.toString().contains(secret), "advance_item response must be SECRET-free")
-
-            val results = (result["data"] as JsonObject)["results"]!!.jsonArray
-            val first = results[0].jsonObject
-            assertTrue(first["applied"]!!.jsonPrimitive.boolean, "expected transition to be applied; got $first")
-            val actor = first["actor"]!!.jsonObject
-            assertEquals("agent-3", actor["id"]!!.jsonPrimitive.content)
-            assertFalse(actor.containsKey("proof"), "echoed actor must not carry a proof key")
+            val first = result.onlyResult()
+            assertTrue(first["ok"]!!.jsonPrimitive.boolean, "expected transition to be applied; got $first")
+            // The 4.0 transition element carries no actor member at all (the 3.x element echoed a proof-free actor).
+            assertFalse(first.containsKey("actor"), "the element echoes no actor: $first")
         }
 
     // -----------------------------------------------------------------------

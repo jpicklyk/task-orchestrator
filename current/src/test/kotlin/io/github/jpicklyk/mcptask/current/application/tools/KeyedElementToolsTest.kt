@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -12,15 +10,21 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.actorArg
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
+import io.github.jpicklyk.mcptask.current.test.claimSelectOp
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.putNote
+import io.github.jpicklyk.mcptask.current.test.releaseOp
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -38,8 +42,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Independent tests (test-author seat, item d1cccd1a) over the real MCP tool entry points (`tool.execute(params,
- * context)`) and a real SQLite database: per-element idempotency of the keyed tools.
+ * Independent tests (test-author seat, item d1cccd1a) over the real tool entry points and a real SQLite database:
+ * per-element idempotency of the keyed tools. Q32 port: the 3.x `requestId` of advance_item / claim_item (recorded as
+ * `"${requestId}:${index}"`) is gone; the `advance` tool keys each element with its own `idempotencyKey`, so the
+ * scenarios below key every element and resend the identical call.
  *
  * Oracles: plan section 3.9 l.262-285 and the frozen task-scope note: a keyed element is recorded as
  * `"${requestId}:${index}"` under the trusted actor id and `mcp.<tool>[.<operation>]`; a replay returns the element's
@@ -134,21 +140,11 @@ class KeyedElementToolsTest {
 
     private fun transition(
         itemId: UUID,
-        trigger: String
-    ) = buildJsonObject {
-        put("itemId", itemId.toString())
-        put("trigger", trigger)
-        put("actor", actor())
-    }
+        trigger: String,
+        key: String
+    ) = transitionOp(itemId, trigger, "idempotencyKey" to JsonPrimitive(key))
 
-    private fun advanceParams(
-        requestId: String?,
-        vararg transitions: JsonObject
-    ): JsonObject =
-        buildJsonObject {
-            put("transitions", buildJsonArray { transitions.forEach { add(it) } })
-            if (requestId != null) put("requestId", requestId)
-        }
+    private fun keyed(key: String) = "idempotencyKey" to JsonPrimitive(key)
 
     private suspend fun fillAcceptanceNote(
         itemId: UUID,
@@ -193,28 +189,26 @@ class KeyedElementToolsTest {
             val free = queueItem("Free item") // no tags: the schema declares no gate for it
             val gated = queueItem("Gated item", tags = "feature-task")
             val key = UUID.randomUUID().toString()
-            val params = advanceParams(key, transition(free.id, "start"), transition(gated.id, "start"))
 
-            val first = AdvanceItemTool().execute(params, ctx)
-            val firstRes = elements(first, "results")
-            assertEquals("true", firstRes[0]["applied"]!!.jsonPrimitive.content)
-            assertEquals("false", firstRes[1]["applied"]!!.jsonPrimitive.content, "attempt 1 of the gated item must be blocked: $first")
-            assertEquals(
-                "gate_blocked",
-                firstRes[1]["errorCode"]!!.jsonPrimitive.content,
-                "blocked for the gate, not another reason: $first"
-            )
+            suspend fun call() =
+                ctx.advanceTool(transition(free.id, "start", "$key:0"), transition(gated.id, "start", "$key:1"), actor = actor())
+
+            val first = call()
+            val firstRes = first.results()
+            assertEquals("true", firstRes[0]["ok"]!!.jsonPrimitive.content)
+            assertEquals("false", firstRes[1]["ok"]!!.jsonPrimitive.content, "attempt 1 of the gated item must be blocked: $first")
+            assertEquals("gate_blocked", firstRes[1].errorCode(), "blocked for the gate, not another reason: $first")
             assertEquals(1, records(), "only the successful element is recorded")
             assertEquals(1, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
 
             fillAcceptanceNote(gated.id, ctx)
 
-            val second = AdvanceItemTool().execute(params, ctx)
-            val secondRes = elements(second, "results")
+            val second = call()
+            val secondRes = second.results()
             assertTrue(secondRes[0].isReplayed(), "the recorded element replays: $second")
-            assertEquals("true", secondRes[0]["applied"]!!.jsonPrimitive.content)
+            assertEquals("true", secondRes[0]["ok"]!!.jsonPrimitive.content)
             assertFalse(secondRes[1].isReplayed(), "the unrecorded element executes: $second")
-            assertEquals("true", secondRes[1]["applied"]!!.jsonPrimitive.content, "attempt 2 succeeds now the note exists: $second")
+            assertEquals("true", secondRes[1]["ok"]!!.jsonPrimitive.content, "attempt 2 succeeds now the note exists: $second")
             assertEquals(
                 2,
                 rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"),
@@ -230,20 +224,21 @@ class KeyedElementToolsTest {
             val ctx = context(schema = gateSchema)
             val gated = queueItem("Gated item", tags = "feature-task")
             val key = UUID.randomUUID().toString()
-            val params = advanceParams(key, transition(gated.id, AdvanceTrigger.START))
 
-            val blocked = AdvanceItemTool().execute(params, ctx)
-            val blockedEl = elements(blocked, "results").single()
-            assertEquals("false", blockedEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $blocked")
-            assertEquals("gate_blocked", blockedEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the gate: $blocked")
+            suspend fun call() = ctx.advanceTool(transition(gated.id, AdvanceTrigger.START, key), actor = actor())
+
+            val blocked = call()
+            val blockedEl = blocked.results().single()
+            assertEquals("false", blockedEl["ok"]!!.jsonPrimitive.content, "attempt 1 must fail: $blocked")
+            assertEquals("gate_blocked", blockedEl.errorCode(), "attempt 1 must fail on the gate: $blocked")
             assertEquals(0, records())
             assertEquals(0, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
             assertEquals(Role.QUEUE, items.getById(gated.id)!!.role)
 
             fillAcceptanceNote(gated.id, ctx)
-            val retry = AdvanceItemTool().execute(params, ctx)
-            val el = elements(retry, "results").single()
-            assertEquals("true", el["applied"]!!.jsonPrimitive.content, "the retry with the same key must execute: $retry")
+            val retry = call()
+            val el = retry.results().single()
+            assertEquals("true", el["ok"]!!.jsonPrimitive.content, "the retry with the same key must execute: $retry")
             assertFalse(el.isReplayed())
             assertEquals(1, records())
         }
@@ -251,25 +246,19 @@ class KeyedElementToolsTest {
     // ---------------------------------------------------------------- S5
 
     @Test
-    fun `S5 claim_item replays a claim under its key and releases under the same requestId execute separately`(): Unit =
+    fun `S5 a keyed claim replays under its key and a release under its own key executes separately`(): Unit =
         runBlocking {
             val ctx = context()
             val item = queueItem("Claimable")
             val key = UUID.randomUUID().toString()
-            val claimParams =
-                obj(
-                    "claims" to buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) },
-                    "actor" to actor("agent-claimer"),
-                    "requestId" to JsonPrimitive(key)
-                )
 
-            val first = ClaimItemTool().execute(claimParams, ctx)
-            val firstEntry = elements(first, "claimResults").single()
-            assertEquals("success", firstEntry["outcome"]!!.jsonPrimitive.content)
+            suspend fun claim() = ctx.advanceTool(claimOp(item.id, keyed(key)), actor = actor("agent-claimer")).results().single()
 
-            val second = ClaimItemTool().execute(claimParams, ctx)
-            val secondEntry = elements(second, "claimResults").single()
-            assertTrue(secondEntry.isReplayed(), "the retried claim replays: $second")
+            val firstEntry = claim()
+            assertEquals("true", firstEntry["ok"]!!.jsonPrimitive.content, "$firstEntry")
+
+            val secondEntry = claim()
+            assertTrue(secondEntry.isReplayed(), "the retried claim replays: $secondEntry")
             assertEquals(
                 firstEntry,
                 JsonObject(secondEntry.filterKeys { it != "replayed" }),
@@ -277,16 +266,12 @@ class KeyedElementToolsTest {
             )
             assertEquals(1, records())
 
-            val releaseParams =
-                obj(
-                    "releases" to buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) },
-                    "actor" to actor("agent-claimer"),
-                    "requestId" to JsonPrimitive(key)
-                )
-            val release = ClaimItemTool().execute(releaseParams, ctx)
-            assertFalse(elements(release, "releaseResults").single().isReplayed(), "a release is a different operation: $release")
+            // A 4.0 key names one element: the release is a different element, so it carries its own key.
+            val release =
+                ctx.advanceTool(releaseOp(item.id).let { JsonObject(it + keyed("$key-release")) }, actor = actor("agent-claimer"))
+            assertFalse(release.results().single().isReplayed(), "a release is a different element: $release")
             assertNull(items.getById(item.id)!!.claimedBy, "the release executed and cleared the claim")
-            assertEquals(2, records(), "claim and release are recorded under separate operations")
+            assertEquals(2, records(), "claim and release are recorded separately")
         }
 
     // ---------------------------------------------------------------- S5 selector
@@ -298,19 +283,16 @@ class KeyedElementToolsTest {
             val a = queueItem("Selector first")
             val b = queueItem("Selector second")
             val key = UUID.randomUUID().toString()
-            val params =
-                obj(
-                    "claims" to buildJsonArray { add(buildJsonObject { put("selector", buildJsonObject {}) }) },
-                    "actor" to actor("agent-selector"),
-                    "requestId" to JsonPrimitive(key)
-                )
 
-            val firstRes = elements(ClaimItemTool().execute(params, ctx), "claimResults").single()
-            assertEquals("success", firstRes["outcome"]!!.jsonPrimitive.content)
+            suspend fun claim() =
+                ctx.advanceTool(claimSelectOp(buildJsonObject {}, keyed(key)), actor = actor("agent-selector")).results().single()
+
+            val firstRes = claim()
+            assertEquals("true", firstRes["ok"]!!.jsonPrimitive.content, "$firstRes")
             val claimedId = firstRes["itemId"]!!.jsonPrimitive.content
             assertEquals(1, records())
 
-            val replay = elements(ClaimItemTool().execute(params, ctx), "claimResults").single()
+            val replay = claim()
             assertTrue(replay.isReplayed(), "the retried selector claim replays: $replay")
             assertEquals(claimedId, replay["itemId"]!!.jsonPrimitive.content, "the replay names the item claimed the first time")
             assertEquals(1, records(), "a replay writes no record")
@@ -353,21 +335,22 @@ class KeyedElementToolsTest {
                 )
             val leases = db.repositoryProvider().resourceLeaseRepository()
             val key = UUID.randomUUID().toString()
-            val params = advanceParams(key, transition(item.id, "start"))
 
-            val first = AdvanceItemTool().execute(params, ctx)
-            val firstEl = elements(first, "results").single()
-            assertEquals("false", firstEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $first")
-            assertEquals("gate_blocked", firstEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the note gate: $first")
+            suspend fun call() = ctx.advanceTool(transition(item.id, "start", key), actor = actor())
+
+            val first = call()
+            val firstEl = first.results().single()
+            assertEquals("false", firstEl["ok"]!!.jsonPrimitive.content, "attempt 1 must fail: $first")
+            assertEquals("gate_blocked", firstEl.errorCode(), "attempt 1 must fail on the note gate: $first")
             assertTrue(leases.findActiveByKeys(listOf("staging-db-credential")).isEmpty(), "no lease may survive the failed attempt")
             assertEquals(0, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"), "no transition row may survive")
             assertEquals(0, records(), "the failed element must not be recorded as ok")
             assertEquals(Role.QUEUE, items.getById(item.id)!!.role)
 
             fillAcceptanceNote(item.id, ctx)
-            val retry = AdvanceItemTool().execute(params, ctx)
-            val retryEl = elements(retry, "results").single()
-            assertEquals("true", retryEl["applied"]!!.jsonPrimitive.content, "the retry with the same key must execute: $retry")
+            val retry = call()
+            val retryEl = retry.results().single()
+            assertEquals("true", retryEl["ok"]!!.jsonPrimitive.content, "the retry with the same key must execute: $retry")
             assertFalse(retryEl.isReplayed())
             assertEquals(1, records())
             assertEquals(1, leases.findActiveByKeys(listOf("staging-db-credential")).size, "the successful retry acquires the lease")

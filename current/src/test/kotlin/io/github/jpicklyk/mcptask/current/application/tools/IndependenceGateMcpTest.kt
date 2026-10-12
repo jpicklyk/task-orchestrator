@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -10,20 +11,28 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.advanceDirect
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.completeTreeOp
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.failure
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.success
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -36,6 +45,7 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -78,6 +88,12 @@ import kotlin.test.assertTrue
  * author protocol rule 7, red-proof is orchestrator-run against the addendum's
  * M2/M5/M6/M13/M14 mutation recipes; this file keeps every new declaration and attempts no revert
  * of its own.
+ *
+ * Q32 port: the primary transition runs through the production `advance` tool (its element carries `ok` and the
+ * non-empty `violations` array in the same shape as before; a REJECT block is the element's `gate_blocked`). What the
+ * 4.0 element no longer carries -- the REJECT failure's own violation list and the cascade events' violations -- is
+ * asserted on the shared AdvanceService outcome (rendered with the production [NoteSchemaJson] builder where the
+ * oracle compares JSON).
  */
 class IndependenceGateMcpTest {
     @RegisterExtension
@@ -217,30 +233,38 @@ work_item_schemas:
     ): JsonObject =
         extractData(ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, toolContext))
 
+    /** One transition through the production `advance` tool: the batch element (`ok`, `violations`?, or `error`). */
     private suspend fun advance(
         toolContext: ToolExecutionContext,
         itemId: UUID,
         trigger: String
-    ): JsonObject {
-        val result =
-            AdvanceItemTool().execute(
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId.toString()))
-                                    put("trigger", JsonPrimitive(trigger))
-                                }
-                            )
-                        }
-                    )
-                },
-                toolContext
-            )
-        return extractData(result)["results"]!!.jsonArray[0].jsonObject
+    ): JsonObject = toolContext.advanceTool(transitionOp(itemId, trigger)).onlyResult()
+
+    /** The same transition straight through the shared AdvanceService (for the REJECT violations and the cascades). */
+    private suspend fun advanceOutcome(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+        trigger: String
+    ) = toolContext.advanceDirect(checkNotNull(toolContext.workItemRepository().getById(itemId)), trigger)
+
+    /** The REJECT block's violations, rendered by the production builder (the 3.x element's `violations` shape). */
+    private suspend fun rejectViolations(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+        trigger: String
+    ): JsonArray {
+        val blocked = assertIs<AdvanceFailure.GateBlocked>(advanceOutcome(toolContext, itemId, trigger).failure())
+        return checkNotNull(NoteSchemaJson.buildViolationsArray(blocked.violations)) { "a REJECT block carries violations: $blocked" }
     }
+
+    /** The first cascade event (the parent's) of a successful service advance; later ones are further ancestors. */
+    private suspend fun cascadeOf(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+        trigger: String
+    ): AdvanceCascadeEvent = advanceOutcome(toolContext, itemId, trigger).success().cascadeEvents.first()
+
+    private fun AdvanceCascadeEvent.violationsJson(): JsonArray? = NoteSchemaJson.buildViolationsArrayNonEmpty(violations)
 
     /** The single `items[]` entry of an `items_write` `complete_tree` over [itemId] (Q21: the 4.0 op; trigger complete or cancel). */
     private suspend fun completeTree(
@@ -261,7 +285,7 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S1-addendum REJECT mode with no independent_of declared anywhere -- no violations key on get_context or advance_item`(
+    fun `S1-addendum REJECT mode with no independent_of declared anywhere -- no violations key on get_context or the advance`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
@@ -274,7 +298,7 @@ work_item_schemas:
             assertFalse(context["gateStatus"]!!.jsonObject.containsKey("violations"), "gateStatus: ${context["gateStatus"]}")
 
             val transition = advance(toolContext, item.id, "start")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "transition: $transition")
+            assertTrue(transition["ok"]!!.jsonPrimitive.boolean, "transition: $transition")
             assertFalse(transition.containsKey("violations"), "transition: $transition")
         }
 
@@ -298,7 +322,7 @@ work_item_schemas:
             val warnContext = newToolContext(tempDir.resolve("warn"), globalConfig("warn"))
             val warnItem = fixture(warnContext)
             val warnTransition = advance(warnContext, warnItem.id, "start")
-            assertTrue(warnTransition["applied"]!!.jsonPrimitive.boolean, "WARN must still apply the transition: $warnTransition")
+            assertTrue(warnTransition["ok"]!!.jsonPrimitive.boolean, "WARN must still apply the transition: $warnTransition")
             val warnViolations = warnTransition["violations"]!!.jsonArray
             assertEquals(1, warnViolations.size, "violations: $warnViolations")
             val warnEntry = warnViolations[0].jsonObject
@@ -309,10 +333,11 @@ work_item_schemas:
             val rejectContext = newToolContext(tempDir.resolve("reject"), globalConfig("reject"))
             val rejectItem = fixture(rejectContext)
             val rejectTransition = advance(rejectContext, rejectItem.id, "start")
-            assertFalse(rejectTransition["applied"]!!.jsonPrimitive.boolean, "REJECT must block: $rejectTransition")
-            assertEquals("gate_blocked", rejectTransition["errorCode"]!!.jsonPrimitive.content)
-            assertEquals(0, rejectTransition["missingNotes"]!!.jsonArray.size, "a violations-only block carries no missing notes")
-            val rejectViolations = rejectTransition["violations"]!!.jsonArray
+            assertFalse(rejectTransition["ok"]!!.jsonPrimitive.boolean, "REJECT must block: $rejectTransition")
+            assertEquals("gate_blocked", rejectTransition.errorCode())
+            val blocked = assertIs<AdvanceFailure.GateBlocked>(advanceOutcome(rejectContext, rejectItem.id, "start").failure())
+            assertEquals(0, blocked.missingNotes.size, "a violations-only block carries no missing notes")
+            val rejectViolations = rejectViolations(rejectContext, rejectItem.id, "start")
             assertEquals(warnViolations, rejectViolations, "the computed violations must be identical in WARN and REJECT")
         }
 
@@ -339,7 +364,7 @@ work_item_schemas:
             assertEquals("missing_actor", blockedViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
 
             val blockedTransition = advance(toolContext, blockedItem.id, "start")
-            assertFalse(blockedTransition["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(blockedTransition["ok"]!!.jsonPrimitive.boolean)
 
             val cleanItem = createItem(toolContext, root, "indep-gate")
             upsertNote(toolContext, cleanItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
@@ -358,7 +383,7 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S5 waiver never waives N's own missing_actor entry -- REJECT still blocks via advance_item`(
+    fun `S5 waiver never waives N's own missing_actor entry -- REJECT still blocks the advance`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
@@ -377,10 +402,10 @@ work_item_schemas:
 
             val transition = advance(toolContext, item.id, "start")
             assertFalse(
-                transition["applied"]!!.jsonPrimitive.boolean,
+                transition["ok"]!!.jsonPrimitive.boolean,
                 "REJECT must still block on an unwaived missing_actor entry: $transition"
             )
-            val violations = transition["violations"]!!.jsonArray
+            val violations = rejectViolations(toolContext, item.id, "start")
             assertEquals(1, violations.size, "violations: $violations")
             val entry = violations[0].jsonObject
             assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
@@ -407,7 +432,7 @@ work_item_schemas:
             assertFalse(context["gateStatus"]!!.jsonObject.containsKey("violations"))
 
             val transition = advance(toolContext, item.id, "start")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "transition: $transition")
+            assertTrue(transition["ok"]!!.jsonPrimitive.boolean, "transition: $transition")
             assertFalse(transition.containsKey("violations"), "transition: $transition")
         }
 
@@ -427,7 +452,7 @@ work_item_schemas:
             upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "same-agent")
 
             val transition = advance(toolContext, item.id, "cancel")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "cancel must bypass the gate entirely: $transition")
+            assertTrue(transition["ok"]!!.jsonPrimitive.boolean, "cancel must bypass the gate entirely: $transition")
             assertFalse(transition.containsKey("violations"), "transition: $transition")
         }
 
@@ -437,7 +462,7 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S9 get_context and advance_item start report identical violations for the same fixture state`(
+    fun `S9 get_context and the advance start report identical violations for the same fixture state`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
@@ -453,7 +478,12 @@ work_item_schemas:
                 val advanceItem = createItem(toolContext, root, "indep-gate")
                 upsertNote(toolContext, advanceItem.id, "implementation-notes", "work", "impl", actorId = "shared-actor")
                 upsertNote(toolContext, advanceItem.id, "test-manifest", "work", "tm", actorId = "shared-actor")
-                val advanceViolations = advance(toolContext, advanceItem.id, "start")["violations"]!!.jsonArray
+                val advanceViolations =
+                    if (mode == "warn") {
+                        advance(toolContext, advanceItem.id, "start")["violations"]!!.jsonArray
+                    } else {
+                        rejectViolations(toolContext, advanceItem.id, "start")
+                    }
 
                 assertEquals(contextViolations, advanceViolations, "mode=$mode: get_context and advance_item(start) must agree")
             }
@@ -532,15 +562,12 @@ work_item_schemas:
             upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
             upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
 
-            val transition = advance(toolContext, child.id, "start")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "the child's own advance must stand: $transition")
+            val cascade = cascadeOf(toolContext, child.id, "start")
+            assertEquals(Role.WORK, toolContext.workItemRepository().getById(child.id)!!.role, "the child's own advance must stand")
 
-            val cascades = transition["cascadeEvents"]!!.jsonArray
-            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
-            val cascade = cascades[0].jsonObject
-            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
-            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "the parent cascade must be suppressed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(parent.id, cascade.itemId)
+            assertFalse(cascade.applied, "the parent cascade must be suppressed: $cascade")
+            val cascadeViolations = checkNotNull(cascade.violationsJson()) { "cascade: $cascade" }
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
             assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
         }
@@ -559,10 +586,9 @@ work_item_schemas:
             upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
             upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
 
-            val transition = advance(toolContext, child.id, "start")
-            val cascade = transition["cascadeEvents"]!!.jsonArray[0].jsonObject
-            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent cascade proceed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
+            val cascade = cascadeOf(toolContext, child.id, "start")
+            assertTrue(cascade.applied, "WARN must let the parent cascade proceed: $cascade")
+            val cascadeViolations = checkNotNull(cascade.violationsJson()) { "cascade: $cascade" }
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
         }
 
@@ -583,15 +609,12 @@ work_item_schemas:
             upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
             upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
 
-            val transition = advance(toolContext, child.id, "complete")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "the child's own advance must stand: $transition")
+            val cascade = cascadeOf(toolContext, child.id, "complete")
+            assertEquals(Role.TERMINAL, toolContext.workItemRepository().getById(child.id)!!.role, "the child's own advance must stand")
 
-            val cascades = transition["cascadeEvents"]!!.jsonArray
-            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
-            val cascade = cascades[0].jsonObject
-            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
-            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "the parent terminal cascade must be suppressed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(parent.id, cascade.itemId)
+            assertFalse(cascade.applied, "the parent terminal cascade must be suppressed: $cascade")
+            val cascadeViolations = checkNotNull(cascade.violationsJson()) { "cascade: $cascade" }
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
             assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
         }
@@ -610,10 +633,9 @@ work_item_schemas:
             upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
             upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
 
-            val transition = advance(toolContext, child.id, "complete")
-            val cascade = transition["cascadeEvents"]!!.jsonArray[0].jsonObject
-            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent terminal cascade proceed: $cascade")
-            val cascadeViolations = cascade["violations"]!!.jsonArray
+            val cascade = cascadeOf(toolContext, child.id, "complete")
+            assertTrue(cascade.applied, "WARN must let the parent terminal cascade proceed: $cascade")
+            val cascadeViolations = checkNotNull(cascade.violationsJson()) { "cascade: $cascade" }
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
         }
 
@@ -650,7 +672,7 @@ work_item_schemas:
             upsertNote(toolContext, advItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
             upsertNote(toolContext, advItem.id, "test-manifest", "work", "tm", actorId = "agent-n")
             val transition = advance(toolContext, advItem.id, "start")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(transition["ok"]!!.jsonPrimitive.boolean)
             assertFalse(transition.containsKey("violations"), "transition: $transition")
 
             // cascade event: no violations key -- parent and child both clean, indep-cascade schema.
@@ -660,10 +682,9 @@ work_item_schemas:
             val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
             upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
             upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
-            val cascadeTransition = advance(toolContext, child.id, "start")
-            val cascade = cascadeTransition["cascadeEvents"]!!.jsonArray[0].jsonObject
-            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "cascade: $cascade")
-            assertFalse(cascade.containsKey("violations"), "cascade: $cascade")
+            val cascade = cascadeOf(toolContext, child.id, "start")
+            assertTrue(cascade.applied, "cascade: $cascade")
+            assertEquals(null, cascade.violationsJson(), "a clean cascade reports no violations: $cascade")
 
             // complete_tree applied entry: no violations key.
             val ctItem = createItem(toolContext, root, "indep-gate")
@@ -699,14 +720,16 @@ work_item_schemas:
                 upsertNote(toolContext, item.id, "spec-b", "queue", "b", actorId = "same-agent")
 
                 val transition = advance(toolContext, item.id, "complete")
-                val violations = transition["violations"]!!.jsonArray
+                val violations =
+                    if (mode == "reject") {
+                        assertFalse(transition["ok"]!!.jsonPrimitive.boolean, "REJECT must block on complete: $transition")
+                        rejectViolations(toolContext, item.id, "complete")
+                    } else {
+                        assertTrue(transition["ok"]!!.jsonPrimitive.boolean, "WARN must apply on complete: $transition")
+                        transition["violations"]!!.jsonArray
+                    }
                 assertEquals(1, violations.size, "mode=$mode violations: $violations")
                 assertEquals("same_actor", violations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
-                if (mode == "reject") {
-                    assertFalse(transition["applied"]!!.jsonPrimitive.boolean, "REJECT must block on complete: $transition")
-                } else {
-                    assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "WARN must apply on complete: $transition")
-                }
             }
         }
 
@@ -768,7 +791,7 @@ work_item_schemas:
             assertTrue(ctxViolations[0].jsonObject["waived"]!!.jsonPrimitive.boolean)
 
             val transition = advance(toolContext, item.id, "start")
-            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "REJECT must apply on a fully-waived violation list: $transition")
+            assertTrue(transition["ok"]!!.jsonPrimitive.boolean, "REJECT must apply on a fully-waived violation list: $transition")
             val violations = transition["violations"]!!.jsonArray
             assertEquals(1, violations.size, "violations: $violations")
             assertTrue(violations[0].jsonObject["waived"]!!.jsonPrimitive.boolean)

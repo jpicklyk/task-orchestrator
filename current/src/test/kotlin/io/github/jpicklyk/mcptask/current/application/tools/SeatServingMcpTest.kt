@@ -1,24 +1,30 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.advanceDirect
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.errorCode
+import io.github.jpicklyk.mcptask.current.test.failure
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -31,6 +37,7 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -374,7 +381,7 @@ traits:
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S12 - get_context and advance_item start report identical missingBySeat for the same QUEUE-phase gate failure`(
+    fun `S12 - get_context and the advance start report identical missingBySeat for the same QUEUE-phase gate failure`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
@@ -397,32 +404,25 @@ traits:
                 contextMissingBySeat.mapValues { (_, v) -> v.jsonArray.map { it.jsonPrimitive.content } },
             )
 
-            val advanceResult =
-                AdvanceItemTool().execute(
-                    buildJsonObject {
-                        put(
-                            "transitions",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(SEAT_AWARE_QUEUE_ID.toString()))
-                                        put("trigger", JsonPrimitive("start"))
-                                    },
-                                )
-                            },
-                        )
-                    },
-                    toolContext,
+            // Q32: the 4.0 `advance` element reports the gate as `gate_blocked` (its detail lists each missing note with its
+            // seat); the bucketed missingBySeat map is the AdvanceService failure's, asserted here on the shared service.
+            val element = toolContext.advanceTool(transitionOp(SEAT_AWARE_QUEUE_ID, "start")).onlyResult()
+            assertEquals("gate_blocked", element.errorCode(), "queue gate must block the start trigger: $element")
+            val blocked =
+                assertIs<AdvanceFailure.GateBlocked>(
+                    toolContext
+                        .advanceDirect(
+                            checkNotNull(toolContext.workItemRepository().getById(SEAT_AWARE_QUEUE_ID)),
+                            "start"
+                        ).failure()
                 )
-            val advanceData = extractData(advanceResult)
-            val transitionResult = advanceData["results"]!!.jsonArray[0].jsonObject
-            assertFalse(transitionResult["applied"]!!.jsonPrimitive.boolean, "queue gate must block the start trigger")
-            val advanceMissingBySeat = transitionResult["missingBySeat"]!!.jsonObject
+            val advanceMissingBySeat =
+                checkNotNull(buildMissingBySeatJson(blocked.missingBySeat)) { "a seat-aware gate buckets by seat: $blocked" }
 
             assertEquals(
                 contextMissingBySeat,
                 advanceMissingBySeat,
-                "get_context and advance_item must report the identical missingBySeat for the same gate state",
+                "get_context and the advance must report the identical missingBySeat for the same gate state",
             )
         }
 
@@ -595,33 +595,23 @@ traits:
         }
 
     @Test
-    fun `SF6 - advance_item complete with queue and work notes missing draws missingBySeat buckets from both phases`(
+    fun `SF6 - an advance complete with queue and work notes missing draws missingBySeat buckets from both phases`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val toolContext = newToolContext(tempDir)
 
-            val result =
-                AdvanceItemTool().execute(
-                    buildJsonObject {
-                        put(
-                            "transitions",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString()))
-                                        put("trigger", JsonPrimitive("complete"))
-                                    },
-                                )
-                            },
-                        )
-                    },
-                    toolContext,
+            val element = toolContext.advanceTool(transitionOp(SEAT_AWARE_WORK_ID, "complete")).onlyResult()
+            assertEquals("gate_blocked", element.errorCode(), "the schema's queue+work notes are all missing: $element")
+            val blocked =
+                assertIs<AdvanceFailure.GateBlocked>(
+                    toolContext
+                        .advanceDirect(
+                            checkNotNull(toolContext.workItemRepository().getById(SEAT_AWARE_WORK_ID)),
+                            "complete"
+                        ).failure()
                 )
-            val data = extractData(result)
-            val transition = data["results"]!!.jsonArray[0].jsonObject
-            assertFalse(transition["applied"]!!.jsonPrimitive.boolean, "the schema's queue+work notes are all missing")
-            val missingBySeat = transition["missingBySeat"]!!.jsonObject
+            val missingBySeat = checkNotNull(buildMissingBySeatJson(blocked.missingBySeat)) { "$blocked" }
 
             // planner (queue: diagnosis, test-plan) and implementer/orchestrator/test-author (work)
             // must ALL appear in one map -- buckets drawn from both phases, not just the current one.

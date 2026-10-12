@@ -10,7 +10,6 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -19,10 +18,12 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifie
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
 import io.github.jpicklyk.mcptask.current.test.notesWriteFromLegacyParams
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -85,7 +86,6 @@ class ActorProofEvidencePersistenceTest {
 
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
-    private lateinit var advanceItemTool: AdvanceItemTool
 
     /** Raw handle to the same SQLite database, for the B1 at-rest (raw-SQL) assertions. */
     private lateinit var database: Database
@@ -95,7 +95,6 @@ class ActorProofEvidencePersistenceTest {
         database = db.database
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
-        advanceItemTool = AdvanceItemTool()
     }
 
     /**
@@ -346,31 +345,15 @@ class ActorProofEvidencePersistenceTest {
         }
 
     @Test
-    fun `B1c raw SQL confirms the transition event holds no raw proof and the proof hash at rest after advance_item`(): Unit =
+    fun `B1c raw SQL confirms the transition event holds no raw proof and the proof hash at rest after an advance transition`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val expectedHash = sha256Hex("abc")
 
-            advanceItemTool.execute(
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", itemId)
-                                    put("trigger", "start")
-                                    put("actor", actorJson(id = "agent-b1c", proof = "abc"))
-                                }
-                            )
-                        }
-                    )
-                },
-                context
-            ) as JsonObject
+            context.advanceTool(transitionOp(itemId, "start"), actor = actorJson(id = "agent-b1c", proof = "abc"))
 
             val (rawProof, rawSha) = rawTransitionProofColumns()
-            assertNull(rawProof, "the item.transitioned event must carry no raw actorProof after advance_item")
+            assertNull(rawProof, "the item.transitioned event must carry no raw actorProof after the advance")
             assertEquals(expectedHash, rawSha, "the item.transitioned event must hold the expected hash at rest")
         }
 
@@ -379,28 +362,12 @@ class ActorProofEvidencePersistenceTest {
     // ===========================================================================================
 
     @Test
-    fun `S2 advance_item with a noop-verified proof scrubs actor_proof and persists its sha256 on the transition`(): Unit =
+    fun `S2 an advance transition with a noop-verified proof scrubs actor_proof and persists its sha256 on the transition`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val expectedHash = sha256Hex("abc")
 
-            advanceItemTool.execute(
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", itemId)
-                                    put("trigger", "start")
-                                    put("actor", actorJson(id = "agent-s2", proof = "abc"))
-                                }
-                            )
-                        }
-                    )
-                },
-                context
-            ) as JsonObject
+            context.advanceTool(transitionOp(itemId, "start"), actor = actorJson(id = "agent-s2", proof = "abc"))
 
             val transitions = repositoryProvider.transitionsOf(UUID.fromString(itemId))
             assertNotNull(transitions, "expected transitions to be found; got $transitions")
@@ -458,7 +425,7 @@ class ActorProofEvidencePersistenceTest {
         }
 
     @Test
-    fun `S3 advance_item with a VERIFIED jwks proof persists all 8 verified claims exactly on the transition`(): Unit =
+    fun `S3 an advance transition with a VERIFIED jwks proof persists all 8 verified claims exactly on the transition`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val verifiedContext = contextWithVerifier(jwksVerifier())
@@ -467,23 +434,7 @@ class ActorProofEvidencePersistenceTest {
             val jti = UUID.randomUUID().toString()
             val jwt = signClaims(rsaKey, "evidence-test-key", subject = "agent-s3b", jti = jti, iat = iat, exp = exp)
 
-            advanceItemTool.execute(
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", itemId)
-                                    put("trigger", "start")
-                                    put("actor", actorJson(id = "agent-s3b", proof = jwt))
-                                }
-                            )
-                        }
-                    )
-                },
-                verifiedContext
-            ) as JsonObject
+            verifiedContext.advanceTool(transitionOp(itemId, "start"), actor = actorJson(id = "agent-s3b", proof = jwt))
 
             val transitions = repositoryProvider.transitionsOf(UUID.fromString(itemId))
             assertNotNull(transitions)

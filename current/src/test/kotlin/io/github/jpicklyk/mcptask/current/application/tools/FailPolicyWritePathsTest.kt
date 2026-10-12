@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -16,13 +15,16 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.actorJson
+import io.github.jpicklyk.mcptask.current.test.advanceTool
+import io.github.jpicklyk.mcptask.current.test.claimOp
 import io.github.jpicklyk.mcptask.current.test.completeTreeOp
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.releaseOp
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
-import io.ktor.client.request.put
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -32,14 +34,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -53,7 +48,7 @@ import kotlin.test.assertTrue
 
 /**
  * Write paths that no other test runs under the production [OutsideUnitPolicy.FAIL]: `items_write` `complete_tree`,
- * the document write, `claim_item` claim and release, and the operator lease force-release `DELETE /resources/leases/{key}`. Each runs over a REAL
+ * the document write, the `advance` claim and release ops, and the operator lease force-release `DELETE /resources/leases/{key}`. Each runs over a REAL
  * [ServerComposition] whose database refuses any store write outside a unit of work, so a write site that
  * escapes its unit fails here instead of only in production. Fixtures are seeded inside a unit.
  *
@@ -117,11 +112,6 @@ class FailPolicyWritePathsTest {
             )
         }
 
-    private fun assertSuccess(result: JsonElement) {
-        val obj = result as JsonObject
-        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected a successful call: $result")
-    }
-
     @Test
     fun `complete_tree commits under the FAIL policy`(
         @TempDir tempDir: Path
@@ -171,7 +161,7 @@ class FailPolicyWritePathsTest {
         }
 
     @Test
-    fun `claim_item claim and release commit under the FAIL policy`(
+    fun `advance claim and release commit under the FAIL policy`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
@@ -179,25 +169,14 @@ class FailPolicyWritePathsTest {
             val item = composition.seedItem("FAIL claim item")
             val items = composition.toolContext.repositoryProvider.workItemRepository()
 
-            fun params(key: String): JsonObject =
-                buildJsonObject {
-                    put(key, buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) })
-                    put(
-                        "actor",
-                        buildJsonObject {
-                            put("id", "fail-policy-agent")
-                            put("kind", "subagent")
-                        }
-                    )
-                    put("requestId", UUID.randomUUID().toString())
-                }
+            val agent = actorJson("fail-policy-agent")
 
-            val claimed = ClaimItemTool().execute(params("claims"), composition.toolContext)
-            assertSuccess(claimed)
+            val claimed = composition.toolContext.advanceTool(claimOp(item.id), actor = agent)
+            claimed.okResult(0)
             assertEquals("fail-policy-agent", assertNotNull(items.getById(item.id)).claimedBy, "the claim must be persisted: $claimed")
 
-            val released = ClaimItemTool().execute(params("releases"), composition.toolContext)
-            assertSuccess(released)
+            val released = composition.toolContext.advanceTool(releaseOp(item.id), actor = agent)
+            released.okResult(0)
             assertNull(assertNotNull(items.getById(item.id)).claimedBy, "the release must be persisted: $released")
         }
 

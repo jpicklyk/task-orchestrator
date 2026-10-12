@@ -8,12 +8,7 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -24,11 +19,14 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
-import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
-import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -48,7 +46,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -57,6 +54,7 @@ import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -75,22 +73,21 @@ import kotlin.test.assertTrue
  * NEW application/service/ActorVerificationScope.kt - a CoroutineContext.Element holding
  * ConcurrentHashMap<String /*proof sha256*/, VerificationResult>. ActorAware.parseActorClaim
  * reuses a memoized result when the element is present. Installed once per call at
- * interfaces/mcp/McpToolAdapter.kt via withContext(ActorVerificationScope()). No element (direct
+ * the (removed) 3.x MCP tool adapter via withContext(ActorVerificationScope()). No element (direct
  * in-process calls) = no memo."
  *
- * S18's harness follows the declarations' explicit instruction: build a [ToolExecutionContext]
- * whose `actorVerifier` is a real [JwksActorVerifier] with `jtiReplayProtection = true` and
- * `degradedModePolicy = REJECT`, register the real [AdvanceItemTool] via [McpToolAdapter], and
- * issue an `advance_item` call with two transitions sharing one `actor.proof` value. Because
- * `jtiReplayProtection = true`, this scenario is SELF-PROVING: if the per-call memo were absent,
- * the second transition's direct re-verification of the same proof would hit the jti replay
- * cache (already recorded by the first transition's verify) and be rejected — no invocation
- * counting or spying is needed. The narrowest revert for this NEW-SURFACE scenario is exactly
- * that: keep [ActorVerificationScope] and its installation in [McpToolAdapter], but skip the
- * memo lookup in `parseActorClaim` — which would flip transition 2 from applied=true to a jti
- * replay rejection.
+ * Q32 port: S18 now runs over the 4.0 path. The `advance` tool's dispatcher lifts the call's ONE top-level actor and
+ * verifies its proof once per call, so two `transition` elements sharing that actor both apply; a second MCP call
+ * presenting the same proof again re-verifies it and the verifier's jti replay cache rejects it (the element fails
+ * `unauthenticated` under the REJECT policy). The harness registers the production tool registry through
+ * [McpOperationAdapter] over a real SQLite database (the removed 3.x [ActorVerificationScope] memo consumer was the
+ * advance_item driver).
  */
 class ActorVerificationScopeTest {
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod()
+
     // =========================================================================
     // ActorVerificationScope — class-level behavior
     // =========================================================================
@@ -140,7 +137,6 @@ class ActorVerificationScopeTest {
 
     private lateinit var server: Server
     private lateinit var client: Client
-    private lateinit var adapter: McpToolAdapter
 
     @BeforeEach
     fun setUp(): Unit =
@@ -150,16 +146,24 @@ class ActorVerificationScopeTest {
                     serverInfo = Implementation(name = "actor-verification-scope-test-server", version = "1.0.0"),
                     options = inMemoryTestServerOptions()
                 )
-            adapter = McpToolAdapter()
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
             client =
                 Client(
                     clientInfo = Implementation(name = "actor-verification-scope-test-client", version = "1.0.0"),
                     options = ClientOptions(capabilities = ClientCapabilities())
                 )
-            server.createSession(serverTransport)
-            client.connect(clientTransport)
+            pendingTransports = clientTransport to serverTransport
         }
+
+    private var pendingTransports: Pair<ChannelTransport, ChannelTransport>? = null
+
+    /** Registers the production tools over [context] and connects the client (tools must be added before a session). */
+    private suspend fun connect(context: ToolExecutionContext) {
+        McpOperationAdapter(buildToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+        val (clientTransport, serverTransport) = checkNotNull(pendingTransports)
+        server.createSession(serverTransport)
+        client.connect(clientTransport)
+    }
 
     @AfterEach
     fun tearDown(): Unit =
@@ -199,29 +203,8 @@ class ActorVerificationScopeTest {
         return provider
     }
 
-    /** A mocked [ToolExecutionContext] for [AdvanceItemTool] over the given items, with a real jti-replay-protecting verifier. */
-    private fun contextFor(items: Map<UUID, WorkItem>): ToolExecutionContext {
-        val workItemRepo = mockk<WorkItemRepository>()
-        val depRepo = mockk<DependencyStore>()
-        AdvanceMockStores.stubReads(workItemRepo, depRepo)
-        val noteRepo = mockk<NoteStore>()
-        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
-        coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
-
-        items.forEach { (id, item) ->
-            coEvery { workItemRepo.getById(id) } returns item
-            every { depRepo.findByToItemId(id) } returns emptyList()
-            every { depRepo.findByFromItemId(id) } returns emptyList()
-        }
-        coEvery { workItemRepo.update(any()) } answers { firstArg() }
-
-        val repoProvider = mockk<RepositoryProvider>()
-        every { repoProvider.workItemRepository() } returns workItemRepo
-        every { repoProvider.eventStore() } returns InMemoryEventStore()
-        every { repoProvider.dependencyRepository() } returns depRepo
-        every { repoProvider.noteRepository() } returns noteRepo
-        every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-
+    /** A [ToolExecutionContext] over the real database with a real jti-replay-protecting verifier and the REJECT policy. */
+    private fun context(): ToolExecutionContext {
         val verifier =
             JwksActorVerifier(
                 config =
@@ -234,15 +217,27 @@ class ActorVerificationScopeTest {
                     ),
                 keySetProvider = mockKeySetProvider()
             )
-
         return ToolExecutionContext(
-            repositoryProvider = repoProvider,
+            repositoryProvider = db.repositoryProvider(),
             actorVerifier = verifier,
-            degradedModePolicy = DegradedModePolicy.REJECT
+            degradedModePolicy = DegradedModePolicy.REJECT,
+            unitOfWork = db.unitOfWork()
         )
     }
 
-    private fun makeItem(id: UUID): WorkItem = WorkItem(id = id, title = "Test Item", role = Role.QUEUE)
+    private suspend fun makeItem(): UUID =
+        db
+            .repositoryProvider()
+            .workItemRepository()
+            .create(WorkItem(title = "Test Item", role = Role.QUEUE))
+            .id
+
+    private fun transition(id: UUID) =
+        buildJsonObject {
+            put("op", "transition")
+            put("itemId", id.toString())
+            put("trigger", "start")
+        }
 
     private fun actorJson(proof: String): JsonObject =
         buildJsonObject {
@@ -251,99 +246,68 @@ class ActorVerificationScopeTest {
             put("proof", proof)
         }
 
-    /**
-     * [AdvanceItemTool]'s success envelope ({success, data: {results, summary}}) is unwrapped by
-     * [McpToolAdapter] before it reaches the wire: on success, `structuredContent` IS the "data"
-     * object directly (no "success"/"data" nesting) — the same convention already exercised by
-     * McpToolAdapterValidationEnvelopeTest's `createResult.structuredContent!!["items"]`.
-     */
+    /** The `advance` envelope body: [McpOperationAdapter] serves it as `structuredContent` unchanged. */
     private fun resultJson(callResult: CallToolResult): JsonObject =
         assertNotNull(callResult.structuredContent, "expected structuredContent on the response: ${callResult.content}")
 
     @Test
-    fun `S18 two transitions sharing one proof succeed via the memo, a later call replays jti and is rejected`() =
+    fun `S18 two transitions under one actor proof both apply, a later call replays the jti and is rejected`() =
         runBlocking {
-            val id1 = UUID.randomUUID()
-            val id2 = UUID.randomUUID()
-            val id3 = UUID.randomUUID()
-            val context = contextFor(mapOf(id1 to makeItem(id1), id2 to makeItem(id2), id3 to makeItem(id3)))
-            adapter.registerToolWithServer(server, AdvanceItemTool(), context)
+            val id1 = makeItem()
+            val id2 = makeItem()
+            val id3 = makeItem()
+            connect(context())
 
             val sharedProof = sign(claimsFor(subject = "agent-shared", jti = "shared-jti-s18"))
 
-            val call1Params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", id1.toString())
-                                    put("trigger", "start")
-                                    put("actor", actorJson(sharedProof))
-                                }
-                            )
-                            add(
-                                buildJsonObject {
-                                    put("itemId", id2.toString())
-                                    put("trigger", "start")
-                                    put("actor", actorJson(sharedProof))
-                                }
-                            )
-                        }
-                    )
-                }
-            val call1Request =
-                buildCallToolRequest {
-                    name = "advance_item"
-                    arguments(call1Params)
-                }
-            val call1Result = client.callTool(call1Request)
+            val call1Result =
+                client.callTool(
+                    buildCallToolRequest {
+                        name = "advance"
+                        arguments(
+                            buildJsonObject {
+                                put("actor", actorJson(sharedProof))
+                                put("ops", kotlinx.serialization.json.JsonArray(listOf(transition(id1), transition(id2))))
+                            }
+                        )
+                    }
+                )
             val call1Body = resultJson(call1Result)
 
             assertTrue(call1Result.isError != true, "call 1 must succeed overall, got: ${call1Result.content}")
-            val call1Results = call1Body["results"]!!.jsonArray
+            val call1Results = call1Body["data"]!!.jsonObject["results"]!!.jsonArray
             assertEquals(2, call1Results.size)
             call1Results.forEach { r ->
                 assertTrue(
-                    r.jsonObject["applied"]!!.jsonPrimitive.boolean,
-                    "both transitions sharing one proof must succeed via the per-call memo: $r"
+                    r.jsonObject["ok"]!!.jsonPrimitive.boolean,
+                    "both transitions under the call's one verified actor must apply: $r"
                 )
             }
 
-            // A SEPARATE MCP call installs a fresh ActorVerificationScope, so the memo from call 1
-            // does not apply here — but the JtiReplayCache is owned by the verifier instance
-            // (shared across both calls via the same context), so the jti from call 1 is still on
-            // record and this presentation of the identical proof must be rejected as a replay.
-            val call2Params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", id3.toString())
-                                    put("trigger", "start")
-                                    put("actor", actorJson(sharedProof))
-                                }
-                            )
-                        }
-                    )
-                }
-            val call2Request =
-                buildCallToolRequest {
-                    name = "advance_item"
-                    arguments(call2Params)
-                }
-            val call2Result = client.callTool(call2Request)
+            // A SEPARATE MCP call verifies its actor again. The JtiReplayCache is owned by the verifier instance (shared
+            // across both calls via the same context), so the jti from call 1 is still on record and this presentation of
+            // the identical proof is rejected as a replay; under the REJECT policy the element fails.
+            val call2Result =
+                client.callTool(
+                    buildCallToolRequest {
+                        name = "advance"
+                        arguments(
+                            buildJsonObject {
+                                put("actor", actorJson(sharedProof))
+                                put("ops", kotlinx.serialization.json.JsonArray(listOf(transition(id3))))
+                            }
+                        )
+                    }
+                )
             val call2Body = resultJson(call2Result)
 
-            val call2Results = call2Body["results"]!!.jsonArray
+            val call2Results = call2Body["data"]!!.jsonObject["results"]!!.jsonArray
             assertEquals(1, call2Results.size)
             val r3 = call2Results[0].jsonObject
             assertFalse(
-                r3["applied"]!!.jsonPrimitive.boolean,
+                r3["ok"]!!.jsonPrimitive.boolean,
                 "a fresh MCP call replaying the same jti (already recorded by call 1) must be rejected: $r3"
             )
+            assertEquals("unauthenticated", r3["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, "$r3")
         }
 }

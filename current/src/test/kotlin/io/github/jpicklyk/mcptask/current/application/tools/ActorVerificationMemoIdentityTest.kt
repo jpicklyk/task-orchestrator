@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -40,6 +39,10 @@ import java.util.Date
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
+/**
+ * The per-call verification memo of [ActorAware.parseActorClaim] is keyed on the full claim identity. Q32: the 3.x
+ * advance_item driver that implemented [ActorAware] is gone, so the suite parses through a bare [ActorAware].
+ */
 class ActorVerificationMemoIdentityTest {
     private val rsaKey = RSAKeyGenerator(2048).keyID("memo-identity-test-key").generate()
     private val now: Instant = Instant.now()
@@ -120,7 +123,7 @@ class ActorVerificationMemoIdentityTest {
             val verifier = JwksActorVerifier(config = baseConfig(), keySetProvider = mockKeySetProvider())
             val counting = CountingActorVerifier(verifier)
             val context = contextWith(counting)
-            val tool = AdvanceItemTool()
+            val tool = object : ActorAware {}
             val proof = sign(claimsFor(subject = "attacker"))
 
             withContext(ActorVerificationScope()) {
@@ -173,7 +176,7 @@ class ActorVerificationMemoIdentityTest {
             val verifier = JwksActorVerifier(config = baseConfig(), keySetProvider = mockKeySetProvider())
             val counting = CountingActorVerifier(verifier)
             val context = contextWith(counting)
-            val tool = AdvanceItemTool()
+            val tool = object : ActorAware {}
             val proof = sign(claimsFor(subject = "attacker"))
 
             withContext(ActorVerificationScope()) {
@@ -207,7 +210,7 @@ class ActorVerificationMemoIdentityTest {
             val verifier = JwksActorVerifier(config = baseConfig(), keySetProvider = mockKeySetProvider())
             val counting = CountingActorVerifier(verifier)
             val context = contextWith(counting)
-            val tool = AdvanceItemTool()
+            val tool = object : ActorAware {}
             val proof = sign(claimsFor(subject = "attacker"))
 
             withContext(ActorVerificationScope()) {
@@ -238,7 +241,7 @@ class ActorVerificationMemoIdentityTest {
             val verifier = JwksActorVerifier(config = baseConfig(), keySetProvider = mockKeySetProvider())
             val counting = CountingActorVerifier(verifier)
             val context = contextWith(counting)
-            val tool = AdvanceItemTool()
+            val tool = object : ActorAware {}
             val proof = sign(claimsFor(subject = "attacker"))
             val actorObj = actorJson(id = "attacker", proof = proof)
 
