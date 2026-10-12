@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -29,6 +30,7 @@ internal val depsGraphSelect =
                 "first. level is the longest blocker path from an item with no blocker; cyclic items come last. relates_to " +
                 "edges are ignored. Items outside the scope of the call are neither listed nor traversed. page.capped means " +
                 "the walk stopped at ${DepsSupport.MAX_GRAPH_NODES} items.",
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DepsGraphRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> graph(env, ctx, req) },

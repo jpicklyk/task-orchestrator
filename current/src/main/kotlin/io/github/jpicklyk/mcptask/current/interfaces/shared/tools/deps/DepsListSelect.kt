@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 import java.util.UUID
@@ -23,6 +24,7 @@ internal val depsListSelect =
         doc =
             "List the dependency edges touching one item, oldest first. incoming = what blocks it, outgoing = what it blocks. " +
                 "Edges whose other end is outside the scope of the call are left out and not counted.",
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DepsListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> listEdges(env, ctx, req) },

@@ -17,6 +17,21 @@ only — there are no `prompts` or `resources` capabilities; the server register
 `logging` capability backs `notifications/message` events the server sends on tool validation
 errors, per-root-config-unavailable failures, and internal errors.
 
+## Tool profiles
+
+The server builds one MCP `Server` per tool profile, so a client sees only the selects and ops of its profile (a hidden
+select or op looks absent: `invalid_request`).
+
+| Profile | HTTP path | stdio | Tools |
+|---|---|---|---|
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool with all its selects and ops, including `advance` and `config` |
+| `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
+
+`/mcp/knowledge` is exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the profile it was
+initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and applied to
+stdio only. `POST /api/v1/ops/{tool}` always serves the orchestration profile. The `initialize` `instructions` is one
+sentence naming the profile. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+
 ## Tool Categories
 
 | Tool | Category | R/W | Description |

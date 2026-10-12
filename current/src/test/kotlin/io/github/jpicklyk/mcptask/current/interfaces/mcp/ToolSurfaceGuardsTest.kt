@@ -196,6 +196,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
+                            profile = ToolProfile.KNOWLEDGE,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -227,6 +228,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
+                            profile = ToolProfile.KNOWLEDGE,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -257,6 +259,7 @@ class ToolSurfaceGuardsTest {
                             name = "go",
                             doc = "Go.",
                             capability = ApiCapability.WRITE_ITEMS,
+                            profile = ToolProfile.KNOWLEDGE,
                             request = serializer<NakedReq>(),
                             execute = {
                                 _,
@@ -278,6 +281,7 @@ class ToolSurfaceGuardsTest {
                     SelectSpec.Single<NakedReq, String>(
                         name = "go",
                         doc = "Go.",
+                        profile = ToolProfile.KNOWLEDGE,
                         request = serializer<NakedReq>(),
                         handler = { _, _, _ -> Outcome.Ok("x") },
                         data = { JsonPrimitive(it) }
@@ -335,6 +339,7 @@ class ToolSurfaceGuardsTest {
                                 name = "make",
                                 doc = "Make.",
                                 capability = ApiCapability.WRITE_ITEMS,
+                                profile = ToolProfile.KNOWLEDGE,
                                 request = serializer<FixtureTools.CreateReq>(),
                                 execute = { _, _, _ -> Outcome.Ok("x") }
                             )
