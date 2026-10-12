@@ -90,7 +90,7 @@ internal class WriteConfinementTest {
                 Confined(
                     "LinkStore",
                     STORE_WRITE,
-                    setOf("insert", "deleteFrom", "deleteFromAny", "deleteToAny", "deleteByIds", "resolve", "unresolveTo")
+                    setOf("insert", "deleteFrom", "deleteFromAny", "deleteToAny", "restampRoot", "deleteByIds", "resolve", "unresolveTo")
                 ),
                 Confined("ClaimStore", CLAIM_WRITE, setOf("claim", "release", "clear")),
                 Confined("LeaseStore", CLAIM_WRITE, setOf("acquireAll", "releaseAllForItem", "releaseAllForItems", "forceReleaseByKey"))

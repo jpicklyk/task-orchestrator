@@ -135,6 +135,31 @@ class SqliteDocumentStore(
         }
     }
 
+    override suspend fun findByRootItemIds(rootItemIds: Collection<UUID>): List<DocumentSummary> {
+        if (rootItemIds.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            rootItemIds
+                .distinct()
+                .chunked(SQL_IN_CHUNK_SIZE)
+                .flatMap { chunk ->
+                    DocumentsTable
+                        .select(
+                            DocumentsTable.id,
+                            DocumentsTable.rootItemId,
+                            DocumentsTable.kind,
+                            DocumentsTable.slug,
+                            DocumentsTable.title,
+                            DocumentsTable.contentHash,
+                            DocumentsTable.version,
+                            DocumentsTable.archivedAt,
+                            DocumentsTable.createdAt,
+                            DocumentsTable.modifiedAt
+                        ).where { DocumentsTable.rootItemId inList chunk }
+                        .map(::toSummary)
+                }.sortedWith(compareBy<DocumentSummary>({ it.rootItemId }, { it.kind.toDbValue() }, { it.slug }))
+        }
+    }
+
     @StoreWrite
     override suspend fun insert(document: Document): Document =
         databaseManager.writeTx("DocumentStore.insert") {

@@ -193,6 +193,27 @@ class DocumentService(
         }
 
     /**
+     * Deletes every document anchored (by `root_item_id`, whatever the item's depth now is) to one of [itemIds], for an
+     * item delete that is about to remove those items: per document, the same link cleanup as [delete], the document
+     * and its versions, then one `document.deleted` (the document's own root). Archived and adopted documents go too;
+     * nothing is refused. One batched document lookup. Joins the caller's unit, so the rows precede the caller's
+     * `item.deleted` and commit or roll back with it. Returns the number of documents deleted.
+     */
+    suspend fun deleteAnchoredTo(itemIds: Collection<UUID>): Outcome<Int> {
+        if (itemIds.isEmpty()) return Outcome.Ok(0)
+        return unitOfWork.write("DocumentService.deleteAnchoredTo") {
+            val documents = repositoryProvider.documentStore()
+            val doomed = documents.findByRootItemIds(itemIds)
+            for (doc in doomed) {
+                links.onDocumentDeleted(doc.id)
+                documents.delete(doc.id)
+                events.record(DomainEvent.DocumentDeleted(doc.id, doc.rootItemId, doc.kind, doc.slug, doc.version))
+            }
+            Outcome.Ok(doomed.size)
+        }
+    }
+
+    /**
      * Records that [adoptedByItemId] adopted the PLAN document [slug] under [rootId]: inserts the `adopted_by` link
      * (document -> item) and records `document.adopted`, in one write unit (joining the caller's unit, so a composite
      * such as `create_work_tree` commits or rolls the adoption back with its tree). Returns the (unchanged) document.

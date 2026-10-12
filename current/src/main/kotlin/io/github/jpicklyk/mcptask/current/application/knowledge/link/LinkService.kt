@@ -100,9 +100,12 @@ class LinkService(
      * Cleans up after [document] was deleted: its outbound links are deleted; inbound links that kept their text
      * become dangling, inbound links without one are deleted.
      */
-    suspend fun onDocumentDeleted(document: Document) {
+    suspend fun onDocumentDeleted(document: Document) = onDocumentDeleted(document.id)
+
+    /** [onDocumentDeleted] by document id: the same cleanup, for a caller holding only a summary of the document. */
+    suspend fun onDocumentDeleted(documentId: UUID) {
         val links = repositoryProvider.linkStore()
-        val ref = EntityRef(RefKind.DOCUMENT, document.id)
+        val ref = EntityRef(RefKind.DOCUMENT, documentId)
         links.deleteFrom(ref)
         links.unresolveTo(ref)
     }
@@ -127,6 +130,22 @@ class LinkService(
         val items = itemIds.map { EntityRef(RefKind.ITEM, it) }
         links.deleteFromAny(noteIds.map { EntityRef(RefKind.NOTE, it) } + items)
         links.deleteToAny(items, keep = setOf(LinkRelation.ADOPTED_BY))
+    }
+
+    /**
+     * Follows a reparent that moved [itemIds] (the moved item and all its descendants, carrying the notes [noteIds])
+     * into the root [newRootId]: every link sourced from one of those notes or items, of any relation and resolved or
+     * dangling, is restamped to [newRootId], so the old root's delete cascade no longer removes it. Targets are not
+     * re-resolved: a reference into the old root stays as it is (and goes dangling if that root's document is deleted).
+     * Document-sourced links keep their document's root. Joins the ambient unit; records no event.
+     */
+    suspend fun onItemsMoved(
+        itemIds: Collection<UUID>,
+        noteIds: Collection<UUID>,
+        newRootId: UUID,
+    ) {
+        val sources = noteIds.map { EntityRef(RefKind.NOTE, it) } + itemIds.map { EntityRef(RefKind.ITEM, it) }
+        repositoryProvider.linkStore().restampRoot(sources, newRootId)
     }
 
     /**
