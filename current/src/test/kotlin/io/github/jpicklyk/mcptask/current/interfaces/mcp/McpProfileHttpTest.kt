@@ -550,8 +550,8 @@ class McpProfileHttpTest {
                 }
             assertEquals(HttpStatusCode.Unauthorized, ops.status, "the REST ops route must still require a bearer token")
 
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/transitions").status, "REST routes stay gated")
-            val authorised = client.get("/api/v1/transitions") { header(HttpHeaders.Authorization, "Bearer $bearerToken") }
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/resources/leases").status, "REST routes stay gated")
+            val authorised = client.get("/api/v1/resources/leases") { header(HttpHeaders.Authorization, "Bearer $bearerToken") }
             assertEquals(HttpStatusCode.OK, authorised.status, "control: the same route answers 200 with the token")
         }
     }
