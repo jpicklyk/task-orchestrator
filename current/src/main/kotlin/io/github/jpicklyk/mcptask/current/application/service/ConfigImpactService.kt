@@ -44,7 +44,9 @@ data class InFlightImpact(
  * precedence walk over the candidate as the per-root layer and the current server head (what a repin would pin to).
  * A note counts as changed only when its key is added or removed, or its role or required flag changes.
  *
- * Config read faults propagate unchanged (fail closed, no partial result).
+ * The candidate stands in for the root's own head, so the current root head is never read to build the "after" side:
+ * validating a candidate for a root whose stored head is undecodable still works. Config read faults on a pinned item's
+ * own versions propagate unchanged (fail closed, no partial result).
  */
 class ConfigImpactService(
     private val resolver: EffectiveConfigResolver,
@@ -58,7 +60,7 @@ class ConfigImpactService(
         unitOfWork.read {
             val store = stores.itemStore()
             val candidateConfig =
-                LayeredConfig(rootId, ConfigLayer(candidate, null, ConfigSource.PER_ROOT), resolver.layered(rootId).global)
+                LayeredConfig(rootId, ConfigLayer(candidate, null, ConfigSource.PER_ROOT), resolver.layered(null).global)
             val nowConfigs = HashMap<List<Any?>, LayeredConfig>()
             val nowSides = HashMap<List<Any?>, ImpactSide>()
             val afterSides = HashMap<List<Any?>, ImpactSide>()

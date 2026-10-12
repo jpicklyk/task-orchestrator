@@ -41,7 +41,14 @@ internal val configValidateOp =
         profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.READ,
         request = serializer<ConfigValidateRequest>(),
-        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.PAYLOAD_TOO_LARGE),
+        errors =
+            setOf(
+                ErrorCode.NOT_FOUND,
+                ErrorCode.AMBIGUOUS_ID,
+                ErrorCode.FORBIDDEN,
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                ErrorCode.CONFIG_INVALID
+            ),
         execute = { env, ctx, req ->
             val rootId =
                 when (val r = ConfigSupport.resolveRoot(env, ctx, req.rootId)) {
