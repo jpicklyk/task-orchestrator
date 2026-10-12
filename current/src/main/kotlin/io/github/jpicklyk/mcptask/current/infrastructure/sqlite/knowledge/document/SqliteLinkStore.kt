@@ -160,6 +160,24 @@ class SqliteLinkStore(
     }
 
     @StoreWrite
+    override suspend fun restampRoot(
+        refs: Collection<EntityRef>,
+        rootItemId: UUID
+    ): Int {
+        if (refs.isEmpty()) return 0
+        return databaseManager.writeTx("LinkStore.restampRoot") {
+            refs.groupBy({ it.kind }, { it.id }).entries.sumOf { (kind, ids) ->
+                val dbKind = kind.toDbValue()
+                ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    LinksTable.update({ (LinksTable.fromKind eq dbKind) and (LinksTable.fromId inList chunk) }) {
+                        it[LinksTable.rootItemId] = rootItemId
+                    }
+                }
+            }
+        }
+    }
+
+    @StoreWrite
     override suspend fun deleteByIds(ids: Collection<UUID>): Int {
         if (ids.isEmpty()) return 0
         return databaseManager.writeTx("LinkStore.deleteByIds") {

@@ -454,7 +454,10 @@ object DocHandlers {
 
     /**
      * The [links] whose item and note ends all exist and are admitted by the scope (document ends and dangling
-     * references always stay). One batched item lookup; notes are read one at a time (no batched port).
+     * references always stay). The adopter end of an `adopted_by` link is the one exception to existence: an adoption
+     * outlives the adopting item, so that end needs only the scope's admission, the same rule [adopters] applies to
+     * `adoptedBy` (unrestricted: shown even after the adopter is deleted; restricted: a missing adopter fails closed).
+     * One batched item lookup; notes are read one at a time (no batched port).
      */
     private suspend fun visibleLinks(
         stores: RepositoryProvider,
@@ -467,9 +470,10 @@ object DocHandlers {
         for (noteId in ends.filter { it.kind == RefKind.NOTE }.map { it.id }.distinct()) {
             noteItems[noteId] = stores.noteRepository().getById(noteId)?.itemId
         }
+        val adopterIds = links.mapNotNullTo(HashSet()) { it.adopterEnd()?.id }
         val candidates = itemIds + noteItems.values.filterNotNull()
         val existing = if (candidates.isEmpty()) emptySet() else stores.itemStore().findByIdSet(candidates).mapTo(HashSet()) { it.id }
-        val admitted = ScopeGuard.admitted(ctx.scope, existing, stores.workItemRepository())
+        val admitted = ScopeGuard.admitted(ctx.scope, existing + adopterIds, stores.workItemRepository())
         val ok = { ref: EntityRef ->
             when (ref.kind) {
                 RefKind.DOCUMENT -> true
@@ -477,8 +481,20 @@ object DocHandlers {
                 RefKind.NOTE -> noteItems[ref.id]?.let { it in existing && it in admitted } ?: false
             }
         }
-        return links.filter { ok(it.from) && (it.to == null || ok(it.to)) }
+        return links.filter { link ->
+            val to = link.to
+            val toOk =
+                when {
+                    to == null -> true
+                    link.adopterEnd() != null -> to.id in admitted
+                    else -> ok(to)
+                }
+            ok(link.from) && toOk
+        }
     }
+
+    /** The item end of an `adopted_by` link, or null for any other link. */
+    private fun Link.adopterEnd(): EntityRef? = to?.takeIf { relation == LinkRelation.ADOPTED_BY && it.kind == RefKind.ITEM }
 
     /** Null when [slug] is acceptable for an `upsert`, else the reason (the D6 guard). Reads accept any non-empty slug. */
     fun slugViolation(

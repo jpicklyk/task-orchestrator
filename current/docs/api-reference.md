@@ -92,13 +92,16 @@ lifecycle-free (no role) when its type's base schema is `lifecycle: none`, and t
 **Update semantics.** An absent or `null` field keeps its stored value. `tags: []` and `traits: []` clear those
 lists. `clear` lists optional fields to set to null: `description`, `statusLabel`, `metadata`, `complexity`,
 `properties`, `parentId` (the last moves the item to root). A field cannot be both sent and cleared in one element.
+A move to another root also restamps the root of the links sourced from the notes of the moved item and of its
+descendants, so deleting the old root later does not remove them (a reference into the old root is not re-resolved;
+it goes dangling if that root's document is deleted). Document-sourced links keep their document's root.
 `expectedVersion` is the optimistic lock: when given, a stale value fails `version_conflict` (`kind`, `id`,
 `expected`, `actual`) and nothing is written; when absent the update locks against the version it just read.
 `type` cannot be cleared; a changed type is checked against the destination root's declared types.
 
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
-in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself. Surviving items pinned to a deleted root's config are re-pinned first; a re-pin that would change a survivor's lifecycle class fails `invalid_transition` (`trigger` `repin`, `itemId` the survivor) and nothing is deleted.
+in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). The documents anchored to a removed item (by root, archived and adopted ones included) are deleted too, with the same link cleanup as `docs_write` `delete`, each recording `document.deleted` before that item's `item.deleted`. `expectedVersion` guards the item itself. Surviving items pinned to a deleted root's config are re-pinned first; a re-pin that would change a survivor's lifecycle class fails `invalid_transition` (`trigger` `repin`, `itemId` the survivor) and nothing is deleted.
 
 **Pins.** Every item is pinned to the config it resolves against: the server and root config versions that were the
 heads when the pin was taken, and the base schema (key and layer) its type resolved to under them. Its schema,
@@ -1599,12 +1602,12 @@ on every select that names one document and an optional filter on `list`. A `roo
 | `get` | `{id, rootId, kind, slug, title?, body, contentHash, version, archivedAt?, adoptedBy?, createdAt, modifiedAt}`; with `ifVersion` equal to the current version `{unchanged: true, version}`; with `version` n `{kind, slug, version, body, contentHash, createdAt, actor?}` |
 | `list` | `{items: [{id, kind, slug, title?, contentHash, version, archivedAt?, adoptedBy?, createdAt, modifiedAt}], page}` ordered by kind, slug, id; no body |
 | `history` | `{items: [{version, contentHash, bodyLength, createdAt, actor?}], page}` oldest first |
-| `links` | `{items: [{id, relation, from: {kind, id}, to: {kind, id}, toRef?, anchor?}], page}` ordered by creation time then id |
+| `links` | `{items: [{id, relation, from: {kind, id}, to?: {kind, id}, toRef?, anchor?}], page}` ordered by creation time then id |
 
 - `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
 - `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that the [`config`](#config) tool's `rules` op reports.
-- `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item.
-- `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; a reference to a document that does not exist yet has no `to` and carries `toRef`. A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`.
+- `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item. The adoption outlives the item, so an unrestricted caller still sees a deleted adopter, while a scoped caller (which cannot place a missing item) does not.
+- `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; `to` is absent while a reference names no document yet, and `toRef` is the reference text (set on every `references` link, resolved or not, and on `derived_from` as `plan:<slug>`; absent on `attached` and `adopted_by`). A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`. The adopter of an `adopted_by` link follows the `adoptedBy` rule instead: it is shown whenever the caller's scope admits it, even after the item is deleted (an unrestricted caller always sees it; a scoped caller fails closed on a deleted adopter).
 - `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
 - Paging follows the envelope's list rules (amendment U22).
 
@@ -1655,7 +1658,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`docs_read` select `links`** (knowledge and orchestration profiles; capability `read`): List the links of one document, oldest first: {id, relation, from, to \| toRef, anchor?}. toRef is the text of a reference that names no document yet. Links to items or notes outside the caller's scope are left out.
+**`docs_read` select `links`** (knowledge and orchestration profiles; capability `read`): List the links of one document, oldest first: {id, relation, from, to?, toRef?, anchor?}. to is absent while a reference names no document yet; toRef is its text. Links to items or notes outside the caller's scope are left out.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1702,7 +1705,8 @@ scope on `rootId`; a forbidden element is never executed and records no event.
 - **`archive` / `unarchive`.** Set or clear the archived mark; the version does not change. Archiving an archived document, or unarchiving a live one, is
   a no-op that records no event.
 - **`delete`.** Removes the document and its versions and its outbound links; links that pointed at it by text become dangling and resolve again if it
-  is re-created. An adopted plan cannot be deleted (`invalid_request`).
+  is re-created. An adopted plan cannot be deleted (`invalid_request`). Deleting the item a document is anchored to deletes the document the same way,
+  adopted or archived, with its own `document.deleted` (see `items_write` delete semantics).
 - **`attach` / `detach`.** `attach` links an item of the same root to the document (relation `attached`); attaching twice returns the same link. The item
   must be inside the caller's scope (`forbidden` otherwise, nothing written) and under the document's root (`invalid_request`). `detach` is `not_found` for
   a missing document and otherwise `{detached: 0}` or `{detached: 1}`.

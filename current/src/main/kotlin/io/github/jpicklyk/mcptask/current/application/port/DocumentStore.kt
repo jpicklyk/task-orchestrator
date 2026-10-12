@@ -67,6 +67,13 @@ interface DocumentStore {
             }
         }
 
+    /**
+     * Metadata-only summaries (no body, archived included) of every document whose `root_item_id` is one of
+     * [rootItemIds], of any kind, in batched queries (never one per id), ordered by `(root_item_id, kind, slug)`. Empty
+     * [rootItemIds] returns an empty list without a query.
+     */
+    suspend fun findByRootItemIds(rootItemIds: Collection<UUID>): List<DocumentSummary>
+
     /** Inserts [document] as given (its id, version and timestamps included) and returns the stored row. */
     @StoreWrite
     suspend fun insert(document: Document): Document

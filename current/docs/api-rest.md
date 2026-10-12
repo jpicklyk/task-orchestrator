@@ -1008,14 +1008,15 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Claim/release note:** A successful claim or release through the `advance` tool's `claim` and `release` ops (MCP or `POST /ops/advance`) emits `item.updated` for the claimed/released item -- and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item. A transition that ends a held claim (for example completing a claimed item) also emits `item.updated` for that item since 4.0.
 
-**Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
+**Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and `document.adopted` for a `docRef`, all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`, and one `document.deleted` per document anchored to the item (archived and adopted ones included), before those.
 
 **Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 **Who records what (4.0).** Each write service records its own rows, in its own transaction: the
 item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one
 `item.updated` per restamped descendant, `item.deleted` and the cascade `note.deleted` /
-`dependency.removed` rows of a delete), the note, dependency, project-config and plan-document
+`dependency.removed` rows of a delete; the `document.deleted` rows of the documents a delete removes
+come from the document service, joining the same transaction), the note, dependency, project-config and plan-document
 services their own rows, the advance pipeline `item.advanced` (including a cascade a reparent or a
 delete triggers), and the claim service claim and lease rows. No store is decorated. The bus is the
 recorder's commit listener directly; a fan-out failure is logged and never fails the committed write
