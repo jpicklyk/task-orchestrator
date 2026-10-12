@@ -14,10 +14,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *
  * @property guidancePointer Full guidance text for the first unfilled required note, or null if all
  *   filled or the note has no guidance. Only serialized in gate-failure payloads (the 3.x
- *   manage_notes itemContext is gone with notes_write); all other tools emit [guidanceKey].
+ *   `manage_notes` `itemContext` block is gone with `notes_write`); all other tools emit [guidanceKey].
  * @property guidanceKey Key of the first unfilled required note that has guidance, or null.
  *   Reference-based counterpart of [guidancePointer]: non-null exactly when guidancePointer is
- *   non-null. Agents resolve the key to full text via query_items operation "schema".
+ *   non-null. Agents resolve the key to full text via `items_read` `select=schema`.
  * @property skillPointer Skill name for the first unfilled required note, or null if none specified
  * @property missingKeys Keys of required notes that are missing or have blank bodies
  * @property filled Count of required notes in this phase that have non-blank bodies

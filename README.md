@@ -19,29 +19,29 @@ Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) that gives
 
 Multi-agent workflows need infrastructure the model doesn't provide. When an orchestrator dispatches sub-agents across sessions, there's no built-in way to enforce what documentation must exist before work starts, track which agent made which change, or guarantee dependency ordering across a work breakdown. These are structural concerns — they belong in the server, not in prompts.
 
-Task Orchestrator puts them in the server. If a required design note isn't filled, `advance_item` returns an error naming the missing note. If an upstream dependency isn't complete, the transition is blocked. Every transition and note records who made it. A new session recovers the full state in one call instead of replaying a conversation. And the rules are YAML config, not hardcoded prompts — change them without changing code.
+Task Orchestrator puts them in the server. If a required design note isn't filled, `advance` returns an error naming the missing note. If an upstream dependency isn't complete, the transition is blocked. Every transition and note records who made it. A new session recovers the full state in one call instead of replaying a conversation. And the rules are YAML config, not hardcoded prompts - change them without changing code.
 
 ## What It Looks Like
 
 ```
 Morning — new session, new agent, zero context:
 
-Agent: get_context(since="2025-01-14T17:00:00Z")
+Agent: items_read(select="context")
        → 2 items in work, 1 blocked, 1 stalled (missing implementation-notes)
+Agent: items_read(select="history", since="2026-01-14T17:00:00Z")
        → Recent transitions show orchestrator-1 dispatched 3 sub-agents yesterday
-       → Full ancestor chains: "Auth Feature > Login API > Input validation"
 
-Agent: advance_item(transitions=[{ itemId: "a3f2", trigger: "start",
-         actor: { id: "morning-agent", kind: "subagent", parent: "orchestrator-1" } }])
-       → Error: "Gate check failed: required notes not filled for queue phase: requirements"
+Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }],
+         actor: { id: "morning-agent", kind: "subagent", parent: "orchestrator-1" })
+       -> gate_blocked: "Item a3f28c01-... is missing 1 required notes." (detail.missing: requirements)
 
-Agent: manage_notes(operation="upsert", notes=[{ itemId: "a3f2", key: "requirements",
-         body: "Validate email format, enforce password complexity...",
-         actor: { id: "morning-agent", kind: "subagent" } }])
-       → Upserted. noteProgress: { filled: 1, remaining: 0, total: 1 }
+Agent: notes_write(ops=[{ op: "upsert", itemId: "a3f28c01", key: "requirements", role: "queue",
+         body: "Validate email format, enforce password complexity..." }],
+         actor: { id: "morning-agent", kind: "subagent" })
+       -> results[0]: { ok: true, id: "...", version: 1, created: true }
 
-Agent: advance_item(transitions=[{ itemId: "a3f2", trigger: "start",
-         actor: { id: "morning-agent", kind: "subagent" } }])
+Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }],
+         actor: { id: "morning-agent", kind: "subagent" })
        → queue → work. Actor recorded. No context rebuilding.
 ```
 
@@ -154,7 +154,7 @@ Prefer to run without Docker? [CONTRIBUTING.md](CONTRIBUTING.md) covers building
 
 ### The Phase Model
 
-Every work item has a **role**: `queue` (not started), `work` (in progress), `review` (optional, opt-in per schema), `blocked` (an upstream dependency is unmet), and `terminal` (done or cancelled). Each role maps to one or more configurable statuses. Agents move items with `advance_item(trigger=...)` rather than editing status directly, and that call is where every gate is checked. Schemas attach note requirements to roles: a note declared with `role: queue` must exist before the item can leave the queue phase.
+Every work item has a **role**: `queue` (not started), `work` (in progress), `review` (optional, opt-in per schema), `blocked` (an upstream dependency is unmet), and `terminal` (done or cancelled). Each role maps to one or more configurable statuses. Agents move items with the `advance` tool's `transition` op rather than editing status directly, and that call is where every gate is checked. Schemas attach note requirements to roles: a note declared with `role: queue` must exist before the item can leave the queue phase.
 
 Illustrated: [Phase Gates](https://jpicklyk.github.io/task-orchestrator/field-guide/phase-gates.html) draws the roles and triggers as a track and includes a gate simulator.
 
@@ -179,9 +179,9 @@ work_item_schemas:
         description: "What was built and why"
 ```
 
-With this schema, `advance_item(trigger="start")` from queue requires `requirements` to be filled. The server returns an error listing exactly which notes are missing.
+With this schema, `advance` `transition` with `trigger: "start"` from queue requires `requirements` to be filled. The server returns a `gate_blocked` error listing exactly which notes are missing.
 
-The `guidance` field provides authoring instructions surfaced at the right moment: when an agent is about to fill that note, the response carries the guidance as a `guidancePointer`. The `skill` field goes further, naming a skill the agent should invoke before filling the note so the evaluation follows a defined framework rather than freeform prose.
+The `guidance` field provides authoring instructions surfaced at the right moment: when an agent is about to fill that note, the response names it as `guidanceKey` (with the `skillPointer` when the note names a skill), and `items_read` `schema` returns the text. The `skill` field goes further, naming a skill the agent should invoke before filling the note so the evaluation follows a defined framework rather than freeform prose.
 
 ### Composable Traits
 
@@ -205,7 +205,7 @@ work_item_schemas:
       # ... base notes
 ```
 
-Every `feature-task` item automatically inherits the `security-assessment` requirement. Traits can also be applied per item via the `traits` parameter on `manage_items`, so a task touching authentication gets `needs-security-review` while a CSS cleanup doesn't.
+Every `feature-task` item automatically inherits the `security-assessment` requirement. Traits can also be applied per item via the `traits` array of an `items_write` `create` or `update`, so a task touching authentication gets `needs-security-review` while a CSS cleanup doesn't.
 
 Illustrated: [Schemas and Traits](https://jpicklyk.github.io/task-orchestrator/field-guide/schemas-and-traits.html) shows how a type, its default traits and per-item traits resolve into one gate. [Seats](https://jpicklyk.github.io/task-orchestrator/field-guide/seats.html) covers splitting a phase between several agents.
 
@@ -213,20 +213,23 @@ Illustrated: [Schemas and Traits](https://jpicklyk.github.io/task-orchestrator/f
 
 Everything is a **WorkItem** in a hierarchical graph. Items nest to any depth and are connected by typed dependency edges. Create an entire work breakdown atomically:
 
+```json
+{ "ops": [{
+    "op": "create_tree",
+    "root": { "title": "User Authentication", "type": "feature-task" },
+    "children": [
+      { "ref": "schema", "title": "Database schema", "type": "feature-task" },
+      { "ref": "api",    "title": "Login API",       "type": "feature-task" },
+      { "ref": "tests",  "title": "Integration tests", "type": "feature-task" }
+    ],
+    "deps": [
+      { "from": "schema", "to": "api" },
+      { "from": "api",    "to": "tests" }
+    ]
+} ] }
 ```
-create_work_tree(
-  root={ "title": "User Authentication" },
-  children=[
-    { "ref": "schema", "title": "Database schema" },
-    { "ref": "api",    "title": "Login API" },
-    { "ref": "tests",  "title": "Integration tests" }
-  ],
-  deps=[
-    { "from": "schema", "to": "api" },
-    { "from": "api",    "to": "tests" }
-  ]
-)
-```
+
+(`items_write`, orchestration profile.)
 
 When `schema` reaches terminal, `api` is automatically unblocked. When all children complete, the parent cascades to terminal. Dependency ordering is enforced by the server, structurally, not by convention.
 
@@ -234,7 +237,7 @@ Illustrated: [Work Graph](https://jpicklyk.github.io/task-orchestrator/field-gui
 
 ### Actor Attribution
 
-Every `advance_item` transition and `manage_notes` upsert accepts an optional actor claim, and the server records it on the transition or note:
+Every write op (an `advance` transition, a `notes_write` upsert, and the rest) accepts an optional actor claim, and the server records it on the transition or note:
 
 ```json
 {
@@ -246,7 +249,7 @@ Every `advance_item` transition and `manage_notes` upsert accepts an optional ac
 }
 ```
 
-Query responses include the full delegation chain: which orchestrator dispatched which sub-agent, who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
+`notes_read` and `items_read` `history` entries carry the delegation chain (for callers allowed to see attribution): which orchestrator dispatched which sub-agent, who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
 
 To make the claim mandatory, enable actor authentication in config:
 
@@ -261,11 +264,12 @@ With the [Claude Code plugin](#claude-code-plugin) installed, a hook then reject
 
 No context rebuilding. One call recovers the full picture:
 
-```
-get_context(since="2025-01-15T09:00:00Z", includeAncestors=true)
+```json
+{ "select": "context" }
+{ "select": "history", "since": "2026-01-15T09:00:00Z" }
 ```
 
-Returns active items, recent transitions with actor attribution, blocked items, stalled items with their missing notes, and full ancestor chains. A new session has complete state in a single response.
+(`items_read`.) The first returns active items, blocked items, stalled items with their missing notes and a claim summary; the second returns recent transitions with actor attribution. Add `"fields": ["ancestors"]` for the ancestor chains. A new session has the complete state in two small responses.
 
 Illustrated: [Finding Work](https://jpicklyk.github.io/task-orchestrator/field-guide/finding-work.html) maps each question a session has to the read call that answers it, and shows how the next item is ranked.
 
@@ -275,26 +279,28 @@ Notes are phase-specific documentation attached to work items. An implementation
 
 Notes are keyed, role-scoped, and queryable:
 
-```
-query_notes(operation="list", itemId="<uuid>", role="work", includeBody=false)
+```json
+{ "select": "list", "itemId": "a3f28c01", "role": "work" }
 ```
 
-Metadata-only queries (`includeBody=false`) let agents check what exists without paying the token cost of every note body.
+(`notes_read`.) A list returns metadata only (`id`, `key`, `role`, `version`, `bodyLength`), so agents can check what exists without paying the token cost of every note body; `get` reads one body.
 
 ### Full-Text Search
 
 Search work items and notes by keyword. Results are relevance-ranked, so an agent looking for related work or picking up after a long gap gets the best matches first.
 
+```json
+{ "select": "search", "query": "authentication login", "kinds": ["item"] }
+{ "select": "search", "query": "password validation", "kinds": ["note"] }
 ```
-query_items(operation="search", query="authentication login")
-query_notes(operation="search", query="password validation")
-```
+
+(`items_read`.)
 
 Search can be scoped to a subtree and filtered by role, tag, or priority, or run across the whole workspace.
 
 ### REST API
 
-An optional HTTP layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas. See the [REST API Reference](current/docs/api-rest.md).
+An optional HTTP layer (`API_ENABLED=true`) serves every tool over one RPC route (`POST /api/v1/ops/{tool}`), plus item and note resource GETs, lease admin, service meta and real-time SSE events, to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas. See the [REST API Reference](current/docs/api-rest.md).
 
 Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, both deployment shapes, the REST API, claims and actor identity.
 
@@ -339,13 +345,14 @@ Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| **Graph** | `manage_items`, `query_items`, `create_work_tree`, `complete_tree` | Build and query the work item hierarchy |
-| **Notes** | `manage_notes`, `query_notes` | Persistent phase-scoped documentation |
-| **Dependencies** | `manage_dependencies`, `query_dependencies` | Typed edges with pattern shortcuts (linear, fan-out, fan-in) and backlinks |
-| **Workflow** | `advance_item`, `get_next_status`, `get_context`, `get_next_item`, `get_blocked_items`, `claim_item` | Trigger-based transitions with gate enforcement, dependency validation, and atomic find-and-claim for multi-agent fleets |
-| **Project config** | `config`, `manage_plan_documents` | Push, validate, roll back and inspect per-project schema config and rule text, and stash planning documents ahead of work item creation |
+| **Items** | `items_read`, `items_write` | Read, search and summarize the work item hierarchy, find the next item, gate state and transition history (`items_read` selects); create, update, delete, create whole trees, complete trees and repin (`items_write` ops) |
+| **Notes** | `notes_read`, `notes_write` | Persistent phase-scoped documentation, versioned and batch-written |
+| **Dependencies** | `deps_read`, `deps_write` | Typed edges with pattern shortcuts (linear, fan-out, fan-in) and the blocking graph |
+| **Workflow** | `advance` | Trigger-based transitions with gate enforcement and dependency validation, and claim, release and heartbeat ops for multi-agent fleets |
+| **Documents** | `docs_read`, `docs_write` | Versioned plan, rule and page documents per project root |
+| **Project config** | `config` | Push, validate, roll back and inspect per-project schema config and rule text |
 
-Item IDs accept short hex prefixes: `itemId="a3f2"` works in place of a full UUID once the prefix is unambiguous. See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
+Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration. Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
 
 ---
 
@@ -356,7 +363,7 @@ Item IDs accept short hex prefixes: `itemId="a3f2"` works in place of a full UUI
 | **[Field Guide](https://jpicklyk.github.io/task-orchestrator/field-guide/)** | Illustrated, partly interactive walkthrough of the core ideas. The best first read. |
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | Every MCP tool: parameters, response shapes, actor attribution |
-| **[REST API Reference](current/docs/api-rest.md)** | HTTP REST endpoints, DTOs, SSE, auth, merge-patch, ETag |
+| **[REST API Reference](current/docs/api-rest.md)** | The RPC route, resource GETs, lease admin, SSE, auth, ETag |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
 | **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST API auth, actor identity, health checks, SQLite tuning, capacity planning |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |

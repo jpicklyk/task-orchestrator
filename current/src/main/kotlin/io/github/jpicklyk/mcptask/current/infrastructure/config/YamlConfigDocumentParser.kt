@@ -15,7 +15,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
  * validate-before-write path, so both converge on identical parse behavior for the same document.
  *
  * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor`: the input originates from
- * a pushed document (via `manage_project_config` / `PUT /api/v1/roots/{rootId}/config`), not a
+ * a pushed document (via the `config` tool's `push` op), not a
  * trusted local file. The default `Constructor` will instantiate an arbitrary Java type named by a
  * `!!`-tag (CWE-502); `SafeConstructor` only ever builds plain maps/lists/scalars and rejects
  * anything else as a parse failure.

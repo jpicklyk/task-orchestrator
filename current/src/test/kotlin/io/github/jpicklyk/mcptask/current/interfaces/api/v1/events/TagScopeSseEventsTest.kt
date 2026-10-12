@@ -150,6 +150,7 @@ class TagScopeSseEventsTest {
                 allowQueryToken = false,
                 authCheckIntervalSeconds = 60,
                 workItemRepository = workItemRepository,
+                redactAttribution = true
             )
         }
     }

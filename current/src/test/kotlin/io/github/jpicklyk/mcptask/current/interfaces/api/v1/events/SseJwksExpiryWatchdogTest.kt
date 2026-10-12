@@ -145,6 +145,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 1,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }
@@ -185,6 +186,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 30,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }
@@ -233,6 +235,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 1,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }

@@ -105,7 +105,7 @@ data class StatusGraphDto(
  *
  * [type] is the queried type key; [matchedType] is the schema that actually answered it
  * (`"default"` when a default schema answered a miss). [configSource] is `"per-root"` or
- * `"global"` — the same literal MCP `query_items(schema, ...)` uses for `configSource`.
+ * `"global"` - the same literal `items_read` `select=schema` reports for `configSource`.
  * [configFingerprint] is the supplying layer's fingerprint, omitted when that layer has none.
  */
 @Serializable

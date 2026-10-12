@@ -71,7 +71,7 @@ data class NoteWriteResult(
 )
 
 /**
- * The single owner of the note write policy, shared by `notes_write` and `create_work_tree`. JSON-free and transport-free: callers map the returned [DomainError] codes to
+ * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. JSON-free and transport-free: callers map the returned [DomainError] codes to
  * their own wire shapes.
  *
  * Policy, in this order: role normalization (locale-invariant lowercase, no trim; must be

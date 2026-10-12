@@ -17,7 +17,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *
  * This type carries only the *declaration*; nothing in this task validates that [agent] names a
  * real agent or dispatches anything — an orchestrator or skill reading the resolved profile off
- * `advance_item`/`get_context`/`query_items` decides what to do with it.
+ * `advance` `transition` results and `items_read` `select=context` / `select=schema` decides what to do with it.
  *
  * At least one field must be set for a profile to be recorded — see
  * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot], which

@@ -1,6 +1,6 @@
 # REST API Reference — MCP Task Orchestrator
 
-This document describes the HTTP REST API layer (v1) added alongside the MCP transport. The REST API runs on the same Ktor server when `API_ENABLED=true`.
+This document describes the 4.0 HTTP REST API (v1). It runs on the same Ktor server as the MCP transport when `API_ENABLED=true`. The canonical route is the RPC route `POST /api/v1/ops/{tool}` (section 20a), which serves every tool of [api-reference.md](api-reference.md); a few resource GETs, the lease admin routes, the config JSON Schema, service meta and the SSE stream complete the surface. Every 3.x route outside that set is removed (section 10).
 
 **Base URL:** `/api/v1`
 **Content-Type:** `application/json`.
@@ -16,8 +16,8 @@ transport, while a persistent HTTP daemon with the REST API enabled is the recom
 ongoing fleet or multi-project work.
 
 The plugin's SubagentStop phase guard (`phase-guard.mjs` / `phase-guard-record.mjs`) is another such
-consumer: it polled `GET /items/{id}/gate`, which no longer exists (it is `POST /ops/items_read` with `select: context`, section 20a; the hook is re-pointed in W8), to decide whether to send a returning subagent back
-for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` is unset — see
+consumer: it decides whether to send a returning subagent back for missing notes from the item's gate state
+(`items_read` `select: context`, section 10 maps the removed `/gate` route it used to poll), and fails open the same way when `TASK_ORCHESTRATOR_API_URL` is unset - see
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md).
 
 ---
@@ -33,23 +33,19 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 7. [Pagination](#7-pagination)
 8. [Data Transfer Objects (DTOs)](#8-data-transfer-objects-dtos)
 9. [Endpoints — Items (Read)](#9-endpoints--items-read)
-10. [Endpoints — Items (Write)](#10-endpoints--items-write)
+10. [Removed 3.x Routes](#10-removed-3x-routes)
 11. [Endpoints - Notes (Read)](#11-endpoints---notes-read)
-12. [Endpoints - Notes (Write)](#12-endpoints---notes-write)
-13. [Endpoints — Dependencies](#13-endpoints--dependencies)
 14. [Endpoints — Resource Leases](#14-endpoints--resource-leases)
-15. [Endpoints — Transitions (Audit), moved to `items_read` `history`](#15-endpoints--transitions-audit-moved-to-items_read-history)
-16. [Endpoints — Search](#16-endpoints--search)
 17. [Endpoints — Config JSON Schema](#17-endpoints--config-json-schema)
-18. [Project Config (Per-Root), moved to the `config` tool](#18-project-config-per-root-moved-to-the-config-tool)
-19. [Endpoints — Plan Documents (Per-Root)](#19-endpoints--plan-documents-per-root)
-19a. [Rules (Per-Root), moved to the `config` tool](#19a-rules-per-root-moved-to-the-config-tool)
 20. [Endpoints — Service Meta](#20-endpoints--service-meta)
 20a. [Endpoints - Ops (RPC)](#20a-endpoints---ops-rpc)
 21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 22. [Audit Model](#22-audit-model)
 23. [Status-Graph Caveat](#23-status-graph-caveat)
 24. [Known Limitations](#24-known-limitations)
+
+Section numbers are stable anchors cited from other documents and source comments. Sections 12, 13, 15, 16, 18, 19 and
+19a were folded into section 10 and their numbers are not reused.
 
 ---
 
@@ -188,7 +184,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
-**`ADMIN` unlocks:** When a caller has `ADMIN`, note `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields. The transition trail (`items_read` `history`, section 15) follows the same rule for its `actor`/`verification`.
+**`ADMIN` unlocks:** When a caller has `ADMIN`, note `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields. The transition trail (`items_read` `history`, section 10) follows the same rule for its `actor`/`verification`.
 
 ---
 
@@ -219,7 +215,7 @@ collection checks cannot drift apart.
   never counted (a document is visible exactly when its root item is);
   `ancestors` stop at the caller's scope root and drop ancestors that fail `tags_include`
 - `items_read` `history` (the transition audit trail) - a root scope sees only its roots' rows and a `tags_include` token only rows for items it is allowed to see
-- `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
+- `POST /ops/deps_read` and `POST /ops/deps_write` (section 10) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
 - `GET /api/v1/events` (SSE) - a `tags_include` token is enforced per-event, identically for the
@@ -253,7 +249,7 @@ tag-scoped callers is gone.
 - Item writes: no REST item write route remains. `items_write` (`POST /api/v1/ops/items_write`) guards an
   update or delete with `expectedVersion` (`version_conflict`); no route takes an item `If-Match`, and the 3.x
   `"v1-<modifiedAtMillis>"` tag is no longer served.
-- Notes: `GET /items/{id}/notes/{key}` answers `ETag: "v{version}"` from the note version (V28) and honors `If-None-Match` (`304`); there is no note `If-Match`: guard a write with `notes_write` `expectedVersion` (section 12)
+- Notes: `GET /items/{id}/notes/{key}` answers `ETag: "v{version}"` from the note version (V28) and honors `If-None-Match` (`304`); there is no note `If-Match`: guard a write with `notes_write` `expectedVersion` (section 10)
 
 **Conditional reads:** an `If-None-Match` naming the current tag (one tag or a comma-separated list; a
 `W/` weak tag and `*` also match) answers `304 Not Modified` with no body. An error never carries an
@@ -569,23 +565,8 @@ id that matches nothing the caller may see, is `403 forbidden`. A request withou
 principal is `401 unauthenticated`. Fields, views and error codes are described in `api-reference.md` ->
 `items_read`.
 
-The 3.x `GET /items`, `GET /items/roots`, `GET /items/{id}/tree`, `GET /items/{id}/breadcrumbs` and
-`GET /items/{id}/schema` routes are removed, together with the `include` parameter of `GET /items/{id}`.
-`GET /items/{id}/tree`, `/breadcrumbs`, `/schema` and `/gate` are no longer routed (`404`). `GET /items` is a method
-the path no longer serves and `GET /items/roots` is read as `GET /items/{id}` with the id `roots`; both
-answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
-
-| Removed route | `items_read` request |
-|---|---|
-| `GET /items` | `{select: "list", ...filters}` |
-| `GET /items/roots` | `{select: "list", depth: 0}`, or `{select: "overview"}` for counts |
-| `GET /items/{id}/tree` | `{select: "list", ancestorId: id}` |
-| `GET /items/{id}/breadcrumbs` | `{select: "get", itemId: id, fields: ["ancestors"]}` |
-| `GET /items/{id}/schema` | `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) |
-| `GET /items/{id}/gate` | `{select: "context", itemId: id}`; the gate is `data.gateStatus` (orchestration profile) |
-| `GET /items/{id}?include=notes` | `notes_read` `{select: "list", itemId: id}` |
-| `GET /items/{id}?include=deps` | `deps_read` `{select: "list", item: id}` |
-| `GET /items/{id}?include=children` | `GET /items/{id}/children` |
+The 3.x item list, tree, breadcrumbs, schema, gate, search and write routes are removed (section 10). Everything else about
+items is a call to `items_read` or `items_write` over `POST /api/v1/ops/{tool}` (section 20a).
 
 ### GET /items/{id}
 
@@ -616,36 +597,48 @@ envelope rules as amended by U22: `total` is the exact count of visible children
 is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbidden`, `404 not_found` /
 `ambiguous_id`.
 
-### Gate status
-
-`GET /items/{id}/gate` is removed. The gate state of an item (`canAdvance`, `phase`, `blockedBy`, `blockers`, `contended`,
-`missing`, `missingBySeat`, `violations`) is `data.gateStatus` of
-`POST /api/v1/ops/items_read` with `{"select": "context", "itemId": "<id>"}` (section 20a), the same answer as MCP
-`items_read(select="context")`; `guidanceKey` and `skillPointer` are siblings of `gateStatus` in `data`, not inside it; see
-[api-reference.md](api-reference.md#items_read). A removed route answers `404`.
-
 ---
 
-## 10. Endpoints — Items (Write)
+## 10. Removed 3.x Routes
 
-Item creates, updates and deletes are no longer separate routes: `POST /items`, `PATCH /items/{id}` and
-`DELETE /items/{id}` never succeed or write: they answer a client error (`404` or `405`). Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
-`ops[]` elements `create`, `update` and `delete`, and in the orchestration profile only (amendment U23) `create_tree`
-(a root with its children, dependencies and notes as one write unit; capability `write-items`) and `complete_tree`
-(complete or cancel a tree or an id list through the `advance` pipeline; capability `advance`), which replace the 3.x
-`create_work_tree` and `complete_tree` MCP tools (neither had a REST route); the fields, the optimistic lock (`expectedVersion`, replacing
-`If-Match`), the soft delete rules (`recursive`), the scope checks and the errors are in
-[`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the
-`Idempotency-Key` header.
+Q32 deleted the 3.x per-resource routes. Each is now an op of `POST /api/v1/ops/{tool}` (section 20a), served by the same
+handler MCP uses, or one of the two resource GETs kept in sections 9 and 11. A removed route is not routed: it answers
+`404` (or a `4xx` such as `405` where the path still matches another route), never a success. Request fields, answers and
+error codes live in [api-reference.md](api-reference.md); this table only maps old to new.
 
-### Advancing items (moved)
+| Removed route | 4.0 replacement | Capability |
+|---|---|---|
+| `GET /items` | `items_read` `{select: "list", ...filters}` | `read` |
+| `GET /items/roots` | `items_read` `{select: "list", depth: 0}`, or `{select: "overview"}` for counts. The path now reads as `GET /items/{id}` with id `roots` (a `4xx`, never a list) | `read` |
+| `GET /items/{id}/tree` | `items_read` `{select: "list", ancestorId: id}` | `read` |
+| `GET /items/{id}/breadcrumbs` | `items_read` `{select: "get", itemId: id, fields: ["ancestors"]}` | `read` |
+| `GET /items/{id}/schema` | `items_read` `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) | `read` |
+| `GET /items/{id}/gate` | `items_read` `{select: "context", itemId: id}` (orchestration profile); the gate is `data.gateStatus`, with `guidanceKey` and `skillPointer` as siblings in `data` | `read` |
+| `GET /items/{id}?include=notes\|deps\|children` | `notes_read` `{select: "list"}`, `deps_read` `{select: "list"}`, `GET /items/{id}/children`; the `include` parameter is gone | `read` |
+| `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}` | `items_write` ops `create`, `update`, `delete`; `expectedVersion` replaces `If-Match`, `recursive` guards a parent delete, `idempotencyKey` replaces the `Idempotency-Key` header. `create_tree` and `complete_tree` are orchestration-profile ops (neither had a 3.x route) | `write-items` (`advance` for `complete_tree`) |
+| `POST /items/{id}/advance` | `advance` ops `transition`, `claim`, `release`, `heartbeat`. `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is `not_claim_holder`), resource leases are always enforced (no override flag), and `DELETE /resources/leases/{key}` (section 14) recovers a stuck lease | `advance` |
+| `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` | `notes_write` ops `upsert`, `delete`; `expectedVersion` guards a write (`0` = must not exist, `n` = current version must be `n`, else `409 version_conflict`). `bodyFromFile` is MCP-only: over REST an element that sets it fails alone with `invalid_request` on `/bodyFromFile`, no file is opened, and the other elements of a non-atomic batch still run | `write-notes` |
+| `GET /items/{id}/dependencies`, `GET /items/{id}/backlinks` | `deps_read` `{select: "list", item: id}`; backlinks are `direction: incoming`; `{select: "graph"}` walks the blocking graph. A subject item outside the scope is `403 forbidden`; an out-of-scope counterparty is dropped and not counted | `read` |
+| `POST /dependencies`, `DELETE /dependencies/{id}` | `deps_write` ops `create`, `delete` (by `id`, by `from`/`to`, or every edge of an `item`), `linear`, `fan_out`, `fan_in` (each pattern is one element, all or nothing). Every named item must be in scope, else the element is `forbidden` and nothing is written | `manage-dependencies` |
+| `GET /search`, `GET /notes/search` | `items_read` `{select: "search"}`; `kinds` picks item content, note bodies and/or documents, and the token scope applies before ranking and capping | `read` |
+| `GET /items/{id}/transitions`, `GET /transitions` | `items_read` `{select: "history"}` with an `itemId`, or `since` for every item the token may see. Rows that predate 4.0 were copied from `role_transitions` by migration V29 and carry `backfilled: true`; `actor` and `verification` follow the attribution rule of the notes reads | `read` |
+| `GET /roots/{rootId}/config[?version=&fingerprint=]` | `config` op `get` | `read` |
+| `PUT /roots/{rootId}/config[?force=]` | `config` op `push`; `force` and `expectedVersion` replace `?force=` and `If-Match` | `write-config` |
+| `DELETE /roots/{rootId}/config` | `config` op `reset` (a root with no config, or one already reset, answers `appended: false` instead of `404`) | `write-config` |
+| `GET /roots/{rootId}/config/history[?limit=&before=]` | `config` op `history` | `read` |
+| `POST /roots/{rootId}/config/rollback` | `config` op `rollback`; `expectedVersion` replaces `If-Match` | `write-config` |
+| `GET /roots/{rootId}/config/effective` | `config` op `effective` | `read` |
+| `GET /config`, `/config/schemas[/{type}]`, `/config/traits`, `/config/types`, `/config/status-graph` | `config` op `effective` without a `rootId` returns the same server-set view. Only `GET /config/schema` stays (section 17) | `read` |
+| none | `config` op `validate` (a dry run of `push`) | `read` |
+| `GET /roots/{rootId}/rules`, `GET /roots/{rootId}/rules/{key}` | `config` op `rules`; `itemId` with `noteKey` follows a note's skill pointer (now also available on REST). An absent rule is `not_found` kind `document`, no longer `rule_not_found` | `read` |
+| `PUT /roots/{rootId}/plans/{slug}` | `docs_write` op `upsert`; a `rule/<key>` slug is `kind` `rule`, slug `<key>`. A write over an adopted plan is `duplicate` (`409`); `bodyFromFile` is not accepted over REST | `write-config` |
+| `GET /roots/{rootId}/plans/{slug}`, `GET /roots/{rootId}/plans` | `docs_read` selects `get`, `list`; `kind` is required, the `status` filter and field are gone (an adopted plan reports `adoptedBy`) | `read` |
 
-`POST /items/{id}/advance` was removed in 4.0. Phase transitions and claim ownership are the `advance` tool, called
-over MCP or `POST /api/v1/ops/advance` (section 20a) with the `advance` capability. Its ops are `transition`,
-`claim`, `release` and `heartbeat`; see the `advance` section of `api-reference.md` for the element shapes and error codes.
-Unlike the removed route, `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is
-`not_claim_holder`), resource leases are always enforced (there is no override flag), and every answer is the response
-envelope. `DELETE /resources/leases/{key}` (section 14) is the recovery path for a stuck lease.
+The config ops check `rootId` scope first, so a root outside the caller's scope is `forbidden`, not `not_found`; status
+mapping of an element error follows the envelope table in section 20a (`config_invalid` `422`, `version_conflict` `409`,
+`payload_too_large` `413`, `not_found` `404`). The `Idempotency-Key` header and `If-Match` / `If-None-Match` handling of
+the retired config routes are gone with them (section 4). Plugin consumers of the removed routes (`config-sync`,
+`plan-capture`, `phase-guard`) are re-pointed by the plugin work.
 
 ---
 
@@ -683,48 +676,6 @@ Paging follows the envelope rules as amended by U22: `total` is the full count o
 
 ---
 
-## 12. Endpoints - Notes (Write)
-
-The 3.x `PUT /items/{id}/notes/{key}` and `DELETE /items/{id}/notes/{key}` routes are removed and no longer
-served. Notes are written through
-`POST /api/v1/ops/notes_write` (section 20a) with `ops[]` elements `upsert` and `delete`, each with an optional
-`expectedVersion` guard (`0` = must not exist, `n` = current version must be `n`; otherwise
-`409 version_conflict`, nothing written) and an optional per-element `idempotencyKey` (an
-`Idempotency-Key` header is rejected on `/ops`). Requires `WRITE_NOTES`. The write policy (role
-normalization, 65536-byte body cap, CRLF to LF, schema role, `maxLength` under `note_limits`) is
-described in `api-reference.md` -> `notes_write`.
-
-**`bodyFromFile` is MCP-only.** It reads a file on the server's host, so REST takes the note text inline in
-`body` only (as the 3.x REST note writes did). An `upsert` element that sets `bodyFromFile` on
-`POST /api/v1/ops/notes_write` fails alone with `invalid_request` on field `/bodyFromFile` (reason: use the
-inline `body`); no file is opened and nothing is stored for it, and the other elements of a non-atomic batch
-still run.
-
----
-
-## 13. Endpoints — Dependencies
-
-The 3.x `GET /items/{id}/dependencies`, `GET /items/{id}/backlinks`, `POST /dependencies` and
-`DELETE /dependencies/{id}` routes are removed and no longer served. Dependencies are read and written
-through the 4.0 tools over `POST /api/v1/ops/{tool}` (section 20a):
-
-- `POST /api/v1/ops/deps_read` - `select: list` (the edges touching an item, filtered by `direction`
-  `incoming` / `outgoing` / `all` and `type`; the old backlinks are `direction: incoming`) or
-  `select: graph` (the blocking graph around an item in topological order). Requires `READ`. A subject
-  item outside the token's scope is `403 forbidden`; an edge whose counterparty is out of scope is
-  dropped from the page and not counted.
-- `POST /api/v1/ops/deps_write` - `ops[]` elements `create`, `delete` (by `id`, by `from`/`to`, or every
-  edge of an `item`), and the patterns `linear`, `fan_out` and `fan_in`, each one element created all or
-  nothing. Requires `MANAGE_DEPENDENCIES`, checked per op. Every named item (both stored ends for a
-  delete) must be in scope, else the element is `forbidden` and nothing is written. A duplicate edge is
-  `duplicate`, a cycle `cycle_detected`; per-element `idempotencyKey` replaces the `Idempotency-Key`
-  header.
-
-Fields, answers and error codes are described in `api-reference.md` -> `deps_read` and `deps_write`.
-`GET /items/{id}` no longer takes `include`: `deps_read` `select: list` replaces `include=deps`.
-
----
-
 ## 14. Endpoints — Resource Leases
 
 Server-wide primitive backing the resource-lease gate of the `advance` tool's `transition` op and the
@@ -734,7 +685,7 @@ is a server-wide namespace (see the "global-wins" registry precedence note in `c
 
 All three routes answer the **response envelope** (`ok`, `data`/`error`, `meta.reqId`), with the status of the error code.
 A token lacking the needed capability gets `forbidden` (`detail.scope = "capability"`, `detail.required` the capability name).
-A `401` from the authentication plugin keeps the legacy body.
+A `401` from the authentication plugin is the `unauthenticated` envelope too (section 6).
 
 ### GET /api/v1/resources/leases
 
@@ -792,32 +743,6 @@ No pruning/retention in v1 — the table is append-only and grows with lease-eve
 
 ---
 
-## 15. Endpoints — Transitions (Audit), moved to `items_read` `history`
-
-`GET /items/{id}/transitions` and `GET /transitions` were removed in 4.0 (they answer `404`). The transition audit
-trail is the `history` select of `items_read`, called as `POST /ops/items_read` (section 20a) with
-`{"select": "history", "itemId": "<id>"}` for one item or `{"select": "history", "since": "<ISO-8601>"}` across
-every item the token may see. It reads the `item.transitioned` rows of the event log, newest first, with an exact
-`page.total`, `limit` 1 to 200 (default 50), and optional inclusive `since`/`until` bounds; there is no default time
-window and no scan cap. Rows that predate 4.0 were copied from `role_transitions` when the server first started on
-the new schema (migration V29) and carry `backfilled: true`. `actor` and `verification` follow the attribution rule
-of the notes reads (hidden unless the caller may see attribution); the proof hash and verified claims are never
-returned on any surface. See `api-reference.md`, `items_read`, for the entry shape.
-
----
-
-## 16. Endpoints — Search
-
-All require `READ`.
-
-The 3.x `GET /search` and `GET /notes/search` routes are removed (`404`). Search items and notes with
-`items_read` `select: search` over `POST /api/v1/ops/items_read` (section 20a): `kinds` picks item content,
-note bodies and/or document title and body (default: every kind the `role`, `tags` and `traits` filters apply
-to, so all three without them), ranked in one list, and the token's root and tag scope applies before ranking and
-capping. Fields and the hit shape are in `api-reference.md` -> `items_read`.
-
----
-
 ## 17. Endpoints — Config JSON Schema
 
 ### GET /config/schema
@@ -834,62 +759,6 @@ same server-set view (schemas, traits, types and status graph) from the `config`
 
 ---
 
-## 18. Project Config (Per-Root), moved to the `config` tool
-
-`GET`, `PUT` and `DELETE /roots/{rootId}/config`, `GET /roots/{rootId}/config/history`,
-`POST /roots/{rootId}/config/rollback` and `GET /roots/{rootId}/config/effective` are gone (they answer `404`). Their
-replacements are ops of the `config` tool, called as `POST /api/v1/ops/config` (section 20a) and over MCP:
-
-| Removed route | `config` op |
-|---|---|
-| `GET /roots/{rootId}/config[?version=&fingerprint=]` | `get` |
-| `PUT /roots/{rootId}/config[?force=]` | `push` (`force`, `expectedVersion` replace `?force=` and `If-Match`) |
-| `DELETE /roots/{rootId}/config` | `reset` (a root with no config, or one already reset, now answers `appended: false` instead of `404`) |
-| `GET /roots/{rootId}/config/history[?limit=&before=]` | `history` |
-| `POST /roots/{rootId}/config/rollback` | `rollback` (`expectedVersion` replaces `If-Match`) |
-| `GET /roots/{rootId}/config/effective` | `effective` |
-| none | `validate` (a dry run of `push`) |
-
-Capabilities: `get`, `history`, `validate`, `effective` and `rules` need `read`; `push`, `rollback` and `reset` need
-`write-config`; the dispatcher checks each element. The scope check runs on `rootId` first, so a root outside the
-caller's scope is `forbidden`, not `not_found`. Status mapping of an element error follows the envelope table in
-section 20a: `config_invalid` is `422`, `version_conflict` `409`, `payload_too_large` `413`, `not_found` `404`.
-
-The shapes of the ops, the push pipeline, the strict validation, the fast-forward guard (now `version_conflict`) and
-the last-known-good behavior are documented once, in [api-reference.md](api-reference.md#config) and the
-[config reference](config-reference.md).
-
----
-
-## 19. Endpoints — Plan Documents (Per-Root) — removed in 4.0
-
-`PUT /roots/{rootId}/plans/{slug}`, `GET /roots/{rootId}/plans/{slug}` and `GET /roots/{rootId}/plans` are removed
-(the paths answer `404`), together with the MCP `manage_plan_documents` tool and the `PlanDocumentResponseDto` family
-of responses. Documents (kinds `plan`, `rule` and `page`, addressed by `(rootId, kind, slug)`) are read and written
-through the 4.0 envelope tools, served over MCP and over the RPC route (section 20a):
-
-| 3.x | 4.0 |
-|---|---|
-| `PUT /roots/{rootId}/plans/{slug}` | `POST /ops/docs_write` op `upsert` (`WRITE_CONFIG`); a `rule/<key>` slug is `kind` `rule`, slug `<key>` |
-| `GET /roots/{rootId}/plans/{slug}` | `POST /ops/docs_read` select `get` (`READ`) |
-| `GET /roots/{rootId}/plans` | `POST /ops/docs_read` select `list` (`READ`) |
-
-Behaviour that changed: the `status` filter and field are gone (an adopted plan reports `adoptedBy`); a write over an
-adopted plan is `duplicate` (HTTP 409); `bodyFromFile` is not accepted over REST; `kind` is required. Every op checks the
-caller's root and tag scope on `rootId`. See `api-reference.md` (`docs_read`, `docs_write`).
-
----
-
-## 19a. Rules (Per-Root), moved to the `config` tool
-
-`GET /roots/{rootId}/rules` and `GET /roots/{rootId}/rules/{key}` are gone (they answer `404`). The `config` tool's
-`rules` op serves the same git-tracked rule text (`rule` documents, `kind` `rule` and slug `<key>`,
-written through `docs_write`): `rootId` lists keys, `rootId` with `key` reads
-one rule, and `itemId` with `noteKey` follows a note's skill pointer (now also available on REST). An absent rule is
-`not_found` kind `document`, no longer the `rule_not_found` code. See [api-reference.md](api-reference.md#config).
-
----
-
 ## 20. Endpoints — Service Meta
 
 ### GET /api/v1/info
@@ -901,7 +770,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
 ```json
 {
   "serverName": "mcp-task-orchestrator-current",
-  "version": "3.8.0",
+  "version": "4.0.0",
   "apiVersion": "v1",
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
@@ -921,7 +790,7 @@ fault answers `503 unavailable` and an unloadable head `422 config_invalid` (the
 can serve, **unconditionally** — regardless of whether the resolved config for any given root
 actually declares `seats:`/`independent_of:`. `"independent_of"` (A2) joined this list once the
 independence attestation gate started enforcing it, and `"rules"` (A3) advertises the per-root
-rule text served by the `config` tool's `rules` op (§19a) — see [api-reference.md](api-reference.md)
+rule text served by the `config` tool's `rules` op (section 10) - see [api-reference.md](api-reference.md)
 → "Server feature advertisement" for the full rationale and the current list.
 
 ### GET /api/v1/health
@@ -940,7 +809,7 @@ rule text served by the `config` tool's `rules` op (§19a) — see [api-referenc
 ```json
 {
   "name": "mcp-task-orchestrator-current",
-  "version": "3.8.0",
+  "version": "4.0.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
   "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
@@ -1032,7 +901,7 @@ like any other REST row. A fault answered before dispatch (the table above) keep
 
 **Parity with MCP.** MCP and this route share one tool registry and one dispatcher, so a tool behaves the same
 on both surfaces, with one deliberate exception: `notes_write` `bodyFromFile` is MCP-only and answers
-`invalid_request` (`/bodyFromFile`) here (section 12). A test-side parity harness runs every registered tool over both transports with identically
+`invalid_request` (`/bodyFromFile`) here (section 10). A test-side parity harness runs every registered tool over both transports with identically
 seeded databases and compares the envelope bytes (minus `meta.reqId`), the HTTP status against the error
 code, and the resulting database state; a coverage guard requires every registered select and op to carry a
 happy-path and a scope-forbidden scenario.
@@ -1126,7 +995,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Actor and rootId (domain events only).** Every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) may carry two additive fields; the control events (`sync.lost`, `auth.expired`) never do.
 
-- `actor` — `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the MCP tool's `actor`, per transition for `advance_item` — a cascaded parent advance carries the triggering transition's actor — or the synthesized `api:<tokenId>` / `external` claim for REST writes), then none. A write with no actor (a tool call without `actor`, a background sweep) emits no `actor` field.
+- `actor` - `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the MCP tool's `actor`, per transition for `advance` -- a cascaded parent advance carries the triggering transition's actor - or the synthesized `api:<tokenId>` / `external` claim for REST writes), then none. A write with no actor (a tool call without `actor`, a background sweep) emits no `actor` field.
 - `rootId` -- the item's depth-0 ancestor (`scope.left` carries the OLD root, `scope.entered` the NEW root). Always present on a domain event since 4.0 (a root item uses its own id), live and on replay alike. `rootId` is scope metadata and is never redacted.
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
@@ -1141,7 +1010,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and `document.adopted` for a `docRef`, all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`, and one `document.deleted` per document anchored to the item (archived and adopted ones included), before those.
 
-**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, per-root config pushes, plan-document stash/adopt and config pins (`item.pinned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 **Who records what (4.0).** Each write service records its own rows, in its own transaction: the
 item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one
@@ -1157,7 +1026,7 @@ recorder's commit listener directly; a fan-out failure is logged and never fails
 
 ## 22. Audit Model
 
-All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** — callers cannot override audit attribution.
+Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** - callers cannot override audit attribution.
 
 **Synthesized actor:**
 - `id` = `"api:<tokenId>"` (e.g., `"api:dashboard-editor"`)
@@ -1165,22 +1034,20 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 - `parent` = `null`
 
 **Attribution redaction (applies to notes and the `items_read` `history` select):**
-- Non-admin callers: `actor` and `verification` fields are `null` in responses
+- Non-admin callers: `actor` and `verification` fields are omitted from responses
 - Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION`
-- `verification.proof`: the evidence that replaced the raw proof — a SHA-256 hash of the proof
-  (whenever one was supplied) plus, only when the proof was cryptographically `verified`, the
-  verified JWT claims (`iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`). Requires `ADMIN`
-  capability; independent of `API_REDACT_NOTE_ATTRIBUTION`.
+- Proof evidence (a SHA-256 hash of the proof, and the verified JWT claims `iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`
+  when the proof was `verified`) is stored but never returned: `verification` is `{status, verifier?, reason?}` for every
+  caller, `ADMIN` included (3.x showed `verification.proof` to `ADMIN`).
 
 **Redaction env vars:**
 - `API_REDACT_NOTE_ATTRIBUTION` (default `true`) — when `true`, non-admin callers see no attribution
   (this includes the `actor` field on SSE events; see §21)
 
-**Independence violations (A2) are redacted by construction, not by policy.** `IndependenceViolationDto`
+**Independence violations (A2) are redacted by construction, not by policy.** An independence violation
 carries only seat names and note keys (`key`, `seat`, `constraint`, `conflictingSeat`, `waived`) —
 never an actor id, proof, or verification claim — on every surface (`items_read` `context` `gateStatus.violations`,
-`AdvanceResponseDto.violations`, `CascadeEventDto.violations`, `422 gate_blocked`'s
-`details.violations`). This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
+the `violations` of an `advance` `transition` result, and the `detail.violations` of a `409 gate_blocked`). This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
 caller capability tier, or admin status, because there is no attribution-bearing field on the DTO for
 `AttributionRedactor` to redact in the first place.
 

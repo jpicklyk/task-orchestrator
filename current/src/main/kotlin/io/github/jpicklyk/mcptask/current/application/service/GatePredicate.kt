@@ -24,7 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *
  * The function returns the structured list of missing [NoteSchemaEntry] objects (preserving key,
  * description, guidance, and skill), so each caller can build its own response shape
- * (MCP JSON missingNotes array, or REST gateMissingNotes DTO). No JSON is produced here.
+ * (the `missing` array of a `gate_blocked` detail or of `items_read` `select=context`). No JSON is produced here.
  *
  * A note is "filled" when it exists with a non-blank body -- see [filledNoteKeys].
  */

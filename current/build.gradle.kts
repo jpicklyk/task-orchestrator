@@ -249,6 +249,20 @@ tasks.register<Test>("regenerateToolGoldens") {
     outputs.upToDateWhen { false }
 }
 
+// Rewrites the generated tool and error-catalog blocks of docs/api-reference.md from the ToolSpec registry.
+// Run after any intentional request-class, @Doc, error-set, profile or capability change, then commit the file.
+tasks.register<Test>("regenerateApiReference") {
+    description = "Regenerates the generated blocks of docs/api-reference.md from the ToolSpec registry."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform()
+    environment("REGENERATE_API_REFERENCE", "true")
+    filter { includeTestsMatching("*ApiReferenceGenerator*") }
+    outputs.upToDateWhen { false }
+}
+
 kotlin {
     jvmToolchain(21)
 }

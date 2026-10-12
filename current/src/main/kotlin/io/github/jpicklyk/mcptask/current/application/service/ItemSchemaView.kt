@@ -16,8 +16,8 @@ import kotlinx.serialization.json.buildJsonObject
 import java.util.UUID
 
 /**
- * The ONE builder behind BOTH `query_items`'s `schema` operation (MCP) and
- * `GET /api/v1/items/{id}/schema` (REST, A1c) — a shared REST route must reuse [buildItemSchemaJson]
+ * The ONE builder behind the `items_read` `select=schema` view (MCP and
+ * `POST /api/v1/ops/items_read`) - a surface that shows a schema must reuse [buildItemSchemaJson]
  * rather than replicate this shape, per A1 task-scope §6 AC3. Pure and JSON-in/JSON-out: no tool or
  * route framework types appear here, so REST can call it directly.
  *

@@ -18,14 +18,14 @@ import kotlin.test.assertTrue
  * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config and
  * invalid actor_authentication values". Covers test-plan scenarios S2, S5, S7, S8, S10, S11, S12,
  * S15 plus the config-parsing adversarial probes, exercising the two global-config YAML loaders
- * ([YamlActorAuthenticationConfigService], [YamlNoteSchemaService] / [YamlWorkItemSchemaService])
+ * ([YamlActorAuthenticationConfigService], [YamlWorkItemSchemaService])
  * directly. Composition-level coverage (build() over a broken global config, the startup WARN) is
  * in `io.github.jpicklyk.mcptask.current.interfaces.mcp.GlobalConfigStartupFailClosedTest`.
  *
  * Oracle source: the item's frozen `diagnosis` note (decisions D1, D2, D4) and `test-plan` note
  * (queue phase), written before this fix's implementation existed -- never this file's own reading
  * of the fixed source. All scenarios here are EXISTING-SURFACE per the test-plan: every type and
- * method touched ([YamlActorAuthenticationConfigService], [YamlNoteSchemaService],
+ * method touched ([YamlActorAuthenticationConfigService], [YamlWorkItemSchemaService],
  * [ActorAuthenticationConfig], [VerifierConfig], [DegradedModePolicy]) was already public before
  * this fix -- only the loaders' behavior on bad or absent input changes, from a defaulted,
  * warning-only fallback to a thrown [IllegalArgumentException] naming the config path. A plain
@@ -74,7 +74,7 @@ class GlobalConfigFailClosedTest {
                         required: true
                 """.trimIndent()
             )
-        val service = YamlNoteSchemaService(file)
+        val service = YamlWorkItemSchemaService(file)
 
         val fingerprintBefore = service.getConfigFingerprint()
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), fingerprintBefore)
@@ -105,7 +105,7 @@ class GlobalConfigFailClosedTest {
         assertNull(service.getAllSchemas()["type-b"], "a live instance must not see the rewrite")
 
         // A NEW instance over the same path reflects the rewritten bytes.
-        val serviceAfterRewrite = YamlNoteSchemaService(file)
+        val serviceAfterRewrite = YamlWorkItemSchemaService(file)
         val fingerprintAfter = serviceAfterRewrite.getConfigFingerprint()
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), fingerprintAfter)
         assertNotEquals(fingerprintBefore, fingerprintAfter)
@@ -126,7 +126,7 @@ class GlobalConfigFailClosedTest {
         val exActor = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
         assertTrue(exActor.message?.contains(file.toString()) == true, "Expected the config path in: ${exActor.message}")
 
-        val exSchema = assertFailsWith<IllegalArgumentException> { YamlNoteSchemaService(file).getLoadWarnings() }
+        val exSchema = assertFailsWith<IllegalArgumentException> { YamlWorkItemSchemaService(file).getLoadWarnings() }
         assertTrue(exSchema.message?.contains(file.toString()) == true, "Expected the config path in: ${exSchema.message}")
     }
 
@@ -154,7 +154,7 @@ class GlobalConfigFailClosedTest {
         val exActor = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
         assertTrue(exActor.message?.contains(file.toString()) == true, "Expected the config path in: ${exActor.message}")
 
-        val exSchema = assertFailsWith<IllegalArgumentException> { YamlNoteSchemaService(file).getLoadWarnings() }
+        val exSchema = assertFailsWith<IllegalArgumentException> { YamlWorkItemSchemaService(file).getLoadWarnings() }
         assertTrue(exSchema.message?.contains(file.toString()) == true, "Expected the config path in: ${exSchema.message}")
     }
 
@@ -262,7 +262,7 @@ class GlobalConfigFailClosedTest {
         val actorConfig = YamlActorAuthenticationConfigService(file).getConfig()
         assertEquals(ActorAuthenticationConfig(), actorConfig)
 
-        val schemaService = YamlNoteSchemaService(file)
+        val schemaService = YamlWorkItemSchemaService(file)
         assertTrue(schemaService.getLoadWarnings().isEmpty())
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), schemaService.getConfigFingerprint())
     }
@@ -275,7 +275,7 @@ class GlobalConfigFailClosedTest {
         val actorConfig = YamlActorAuthenticationConfigService(file).getConfig()
         assertEquals(ActorAuthenticationConfig(), actorConfig)
 
-        val schemaService = YamlNoteSchemaService(file)
+        val schemaService = YamlWorkItemSchemaService(file)
         assertTrue(schemaService.getLoadWarnings().isEmpty())
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), schemaService.getConfigFingerprint())
     }
@@ -291,7 +291,7 @@ class GlobalConfigFailClosedTest {
         val exActor = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
         assertTrue(exActor.message?.contains(file.toString()) == true)
 
-        val exSchema = assertFailsWith<IllegalArgumentException> { YamlNoteSchemaService(file).getLoadWarnings() }
+        val exSchema = assertFailsWith<IllegalArgumentException> { YamlWorkItemSchemaService(file).getLoadWarnings() }
         assertTrue(exSchema.message?.contains(file.toString()) == true)
     }
 
@@ -302,7 +302,7 @@ class GlobalConfigFailClosedTest {
         val exActor = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
         assertTrue(exActor.message?.contains(file.toString()) == true)
 
-        val exSchema = assertFailsWith<IllegalArgumentException> { YamlNoteSchemaService(file).getLoadWarnings() }
+        val exSchema = assertFailsWith<IllegalArgumentException> { YamlWorkItemSchemaService(file).getLoadWarnings() }
         assertTrue(exSchema.message?.contains(file.toString()) == true)
     }
 
@@ -460,7 +460,7 @@ class GlobalConfigFailClosedTest {
         val expected = sha256HexIndependent(lfEquivalent.toByteArray(Charsets.UTF_8))
         val rawHash = sha256HexIndependent(Files.readAllBytes(file))
 
-        val service = YamlNoteSchemaService(file)
+        val service = YamlWorkItemSchemaService(file)
         val first = service.getConfigFingerprint()
         val second = service.getConfigFingerprint()
 

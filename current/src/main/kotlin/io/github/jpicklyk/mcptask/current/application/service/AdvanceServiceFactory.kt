@@ -14,9 +14,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
  * [EffectiveConfigResolver.labelFor]) and the shared [TransitionPreview], from ONE shared
  * [configResolver].
  *
- * The single construction site for [AdvanceService] in production: the MCP `advance_item` tool,
- * `complete_tree`, and the REST advance route all call [forItem]; `get_context`, `get_next_status` and
- * `GET /items/{id}/gate` evaluate through [preview], so previews and advances share one loader and one
+ * The single construction site for [AdvanceService] in production: the `advance` `transition` op,
+ * `items_write` `complete_tree` and the structural cascades of `items_write` all call [forItem]; `items_read`
+ * `select=context` evaluates through [preview], so previews and advances share one loader and one
  * policy.
  */
 class AdvanceServiceFactory(

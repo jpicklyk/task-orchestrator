@@ -106,7 +106,7 @@ class EventRoutesTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, emptyMap()) }
+                routing { eventRoutes(bus, emptyMap(), redactAttribution = true) }
             }
             val response = client.get("/events")
             assertEquals(HttpStatusCode.Unauthorized, response.status)
@@ -120,7 +120,7 @@ class EventRoutesTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -137,7 +137,7 @@ class EventRoutesTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -155,7 +155,7 @@ class EventRoutesTest {
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -178,7 +178,7 @@ class EventRoutesTest {
                 install(SSE)
                 routing {
                     // allowQueryToken = false (default)
-                    eventRoutes(bus, entries, allowQueryToken = false)
+                    eventRoutes(bus, entries, allowQueryToken = false, redactAttribution = true)
                 }
             }
             // No Authorization header, only ?token= query param
@@ -196,7 +196,7 @@ class EventRoutesTest {
                 install(SSE)
                 routing {
                     // allowQueryToken = true (opt-in)
-                    eventRoutes(bus, entries, allowQueryToken = true)
+                    eventRoutes(bus, entries, allowQueryToken = true, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -411,7 +411,7 @@ class EventRoutesTest {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -493,7 +493,7 @@ class EventRoutesTest {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -544,7 +544,7 @@ class EventRoutesTest {
                 install(SSE)
                 routing {
                     // Check every 1 second; the server emits auth.expired then closes the stream.
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 1)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 1, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }

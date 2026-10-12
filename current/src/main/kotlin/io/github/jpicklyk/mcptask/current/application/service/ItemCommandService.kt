@@ -131,9 +131,9 @@ data class ItemDeleteResult(
 )
 
 /**
- * The single owner of item creates, patches and deletes, shared by `manage_items`, the REST item routes and
- * `create_work_tree` (plan sections 3.3, 3.5, 3.6). JSON-free and transport-free: failures are [DomainError]s the
- * adapters map to their 3.x wire shapes ([ItemCommandErrors] classifies them).
+ * The single owner of item creates, patches and deletes, shared by `items_write` (`create`, `update`, `delete`,
+ * `create_tree`) (plan sections 3.3, 3.5, 3.6). JSON-free and transport-free: failures are [DomainError]s the
+ * adapters map to their wire shapes ([ItemCommandErrors] classifies them).
  *
  * Every method is ONE write unit, joining an ambient one. Inside it:
  * - **Placement** is derived from the parent row read in the unit, under the writer lock held from BEGIN (AR-19):
@@ -184,7 +184,7 @@ class ItemCommandService(
     suspend fun create(cmd: ItemCreateCommand): Outcome<WorkItem> = guarded(CREATE_OP) { createBody(cmd) }
 
     /**
-     * Creates one item inside the CALLER's unit (an atomic composite such as `create_work_tree`): the caller's unit
+     * Creates one item inside the CALLER's unit (an atomic composite such as `items_write` `create_tree`): the caller's unit
      * decides commit, and an [Outcome.Err] returned from its block rolls everything back. A per-root config fault
      * propagates as the exception.
      */

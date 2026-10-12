@@ -18,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import java.util.UUID
 
 /**
- * The 3.x plan-document surface, kept for `create_work_tree` adoption (the `docs_read` /
+ * The 3.x plan-document surface, kept for `items_write` `create_tree` adoption (the `docs_read` /
  * `docs_write` tools address documents through [DocumentService] directly), and delegating every write to the knowledge [DocumentService].
  *
  * Extracted the same way [ConfigService] is: one pipeline, one place that stashes a plan
@@ -46,7 +46,7 @@ class PlanDocumentService(
      * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere. A
      * `slug` starting with [RuleService.RULE_SLUG_PREFIX] (`rule/`) is capped tighter, at
      * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for every
-     * plan-document write (`docs_write` enforces the same caps in [DocumentService]), so `query_rules`/the `rules` REST routes never need their own
+     * plan-document write (`docs_write` enforces the same caps in [DocumentService]), so the `config` tool's `rules` op never needs its own
      * cap (A3, 840e700a).
      */
     suspend fun stash(
@@ -97,7 +97,7 @@ class PlanDocumentService(
 
     /**
      * Records that [adoptedByItemId] adopted the PENDING document at `(rootItemId, slug)` (an `adopted_by` link, and
-     * `document.adopted`), JOINING the caller's unit (an atomic composite such as `create_work_tree`, which adopts as its
+     * `document.adopted`), JOINING the caller's unit (an atomic composite such as `items_write` `create_tree`, which adopts as its
      * last step so the adoption commits or rolls back with the tree). A document already adopted (a concurrent adopt
      * won) is `duplicate`; a vanished one is `not_found`.
      */

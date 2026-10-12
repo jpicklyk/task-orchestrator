@@ -171,7 +171,7 @@ components:
         configSource:
           type: string
           enum: [per-root, global]
-          description: Which layer supplied the schema — same literal MCP query_items(schema) uses.
+          description: Which layer supplied the schema - same literal the items_read schema select reports.
         configFingerprint:
           type: string
           nullable: true
@@ -396,8 +396,8 @@ components:
       type: object
       required: [type, configSource, notes, features]
       description: >-
-        The item schema view (A1c), now served as the data of items_read select schema (4.0; the
-        GET /items/{id}/schema route and query_items were removed), built by the
+        The item schema view (A1c), now served as the data of items_read select schema (the
+        GET /items/{id}/schema route is removed), built by the
         ItemSchemaView server-side builder, never a second, separately
         maintained builder.
       properties:
@@ -825,8 +825,8 @@ paths:
         the served profile (field `tool`), a `Content-Type` other than `application/json` (field
         `Content-Type`; absent is accepted), an `Idempotency-Key` header (field `Idempotency-Key`; use
         `ops[].idempotencyKey`), or a body that is not a JSON object (field `$`). A body over 1 MiB
-        is 413 `payload_too_large`. A missing or invalid credential keeps the legacy 401 body
-        (see Unauthorized). Serves the orchestration profile.
+        is 413 `payload_too_large`. A missing or invalid credential answers the 401 unauthenticated
+        envelope (see Unauthorized). Serves the orchestration profile.
 
         The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
         removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
@@ -834,7 +834,7 @@ paths:
         Claim ownership and resource leases are enforced on this route exactly as on MCP.
 
         `items_write` ops are `create`, `update`, `delete`, and `create_tree`, `complete_tree` and `repin`
-        (orchestration profile only). `repin` (`{op: "repin", id, expectedVersion?}`, `write_items` capability)
+        (orchestration profile only). `repin` (`{op: "repin", id, expectedVersion?}`, `write-items` capability)
         moves the item's config pin to the current config heads and answers `{ok, id, version, repinned,
         schemaVersion?}`; `repinned: false` means the pin was current and nothing was written. A `notes_write`
         `upsert` of a key that a pinned item's pinned schema lacks but the current head schema requires fails
@@ -1161,7 +1161,7 @@ paths:
         principal with scope.tags_include set is additionally filtered per event (live and replay alike),
         using the same ScopeGuard predicate as the tools and REST reads; see api-rest.md §21/§3. KNOWN LIMITATION:
         item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
-        the item is gone) -- see api-rest.md section 25.
+        the item is gone) -- see api-rest.md section 24.
 
         A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
         if that is unavailable the pre-flight plugin rejects the connection with 403 forbidden

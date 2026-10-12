@@ -42,8 +42,8 @@ import java.util.UUID
  * Transport-agnostic service over the versioned per-root config store: the validate-then-append push pipeline,
  * reads of the head or any version, history, rollback, reset and the `config-canonicalize` data step body.
  *
- * Both the MCP `manage_project_config` tool and the REST config routes drive this one class, so both surfaces
- * converge on identical stored state for the same payload.
+ * The `config` tool (MCP and `POST /api/v1/ops/config`) and the boot import drive this one class, so every path
+ * converges on identical stored state for the same payload.
  *
  * Push pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor] strict parse ->
  * embedded-rootId guard (skipped when `force: true`) -> [ConfigValidator] (any error rejects, `force` does not

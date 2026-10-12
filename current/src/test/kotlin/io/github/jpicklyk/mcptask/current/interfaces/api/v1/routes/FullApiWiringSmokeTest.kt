@@ -87,7 +87,7 @@ abstract class FullApiWiringSmokeScenarios(
             // so the header-only ApiBearerAuth plugin does not intercept it; the SSE route does
             // its own inline pre-flight auth. Mirrors CurrentMcpServer production wiring.
             route("/api/v1") {
-                eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
             }
             wellKnownRoutes(serverName = "smoke", serverVersion = "test")
         }

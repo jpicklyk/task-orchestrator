@@ -10,10 +10,9 @@ data class WorkItem(
     /**
      * Denormalized id of this item's depth-0 ancestor (its own [id] when [depth] is 0).
      * Maintained by the application layer: stamped on create (ItemCommandService, behind
-     * manage_items, ItemWriteRoutes POST /items and create_work_tree) and restamped on reparent,
+     * the `items_write` ops `create` and `create_tree`) and restamped on reparent,
      * for the moved item and every descendant, in the same statement as the depth cascade
-     * (ItemCommandService via HierarchyStore.restampSubtree, behind manage_items update and
-     * ItemWriteRoutes PATCH).
+     * (ItemCommandService via HierarchyStore.restampSubtree, behind the `items_write` op `update`).
      *
      * Every one of those write paths resolves this value (together with [depth]) from the
      * parent's CURRENT row via

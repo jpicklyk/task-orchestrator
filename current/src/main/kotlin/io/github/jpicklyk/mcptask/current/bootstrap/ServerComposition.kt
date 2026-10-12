@@ -190,7 +190,7 @@ class ServerComposition(
         val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
         // ONE read model for the whole server, over the same unit of work (served by the read tools as they move onto it).
         val workViewQueries = WorkViewQueries(unitOfWork)
-        // The ONE config service: MCP's manage_project_config and the REST config routes both drive it.
+        // The ONE config service: the `config` tool (MCP and REST ops) and the boot import all drive it.
         // Admission check for pushed config: the JSON Schema pass, the strict parser's findings, and the semantic rules
         // against the server layer, which ConfigService reads from the DB head on every push / validate.
         val configValidator = productionConfigValidator()

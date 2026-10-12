@@ -33,7 +33,7 @@ import java.util.UUID
  *   version row; [markAdopted] inserts the `adopted_by` link. Neither records events: the services do.
  * - [list] is two queries whatever the number of documents: one documents select and one batched links select.
  *
- * Each write runs in one `writeTx`, joining the ambient unit when there is one (so `create_work_tree` adopts inside
+ * Each write runs in one `writeTx`, joining the ambient unit when there is one (so `items_write` `create_tree` adopts inside
  * its own unit).
  */
 class DocumentBackedPlanDocumentStore(

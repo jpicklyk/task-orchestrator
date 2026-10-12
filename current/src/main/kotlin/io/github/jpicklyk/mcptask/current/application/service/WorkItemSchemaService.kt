@@ -47,11 +47,5 @@ interface WorkItemSchemaService {
     fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = emptyMap()
 }
 
-/**
- * Backward-compatibility alias. All existing code referencing [NoteSchemaService] continues
- * to compile without modification.
- */
-typealias NoteSchemaService = WorkItemSchemaService
-
 /** No-op implementation used when no config file is present: every catalogue is empty. */
-object NoOpNoteSchemaService : WorkItemSchemaService
+object NoOpWorkItemSchemaService : WorkItemSchemaService

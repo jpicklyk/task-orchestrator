@@ -147,7 +147,14 @@ class EventSeqFloorTest {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, tokenEntries(), allowQueryToken = false, authCheckIntervalSeconds = 60, workItemRepository = null)
+                    eventRoutes(
+                        bus,
+                        tokenEntries(),
+                        allowQueryToken = false,
+                        authCheckIntervalSeconds = 60,
+                        workItemRepository = null,
+                        redactAttribution = true
+                    )
                 }
             }
             val sseClient = createClient { install(ClientSSE) }

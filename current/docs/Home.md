@@ -2,20 +2,23 @@
 
 Stop losing context. Start building faster.
 
-MCP Task Orchestrator is an open-source MCP server that gives AI agents persistent, structured task tracking across sessions. Built around a unified WorkItem graph with Note attachments and Dependency edges, it keeps context lean while making complex project work visible. v3 is a ground-up rewrite built around a compact tool surface, role-based workflow, and note schema gating.
+MCP Task Orchestrator is an open-source MCP server that gives AI agents persistent, structured task tracking across sessions. Built around a unified WorkItem graph with Note attachments and Dependency edges, it keeps context lean while making complex project work visible. Version 4.0 is built around a compact, self-describing tool surface, role-based workflow, and note schema gating.
 
 ---
 
-## What's New in v3
+## What's New in 4.0
 
-- Unified WorkItem model — one entity type nesting to any depth, replacing separate Project/Feature/Task distinctions
-- Graph-aware queries (`includeAncestors`, `includeChildren`) that eliminate sequential parent-walk calls
-- Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`)
-- Note schemas — per-tag documentation requirements that gate phase transitions before an item can advance
-- Composable traits — orchestration signals that layer note requirements, guidance, and skill routing onto base schemas
-- Dependency patterns: `linear`, `fan-out`, `fan-in` with `BLOCKS` and `RELATES_TO` edge types (`IS_BLOCKED_BY` is accepted as an input alias and stored as `BLOCKS`)
-- `create_work_tree` for atomic hierarchy creation; `complete_tree` for batch topological completion
-- Multi-agent claim mechanism (`claim_item`) with TTL-based ownership, selector mode for atomic find-and-claim, and ancestor-claim sub-tree protection — see [Fleet Deployment](fleet-deployment.md) for topology patterns
+- A compact tool surface: `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `advance`, `docs_read`, `docs_write` and `config`, each a `select` (reads) or an `ops[]` batch (writes), every one answering one response envelope. `describe: true` on any call returns the tool's schema. See the [API Reference](api-reference.md).
+- Two tool profiles: `orchestration` (everything) and `knowledge` (a smaller read/write subset at `/mcp/knowledge`)
+- Unified WorkItem model: one entity type nesting to any depth. Lifecycle-free items (`lifecycle: none` types) hold reference material that never enters the phase workflow
+- Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`) through `advance`; cascade rules live in the [`advance` reference](api-reference.md#advance)
+- Note schemas gate phase transitions, per `type` (an item must carry a declared `type`), with composable traits that layer note requirements, guidance, skill routing, dispatch and resource leases onto base schemas
+- Config is versioned per project root (`config` ops `push`, `validate`, `history`, `rollback`, `reset`) and items stay pinned to the schema they were created under until `repin`
+- Dependency patterns: `linear`, `fan_out`, `fan_in` with `blocks` and `relates_to` edges
+- Versioned documents (`docs_read`, `docs_write`), `[[...]]` links with backlinks, and `related` search across items, notes and documents
+- Opaque-cursor paging on every list, `fields` and `ifVersion` on reads, and 8-hex-character short ids
+- Multi-agent claims (the `advance` tool's `claim`, `release` and `heartbeat` ops) with TTL-based ownership, a selector for atomic find-and-claim, and ancestor-claim sub-tree protection; see [Fleet Deployment](fleet-deployment.md) for topology patterns
+- Upgrading from 3.x: read "Upgrading from 3.x" in the [Changelog](https://github.com/jpicklyk/task-orchestrator/blob/main/CHANGELOG.md) first
 
 ---
 

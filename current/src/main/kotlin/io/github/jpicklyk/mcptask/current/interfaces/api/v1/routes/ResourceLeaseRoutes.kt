@@ -46,8 +46,8 @@ private const val HISTORY_MAX_LIMIT = 200
 /**
  * Registers the operator-facing resource-lease read/force-release routes under `/api/v1/resources/leases`.
  * Every answer is the 4.0 envelope with the status of its error code; a missing capability is `forbidden`
- * (`scope: capability`, `required` the capability name). A 401 from the authentication plugin keeps its legacy
- * body until Q32.
+ * (`scope: capability`, `required` the capability name). A 401 from the authentication plugin is the
+ * `unauthenticated` envelope too.
  *
  * Endpoints:
  * - `GET    /resources/leases`: every currently active (non-expired) lease, as a list page ordered by

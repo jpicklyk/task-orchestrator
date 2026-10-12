@@ -11,8 +11,8 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test authorship for item 2cef6ca4 (needs-test-author) — the `auto-reopen` removal
- * decision at the [YamlSchemaParser] surface (S1-S3). The `YamlNoteSchemaService`-level
- * integration check (declared edit to `YamlNoteSchemaServiceTest.kt`) and the delete/lease
+ * decision at the [YamlSchemaParser] surface (S1-S3). The `YamlWorkItemSchemaService`-level
+ * integration check (declared edit to `YamlWorkItemSchemaServiceTest.kt`) and the delete/lease
  * scenarios (S4-S11, MCP + REST) live elsewhere; this file is the parser-level unit surface plus
  * the enum-level surface, all EXISTING-SURFACE per test-plan (a plain revert compiles and yields
  * behavioural red — `LifecycleMode.AUTO_REOPEN` and the `YamlSchemaParser` special-case both

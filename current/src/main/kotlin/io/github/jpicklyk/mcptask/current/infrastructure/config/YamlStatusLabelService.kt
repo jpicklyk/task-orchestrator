@@ -17,8 +17,7 @@ import java.nio.file.Path
  * Two constructors:
  *  - `YamlStatusLabelService(configPath)`: the ORIGINAL lenient, independent
  *    loader — its own SafeConstructor-based `Yaml`/`FileReader` read, swallowing any error into NoOp defaults. Kept
- *    unchanged for backward compatibility (existing tests, and the `ItemWriteRoutes.kt` default
- *    parameter) — a typealias could not preserve this constructor, which is why this class was NOT
+ *    unchanged for backward compatibility (existing tests and direct constructions) - a typealias could not preserve this constructor, which is why this class was NOT
  *    folded into a shared-document-only shape (see the C1 task-scope note's "Alternatives
  *    rejected").
  *  - `YamlStatusLabelService(globalConfig: GlobalConfigFile)`: reads `status_labels` from the ONE
