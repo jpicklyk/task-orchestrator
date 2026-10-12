@@ -78,7 +78,8 @@ data class NoteWriteResult(
  * queue|work|review), the absolute byte cap ([MAX_NOTE_BODY_BYTES], measured on the raw body, any
  * `note_limits` mode), CRLF-to-LF normalization (a lone CR is kept), the schema-role rule (a key the
  * item's resolved schema declares must carry the schema's role), and the schema `maxLength` (measured
- * on the normalized body; `note_limits.mode: reject` fails, `warn` accepts with a [NoteLengthWarning]).
+ * on the normalized body; `note_limits.mode: reject` fails, `warn` accepts with a [NoteLengthWarning]). A key the
+ * pinned schema of a pinned item does not declare but its head schema REQUIRES is `schema_pinned_conflict`.
  *
  * Every write records its own `events` rows through the unit's sink, in the same unit: `note.upserted` (the
  * principal is the note's own actor claim and verification) and `note.deleted` (cause `explicit`), under the
@@ -91,6 +92,7 @@ class NoteCommandService(
     private val unitOfWork: UnitOfWork
 ) {
     private val links = LinkService(repositoryProvider, unitOfWork)
+    private val pinService = SchemaPinService(configResolver)
 
     /** Validate-only: runs the write policy for [item] and stores nothing. */
     suspend fun prepare(
@@ -119,6 +121,7 @@ class NoteCommandService(
         val normalizedBody = body.replace("\r\n", "\n")
 
         val schemaEntry = configResolver.resolveSchema(item)?.notes?.firstOrNull { it.key == key }
+        if (schemaEntry == null) pinnedConflict(item, key)?.let { return Outcome.Err(it) }
         if (schemaEntry != null) {
             val expectedRole = schemaEntry.role.name.lowercase()
             if (normalizedRole != expectedRole) {
@@ -152,6 +155,29 @@ class NoteCommandService(
         }
 
         return Outcome.Ok(PreparedNote(normalizedRole, normalizedBody, warning))
+    }
+
+    /**
+     * `schema_pinned_conflict` (plan section 3.8): [item] is pinned, its pinned schema has no entry for [key], and the
+     * schema it would resolve to at the config heads REQUIRES [key]. The caller must `repin` the item before writing the
+     * note. Null when the item is unpinned (or pins are off), or the head schema does not declare [key] as required.
+     */
+    private suspend fun pinnedConflict(
+        item: WorkItem,
+        key: String
+    ): DomainError? {
+        if (item.pin == null || !configResolver.pinsEnabled) return null
+        val headEntry = configResolver.resolveSchemaAtHead(item)?.notes?.firstOrNull { it.key == key } ?: return null
+        if (!headEntry.required) return null
+        val (pinnedVersion, currentVersion) = pinService.versionLabels(item)
+        return DomainError(
+            code = ErrorCode.SCHEMA_PINNED_CONFLICT,
+            message =
+                "Note '$key' is required by the current schema ($currentVersion) but item ${item.id} is pinned to " +
+                    "$pinnedVersion, whose schema does not declare it; repin the item first.",
+            detail = ErrorDetail.SchemaPinnedConflict(item.id, pinnedVersion, currentVersion),
+            fixArgs = mapOf("itemId" to item.id.toString(), "pinnedVersion" to pinnedVersion, "currentVersion" to currentVersion)
+        )
     }
 
     /** Looks up the item, applies the write policy, and upserts the note in one write unit. */

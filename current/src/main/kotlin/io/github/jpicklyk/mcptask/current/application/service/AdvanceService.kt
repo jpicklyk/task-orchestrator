@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.error.ResourceRef
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.event.PinReason
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
@@ -307,6 +308,10 @@ data class AdvanceResult(
  *   skipped; releases still run.
  * @property clock the time source for ownership checks and `roleChangedAt`; the ambient unit instant
  *   wins inside a unit.
+ * @property schemaPinService the pin writer: every applied transition OUT of TERMINAL (a user `reopen` and the reopen
+ *   cascade) re-pins the item to the config heads and records one `item.pinned` row (reason `reopen`) after its
+ *   `item.transitioned` row; that transition's own gate was already evaluated under the old pin. Null (or pins off):
+ *   no pin is written.
  */
 class AdvanceService(
     private val workItemRepository: WorkItemRepository,
@@ -325,7 +330,8 @@ class AdvanceService(
     private val clock: Clock = Clock.SYSTEM,
     private val policy: TransitionPolicy = TransitionPolicy(),
     /** The owner of claim and lease writes and their events: always the shared instance wired by [AdvanceServiceFactory]. */
-    claimService: ClaimService
+    claimService: ClaimService,
+    private val schemaPinService: SchemaPinService? = null
 ) {
     private val claims: ClaimService = claimService
 
@@ -942,9 +948,12 @@ class AdvanceService(
                     originalClaimedAt = if (touchesTerminal) null else current.originalClaimedAt
                 )
             }
+        // Leaving TERMINAL re-pins to the heads (the gate above ran under the old pin).
+        val pinner = schemaPinService?.takeIf { previousRole == Role.TERMINAL && it.enabled }
+        val toStore = if (pinner != null) updatedItem.copy(pin = pinner.pinFor(updatedItem, updatedItem.rootId, now)) else updatedItem
 
         val updated =
-            workItemRepository.update(updatedItem)
+            workItemRepository.update(toStore)
                 ?: throw ApplyAbort(
                     "Failed to update item: WorkItem not found with id: ${item.id}",
                     AdvanceErrors.itemNotFound(item.id)
@@ -982,6 +991,10 @@ class AdvanceService(
                 consumedCredentials = transition.consumedCredentials
             )
         )
+        val newPin = updated.pin
+        if (pinner != null && newPin != null) {
+            events.record(SchemaPinService.pinnedEvent(item.id, eventRoot(updated), item.pin, newPin, PinReason.REOPEN))
+        }
 
         // Release on EVERY exit from WORK, in this unit, regardless of the kill switch (a lease acquired
         // while enforcement was on must still be released after it is turned off). A fault fails the advance.

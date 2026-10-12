@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.event.PinReason
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
@@ -32,6 +33,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import kotlinx.serialization.json.Json
@@ -111,6 +113,12 @@ data class ItemPatchResult(
     val cascadeEvents: List<AdvanceCascadeEvent>
 )
 
+/** A committed `repin`: the stored [item] and whether its pin moved ([repinned] false: nothing was written). */
+data class ItemRepinResult(
+    val item: WorkItem,
+    val repinned: Boolean
+)
+
 /** A committed delete of [id] and [descendantsDeleted] descendants, plus the cascades it ran on the old parent. */
 data class ItemDeleteResult(
     val id: UUID,
@@ -136,8 +144,15 @@ data class ItemDeleteResult(
  *   foreign-key cascade implies. The same delete also removes, through [LinkService.onItemsDeleted], the links the removed
  *   notes and items were the source of and the resolved links into the removed items (except `adopted_by`); no event.
  *
- * A [PerRootConfigUnavailableException] (resolving a TERMINAL parent's lifecycle) rolls the unit back and is
- * rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
+ * - **Pins** (plan section 3.8) are taken through [schemaPinService] at the pin points this service owns: a create, a
+ *   patch that changes the type, moves the item to another root, or changes its traits (one `item.pinned` row per
+ *   patch, reason precedence type_change > reparent > trait_change), and [repin]. A move to another root also re-pins
+ *   every descendant against the new root (one `reparent` row each, batched). A delete first re-points any surviving
+ *   pin naming a config version the delete cascades away. A title-only patch or a same-root move leaves the pin
+ *   untouched. With pins off ([SchemaPinService.enabled] false) nothing is pinned.
+ *
+ * A [PerRootConfigUnavailableException] (resolving a TERMINAL parent's lifecycle, or taking a pin) rolls the unit back
+ * and is rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
  */
 class ItemCommandService(
     private val repositoryProvider: RepositoryProvider,
@@ -145,7 +160,8 @@ class ItemCommandService(
     private val unitOfWork: UnitOfWork,
     private val advanceServiceFactory: AdvanceServiceFactory,
     private val claimService: ClaimService,
-    private val policy: TransitionPolicy = TransitionPolicy()
+    private val policy: TransitionPolicy = TransitionPolicy(),
+    private val schemaPinService: SchemaPinService = SchemaPinService(configResolver)
 ) {
     // The composite work-item store: every item, placement and hierarchy call goes through the one instance a
     // provider hands out (a provider that wraps it, such as a fault-injecting test double, sees every call).
@@ -175,6 +191,17 @@ class ItemCommandService(
         itemId: UUID,
         recursive: Boolean
     ): Outcome<ItemDeleteResult> = guarded(DELETE_OP) { deleteBody(itemId, recursive) }
+
+    /**
+     * Re-pins [itemId] to the current config heads in one write unit (the `repin` pin point). A non-null
+     * [expectedVersion] must equal the row's version (`version_conflict` otherwise). When the recomputed pin equals the
+     * stored one nothing is written and no event is recorded ([ItemRepinResult.repinned] false); otherwise the row is
+     * updated (version + 1) and one `item.pinned` row (reason `repin`) is recorded.
+     */
+    suspend fun repin(
+        itemId: UUID,
+        expectedVersion: Long?
+    ): Outcome<ItemRepinResult> = guarded(REPIN_OP) { repinBody(itemId, expectedVersion) }
 
     // -------------------------------------------------------------------------
     // create
@@ -225,8 +252,11 @@ class ItemCommandService(
             } catch (e: ValidationException) {
                 return Outcome.Err(ItemCommandErrors.invalid(e.message ?: "Validation failed"))
             }
-        val created = items.create(item)
-        events.record(DomainEvent.ItemCreated(created.id, eventRootOf(created, hierarchy), created.parentId))
+        val pinned = if (schemaPinService.enabled) item.copy(pin = schemaPinService.pinFor(item, rootId, now)) else item
+        val created = items.create(pinned)
+        val eventRoot = eventRootOf(created, hierarchy)
+        events.record(DomainEvent.ItemCreated(created.id, eventRoot, created.parentId))
+        created.pin?.let { events.record(SchemaPinService.pinnedEvent(created.id, eventRoot, null, it, PinReason.CREATE)) }
         return Outcome.Ok(created)
     }
 
@@ -373,28 +403,43 @@ class ItemCommandService(
                 return Outcome.Err(ItemCommandErrors.invalid(e.message ?: "Validation failed"))
             }
 
+        // One pin point per patch, by precedence: type change, then a move to another root, then a trait change.
+        val pinReason =
+            when {
+                !schemaPinService.enabled -> null
+                cmd.type != existing.type -> PinReason.TYPE_CHANGE
+                reparented && newRootId != existing.rootId -> PinReason.REPARENT
+                cmd.traits != existing.traits -> PinReason.TRAIT_CHANGE
+                else -> null
+            }
+        val toStore = if (pinReason != null) updated.copy(pin = schemaPinService.pinFor(updated, newRootId, now)) else updated
+
         val oldRoot = if (reparented) eventRootOf(existing, hierarchy) else existing.id
-        val stored = items.update(updated) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(existing.id))
+        val stored = items.update(toStore) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(existing.id))
 
         if (!reparented) {
             val changed = itemChangedFields(existing, stored)
-            if (changed.isNotEmpty()) events.record(DomainEvent.ItemUpdated(stored.id, eventRootOf(stored, hierarchy), changed))
+            val eventRoot = eventRootOf(stored, hierarchy)
+            if (changed.isNotEmpty()) events.record(DomainEvent.ItemUpdated(stored.id, eventRoot, changed))
+            recordPinned(stored, eventRoot, existing.pin, pinReason)
             return Outcome.Ok(ItemPatchResult(stored, reparented = false, descendantsRestamped = 0, cascadeEvents = emptyList()))
         }
 
         val newRoot = newRootId ?: stored.id
+        val enteredRoot = eventRootOf(stored, hierarchy)
         events.record(
             listOf(
                 DomainEvent.ItemReparented(stored.id, oldRoot, ReparentSide.LEFT, existing.parentId, stored.parentId),
                 DomainEvent.ItemReparented(
                     stored.id,
-                    eventRootOf(stored, hierarchy),
+                    enteredRoot,
                     ReparentSide.ENTERED,
                     existing.parentId,
                     stored.parentId
                 )
             )
         )
+        recordPinned(stored, enteredRoot, existing.pin, pinReason)
 
         val depthDelta = newDepth - existing.depth
         var restamped = 0
@@ -411,10 +456,82 @@ class ItemCommandService(
                     if (changed.isEmpty()) null else DomainEvent.ItemUpdated(d.id, newRoot, changed)
                 }
             events.record(rows)
+            repinMovedDescendants(descendants, newRoot)
         }
 
         val cascades = cascade(existing.parentId, followUps)
         return Outcome.Ok(ItemPatchResult(stored, reparented = true, descendantsRestamped = restamped, cascadeEvents = cascades))
+    }
+
+    /**
+     * A move to another root re-pins every descendant that changed root against [newRoot]'s heads (reason `reparent`;
+     * the moved item's own precedence is unaffected), in one batched write, so no row keeps a pin naming the old root's
+     * config versions (which that root's delete cascades away). The restamp already bumped each row's version.
+     */
+    private suspend fun WriteScope.repinMovedDescendants(
+        descendants: List<WorkItem>,
+        newRoot: UUID
+    ) {
+        if (!schemaPinService.enabled) return
+        val moved = descendants.filter { it.rootId != newRoot }
+        if (moved.isEmpty()) return
+        val pins = schemaPinService.pinsFor(moved, newRoot, now)
+        items.writePins(pins)
+        events.record(moved.map { SchemaPinService.pinnedEvent(it.id, newRoot, it.pin, pins.getValue(it.id), PinReason.REPARENT) })
+    }
+
+    /**
+     * Before [doomed] are deleted (their `config_versions` rows cascade with them), re-points every SURVIVING item whose
+     * root pin names one of those versions at its own root's heads (reason `repin`; no version bump), so the delete never
+     * trips the pin foreign key. Unreachable with consistent placement (a cross-root move re-pins its subtree); it covers
+     * rows whose `root_id` disagrees with the tree. A survivor whose root is itself doomed pins against the server only.
+     */
+    private suspend fun WriteScope.repointSurvivingPins(doomed: Set<UUID>) {
+        if (!schemaPinService.enabled) return
+        val survivors = items.findPinnedToConfigOf(doomed)
+        if (survivors.isEmpty()) return
+        val pins = HashMap<UUID, SchemaPin>()
+        for ((root, group) in survivors.groupBy { it.rootId?.takeUnless { r -> r in doomed } }) {
+            pins.putAll(schemaPinService.pinsFor(group, root, now))
+        }
+        items.writePins(pins)
+        events.record(
+            survivors.map { SchemaPinService.pinnedEvent(it.id, eventRootOf(it, hierarchy), it.pin, pins.getValue(it.id), PinReason.REPIN) }
+        )
+    }
+
+    /** Records the one `item.pinned` row of a patch pin point ([reason] null: the patch fired none). */
+    private suspend fun WriteScope.recordPinned(
+        stored: WorkItem,
+        eventRoot: UUID,
+        previous: SchemaPin?,
+        reason: PinReason?
+    ) {
+        if (reason == null) return
+        val pin = stored.pin ?: return
+        events.record(SchemaPinService.pinnedEvent(stored.id, eventRoot, previous, pin, reason))
+    }
+
+    // -------------------------------------------------------------------------
+    // repin
+    // -------------------------------------------------------------------------
+
+    private suspend fun WriteScope.repinBody(
+        itemId: UUID,
+        expectedVersion: Long?
+    ): Outcome<ItemRepinResult> {
+        val existing = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
+        if (expectedVersion != null && expectedVersion != existing.version) {
+            return Outcome.Err(ItemCommandErrors.versionConflict(existing.id, expectedVersion, existing.version))
+        }
+        if (!schemaPinService.enabled) return Outcome.Ok(ItemRepinResult(existing, repinned = false))
+        val pin = schemaPinService.pinFor(existing, existing.rootId, now)
+        if (SchemaPinService.samePin(existing.pin, pin)) return Outcome.Ok(ItemRepinResult(existing, repinned = false))
+        val stored =
+            items.update(existing.update { it.copy(pin = pin) })
+                ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
+        events.record(SchemaPinService.pinnedEvent(stored.id, eventRootOf(stored, hierarchy), existing.pin, pin, PinReason.REPIN))
+        return Outcome.Ok(ItemRepinResult(stored, repinned = true))
     }
 
     // -------------------------------------------------------------------------
@@ -438,14 +555,18 @@ class ItemCommandService(
         val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
 
         var descendantsDeleted = 0
+        var descendants: List<WorkItem> = emptyList()
         if (recursive) {
-            val descendants =
+            descendants =
                 try {
                     hierarchy.findDescendants(itemId)
                 } catch (e: Exception) {
                     e.rethrowIfCancellation()
                     return fault("Failed to find descendants: ${LegacyFaults.message(e)}")
                 }
+        }
+        repointSurvivingPins(descendants.mapTo(HashSet()) { it.id } + itemId)
+        if (recursive) {
             if (descendants.isNotEmpty()) {
                 val released = claimService.releaseLeases(descendants.map { it.id }.toSet())
                 if (released is Outcome.Err) {
@@ -645,6 +766,7 @@ class ItemCommandService(
         private const val CREATE_OP = "ItemCommandService.create"
         private const val PATCH_OP = "ItemCommandService.patch"
         private const val DELETE_OP = "ItemCommandService.delete"
+        private const val REPIN_OP = "ItemCommandService.repin"
 
         /** Ids per pre-read query of a delete's cascade rows (the edge query binds each id twice). */
         private const val PRE_READ_CHUNK = 200

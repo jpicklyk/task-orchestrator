@@ -53,21 +53,22 @@ class ItemsWriteRegistrationTest {
     private val registry = ToolRegistry(buildToolSpecs())
 
     @Test
-    fun `S18 the registry holds items_write with the three ops, their capability, profile and destructive flags`() {
+    fun `S18 the registry holds items_write with its ops, their capability, profile and destructive flags`() {
         val spec = assertNotNull(registry["items_write"])
         assertTrue(spec is OpsToolSpec<*>)
-        assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree"), spec.ops.map { it.name })
+        // Q24 (934b25e4) adds repin.
+        assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree", "repin"), spec.ops.map { it.name })
         for (op in spec.ops.filter { it.name != "complete_tree" }) {
             assertEquals(ApiCapability.WRITE_ITEMS, op.capability, op.name)
-            // Amendment U23: create_tree is orchestration-only; create/update/delete stay in the knowledge profile.
-            val expected = if (op.name == "create_tree") ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
+            // Amendment U23: create_tree and repin are orchestration-only; create/update/delete stay in the knowledge profile.
+            val expected = if (op.name == "create_tree" || op.name == "repin") ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
             assertEquals(expected, op.profile, op.name)
         }
         // Q21: complete_tree is N transitions through the advance pipeline (capability advance, orchestration profile).
         val completeTree = spec.ops.single { it.name == "complete_tree" }
         assertEquals(ApiCapability.ADVANCE, completeTree.capability)
         assertEquals(ToolProfile.ORCHESTRATION, completeTree.profile)
-        assertEquals(listOf(false, false, true, false, false), spec.ops.map { it.destructive }, "only delete is destructive")
+        assertEquals(listOf(false, false, true, false, false, false), spec.ops.map { it.destructive }, "only delete is destructive")
     }
 
     @Test
@@ -92,7 +93,8 @@ class ItemsWriteRegistrationTest {
                 "items_write" to "update",
                 "items_write" to "delete",
                 "items_write" to "create_tree",
-                "items_write" to "complete_tree"
+                "items_write" to "complete_tree",
+                "items_write" to "repin"
             ),
             itemsWriteMembers
         )

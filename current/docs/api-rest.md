@@ -754,10 +754,13 @@ answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 `items_read select=get` with `itemId` = `{id}`. Takes no query parameter: any is `400 unknown_parameter`.
 
 **Response:** `200 OK`, `data` = the full item view (full UUIDs, lean: empty members omitted, `tags` an
-array, `version` always present), with `ETag: "v{version}"` (the item version). An `If-None-Match` naming
+array, `version` always present; a pinned item adds `schemaVersion` `{server?, root?, key?, layer?}` and, only
+when a pinned config version is no longer the head, `stale: true`), with `ETag: "v{version}"` (the item version). An `If-None-Match` naming
 that tag (a comma-separated list, a `W/` weak tag or `*` also match) answers `304 Not Modified` with no
-body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. Errors:
-`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`.
+body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. `stale` can change
+without a version change (a config push moves the head), so a `304` does not prove `stale` unchanged. Errors:
+`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`, `503 unavailable` (the pin view's config
+read failed with nothing cached).
 
 ### GET /items/{id}/children
 
@@ -1319,7 +1322,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and `document.adopted` for a `docRef`, all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
 
-**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, per-root config pushes and plan-document stash/adopt. These are audit rows and are not streamed; the stream carries only the event types listed above.
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, per-root config pushes, plan-document stash/adopt and config pins (`item.pinned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 **Who records what (4.0).** Each write service records its own rows, in its own transaction: the
 item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one

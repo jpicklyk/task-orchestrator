@@ -28,6 +28,20 @@ interface PerRootConfigSource {
 }
 
 /**
+ * Stored config versions by id, for resolving an item against the versions it is pinned to (plan section 3.8). A
+ * version never changes, so implementations may cache a loaded layer for the life of the process.
+ *
+ * [layerAt] returns the layer built from version [versionId] (tagged [ConfigSource.GLOBAL] for a server-scope version,
+ * [ConfigSource.PER_ROOT] for a root-scope one, with its fingerprint, id and number), or null when no such row exists
+ * or the row is a reset version (no config). A row whose stored canonical form is missing or undecodable throws
+ * `PerRootConfigInvalidException`; a read fault throws `PerRootConfigUnavailableException` (fail closed: a pinned
+ * item never resolves against a guessed version).
+ */
+interface ConfigVersionSource {
+    suspend fun layerAt(versionId: UUID): ConfigLayer?
+}
+
+/**
  * Shared YAML -> [ConfigDocument] parse for per-root config readers and writers (currently
  * `PerRootConfigService` and `ConfigService`), so there is exactly one
  * SafeConstructor-parsing implementation for attacker-reachable (pushed) config YAML, instead of

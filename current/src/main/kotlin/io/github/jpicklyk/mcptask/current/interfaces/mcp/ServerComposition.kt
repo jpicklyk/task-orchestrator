@@ -37,6 +37,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
@@ -397,8 +398,8 @@ class ServerComposition(
     private companion object {
         /**
          * The data steps the server ships; later work items register theirs here. Phase order runs config-canonicalize
-         * (CONFIG_CANONICALIZE), then server-config-import (CONFIG_IMPORT, every boot), then type-backfill
-         * (ITEM_BACKFILL).
+         * (CONFIG_CANONICALIZE), then server-config-import (CONFIG_IMPORT, every boot), then type-backfill and
+         * traits-from-properties (ITEM_BACKFILL), then pin-backfill (PIN).
          */
         fun productionDataSteps(
             configService: ConfigService,
@@ -410,6 +411,7 @@ class ServerComposition(
                 ServerConfigImportStep(configService, globalConfigFile),
                 TypeBackfillStep(globalConfigPath),
                 TraitsFromPropertiesStep(),
+                PinBackfillStep(globalConfigPath),
             )
     }
 }

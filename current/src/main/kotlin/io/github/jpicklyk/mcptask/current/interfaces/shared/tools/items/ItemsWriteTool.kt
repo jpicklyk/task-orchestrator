@@ -44,9 +44,10 @@ data class CascadeSummary(
 
 /**
  * The result of one `items_write` element. [id] is the item the element wrote (the tree root for `create_tree`, the
- * `rootId` of a `complete_tree`; omitted when there is none). [version] is set by create, update and `create_tree`,
- * [deleted] (the item plus its descendants) by delete; [cascade] lists the old parent's cascades and is omitted from
- * the wire when empty. [payload] holds an op's own members, spliced into `results[i]` after them.
+ * `rootId` of a `complete_tree`; omitted when there is none). [version] is set by create, update, `create_tree` and
+ * `repin`, [deleted] (the item plus its descendants) by delete; [cascade] lists the old parent's cascades and is
+ * omitted from the wire when empty. [payload] holds an op's own members, spliced into `results[i]` after them
+ * (`repin`: `repinned` and, for a pinned item, `schemaVersion`).
  */
 data class ItemWriteResult(
     val id: UUID? = null,
@@ -91,22 +92,26 @@ internal object ItemDocs {
     const val COMPLEXITY = "1 to 10."
     const val REQUIRES_VERIFICATION = "Completion needs verification."
     const val METADATA = "Free-form metadata text."
-    const val TAGS = "Lowercase hyphenated tags. Update: [] clears."
+    const val TAGS = "Lowercase, hyphenated. Update: [] clears."
     const val TRAITS = "Declared trait names. Update: [] clears."
     const val PROPERTIES = "Free-form JSON object without a traits key."
-    const val EXPECTED_VERSION = "Fails with version_conflict if the item is at another version."
+    const val EXPECTED_VERSION = "Fails version_conflict if the item is at another version."
     const val CLEAR = "Update only: optional fields to set to null."
     const val RECURSIVE = "Delete the subtree; required when the item has children."
 }
 
 internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items or whole trees, one ops[] element each."
 
-/** The `items_write` tool: `create`, `update`, `delete`, `create_tree` and `complete_tree` over one `ops[]` array. */
+/**
+ * The `items_write` tool: `create`, `update`, `delete`, `create_tree`, `complete_tree` and `repin` over one `ops[]`
+ * array. `create_tree`, `complete_tree` and `repin` are orchestration-only, so the description names only the knowledge
+ * ops and trees (each orchestration op documents itself on the orchestration profile).
+ */
 internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
     OpsToolSpec(
         name = "items_write",
         description = ITEMS_WRITE_DESCRIPTION,
-        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp(), createTreeOp(), completeTreeOp()),
+        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp(), createTreeOp(), completeTreeOp(), repinItemOp()),
         codec = ItemWriteCodec,
         element = ::itemWriteElement
     )

@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -14,6 +16,7 @@ import java.security.MessageDigest
 import java.sql.DriverManager
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -200,6 +203,94 @@ class GoldenV17UpgradeTest {
             assertEquals("17", baselineVersion, "history must record a baseline at version 17")
             val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
             assertTrue(failures.isEmpty(), "baselined upgrade failures:\n" + failures.joinToString("\n"))
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // S17 (Q24, AC4) - the production steps pin every golden item; forItem agrees with the LEGACY resolution
+    // ---------------------------------------------------------------------------------------------
+
+    private val goldenItemCount = BaselineDataset.ITEM_NAMES.size
+
+    @Test
+    fun `S17 with a mounted server file and a per-root default every golden item is pinned and forItem resolves the LEGACY root default`() {
+        val url = migratedGolden(dir, "pins-default", PIN_ROOT_DEFAULT_YAML)
+        val (runDir, report, _) = bootProductionSteps(url, dir, "pins-default", PIN_SERVER_YAML)
+        assertTrue("pin-backfill" in report.applied, "the production plan applies pin-backfill: $report")
+        val server = assertNotNull(serverHeadId(url), "the mounted server file is imported as the server head")
+        val rootHead = assertNotNull(rootHeadId(url, "root"))
+        assertEquals(0, scalarInt(url, "SELECT COUNT(*) FROM work_items WHERE pinned_at IS NULL"), "every item is pinned")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals(server, base.pinServer, "$name: the server pin is the file-import version id")
+            assertEquals(rootHead, base.pinRoot, "$name: the root pin is the root head")
+            // LEGACY (the default schema_resolution): the per-root default shadows the server feature-task.
+            assertEquals("default", base.pinKey, "$name: pinned key")
+            assertEquals("root", base.pinLayer, "$name: pinned layer")
+            assertEquals("default", base.baseKey, "$name: forItem base key equals the LEGACY resolution")
+            assertEquals(ConfigSource.PER_ROOT, base.baseSource, "$name: forItem base layer equals the LEGACY resolution")
+            assertEquals(LifecycleMode.PERMANENT, base.baseLifecycle, "$name: the root default declares lifecycle: permanent")
+        }
+    }
+
+    @Test
+    fun `S17 a per-root document that declares the exact type is the LEGACY base schema of every golden item`() {
+        val url = migratedGolden(dir, "pins-exact", PIN_ROOT_EXACT_YAML)
+        val (runDir, _, _) = bootProductionSteps(url, dir, "pins-exact", PIN_SERVER_YAML)
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals("feature-task", base.baseKey, "$name")
+            assertEquals(ConfigSource.PER_ROOT, base.baseSource, "$name")
+            assertEquals(LifecycleMode.PERMANENT, base.baseLifecycle, "$name")
+            assertEquals(base.pinKey, base.baseKey, "$name: the pin and the resolved base agree")
+        }
+    }
+
+    @Test
+    fun `S17 with no per-root config the server file decides and no root pin is taken`() {
+        val url = migratedGolden(dir, "pins-server-only", null)
+        val (runDir, _, _) = bootProductionSteps(url, dir, "pins-server-only", PIN_SERVER_YAML)
+        val server = assertNotNull(serverHeadId(url))
+        assertNull(rootHeadId(url, "root"), "fixture: the root has no per-root head")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals(server, base.pinServer, "$name")
+            assertNull(base.pinRoot, "$name: no root head, no root pin")
+            assertEquals("feature-task", base.baseKey, "$name")
+            assertEquals(ConfigSource.GLOBAL, base.baseSource, "$name")
+            assertEquals(LifecycleMode.MANUAL, base.baseLifecycle, "$name: the server feature-task declares lifecycle: manual")
+        }
+    }
+
+    @Test
+    fun `S17 with neither a server file nor a per-root config the golden items are pinned schema-free`() {
+        val url = migratedGolden(dir, "pins-none", null)
+        val (runDir, report, _) = bootProductionSteps(url, dir, "pins-none", null)
+        assertTrue("pin-backfill" in report.applied, "$report")
+        assertEquals(0, scalarInt(url, "SELECT COUNT(*) FROM work_items WHERE pinned_at IS NULL"), "pinned all the same")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertNull(base.pinServer, "$name")
+            assertNull(base.pinRoot, "$name")
+            assertNull(base.pinKey, "$name")
+            assertNull(base.pinLayer, "$name")
+            assertNull(base.pinLifecycle, "$name")
+            assertNull(base.baseKey, "$name: a schema-free pin resolves no base schema")
         }
     }
 }

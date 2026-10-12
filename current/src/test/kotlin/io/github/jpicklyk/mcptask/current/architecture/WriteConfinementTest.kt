@@ -81,7 +81,7 @@ internal class WriteConfinementTest {
 
         val CONFINED =
             listOf(
-                Confined("ItemStore", STORE_WRITE, setOf("create", "update", "delete", "deleteAll")),
+                Confined("ItemStore", STORE_WRITE, setOf("create", "update", "delete", "deleteAll", "writePins")),
                 Confined("NoteStore", STORE_WRITE, setOf("upsert", "delete", "deleteByItemId")),
                 Confined("DependencyStore", STORE_WRITE, setOf("create", "createBatch", "delete", "deleteByItemId")),
                 Confined("ConfigStore", STORE_WRITE, setOf("append", "fillCanonical")),

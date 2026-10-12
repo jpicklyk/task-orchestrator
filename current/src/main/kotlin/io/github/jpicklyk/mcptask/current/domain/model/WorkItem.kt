@@ -69,6 +69,11 @@ data class WorkItem(
      */
     val originalClaimedAt: Instant? = null,
     /**
+     * The config this item is pinned to (plan section 3.8); null for a row that was never pinned (it resolves at the
+     * config heads). Written only through the application's pin writer and the `pin-backfill` data step.
+     */
+    val pin: SchemaPin? = null,
+    /**
      * Domain-invariant violations found when this item was rehydrated from storage (see [violations]);
      * null for a valid item, whether built by application code or read from a valid row - both validate on
      * construction. A stored row is never dropped for failing validation: the mapper returns it with its
@@ -115,6 +120,7 @@ data class WorkItem(
         if (claimFieldNullCount != 0 && claimFieldNullCount != 4) {
             out += "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
         }
+        pin?.let { out += it.violations() }
         return out
     }
 

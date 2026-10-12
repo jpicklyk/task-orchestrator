@@ -61,22 +61,41 @@ object LegacyTypeInference {
         tags: List<String>,
         perRoot: Layer?,
         global: Layer?
-    ): String {
+    ): String = resolve(tags, perRoot, global)?.key ?: UNTYPED
+
+    /** A 3.x resolution: the matched schema [key] and whether the per-root layer ([perRoot] true) or the global one supplied it. */
+    data class Resolved(
+        val key: String,
+        val perRoot: Boolean
+    )
+
+    /**
+     * The schema key the 3.x tag step resolved [tags] to under [perRoot] and [global], with the layer that declared it;
+     * null when nothing matched. [infer] is this without the layer (and [UNTYPED] for no match). The `pin-backfill`
+     * data step uses it with an item's `type` as the only tag to find the base schema a 3.x server gave that item.
+     */
+    fun resolve(
+        tags: List<String>,
+        perRoot: Layer?,
+        global: Layer?
+    ): Resolved? {
         val perRootKeys = perRoot?.schemaKeys
         val globalKeys = global?.schemaKeys
+        val inPerRoot = { key: String? -> key?.let { Resolved(it, perRoot = true) } }
+        val inGlobal = { key: String? -> key?.let { Resolved(it, perRoot = false) } }
         return when (effectiveMode(perRoot, global)) {
             Mode.LEGACY ->
-                firstTag(tags, perRootKeys)
-                    ?: defaultIn(perRootKeys)
-                    ?: firstTag(tags, globalKeys)
-                    ?: defaultIn(globalKeys)
+                inPerRoot(firstTag(tags, perRootKeys))
+                    ?: inPerRoot(defaultIn(perRootKeys))
+                    ?: inGlobal(firstTag(tags, globalKeys))
+                    ?: inGlobal(defaultIn(globalKeys))
             Mode.LAYERED ->
-                firstTag(tags, perRootKeys)
-                    ?: firstTag(tags, globalKeys)
-                    ?: defaultIn(perRootKeys)
-                    ?: defaultIn(globalKeys)
-            Mode.ISOLATED -> firstTag(tags, perRootKeys) ?: defaultIn(perRootKeys)
-        } ?: UNTYPED
+                inPerRoot(firstTag(tags, perRootKeys))
+                    ?: inGlobal(firstTag(tags, globalKeys))
+                    ?: inPerRoot(defaultIn(perRootKeys))
+                    ?: inGlobal(defaultIn(globalKeys))
+            Mode.ISOLATED -> inPerRoot(firstTag(tags, perRootKeys)) ?: inPerRoot(defaultIn(perRootKeys))
+        }
     }
 
     private fun firstTag(

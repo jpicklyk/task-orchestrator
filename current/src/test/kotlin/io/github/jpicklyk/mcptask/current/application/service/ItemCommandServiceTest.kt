@@ -187,7 +187,8 @@ class ItemCommandServiceTest {
             assertEquals(created.rootId, stored.rootId)
             assertEquals(created.parentId, stored.parentId)
             assertEquals(created.role, stored.role)
-            val row = rows.single()
+            assertEquals(listOf("item.created", "item.pinned"), rows.types(), "a create records its created row and its pin row")
+            val row = rows.ofType("item.created").single()
             assertEquals("item.created", row.type)
             assertEquals(created.id, row.entityId)
             assertEquals(r.id, row.rootId, "the created row is recorded under the item's root")
@@ -363,8 +364,14 @@ class ItemCommandServiceTest {
                 assertEquals(before.getValue(it.id), after.getValue(it.id), "${it.title} is outside the moved subtree and must not change")
             }
 
-            // S3: exactly two reparent rows plus one updated row per descendant, in one contiguous run.
-            assertEquals(4, rows.size, "2 reparented + 2 descendant updated, nothing else: ${rows.types()}")
+            // S3: exactly two reparent rows, one pin row per moved row (a cross-root move re-pins the item and every
+            // descendant) plus one updated row per descendant, in one contiguous run.
+            assertEquals(7, rows.size, "2 reparented + 3 pinned + 2 descendant updated, nothing else: ${rows.types()}")
+            assertEquals(
+                setOf(f.x.id, f.c1.id, f.c2.id),
+                rows.ofType("item.pinned").map { it.entityId }.toSet(),
+                "one pin row for the moved item and each descendant"
+            )
             val moved = rows.ofType("item.reparented")
             assertEquals(2, moved.size)
             val left = moved.single { it.str("side") == "left" }
@@ -787,7 +794,11 @@ class ItemCommandServiceTest {
             val cascadeRow = rows.ofType("item.transitioned").single()
             assertEquals(fam.parent.id, cascadeRow.entityId)
             assertEquals("cascade", cascadeRow.str("origin"))
-            assertEquals(listOf("item.reparented", "item.reparented", "item.transitioned"), rows.types().sorted(), "${rows.types()}")
+            assertEquals(
+                listOf("item.pinned", "item.reparented", "item.reparented", "item.transitioned"),
+                rows.types().sorted(),
+                "a move to root re-pins the item: ${rows.types()}"
+            )
             rows.assertContiguous("S6 reparent")
         }
 
@@ -1425,8 +1436,11 @@ class ItemCommandServiceTest {
             assertEquals(
                 listOf(
                     "item.created",
+                    "item.pinned",
                     "item.created",
+                    "item.pinned",
                     "item.created",
+                    "item.pinned",
                     "dependency.added",
                     "note.upserted",
                     "note.upserted",

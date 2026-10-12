@@ -94,7 +94,7 @@ class EventUnitSemanticsTest {
                     Outcome.Ok(item.id)
                 }
             assertIs<Outcome.Ok<UUID>>(committed)
-            assertEquals(listOf("item.created", "item.updated"), rig.rows().types())
+            assertEquals(listOf("item.created", "item.pinned", "item.updated"), rig.rows().types())
         }
 
     @Test
@@ -263,7 +263,7 @@ class EventUnitSemanticsTest {
             val element = createOp("idem", null, "test-item", "idempotencyKey" to JsonPrimitive("idem-key-1"))
 
             val (_, first) = rig.written { rig.itemsWrite(element, actor = actor) }
-            assertEquals(listOf("item.created"), first.types(), "fixture: the first call executes and records")
+            assertEquals(listOf("item.created", "item.pinned"), first.types(), "fixture: the first call executes and records")
 
             val (_, replay) = rig.written { rig.itemsWrite(element, actor = actor) }
 
