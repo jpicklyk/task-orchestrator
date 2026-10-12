@@ -1224,7 +1224,7 @@ Fleet operators should treat this as a known gap when planning production rollou
 | Expired claim count | `get_context()` → `claimSummary.expired` |
 | Per-root claim breakdown | `query_items(operation="overview")` → `claimSummary` per root item |
 | Stalled items (missing required notes) | `get_context()` → `stalledItems` |
-| Recent role transitions | `get_context(since="<timestamp>")` → `recentTransitions` |
+| Recent role transitions | `items_read` select `history` (`since`/`until`, optional `itemId`) |
 | Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `query_notes` and `get_context` session-resume mode |
 
 The audit log of persisted actor claims is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
