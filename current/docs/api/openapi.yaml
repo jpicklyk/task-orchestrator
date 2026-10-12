@@ -56,132 +56,7 @@ components:
       required: true
       schema:
         type: string
-    page:
-      name: page
-      in: query
-      schema:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 100000
-    pageSize:
-      name: pageSize
-      in: query
-      schema:
-        type: integer
-        default: 50
-        minimum: 1
-        maximum: 200
-
   schemas:
-    ItemDto:
-      type: object
-      required: [id, title, summary, priority, requiresVerification, tags, traits, properties,
-                 createdAt, modifiedAt, roleChangedAt, etag, depth, isClaimed]
-      properties:
-        id:
-          type: string
-          format: uuid
-        parentId:
-          type: string
-          format: uuid
-          nullable: true
-        title:
-          type: string
-        description:
-          type: string
-          nullable: true
-        summary:
-          type: string
-        type:
-          type: string
-          nullable: true
-        role:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-          description: Absent for a lifecycle-free item (its type's schema declares `lifecycle: none`).
-        previousRole:
-          type: string
-          enum: [queue, work, review]
-          nullable: true
-        statusLabel:
-          type: string
-          nullable: true
-        priority:
-          type: string
-          enum: [high, medium, low]
-        complexity:
-          type: integer
-          nullable: true
-        requiresVerification:
-          type: boolean
-        tags:
-          type: array
-          items:
-            type: string
-        traits:
-          type: array
-          items:
-            type: string
-          description: The item's trait names in order. Always present, possibly empty.
-        properties:
-          type: object
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        roleChangedAt:
-          type: string
-          format: date-time
-        etag:
-          type: string
-          description: '"v1-<modifiedAtMillis>" — a conditional-read validator (If-None-Match)'
-        depth:
-          type: integer
-        isClaimed:
-          type: boolean
-        notes:
-          type: array
-          items:
-            $ref: "#/components/schemas/NoteDto"
-          nullable: true
-          description: Populated when ?include=notes
-        children:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemDto"
-          nullable: true
-          description: Populated when ?include=children
-        dependencies:
-          $ref: "#/components/schemas/DependenciesDto"
-
-    NoteDto:
-      type: object
-      required: [key, role, body, createdAt, modifiedAt, etag]
-      properties:
-        key:
-          type: string
-        role:
-          type: string
-          enum: [queue, work, review]
-        body:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        etag:
-          type: string
-          description: '"v1-<modifiedAtMillis>" — use as If-Match on PUT'
-        actor:
-          $ref: "#/components/schemas/ActorClaimDto"
-        verification:
-          $ref: "#/components/schemas/VerificationDto"
-
     ActorClaimDto:
       type: object
       nullable: true
@@ -197,193 +72,6 @@ components:
         parent:
           type: string
           nullable: true
-
-    VerificationDto:
-      type: object
-      nullable: true
-      required: [status]
-      properties:
-        status:
-          type: string
-          enum: [absent, unchecked, verified, rejected, unavailable]
-        verifier:
-          type: string
-          nullable: true
-        reason:
-          type: string
-          nullable: true
-        proof:
-          allOf:
-            - $ref: '#/components/schemas/ProofEvidenceDto'
-          nullable: true
-          description: >-
-            Forensic evidence about the proof (SHA-256 hash + verified JWT claims), in place of
-            the raw proof. Requires ADMIN capability; independent of API_REDACT_NOTE_ATTRIBUTION.
-            Null when no proof was supplied, or for a non-admin caller.
-
-    ProofEvidenceDto:
-      type: object
-      required: [sha256]
-      properties:
-        sha256:
-          type: string
-          description: Lowercase hex SHA-256 digest of the proof's UTF-8 bytes.
-        iss:
-          type: string
-          nullable: true
-        sub:
-          type: string
-          nullable: true
-        aud:
-          type: array
-          items:
-            type: string
-          nullable: true
-        jti:
-          type: string
-          nullable: true
-        iat:
-          type: integer
-          format: int64
-          nullable: true
-          description: Epoch seconds.
-        exp:
-          type: integer
-          format: int64
-          nullable: true
-          description: Epoch seconds.
-        kid:
-          type: string
-          nullable: true
-        alg:
-          type: string
-          nullable: true
-
-    DependenciesDto:
-      type: object
-      required: [blocks, blockedBy, related]
-      properties:
-        blocks:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-        blockedBy:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-        related:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-
-    DependencyEdgeDto:
-      type: object
-      required: [id, fromItemId, toItemId, type, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        fromItemId:
-          type: string
-          format: uuid
-        toItemId:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [blocks, relates_to]
-        unblockAt:
-          type: string
-          nullable: true
-          enum: [queue, work, review, terminal]
-        createdAt:
-          type: string
-          format: date-time
-
-    ErrorDto:
-      type: object
-      required: [error, message]
-      properties:
-        error:
-          type: string
-          description: Machine-readable error code
-        message:
-          type: string
-          description: Human-readable description
-        details:
-          type: object
-          nullable: true
-
-    AuthErrorDto:
-      type: object
-      description: >-
-        OAuth/RFC 6750-style error body used by authentication/authorization rejections
-        (401 invalid_request / invalid_token, 403 insufficient_scope) and the SSE pre-flight
-        400 validation_error. Unlike ErrorDto it has error_description and no message.
-      required: [error, error_description]
-      properties:
-        error:
-          type: string
-          description: Machine-readable error code
-          enum: [invalid_request, invalid_token, insufficient_scope, validation_error]
-        error_description:
-          type: string
-          description: Human-readable description
-
-    PageDto:
-      type: object
-      required: [items, page, pageSize, hasMore]
-      properties:
-        items:
-          type: array
-          items: {}
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-          format: int64
-          nullable: true
-          description: May be null when computing an exact count is expensive.
-        hasMore:
-          type: boolean
-        skipped:
-          type: integer
-          nullable: true
-          description: >
-            Count of rows in this page's query window dropped for failing domain validation
-            (e.g. a corrupt/legacy row). Omitted when nothing was skipped. The row is still
-            counted in totalItems. Invariant: items.size == min(pageSize, totalItems - offset)
-            - skipped (clamped to the actual window). No route currently populates it (the item
-            list routes moved to items_read in 4.0).
-
-    SearchHitDto:
-      type: object
-      required: [itemId, field, snippet, score]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        field:
-          type: string
-          description: >-
-            The field that contains a match (title or summary for an item hit, title when both
-            do; body for a note hit). snippet is taken from it.
-        snippet:
-          type: string
-        score:
-          type: number
-          format: double
-        noteKey:
-          type: string
-          nullable: true
-        title:
-          type: string
-          nullable: true
-          description: >-
-            Title of the owning work item (the item's own title for an item hit); omitted when the
-            item could not be read.
 
     NoteSchemaEntryDto:
       type: object
@@ -791,9 +479,9 @@ components:
   responses:
     Unauthorized:
       description: >-
-        Missing or invalid bearer token. error is invalid_request (missing, non-Bearer or empty
-        credential) or invalid_token (unknown, expired or invalid token); the body carries
-        error_description, not message, and the response has a WWW-Authenticate header.
+        Missing or invalid bearer token: the unauthenticated error envelope (Q32). The RFC 6750
+        WWW-Authenticate challenge names the reason: error="invalid_request" (missing, non-Bearer or
+        empty credential) or error="invalid_token" (unknown, expired or invalid token).
       headers:
         WWW-Authenticate:
           description: Bearer challenge, e.g. Bearer error="invalid_token"
@@ -802,47 +490,16 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/AuthErrorDto"
+            $ref: "#/components/schemas/OpsEnvelope"
     Forbidden:
       description: >-
-        Authenticated but lacks required capability or scope. insufficient_scope uses the
-        AuthErrorDto body (error_description); host_not_allowed, scope_forbidden and
-        insufficient_capability use ErrorDto (message).
+        The forbidden error envelope; error.detail.scope is capability (the token lacks the route's
+        capability), root or tag (the item is outside the token's scope) or host (the Host header is
+        not allowed; required is a fixed literal, never the allowlist).
       content:
         application/json:
           schema:
-            oneOf:
-              - $ref: "#/components/schemas/ErrorDto"
-              - $ref: "#/components/schemas/AuthErrorDto"
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    BadRequest:
-      description: Invalid request parameters or body
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    InternalServerError:
-      description: Database or server error
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    ConfigUnavailable:
-      description: >-
-        error="config_unavailable" — the item's (or root's) per-root config could not be read and
-        there was no last-known-good cached config to serve; transient, retryable, no Retry-After
-        header. REST and the MCP tools share one per-root config cache, so this is rarer than a
-        per-surface cache would produce.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-
+            $ref: "#/components/schemas/OpsEnvelope"
 paths:
   /items/{id}:
     get:
@@ -1410,13 +1067,30 @@ paths:
       tags: [service]
       responses:
         "200":
-          description: Service info
+          description: Ok envelope whose data is the service info
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServiceInfoDto"
+                allOf:
+                  - $ref: "#/components/schemas/OpsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ServiceInfoDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: config_invalid envelope (the stored server config head cannot be loaded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "503":
+          description: unavailable envelope (the server config head cannot be read; retry after error.retryAfterMs)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /health:
     get:
@@ -1481,17 +1155,17 @@ paths:
         Scope filtering: root scope (?root= intersected with principal.scope.rootIds) is applied
         identically to the live stream and to Last-Event-ID replay -- every row carries its root_id,
         so replay is not unfiltered. A root-scoped principal (non-null
-        scope.rootIds) whose ?root= values do not intersect that scope gets 403 insufficient_scope
-        before the SSE stream opens; ?root= present with zero valid UUIDs gets 400 validation_error
-        (mixed valid/invalid values narrow and are accepted). A principal with scope.tags_include set
-        is additionally filtered per event (live and replay alike), using the same allowsItemTags
-        predicate as the REST collection endpoints; see api-rest.md §21/§3. KNOWN LIMITATION:
+        scope.rootIds) whose ?root= values do not intersect that scope gets 403 forbidden (scope root)
+        before the SSE stream opens; any ?root= value that is not a UUID gets 400 invalid_request (Q32:
+        a mix of valid and invalid values is rejected too). Every pre-flight body is the error envelope. A
+        principal with scope.tags_include set is additionally filtered per event (live and replay alike),
+        using the same ScopeGuard predicate as the tools and REST reads; see api-rest.md §21/§3. KNOWN LIMITATION:
         item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
         the item is gone) -- see api-rest.md section 25.
 
         A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
-        if that is unavailable the pre-flight plugin rejects the connection with 403
-        insufficient_scope rather than serving an unfiltered stream.
+        if that is unavailable the pre-flight plugin rejects the connection with 403 forbidden
+        (scope tag) rather than serving an unfiltered stream.
 
         Event ID namespace is independent from /mcp SSE channel. Do NOT reuse Last-Event-ID
         values across the two channels.
@@ -1557,16 +1231,16 @@ paths:
                   auth.expired: sent and the stream closed when the connection's token expires
                   (checked every API_SSE_AUTH_CHECK_INTERVAL_SECONDS). Fires for every JWKS session
                   (exp is a required claim in jwks mode — a token with no exp is rejected at auth
-                  time, 401 invalid_token). Does not fire for API_AUTH_MODE=none unauthenticated
+                  time, 401 unauthenticated). Does not fire for API_AUTH_MODE=none unauthenticated
                   sessions or for a bearer token with no expires_at — neither has an expiry to watch.
         "400":
           description: >-
-            Pre-flight validation failure: ?root= present but yields zero valid UUIDs
-            (validation_error, error_description body).
+            Pre-flight validation failure: a ?root= value is not a UUID (invalid_request envelope,
+            field root).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

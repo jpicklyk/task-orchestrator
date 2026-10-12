@@ -55,7 +55,7 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 
 ## 1. Authentication
 
-> **A `Host` header allowlist runs before any of this.** Every HTTP request — `/mcp` and every `/api/v1` route alike — is checked against a `Host` allowlist (DNS-rebinding protection) before authentication is even evaluated. A request with a disallowed `Host` gets `403 host_not_allowed` on `/api/v1` routes (`/mcp` returns a JSON-RPC error instead) regardless of `Authorization` or auth mode. A request with no `Host` header at all is allowed, since browsers always send one. The always-allowed defaults are `localhost`/`127.0.0.1`/`[::1]` (any port); `MCP_ALLOWED_HOSTS` extends that set. See [fleet-deployment.md](fleet-deployment.md) and §6.
+> **A `Host` header allowlist runs before any of this.** Every HTTP request — `/mcp` and every `/api/v1` route alike — is checked against a `Host` allowlist (DNS-rebinding protection) before authentication is even evaluated. A request with a disallowed `Host` gets `403 forbidden` (the 4.0 envelope, `detail: {scope: "host", required: "an allowed Host header"}`) on every path, `/mcp` included, regardless of `Authorization` or auth mode. A request with no `Host` header at all is allowed, since browsers always send one. The always-allowed defaults are `localhost`/`127.0.0.1`/`[::1]` (any port); `MCP_ALLOWED_HOSTS` extends that set. See [fleet-deployment.md](fleet-deployment.md) and §6.
 
 All `/api/v1/*` endpoints require authentication by default. The API supports three modes, selected by `API_AUTH_MODE`:
 
@@ -145,10 +145,10 @@ custom claims the issuer sets:
 Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
 inside `to_scope` are treated as malformed.
 
-**Failing requests receive:**
-- `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
-- `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
-- `403 Forbidden` (`insufficient_scope`) -- token valid but lacks the required capability (body shapes: see §6)
+**Failing requests receive** (bodies are the 4.0 error envelope, §6):
+- `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
+- `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
+- `403 forbidden` with `detail: {scope: "capability", required: "<capability>"}` -- token valid but lacks the required capability
 
 **`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
 
@@ -200,14 +200,17 @@ Tokens with `scope.tags_include` set are additionally restricted to items carryi
 the listed tags. Unlike `root_ids`, tag scope applies **item-level only** — there is no ancestor
 walk; the item's own `tags` column is checked against the (CSV-trimmed) allowlist for exact
 membership. An empty `tags_include` means no tag constraint. Both scope halves are enforced by the
-same `allowsItemTags`/`enforceScopeForItem` predicates, so single-item and collection checks cannot
-drift apart.
+one scope predicate (`ScopeGuard`) every tool, read route and the event stream use, so single-item and
+collection checks cannot drift apart.
 
 - `GET /items/{id}` and `GET /items/{id}/children` (section 9) - the `items_read` rules: a target item
   outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
   scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
   existence oracle; children outside the scope are left out of the page and not counted
-- Write endpoints - `403 scope_forbidden` if the target item is outside scope
+- Writes (`POST /ops/{tool}`) - `403 forbidden` (`detail.scope` `root` or `tag`) if the target item is outside scope
+- Every tool resolves a caller-supplied id by the same scope-aware rule (Q32): under a restricted scope a prefix that
+  matches nothing, or only items outside the scope, is the same `403 forbidden`, and an ambiguous prefix lists only the
+  candidates the scope admits (one admitted candidate resolves)
 - `POST /ops/items_read` (section 20a) - every select applies the same rules; `list`, `search` and
   `overview` apply the scope before paging, ranking and capping, so `page.total` counts only visible items
   and a restricted token gets a full page of in-scope hits (a note hit is checked on its owning item);
@@ -283,67 +286,48 @@ tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_w
 `idempotencyKey` instead, recorded per `(principal, tool, key)` for 24 hours (section 20a); an `Idempotency-Key` header on
 `/ops` is `400 invalid_request`.
 
-- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); a `docs_write` document body is capped by the document service instead (section 6). See §6 for the legacy `payload_too_large` error shape.
+- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); a `docs_write` document body is capped by the document service instead (section 6).
 
 ---
 
 ## 6. Error Codes
 
-Most error responses use the `ErrorDto` envelope:
+Every JSON body a `/api/v1` route or plugin writes is the 4.0 response envelope (Q32), the same bytes MCP returns:
 
 ```json
 {
-  "error": "<machine-readable-code>",
-  "message": "<human-readable description>",
-  "details": { ... }  // optional structured context
+  "ok": false,
+  "error": { "code": "<catalog code>", "kind": "permanent|transient|shedding", "message": "<sentence>", "detail": { ... }, "fix": "<what to do next>" },
+  "meta": { "reqId": "<8-char id>" }
 }
 ```
 
-Authentication and authorization rejections from the auth plugins (`401 invalid_request`,
-`401 invalid_token`, `403 insufficient_scope`) and the SSE pre-flight `400 validation_error` (§21)
-instead use an OAuth/RFC 6750-style envelope with `error_description` and **no** `message` field:
+The HTTP status is the catalog status of `error.code` (no route picks a status by hand), and the `X-Req-Id` header
+repeats `meta.reqId` (§6a). The codes and their `detail` shapes are the error catalog of
+[api-reference.md](api-reference.md) ("Error catalog"). The REST-specific answers:
 
-```json
-{
-  "error": "<machine-readable-code>",
-  "error_description": "<human-readable description>"
-}
-```
+| Situation | Status | `error.code` and `detail` |
+|-----------|--------|---------------------------|
+| `Host` header not allowed (any path, `/mcp` and `/.well-known` included; checked before authentication) | 403 | `forbidden`, `{scope: "host", required: "an allowed Host header"}`. Never echoes the rejected value or the allowlist. |
+| Missing, non-Bearer or empty `Authorization` (also the SSE pre-flight with no token) | 401 | `unauthenticated`; `WWW-Authenticate: Bearer error="invalid_request"` |
+| Unknown, expired or invalid token (bearer or JWKS) | 401 | `unauthenticated`; `WWW-Authenticate: Bearer error="invalid_token"` |
+| The route's capability is missing (`GET /config/schema`, the lease routes, the SSE `read` check) | 403 | `forbidden`, `{scope: "capability", required: "<capability>"}` |
+| An item, root or tag outside the token's scope | 403 | `forbidden`, `{scope: "root" or "tag", required: "<listed values>"}` |
+| Request body over the route's limit | 413 | `payload_too_large`, `{max, actual}` |
+| Unsupported `Content-Type` | 400 | `invalid_request` on field `Content-Type` (3.x answered `415`) |
+| Malformed body or parameter, or a domain validation failure | 400 | `invalid_request` |
+| A server config head that cannot be read (`GET /info`) | 503 | `unavailable`, `{retryAfterMs}` |
+| A stored config head that cannot be loaded | 422 | `config_invalid` |
+| An exception escaping a route | 500 | `internal`, the fixed message `Internal server error` (the exception text is logged at ERROR, never returned) |
 
-The 401 responses also carry a `WWW-Authenticate: Bearer error="<code>"` header (§1). Rows below
-marked "`error_description` body" use this second shape; every other row uses `ErrorDto`. The
-other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability`) use `ErrorDto`.
+**Bodies that are not envelopes** (an explicit, reasoned list, guarded by `SurfaceConformanceTest`): `GET /api/v1/health`
+(the probe DTO), `GET /.well-known/mcp-task-orchestrator.json` (the discovery document), the `GET /api/v1/events`
+stream body (its pre-flight answers are envelopes), the `200` body of `GET /api/v1/config/schema` (the raw JSON Schema,
+a `$schema` target), any `304`, and Ktor's own `404`/`405` for a request no route matched.
 
-| `error` value | Typical HTTP status | Description |
-|--------------|---------------------|-------------|
-| `host_not_allowed` | 403 | The request's `Host` header isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` — DNS-rebinding protection, checked ahead of authentication on every route. Never discloses the rejected `Host` value; see §1. |
-| `bad_request` | 400 | Missing or malformed path/query parameter |
-| `validation_error` | 400 | Invalid field value or deserialization failure (`ErrorDto` body); or (SSE-specific, `error_description` body) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
-| `not_found` | 404 | Item, note, or dependency not found |
-| `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
-| `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /api/v1/ops/{tool}` is 1 MiB (an envelope error, section 20a); a document body written through `docs_write` is capped by the document service, not by a route limit: 65536 bytes, or 16384 for `kind` `rule` (a `payload_too_large` element), the single enforcement point the `config` tool's `rules` op relies on (see §18, §19, §19a). |
-| `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
-| `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
-| `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
-| `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a caller without `ADMIN` calls a legacy route that needs it (the lease admin routes answer the envelope `forbidden` instead, see section 14) |
-| `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
-| `not_claim_holder` | 403 | Not an `ErrorDto` route error: the `advance` tool (`POST /ops/advance`, section 20a) returns it in its envelope for a `transition` on an item another actor holds, or a `release`/`heartbeat` of an item the caller does not hold. Claim ownership applies on REST as on MCP since 4.0 |
-| `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable. No REST route returns it any more: the config reads moved to `POST /ops/config` and the gate to `items_read` `select: context`, which answer the envelope error `unavailable` (`retryAfterMs` 1000) instead (section 20a). Both read inside a unit of work, which has no last-known-good fallback, so a read fault there answers `unavailable` even when the cache is warm. |
-| `config_invalid` | 422 | A stored config head (the server head, or a root's) has no canonical form or cannot be decoded. Fail closed: the config is never treated as absent and never falls through to another layer. No REST route returns it any more: item writes, the item schema view, the gate and the config reads moved to `/ops/items_write`, `/ops/items_read` (the gate is `select: context`) and `/ops/config`, which answer it in the 4.0 envelope; permanent, a fresh config push restores the root. |
-| `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
-
-**One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
-code above is bound to its HTTP status and to the error catalog code that classifies it, so a route names a
-code instead of a free string and the status cannot drift from the wire code. REST carries no `kind` and no
-catalog `details` in this release; the bodies, statuses, `details` objects and `Retry-After` headers are the
-3.x ones. When the REST API is enabled, an exception that still escapes a `/api/v1` route is answered by a
-Ktor `StatusPages` handler scoped to `/api/v1` paths (other paths, `/mcp` included, keep Ktor's default):
-Ktor's own status exceptions keep their status (`400 bad_request` for a malformed body or parameter,
-`404 not_found`, `415 unsupported_media_type`, `413 payload_too_large`), a domain validation failure is
-`400 validation_error`, and anything else is `500 internal` with the fixed message above. A cancelled request
-is never answered. An API-disabled deployment installs nothing.
+**Safety net.** When the REST API is enabled, an exception that escapes a `/api/v1` route is answered by a Ktor
+`StatusPages` handler scoped to `/api/v1` paths (other paths, `/mcp` included, keep Ktor's default) with the row of
+the table above that matches it. A cancelled request is never answered. An API-disabled deployment installs nothing.
 
 ---
 
@@ -354,8 +338,8 @@ call's 8-character correlation id (lowercase Crockford base32). It is always ser
 inbound `X-Request-Id` only feeds the `requestId` log field), appears on success and error responses
 alike (including `401`), is the `req_id` of every `events` row the request wrote, and keys the
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
-`/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
-`invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
+`/api/v10`). Every error row records its envelope's `error.code` (`unauthenticated`, `forbidden`,
+`payload_too_large`, ...) as the row's `error_code`; `http_<status>` is the fallback for a body that is not an envelope. The row's `tool` is
 the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
@@ -383,78 +367,17 @@ MCP calls take their host from the client's `initialize` `clientInfo.name` inste
 
 ## 7. Pagination
 
-List endpoints return a `PageDto<T>`:
-
-```json
-{
-  "items": [...],
-  "page": 1,
-  "pageSize": 50,
-  "totalItems": 42,   // may be null when count is expensive
-  "hasMore": true,
-  "skipped": null      // always omitted — see below
-}
-```
-
-Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) and `?pageSize=<int>` (default 50, must be a positive integer; values above 200 are silently capped at 200). A missing or blank `page`/`pageSize` falls back to its default; a non-integer, `page < 1`, or `page > 100000` value returns `400 validation_error` (`{"error":"validation_error","message":"page must be an integer between 1 and 100000"}` or the equivalent `pageSize must be a positive integer` message) instead of being silently clamped.
-
-`totalItems` may be `null` for endpoints where computing an exact count is expensive; use `hasMore` for continuation.
-
-`skipped` is retained for wire compatibility and is **always omitted**: a stored row that fails domain validation (e.g. a corrupt/legacy row) is returned like any other (a WARN log identifies it) instead of being dropped. Invariant: `items.size == min(pageSize, totalItems - offset)` (clamped to the actual window), so truncation is always derivable from `totalItems`/`pageSize`/`page` without a separate `truncated` field.
+Every list a route or tool answers is the envelope's list data: `{"items": [...], "page": {"total", "truncated",
+"capped"?, "next"?}}` (api-reference "List data"), paged with `limit` and the opaque `cursor` from `page.next`. The 3.x
+`PageDto` (`page`/`pageSize`/`totalItems`/`hasMore`) and its `?page=`/`?pageSize=` parameters are gone.
 
 ---
 
 ## 8. Data Transfer Objects (DTOs)
 
-### ItemDto
-
-```json
-{
-  "id": "<uuid>",
-  "parentId": "<uuid>|null",
-  "title": "string",
-  "description": "string|null",
-  "summary": "string",
-  "type": "string|null",
-  "role": "queue|work|review|terminal|blocked",
-  "previousRole": "queue|work|review|null",
-  "statusLabel": "string|null",
-  "priority": "high|medium|low",
-  "complexity": 5,
-  "requiresVerification": false,
-  "tags": ["string"],
-  "traits": ["string"],
-  "properties": {},
-  "createdAt": "ISO-8601",
-  "modifiedAt": "ISO-8601",
-  "roleChangedAt": "ISO-8601",
-  "etag": "\"v1-<millis>\"",
-  "depth": 0,
-  "isClaimed": false,
-  "notes": null,       // always null since the include parameter was removed
-  "children": null,    // always null since the include parameter was removed
-  "dependencies": null // always null since the include parameter was removed
-}
-```
-
-**Notes on `tags`:** The domain stores tags as a comma-separated string. The REST API expands this to a `List<String>` in `ItemDto` (GET responses); the `items_write` tool takes `tags` as a JSON array.
-
-**Notes on `role`:** `role` is absent for a lifecycle-free item (its type's schema declares `lifecycle: none`); such an item has no role, no `previousRole`, and takes no transition or claim. A client must not assume `role` is always present.
-
-### NoteDto
-
-```json
-{
-  "key": "implementation-notes",
-  "role": "queue|work|review",
-  "body": "string",
-  "createdAt": "ISO-8601",
-  "modifiedAt": "ISO-8601",
-  "etag": "\"v1-<millis>\"",
-  "actor": null,        // null unless caller has ADMIN + redaction disabled
-  "verification": null  // null unless caller has ADMIN + redaction disabled
-}
-```
+The item and note views are the `items_read` / `notes_read` views (api-reference); `GET /items/{id}` and the note routes
+answer them in the envelope. `role` is absent for a lifecycle-free item (its type's schema declares `lifecycle: none`),
+so a client must not assume it is always present.
 
 ### ActorClaimDto
 
@@ -467,71 +390,6 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
 ```
 
 For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"external"` (server-synthesized; client-supplied actor fields are silently dropped).
-
-### VerificationDto
-
-```json
-{
-  "status": "unverified|verified|unavailable|unchecked",
-  "verifier": "api-bearer|api-jwks|null",
-  "reason": "string|null",
-  "proof": {                    // present only for ADMIN callers, and only when a proof was
-                                 // supplied; omitted otherwise (explicitNulls=false) — independent
-                                 // of API_REDACT_NOTE_ATTRIBUTION
-    "sha256": "ba7816bf...",    // SHA-256 hex digest of the proof; present whenever a proof was supplied
-    "iss": "string|null",       // verified JWT claims below — present only when status was "verified"
-    "sub": "string|null",
-    "aud": ["string"] | null,
-    "jti": "string|null",
-    "iat": 1700000000,
-    "exp": 1700003600,
-    "kid": "string|null",
-    "alg": "string|null"
-  }
-}
-```
-
-`VerificationDto.proof` is the forensic-evidence replacement for the raw proof: a SHA-256 hash
-plus, when the proof was cryptographically `verified`, the JWT claims that were checked. It has
-its own `ADMIN`-only gate, independent of `API_REDACT_NOTE_ATTRIBUTION` — any `ADMIN` caller sees
-it whenever `verification` itself is shown; a non-admin caller never sees it.
-
-### DependenciesDto
-
-```json
-{
-  "blocks": [<DependencyEdgeDto>],
-  "blockedBy": [<DependencyEdgeDto>],
-  "related": [<DependencyEdgeDto>]
-}
-```
-
-### DependencyEdgeDto
-
-```json
-{
-  "id": "<uuid>",
-  "fromItemId": "<uuid>",
-  "toItemId": "<uuid>",
-  "type": "blocks|relates_to",
-  "unblockAt": "queue|work|review|terminal|null",
-  "createdAt": "ISO-8601"
-}
-```
-
-`type` is `blocks` or `relates_to`: blocking dependencies are stored in one orientation (`fromItemId`
-blocks `toItemId`); edges are written through `deps_write` (section 13), which accepts only
-`blocks`/`relates_to`. `unblockAt` is the effective unblock-role
-threshold: `null` only for `relates_to` (no blocking semantics); for `blocks` it is the stored value,
-defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
-
-### PageDto\<T\>
-
-See §7.
-
-### ErrorDto
-
-See §6.
 
 ### Config DTOs
 
@@ -705,8 +563,7 @@ All require `READ` capability.
 The two item GETs below are thin translations to the 4.0 `items_read` tool through the shared dispatcher
 and the same access builder as `POST /api/v1/ops/{tool}` (section 20a). They answer the 4.0 response
 envelope, byte-equal to `POST /api/v1/ops/items_read` for the same principal and arguments apart from
-`meta.reqId`, with the HTTP status taken from the envelope's error code (not the `ErrorDto` body of
-section 6). `{id}` is a full UUID or 8 to 32 hex characters of one. Capability and scope are enforced by
+`meta.reqId`, with the HTTP status taken from the envelope's error code. `{id}` is a full UUID or 8 to 32 hex characters of one. Capability and scope are enforced by
 the dispatcher and the select exactly as on `/ops`: an out-of-scope item, or under a restricted scope an
 id that matches nothing the caller may see, is `403 forbidden`. A request without an authenticated
 principal is `401 unauthenticated`. Fields, views and error codes are described in `api-reference.md` ->
@@ -797,7 +654,7 @@ envelope. `DELETE /resources/leases/{key}` (section 14) is the recovery path for
 Both routes are thin translations to the 4.0 `notes_read` tool through the shared dispatcher (see
 `api-reference.md` -> `notes_read`). They answer the 4.0 response envelope, byte-equal to
 `POST /api/v1/ops/notes_read` (section 20a) for the same arguments apart from `meta.reqId`, with the HTTP status
-taken from the envelope's error code (not the `ErrorDto` body of section 6). Both require `READ` capability and
+taken from the envelope's error code. Both require `READ` capability and
 honor the token's root and tag scope (`403 forbidden` with `detail.scope`). Attribution fields (`actor`,
 `verification`) are present only when the caller has `ADMIN` or `API_REDACT_NOTE_ATTRIBUTION=false`; proof
 evidence is never shown. A query parameter a route does not list is `400 invalid_request`.
@@ -1037,9 +894,10 @@ one rule, and `itemId` with `noteKey` follows a note's skill pointer (now also a
 
 ### GET /api/v1/info
 
-Requires `READ`. Returns server metadata and the caller's resolved capabilities.
+Requires an authenticated caller. Returns server metadata and the caller's resolved capabilities as the `data` of an
+ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
 
-**Response `200 OK`:**
+**Response `200 OK` `data`:**
 ```json
 {
   "serverName": "mcp-task-orchestrator-current",
@@ -1056,7 +914,8 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the
 same string form push warnings use. Empty when there is no server config or it imported clean. A server-head read
-fault answers `503 config_unavailable`; `/health` never reads it.
+fault answers `503 unavailable` and an unloadable head `422 config_invalid` (the `config` tool's typed head faults);
+`/health` never reads it.
 
 `features` (array, A1) advertises server-wide optional-response capabilities this server version
 can serve, **unconditionally** — regardless of whether the resolved config for any given root
@@ -1112,8 +971,7 @@ and the host allowlist, as on every other route.
 **Response:** the response envelope, byte-equal to what MCP returns for the same arguments and access, apart
 from `meta.reqId`. The HTTP status comes from the envelope's error code (`200` for ok, `207` for a partial
 batch, otherwise the code's own status, e.g. `404 not_found`, `403 forbidden`); no route picks a status by
-hand. Errors use the envelope, not the `ErrorDto` body of the other routes (§6), with the one exception of
-`401` below.
+hand. Errors use the envelope, as on every other route (§6).
 
 **Principal.** The caller's principal comes from the bearer token (`api:<tokenId>`, kind `external`). A body
 `actor` is ignored, never decoded, so a token holder cannot spoof attribution (MCP, which has no bearer
@@ -1136,8 +994,8 @@ select, the matching write capability for an op).
 
 **Scope.** The token's `scope` (§3) reaches every tool handler. An item outside the token's `root_ids` or
 `tags_include` is reported `forbidden` with `detail.scope` `root` or `tag` and `detail.required` the sorted
-listed root ids or tags joined by `,`. The check is the transport-neutral `ScopeGuard`, the twin of the
-`scope_forbidden` check on the other routes: an unrestricted token is admitted with no database read; with a
+listed root ids or tags joined by `,`. The check is the transport-neutral `ScopeGuard`, the one scope predicate:
+an unrestricted token is admitted with no database read; with a
 root restriction the item or one of its ancestors must be a listed root; with a tag restriction the item must
 carry one of the listed tags (exact, case-sensitive match on the trimmed comma-separated tags). A missing item
 and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
@@ -1159,10 +1017,8 @@ the token's own scope. List reads filter out-of-scope entities instead of failin
 Anything a tool or the dispatcher reports (`not_found`, `idempotency_mismatch`, `forbidden`, ...) is the
 tool's own envelope with its own status.
 
-**Authentication failures keep the legacy body.** A missing or invalid bearer token is rejected by the shared
-`ApiBearerAuth` plugin before this route runs, so it answers `401` with the OAuth-style
-`error`/`error_description` body described in §1 and §6, not an envelope. Envelope conformance of the `401` is
-planned for the end of the 4.0 line (Q32). With the REST API disabled (`API_ENABLED=false`) the route is not
+**Authentication failures.** A missing or invalid bearer token is rejected by the shared `ApiBearerAuth` plugin
+before this route runs: `401 unauthenticated` with the `WWW-Authenticate` challenge (§6). With the REST API disabled (`API_ENABLED=false`) the route is not
 mounted and answers `404` like every other `/api/v1` route.
 
 **Request correlation.** The `X-Req-Id` response header (§6a) equals `meta.reqId` in the envelope, on success
@@ -1210,20 +1066,20 @@ route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the
 3. `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (§1) — the pre-flight plugin short-circuits
    with the synthetic unauthenticated principal, mirroring `ApiBearerAuth`'s `Unauthenticated` branch;
    no token is required or checked
-4. If none of the above apply → `401 invalid_request` when no token is presented (no `Authorization` header and no allowed `?token=`), or `401 invalid_token` for an unknown, expired, or invalid token; a valid token lacking the `read` capability gets `403 insufficient_scope`
+4. If none of the above apply → `401 unauthenticated` (challenge `error="invalid_request"`) when no token is presented (no `Authorization` header and no allowed `?token=`), or `401 unauthenticated` (challenge `error="invalid_token"`) for an unknown, expired, or invalid token; a valid token lacking the `read` capability gets `403 forbidden` (`detail.scope` `capability`). Every pre-flight body is the error envelope.
 
 **Tag-scope guard:** Per-event `tags_include` filtering (below) needs the route's `WorkItemRepository`
 wiring to resolve an event's item tags. If a principal's `scope.tags_include` is non-empty but no
 repository is wired for the route, the pre-flight plugin rejects the connection with
-`403 insufficient_scope` rather than silently serving an unfiltered stream — a fail-closed
+`403 forbidden` (`detail.scope` `tag`) rather than silently serving an unfiltered stream — a fail-closed
 connection-time check, distinct from the per-event filtering described below.
 
 **Browser SSE note:** The native browser `EventSource` API cannot set custom headers. Browsers must use a fetch-based SSE client (e.g., `@microsoft/fetch-event-source`) to provide the `Authorization: Bearer` header, or enable `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` to use the query-parameter path.
 
 **Query parameters:**
 - `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`. Both rejections below are enforced by the pre-flight plugin — a normal HTTP status + JSON body, not an SSE stream:
-  - `403 insufficient_scope` (`{"error":"insufficient_scope","error_description":"Requested roots are outside this token's scope"}`) — the principal is root-scoped (`scope.rootIds` non-null) and its `?root=` values do not intersect that scope at all.
-  - `400 validation_error` (`{"error":"validation_error","error_description":"root query parameter must be a valid UUID"}`) — `?root=` is present but yields zero valid UUIDs (e.g. `?root=` with no value, or `?root=garbage`). A mix of valid and invalid values is accepted and simply narrows to the valid ones — dropping invalid entries can only narrow the subscription, never widen it. This check also fires under `API_AUTH_MODE=none`.
+  - `403 forbidden` (`detail: {scope: "root", required: "<the token's roots>"}`) — the principal is root-scoped (`scope.rootIds` non-null) and its `?root=` values do not intersect that scope at all.
+  - `400 invalid_request` on field `root` — any `?root=` value is not a UUID (e.g. `?root=` with no value, `?root=garbage`, or `?root=<uuid>&root=garbage`; Q32 ended the 3.x leniency that dropped the bad values of a mix). This check also fires under `API_AUTH_MODE=none`.
 - `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`). Exempt from this filter: `sync.lost` and `auth.expired` (the control events, see Event Types below) are always delivered regardless of `types` — they report the state of the stream itself, and a filtered-out client would otherwise keep operating on incomplete state (or an expired credential) with no signal.
 
 `tags_include` is not a query parameter — it is enforced from the principal's own token scope, per event, as described next.
