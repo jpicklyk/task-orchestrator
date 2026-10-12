@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -27,10 +26,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -194,7 +193,7 @@ class ServerComposition(
         // The ONE config service: MCP's manage_project_config and the REST config routes both drive it.
         // Admission check for pushed config: the JSON Schema pass, the strict parser's findings, and the semantic rules
         // against the server layer, which ConfigService reads from the DB head on every push / validate.
-        val configValidator = ConfigValidator(NetworkntConfigStructuralValidator())
+        val configValidator = productionConfigValidator()
         val configService =
             ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork, configValidator, serverConfig = perRootConfigService)
         val toolContext =

@@ -559,6 +559,7 @@ class SeatlessResponseGoldenTest {
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val response = client.restContext(FEATURE_TASK_ID, TEST_TOKEN)
@@ -586,6 +587,7 @@ class SeatlessResponseGoldenTest {
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val response = client.restContext(BUG_FIX_ID, TEST_TOKEN)

@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
@@ -370,7 +371,7 @@ class JwksScopeClaimFailClosedTest {
     private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksScopeTestApp(verifier: JwksApiVerifier) {
-        installMcpStreamableHttp(emptyMcpServer())
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv())
         val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = defaultConfig,
@@ -391,6 +392,7 @@ class JwksScopeClaimFailClosedTest {
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

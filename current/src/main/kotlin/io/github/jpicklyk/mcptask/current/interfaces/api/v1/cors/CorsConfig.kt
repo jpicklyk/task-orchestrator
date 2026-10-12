@@ -22,7 +22,7 @@ import io.ktor.server.plugins.cors.CORSConfig
  * - Origins are stripped of their scheme prefix (`https://`, `http://`) before being passed to
  *   [allowHost], which takes the host component and a `schemes` list separately.
  */
-fun CORSConfig.configureCors(appConfig: AppConfig = AppConfig.fromEnv()) {
+fun CORSConfig.configureCors(appConfig: AppConfig) {
     val rawOrigins = appConfig.corsAllowedOrigins
     val methods = appConfig.corsAllowedMethods
     val headers = appConfig.corsAllowedHeaders

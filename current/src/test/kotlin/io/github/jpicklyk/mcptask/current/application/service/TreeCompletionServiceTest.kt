@@ -9,6 +9,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.treeCompletionService
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.Transaction
+import org.jetbrains.exposed.v1.core.statements.StatementContext
+import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -17,6 +21,7 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /**
  * Service-level tests of [TreeCompletionService] (item c820b3d0, implementer seat, task-scope B7): the order, skip
@@ -63,6 +68,54 @@ class TreeCompletionServiceTest {
         when (this) {
             is Outcome.Ok -> value.outcomes
             is Outcome.Err -> error("expected Ok, got ${error.code.wire}: ${error.message}")
+        }
+
+    private class StatementCounter : StatementInterceptor {
+        var count = 0
+
+        override fun beforeExecution(
+            transaction: Transaction,
+            context: StatementContext
+        ) {
+            count++
+        }
+    }
+
+    /** The statements one run over [n] already-terminal items in a blocking chain issues (no advance runs, so only the edge read). */
+    private suspend fun statementsFor(
+        dir: Path,
+        n: Int
+    ): Int {
+        val rig = rig(dir)
+        val items = (1..n).map { rig.seed("T$it", role = Role.TERMINAL) }
+        items.zipWithNext().forEach { (a, b) -> rig.blocks(a, b) }
+        var count = -1
+        rig.composition.unitOfWork.write("TreeCompletionServiceTest.count") {
+            val tx = TransactionManager.current()
+            val counter = StatementCounter()
+            tx.registerInterceptor(counter)
+            val r =
+                try {
+                    treeCompletionService(rig.ctx).run(items, null, "complete", null, null)
+                } finally {
+                    tx.unregisterInterceptor(counter)
+                }
+            count = counter.count
+            check(r is Outcome.Ok && r.value.outcomes.all { it is TreeItemOutcome.AlreadyTerminal }) { "fixture: every item is done: $r" }
+            Outcome.Ok(Unit)
+        }
+        return count
+    }
+
+    @Test
+    fun `S18 the in-set edge read is one batched statement for 5 and for 50 items`(
+        @TempDir dir5: Path,
+        @TempDir dir50: Path
+    ): Unit =
+        runBlocking {
+            val five = statementsFor(dir5, 5)
+            assertTrue(five >= 1, "control: the interceptor sees the edge read ($five)")
+            assertEquals(five, statementsFor(dir50, 50), "AR-96: the statement count does not grow with the target set")
         }
 
     private suspend fun EventLogRig.role(item: WorkItem): Role = raw.workItemRepository().getById(item.id)!!.role!!

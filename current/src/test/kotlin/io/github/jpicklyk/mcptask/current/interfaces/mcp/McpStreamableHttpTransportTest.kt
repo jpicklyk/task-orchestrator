@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -95,7 +96,7 @@ class McpStreamableHttpTransportTest {
     fun `mcpStreamableHttp module wires without SSE conflict and serves initialize`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             val response =
                 client.post("/mcp") {
@@ -121,7 +122,7 @@ class McpStreamableHttpTransportTest {
     fun `rejects cross-origin requests with 403 to guard against DNS rebinding`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             // Streamable HTTP spec security requirement: servers MUST validate the Origin header and
             // respond 403 to an invalid origin (DNS-rebinding protection). This is enforced by the
@@ -146,7 +147,7 @@ class McpStreamableHttpTransportTest {
     fun `tools list and a tool call work over the HTTP transport`() =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
 
             // 1) initialize → capture the session id
             val init =

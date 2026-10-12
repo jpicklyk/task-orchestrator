@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -272,7 +273,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.configStore() } returns projectConfigRepository
-            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
             val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
@@ -293,7 +294,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.configStore() } returns projectConfigRepository
-            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
             val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"

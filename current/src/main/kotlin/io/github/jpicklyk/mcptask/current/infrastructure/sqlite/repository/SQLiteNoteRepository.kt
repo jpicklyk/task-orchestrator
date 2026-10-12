@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.NoteRef
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -11,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import org.jetbrains.exposed.v1.core.CustomFunction
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -31,7 +34,9 @@ import java.util.UUID
  * SQLite implementation of NoteStore.
  */
 class SQLiteNoteRepository(
-    private val databaseManager: DatabaseManager
+    private val databaseManager: DatabaseManager,
+    /** Stamps a written note's `createdAt` (insert) and `modifiedAt`: the ambient unit's instant ([unitNow]), else this clock. */
+    private val clock: Clock = SystemClock
 ) : NoteStore {
     override suspend fun getById(id: UUID): Note? =
         databaseManager.readTx {
@@ -75,9 +80,11 @@ class SQLiteNoteRepository(
      *
      * Returns the note with the correct ID (existing ID preserved on conflict, new ID on fresh insert).
      */
-    private fun upsertRow(note: Note): Note {
+    private fun upsertRow(
+        note: Note,
+        now: Instant
+    ): Note {
         note.validate()
-        val now = Instant.now()
 
         // Perform a single atomic upsert keyed on (itemId, key) — the UNIQUE index columns.
         //
@@ -111,7 +118,8 @@ class SQLiteNoteRepository(
             it[key] = note.key
             it[role] = note.role
             it[body] = note.body
-            it[createdAt] = note.createdAt
+            // Both stamps come from the unit's clock (Q32), never the domain object's wall-clock default.
+            it[createdAt] = now
             it[modifiedAt] = now
             it[NotesTable.actorId] = note.actorClaim?.id
             it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
@@ -139,10 +147,12 @@ class SQLiteNoteRepository(
     }
 
     @StoreWrite
-    override suspend fun upsert(note: Note): Note =
-        databaseManager.writeTx("NoteStore.upsert") {
-            upsertRow(note)
+    override suspend fun upsert(note: Note): Note {
+        val now = clock.unitNow()
+        return databaseManager.writeTx("NoteStore.upsert") {
+            upsertRow(note, now)
         }
+    }
 
     @StoreWrite
     override suspend fun delete(id: UUID): Boolean =

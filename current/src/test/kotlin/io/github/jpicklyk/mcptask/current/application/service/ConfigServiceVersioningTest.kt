@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
@@ -75,7 +76,7 @@ class ConfigServiceVersioningTest {
 
     @BeforeEach
     fun setUp() {
-        service = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork())
+        service = ConfigService(provider, YamlConfigDocumentParser, sqlite.unitOfWork(), validator = ConfigValidator())
     }
 
     private suspend fun newRoot(title: String = "Root"): UUID =

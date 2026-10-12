@@ -163,6 +163,7 @@ work_item_schemas:
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

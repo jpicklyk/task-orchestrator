@@ -405,7 +405,7 @@ internal class NotesParityRunner(
                     setBody(s.arguments)
                 }
             val text = response.bodyAsText()
-            assertParityBodyConforms(text, "${s.name}: REST body")
+            assertParityBodyConforms(text, "${s.name}: REST body", s.arguments)
             result = RestResult(response.status.value, text, response.headers["X-Req-Id"])
         }
         return checkNotNull(result) { "REST leg produced no response" }
@@ -426,12 +426,12 @@ internal class NotesParityRunner(
     ): String {
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
-        // Note rows are stamped with the wall clock by the repository (not the injected clock), so a leg's modifiedAt differs
-        // by milliseconds; the value must still be an ISO-8601 instant.
+        // Q32: note rows are stamped by the unit's clock, the fixed parity clock on both legs, so modifiedAt is compared
+        // exactly (no masking).
         for (stamp in modifiedAt.findAll(body)) {
-            Instant.parse(stamp.groupValues[1])
+            assertEquals(PARITY_NOW, Instant.parse(stamp.groupValues[1]), "a note stamp is the fixed clock's: $body")
         }
-        return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(modifiedAt, "\"modifiedAt\":\"<T>\"")
+        return body.replace(marker, "\"reqId\":\"<REQ>\"")
     }
 
     fun run(case: NotesParityCase): ParityOutcome {

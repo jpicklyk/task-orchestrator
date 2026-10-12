@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -95,7 +96,8 @@ class ConfigServiceParserInjectionTest {
                 ConfigService(
                     repositoryProvider,
                     FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
-                    db.unitOfWork()
+                    db.unitOfWork(),
+                    validator = ConfigValidator(),
                 )
 
             val result = service.push(rootId, "irrelevant: yaml")
@@ -115,7 +117,8 @@ class ConfigServiceParserInjectionTest {
                     warningViolations = listOf(ConfigViolation("/x", "w1")),
                 )
             val outcome = ConfigDocumentParser.Outcome.Parsed(doc, rawRoot = mapOf("x" to 1))
-            val service = ConfigService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
+            val service =
+                ConfigService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork(), validator = ConfigValidator())
 
             val result = service.push(rootId, "irrelevant: yaml")
 
@@ -134,7 +137,8 @@ class ConfigServiceParserInjectionTest {
                 ConfigService(
                     repositoryProvider,
                     FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
-                    db.unitOfWork()
+                    db.unitOfWork(),
+                    validator = ConfigValidator(),
                 )
             val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork(), configService = service)
 

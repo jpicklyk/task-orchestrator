@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
@@ -771,7 +772,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             // getDatabase() will throw IllegalStateException("Database has not been initialized").
             // IMPLICIT: under the production FAIL policy the outside-unit write would be refused before the
             // uninitialized database is ever reached, so the test would not exercise what it names.
-            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv())
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ClaimResult.DBError variant (no itemId field).
@@ -792,7 +793,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             val itemId = UUID.randomUUID()
 
             // IMPLICIT: see the claim test above; FAIL would refuse the write before reaching the database.
-            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv())
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ReleaseResult.DBError variant (no itemId field).

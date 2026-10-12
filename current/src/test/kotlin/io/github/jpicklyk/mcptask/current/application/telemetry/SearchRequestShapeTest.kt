@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.telemetry
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -182,7 +183,8 @@ class SearchRequestShapeTest {
             serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
             degradedModePolicy = rig.rig.composition.degradedModePolicy,
-            callLog = rig.writer
+            callLog = rig.writer,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

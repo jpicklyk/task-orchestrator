@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -123,7 +124,7 @@ class SseAuthFullWiringTest {
         tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
         allowQueryToken: Boolean,
     ) {
-        installMcpStreamableHttp(emptyServer())
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv())
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = bus,
@@ -142,6 +143,7 @@ class SseAuthFullWiringTest {
                     unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 

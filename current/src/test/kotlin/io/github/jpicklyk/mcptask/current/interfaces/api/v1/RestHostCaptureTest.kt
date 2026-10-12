@@ -94,7 +94,8 @@ class RestHostCaptureTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            callLog = writer
+            callLog = writer,
+            appConfig = AppConfig.fromEnv(),
         )
         routing {
             routeGet("/echo-headers") {

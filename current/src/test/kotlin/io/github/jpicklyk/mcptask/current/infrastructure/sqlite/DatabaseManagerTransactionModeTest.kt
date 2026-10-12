@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import kotlinx.coroutines.runBlocking
@@ -40,7 +41,7 @@ class DatabaseManagerTransactionModeTest {
         dir: File,
         name: String
     ): DatabaseManager {
-        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
+        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv())
         assertTrue(
             manager.initialize("jdbc:sqlite:${File(dir, name).absolutePath.replace('\\', '/')}"),
             "DatabaseManager should initialize successfully against a file-backed DB",

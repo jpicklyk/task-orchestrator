@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -96,7 +97,8 @@ class RestCallLogTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            callLog = writer
+            callLog = writer,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -374,7 +376,7 @@ class RestCallLogTest {
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
-                installMcpStreamableHttp(server)
+                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv())
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
                 installRestApiRoutes(
                     apiConfig = authConfig,
@@ -388,7 +390,8 @@ class RestCallLogTest {
                     serverConfig = rig.composition.serverConfig,
                     toolContext = rig.composition.toolContext,
                     degradedModePolicy = rig.composition.degradedModePolicy,
-                    callLog = writer
+                    callLog = writer,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
             val accept = "application/json, text/event-stream"

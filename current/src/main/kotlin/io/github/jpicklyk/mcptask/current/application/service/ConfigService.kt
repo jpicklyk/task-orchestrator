@@ -58,8 +58,8 @@ class ConfigService(
     private val parser: ConfigDocumentParser,
     /** The transaction boundary: each write ([push], [rollback], [reset]) is ONE write unit. */
     private val unitOfWork: UnitOfWork,
-    /** The admission check run by [push] and [validate]. */
-    private val validator: ConfigValidator = ConfigValidator(),
+    /** The admission check run by [push] and [validate]; production passes `productionConfigValidator()` (no default). */
+    private val validator: ConfigValidator,
     /**
      * The DB-backed server layer a per-root document is validated against (read once per [push] / [validate] call).
      * Null = the validator's own constructor layer.

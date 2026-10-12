@@ -622,7 +622,7 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  */
 internal fun Application.installMcpStreamableHttp(
     server: Server,
-    appConfig: AppConfig = AppConfig.fromEnv(),
+    appConfig: AppConfig,
     knowledgeServer: Server? = null,
 ) {
     installHostAllowlist(appConfig)
@@ -678,7 +678,7 @@ internal fun Application.installRestApiRoutes(
     toolContext: ToolExecutionContext,
     degradedModePolicy: DegradedModePolicy,
     jwksVerifier: JwksApiVerifier? = null,
-    appConfig: AppConfig = AppConfig.fromEnv(),
+    appConfig: AppConfig,
     callLog: CallLogSink = CallLogSink.NONE,
     toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
     toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),

@@ -37,7 +37,7 @@ import java.sql.Connection
  */
 class DatabaseManager(
     private val customDatabase: Database? = null,
-    private val appConfig: AppConfig = AppConfig.fromEnv(),
+    private val appConfig: AppConfig,
     outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.FAIL
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)

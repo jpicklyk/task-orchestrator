@@ -103,7 +103,13 @@ class ServerHeadFaultRoutesTest {
     @Test
     fun `F1 GET info answers 503 unavailable when the server head read faults`(): Unit =
         testApplication {
-            val service = ConfigService(faultingProvider(), YamlConfigDocumentParser, mockk<UnitOfWork>(relaxed = true))
+            val service =
+                ConfigService(
+                    faultingProvider(),
+                    YamlConfigDocumentParser,
+                    mockk<UnitOfWork>(relaxed = true),
+                    validator = ConfigValidator()
+                )
             application { infoApp(service) }
 
             val response = client.get("/api/v1/info")
@@ -116,7 +122,13 @@ class ServerHeadFaultRoutesTest {
     @Test
     fun `F1 serverHead surfaces a store read fault as PerRootConfigUnavailableException with a null root`(): Unit =
         runBlocking {
-            val service = ConfigService(faultingProvider(), YamlConfigDocumentParser, mockk<UnitOfWork>(relaxed = true))
+            val service =
+                ConfigService(
+                    faultingProvider(),
+                    YamlConfigDocumentParser,
+                    mockk<UnitOfWork>(relaxed = true),
+                    validator = ConfigValidator()
+                )
 
             val thrown = runCatching { service.serverHead() }.exceptionOrNull()
 

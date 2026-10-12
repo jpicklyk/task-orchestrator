@@ -59,7 +59,7 @@ import kotlin.test.assertTrue
 /**
  * Independent tests for typed item traits at the service, MCP and REST seams (item 22088359, Q15): scenarios S1-S5, S9-S11,
  * S13 and S15 of the frozen test-plan plus probes. Everything runs through the real production composition ([EventLogRig])
- * or the REST write test application over a real SQLite file; stored rows are read back with raw SQL against the V26 DDL
+ * or the REST write test application over a real SQLite file; stored rows are read back with raw SQL against the V27 DDL (V27__Item_Traits)
  * (`item_traits(item_id, position, name)`), never through the code under test alone.
  *
  * Oracles (frozen task-scope B2-B7 and AC1-AC4, AC8, AC9, plan 3.7 and U7, none read from the implementation):

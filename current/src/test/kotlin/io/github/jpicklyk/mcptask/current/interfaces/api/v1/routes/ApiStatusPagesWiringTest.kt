@@ -86,7 +86,8 @@ class ApiStatusPagesWiringTest {
             actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy
+            degradedModePolicy = composition.degradedModePolicy,
+            appConfig = AppConfig.fromEnv(),
         )
         routing {
             get("/api/v1/p16-wiring-boom") { throw RuntimeException("SELECT secret FROM tokens WHERE v = 'hunter2'") }

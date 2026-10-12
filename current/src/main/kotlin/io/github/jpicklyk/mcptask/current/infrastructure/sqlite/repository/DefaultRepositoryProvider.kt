@@ -25,14 +25,14 @@ import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
  * Uses lazy initialization so repository instances are only created when first accessed.
  *
  * @param databaseManager The database manager providing the connection.
- * @param clock The one time source bound into the claim and lease stores (the ambient unit instant wins inside a unit).
+ * @param clock The one time source bound into the claim, lease and note stores (the ambient unit instant wins inside a unit).
  */
 class DefaultRepositoryProvider(
     private val databaseManager: DatabaseManager,
     private val clock: Clock = SystemClock
 ) : RepositoryProvider {
     private val workItemRepo by lazy { SQLiteWorkItemRepository(databaseManager, clock) }
-    private val noteRepo by lazy { SQLiteNoteRepository(databaseManager) }
+    private val noteRepo by lazy { SQLiteNoteRepository(databaseManager, clock) }
     private val dependencyRepo by lazy { SQLiteDependencyRepository(databaseManager) }
     private val configStore by lazy { SqliteConfigStore(databaseManager) }
     private val documentStoreInstance by lazy { SqliteDocumentStore(databaseManager) }
