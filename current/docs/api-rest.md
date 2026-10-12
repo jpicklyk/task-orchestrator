@@ -439,6 +439,8 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
 
 **Notes on `tags`:** The domain stores tags as a comma-separated string. The REST API expands this to a `List<String>` in `ItemDto` (GET responses); the `items_write` tool takes `tags` as a JSON array.
 
+**Notes on `role`:** `role` is absent for a lifecycle-free item (its type's schema declares `lifecycle: none`); such an item has no role, no `previousRole`, and takes no transition or claim. A client must not assume `role` is always present.
+
 ### NoteDto
 
 ```json
@@ -610,6 +612,9 @@ per-root entry alone (see `EffectiveConfigDto` below).
 ```
 
 Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolve it from the live item's `previousRole` field.
+
+A type whose schema declares `lifecycle: none` is listed with `"lifecycleMode": "none"` and `"transitions": {}`: its
+items are lifecycle-free and take no trigger.
 
 **StatusGraphDto:**
 ```json
@@ -1272,7 +1277,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `notes_write` MCP caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
 
-**`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
+**`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`. A lifecycle flip (an update that changes `type`, or a `repin`, moving the item into or out of lifecycle-free) is not a transition: it emits `item.updated`, whose stored changed fields include `role`, and no `item.advanced`.
 
 **`item.advanced` note:** This event is the projection of the `item.transitioned` event a role change records (via the `advance` tool, `items_write` `complete_tree`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
 

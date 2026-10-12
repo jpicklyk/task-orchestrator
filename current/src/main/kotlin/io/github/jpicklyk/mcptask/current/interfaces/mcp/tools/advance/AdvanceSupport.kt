@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -95,6 +96,15 @@ internal object AdvanceSupport {
             message = "Item $id is terminal and cannot be claimed.",
             detail = ErrorDetail.InvalidTransition(id, Role.TERMINAL.name.lowercase(), "claim", emptyList()),
             fixArgs = mapOf("itemId" to id.toString(), "trigger" to "claim", "fromRole" to Role.TERMINAL.name.lowercase()),
+        )
+
+    /** A claim of a lifecycle-free item: the `invalid_transition` of the `claim` trigger from `none`, nothing allowed. */
+    fun claimLifecycleFree(id: UUID): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_TRANSITION,
+            message = "Item $id is lifecycle-free and cannot be claimed.",
+            detail = ErrorDetail.InvalidTransition(id, NONE_ROLE_WIRE, "claim", emptyList()),
+            fixArgs = mapOf("itemId" to id.toString(), "trigger" to "claim", "fromRole" to NONE_ROLE_WIRE),
         )
 
     /** A per-root config read failed before anything was written: the element is shed with a retry hint. */

@@ -65,7 +65,9 @@ three parts, merged into one result:
    cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors.
 3. **Semantics.** `resources` and `actor_authentication` are rejected in a per-root document; `work_item_schemas` and
    `note_schemas` cannot be combined; every `default_traits` entry must name a trait defined in the document or in
-   the server config; every trait `resources[].key` must be declared in the server resource registry.
+   the server config; every trait `resources[].key` must be declared in the server resource registry; a
+   `lifecycle: none` schema may not declare `seats` (error at `/work_item_schemas/<type>/seats`) nor a note with
+   `required: true` (error at `/work_item_schemas/<type>/notes/<i>/required`).
 
 A structural error in the seat declarations (two seats entering one phase, a duplicate or reserved seat name, an
 `after` cycle) is fatal in every mode and is reported with the path of the offending `seats` list.
@@ -97,7 +99,7 @@ when its canonical JSON differs. With no head (or a reset head) everything is `a
 failure) comes back in the result as `valid: false`, not as an error.
 
 A valid document also reports `affectedInFlight`: `{count, sample}` for the in-flight items (queue, work, review,
-blocked) of the root that the caller can see and whose resolved schema would change on a repin after the push. Pinned
+blocked, and lifecycle-free) of the root that the caller can see and whose resolved schema would change on a repin after the push. Pinned
 items are compared at their pin, unpinned items at the heads, against the candidate over the current server config. Only
 gate-relevant changes count (a note key added or removed, or its role or required flag changed, a different base schema
 or a different lifecycle mode); guidance and description edits do not. `sample` holds the first 20 item ids.
@@ -168,6 +170,50 @@ use the 4.0 rule (per-root type, server type, per-root `default`, server `defaul
 not change an item's `version` or `modifiedAt`. With no stored config version at all, the step still marks each item
 pinned with no versions and no schema, so it stays schema-free (`stale: true` once a config is pushed) until a pin
 point fires or `repin` is called. A schema entry the parser skips (for example a non-map value) is never pinned.
+Every backfilled item has a role, so a base schema declared `lifecycle: none` is pinned with lifecycle `auto` (see
+[Lifecycle-free items](#lifecycle-free-items)).
+
+## Lifecycle-free items
+
+`lifecycle` takes `auto` (the default), `manual`, `permanent` or `none`. A schema declared `lifecycle: none` makes
+its items **lifecycle-free**: pages of knowledge or reference material that have no role at all. On the wire their
+`role` is absent (REST `Item.role` is omitted, the status graph lists the type with `lifecycleMode: "none"` and no
+transitions).
+
+- **Grammar.** `none` is accepted lowercase only in a pushed document. A `lifecycle: none` schema may declare notes
+  (all optional) but no `seats` and no `required: true` note: no phase exists, so no gate could enforce them. Seats or
+  required notes a trait merges onto a lifecycle-free item are inert.
+- **Pins required.** Lifecycle-free is carried by the item's pin (pin lifecycle `none`, stored with a NULL role). With
+  pins off every item is created in `queue`. A role-bearing item whose type resolves to a `none` schema without being
+  pinned to it (for example an unpinned item after a push) behaves as `auto`.
+- **Create.** An item whose type's base schema is `lifecycle: none` is created lifecycle-free (`create` and
+  `create_tree`); every other item is created in `queue`.
+- **No transitions.** Every `advance` trigger on a lifecycle-free item fails `invalid_transition` (`fromRole: "none"`,
+  no allowed triggers), as does `claim` (the item is never claimed and the caller's other claims are kept). Cascades
+  skip it. It never appears in `next` or `blocked`, a claim by selector never picks it, and `complete_tree` leaves
+  lifecycle-free descendants out (an explicitly targeted one fails as usual).
+- **Dependencies.** A lifecycle-free item cannot be an endpoint of a BLOCKS edge (an IS_BLOCKED_BY input normalizes
+  to one): the edge is rejected `invalid_request`. RELATES_TO edges are allowed.
+- **Counts.** Role counts (overview `childCounts`, anchored roll-ups, health counts) count lifecycle-free items under
+  no role; they are not folded into `queue`. A parent whose only children are lifecycle-free has no children for the
+  completion cascade. `excludeTerminal` keeps lifecycle-free items listed, and a lifecycle-free descendant does not
+  count as open work below a terminal one.
+
+**Flip rule.** Only two pin points may move an item between role-bearing and lifecycle-free: a `type_change` update
+and `repin`. Crossing into lifecycle-free is allowed from `queue` or `terminal` only, and only when the item has no
+BLOCKS edge in either direction; it clears the role, previous role and status label, stamps `roleChangedAt` and clears
+the claim. Crossing out of lifecycle-free puts the item in `queue`, subject to the create rule (no new open item under
+a `terminal` parent whose lifecycle is `auto`). A flip records `item.updated` (its fields include `role`) and
+`item.pinned`; it writes no transition row and runs no cascade. Any other crossing fails `invalid_transition` with
+`fromRole` the item's role (or `none`), `trigger` the pin reason (`type_change` or `repin`) and no allowed triggers,
+and writes nothing.
+
+The other pin points never change an item's lifecycle class: a `reopen`, a `trait_change`, a cross-root `reparent`
+(checked for the item and every descendant that moves with it) and the delete-time re-pin of a surviving item. When a
+pushed config made the item's type `none` (or no longer `none`), such a pin point fails `invalid_transition` with
+`trigger` set to that pin reason (`reopen`, `trait_change`, `reparent`, `repin`) for the crossing item, and writes
+nothing; call `repin` (or change the type) to flip the item explicitly. A reopen cascade in that situation keeps the
+item's current pin.
 
 ## Related
 

@@ -277,6 +277,7 @@ interface ItemStore {
      * [rootIds] (roots included; an empty set selects nothing), plus the exact count of the whole
      * set. Ordered by role (queue, work, review, blocked, terminal), then `role_changed_at`
      * ascending (longest in the role first), then `id` ascending. Only items visible under [scope] are listed or counted.
+     * With [includeLifecycleFree] the lifecycle-free items (no role) are selected as well, ordered after every role.
      */
     suspend fun findByRoles(
         roles: Set<Role>,
@@ -284,6 +285,7 @@ interface ItemStore {
         limit: Int,
         offset: Int,
         scope: AccessScope = AccessScope.unrestricted(),
+        includeLifecycleFree: Boolean = false,
     ): ItemSlice
 
     /**

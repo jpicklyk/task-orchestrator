@@ -62,8 +62,9 @@ internal fun dependencyRemovedEvent(
 ): DomainEvent = DomainEvent.DependencyRemoved(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt, cause)
 
 /**
- * The item fields whose change an `item.updated` row reports (bookkeeping fields excluded: version, timestamps,
- * role, which a transition row covers). `["*"]` when there is no prior row.
+ * The item fields whose change an `item.updated` row reports (bookkeeping fields excluded: version, timestamps).
+ * `role` is reported only when it changes outside a transition: a lifecycle flip at a type change, which writes no
+ * transition row (a transition never reaches this function). `["*"]` when there is no prior row.
  */
 internal fun itemChangedFields(
     old: WorkItem?,
@@ -74,6 +75,7 @@ internal fun itemChangedFields(
         if (old.title != new.title) add("title")
         if (old.description != new.description) add("description")
         if (old.summary != new.summary) add("summary")
+        if (old.role != new.role) add("role")
         if (old.statusLabel != new.statusLabel) add("statusLabel")
         if (old.previousRole != new.previousRole) add("previousRole")
         if (old.priority != new.priority) add("priority")

@@ -39,6 +39,7 @@ internal fun repinItemOp(): OpSpec<RepinItemRequest, ItemWriteResult> =
                 ErrorCode.NOT_FOUND,
                 ErrorCode.AMBIGUOUS_ID,
                 ErrorCode.VERSION_CONFLICT,
+                ErrorCode.INVALID_TRANSITION,
                 ErrorCode.FORBIDDEN,
                 ErrorCode.UNAVAILABLE
             ),

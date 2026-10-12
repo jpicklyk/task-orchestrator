@@ -45,7 +45,7 @@ class TransitionTableNoneTest {
     private val structurals: List<Trigger.Structural> =
         listOf(Trigger.Structural.Create(null), Trigger.Structural.Reparent(null), Trigger.Structural.Delete)
 
-    // S1: 7 user triggers x 2 hasReviewPhase x 3 lifecycles = 42 cells, all Invalid.
+    // S1: 7 user triggers x 2 hasReviewPhase x 4 lifecycles = 56 cells, all Invalid.
     @Test
     fun `S1 cell for a null role is Invalid for every user trigger under every schema fact`() {
         var cells = 0
@@ -55,7 +55,7 @@ class TransitionTableNoneTest {
                 assertEquals(Cell.Invalid, TransitionTable.cell(null, t, facts), "trigger=${t.wire} facts=$facts")
             }
         }
-        assertEquals(42, cells)
+        assertEquals(56, cells)
     }
 
     // S2: Invalid with an empty allowed list and the LIFECYCLE_FREE reason, whatever the previous role.
@@ -71,7 +71,7 @@ class TransitionTableNoneTest {
                 }
             }
         }
-        assertEquals(252, resolutions)
+        assertEquals(336, resolutions)
     }
 
     @Test

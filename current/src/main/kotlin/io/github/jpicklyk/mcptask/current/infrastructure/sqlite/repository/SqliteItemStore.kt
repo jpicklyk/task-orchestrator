@@ -314,10 +314,15 @@ class SqliteItemStore(
             WorkItemsTable.selectAll().where { rootItemsCondition(excludeTerminal) }.count()
         }
 
-    /** Shared WHERE condition for root-item queries: `parentId IS NULL`, optionally excluding terminal-role rows. */
+    /**
+     * Shared WHERE condition for root-item queries: `parentId IS NULL`, optionally excluding terminal-role rows (a
+     * lifecycle-free row is kept).
+     */
     private fun rootItemsCondition(excludeTerminal: Boolean): Op<Boolean> {
         val isRoot = WorkItemsTable.parentId.isNull()
-        return if (excludeTerminal) isRoot and (WorkItemsTable.role neq Role.TERMINAL.name.lowercase()) else isRoot
+        // A lifecycle-free (NULL role) root is never terminal: it stays listed (plain `<>` would drop the NULL row).
+        val notTerminal = WorkItemsTable.role.isNull() or (WorkItemsTable.role neq Role.TERMINAL.name.lowercase())
+        return if (excludeTerminal) isRoot and notTerminal else isRoot
     }
 
     override suspend fun findByIds(ids: Set<UUID>): List<WorkItem> {
@@ -447,8 +452,8 @@ class SqliteItemStore(
                 .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
                 .forEach { row ->
                     val parent = row[WorkItemsTable.parentId] ?: return@forEach
-                    // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
-                    val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                    // A NULL (lifecycle-free) role is not counted: role counts cover lifecycle-bearing rows only.
+                    val role = Role.fromString(row[WorkItemsTable.role] ?: return@forEach) ?: Role.QUEUE
                     val counts = result.getOrPut(parent) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + row[total].toInt()
                 }
@@ -486,8 +491,8 @@ class SqliteItemStore(
             selectSql(sql, args) { rs ->
                 while (rs.next()) {
                     val top = uuidOf(rs.getObject("top")!!)
-                    // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
-                    val role = rs.getString("role")?.let { Role.fromString(it) } ?: Role.QUEUE
+                    // A NULL (lifecycle-free) role is not counted: role counts cover lifecycle-bearing rows only.
+                    val role = Role.fromString(rs.getString("role") ?: continue) ?: Role.QUEUE
                     val counts = result.getOrPut(top) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + rs.getInt("n")
                 }
@@ -562,8 +567,9 @@ class SqliteItemStore(
         limit: Int,
         offset: Int,
         scope: AccessScope,
+        includeLifecycleFree: Boolean,
     ): ItemSlice {
-        if (roles.isEmpty() || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
+        if ((roles.isEmpty() && !includeLifecycleFree) || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
         return databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (rootIds != null) {
@@ -572,7 +578,8 @@ class SqliteItemStore(
                 conditions.add(resolved.toCondition())
             }
             conditions.addAll(visibilityConditions(scope) ?: return@readTx ItemSlice(emptyList(), 0))
-            conditions.add(WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) })
+            val roleMatch = WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) }
+            conditions.add(if (includeLifecycleFree) roleMatch or WorkItemsTable.role.isNull() else roleMatch)
             val condition = conditions.reduce { acc, op -> acc and op }
             val items =
                 WorkItemsTable
@@ -634,7 +641,7 @@ class SqliteItemStore(
             ItemSlice(items, total)
         }
 
-    /** Counts rows matching [condition] grouped by role (a NULL, lifecycle-free role counts as QUEUE). */
+    /** Counts rows matching [condition] grouped by role (a NULL, lifecycle-free role is skipped, not counted). */
     private fun countByRole(condition: Op<Boolean>): Map<Role, Int> {
         val total = WorkItemsTable.id.count()
         val counts = mutableMapOf<Role, Int>()
@@ -643,8 +650,8 @@ class SqliteItemStore(
             .where { condition }
             .groupBy(WorkItemsTable.role)
             .forEach { row ->
-                // Grouped counts keep the QUEUE fold for a NULL (lifecycle-free) role; Q31b owns roll-up exclusions.
-                val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                // A NULL (lifecycle-free) role is skipped: role counts cover lifecycle-bearing rows only.
+                val role = Role.fromString(row[WorkItemsTable.role] ?: return@forEach) ?: Role.QUEUE
                 counts[role] = (counts[role] ?: 0) + row[total].toInt()
             }
         return counts

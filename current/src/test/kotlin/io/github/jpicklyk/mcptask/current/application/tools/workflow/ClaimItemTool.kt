@@ -760,6 +760,15 @@ Call only in claim-mode deployments, to take ownership before working an item.
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
 
+            // A lifecycle-free item is never claimable; this legacy harness reports it like a terminal one.
+            is ClaimResult.LifecycleFree ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("outcome", JsonPrimitive("lifecycle_free"))
+                    putOutcomeKindAndCode(LegacyMcpCode.TERMINAL_ITEM)
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+
             null -> {
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))

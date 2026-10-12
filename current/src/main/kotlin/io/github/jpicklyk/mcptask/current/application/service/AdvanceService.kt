@@ -477,6 +477,26 @@ class AdvanceService(
             is Outcome.Err -> throw ApplyAbort(applyFaultMessage(error), error)
         }
 
+    /**
+     * The `invalid_transition` (trigger `reopen`) when [allow] takes [item] out of TERMINAL and the re-pin that exit
+     * takes would move it across the lifecycle class boundary (its type's base schema became `lifecycle: none`); null
+     * otherwise, and always with pins off. Reads only.
+     */
+    private suspend fun reopenCrossing(
+        item: WorkItem,
+        allow: Decision.Allow,
+        now: Instant
+    ): DomainError? {
+        val pinner = schemaPinService?.takeIf { it.enabled } ?: return null
+        if (allow.lifecycleFrom() != Role.TERMINAL || allow.lifecycleTarget() == Role.TERMINAL) return null
+        val pin = pinner.pinFor(item, item.rootId, now)
+        return if (SchemaPinService.crossesLifecycleClass(allow.lifecycleTarget(), pin)) {
+            ItemCommandErrors.lifecycleCrossing(item.id, item.role, PinReason.REOPEN)
+        } else {
+            null
+        }
+    }
+
     /** An apply step aborted by a missing row: rolls the unit back and becomes [AdvanceFailure.ApplyFailed]. */
     private class ApplyAbort(
         message: String,
@@ -615,6 +635,9 @@ class AdvanceService(
             }
 
         val newRole = allow.lifecycleTarget()
+        // Leaving TERMINAL re-pins to the heads; that re-pin may never change the item's lifecycle class (only a type
+        // change or `repin` may). Checked before the first write of the transition.
+        reopenCrossing(item, allow, now)?.let { return AdvanceOutcome.Failure(AdvanceFailure.ResolutionFailed(it.message, it)) }
         val label = labelFor(trigger, newRole)
         val applied =
             when (
@@ -948,9 +971,18 @@ class AdvanceService(
                     originalClaimedAt = if (touchesTerminal) null else current.originalClaimedAt
                 )
             }
-        // Leaving TERMINAL re-pins to the heads (the gate above ran under the old pin).
+        // Leaving TERMINAL re-pins to the heads (the gate above ran under the old pin). A user trigger whose re-pin
+        // would cross the lifecycle class boundary was already rejected ([reopenCrossing]); a cascade that would keeps
+        // the item's current pin (no re-pin, no `item.pinned` row), so no row ever takes a pin of the other class.
         val pinner = schemaPinService?.takeIf { previousRole == Role.TERMINAL && it.enabled }
-        val toStore = if (pinner != null) updatedItem.copy(pin = pinner.pinFor(updatedItem, updatedItem.rootId, now)) else updatedItem
+        val reopenPin =
+            pinner
+                ?.pinFor(
+                    updatedItem,
+                    updatedItem.rootId,
+                    now
+                )?.takeUnless { SchemaPinService.crossesLifecycleClass(targetRole, it) }
+        val toStore = if (reopenPin != null) updatedItem.copy(pin = reopenPin) else updatedItem
 
         val updated =
             workItemRepository.update(toStore)
@@ -990,9 +1022,8 @@ class AdvanceService(
                 consumedCredentials = transition.consumedCredentials
             )
         )
-        val newPin = updated.pin
-        if (pinner != null && newPin != null) {
-            events.record(SchemaPinService.pinnedEvent(item.id, eventRoot(updated), item.pin, newPin, PinReason.REOPEN))
+        if (reopenPin != null) {
+            events.record(SchemaPinService.pinnedEvent(item.id, eventRoot(updated), item.pin, reopenPin, PinReason.REOPEN))
         }
 
         // Release on EVERY exit from WORK, in this unit, regardless of the kill switch (a lease acquired

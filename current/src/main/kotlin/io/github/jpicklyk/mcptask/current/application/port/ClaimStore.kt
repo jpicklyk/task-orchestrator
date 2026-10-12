@@ -14,6 +14,8 @@ import java.util.UUID
  * - [AlreadyClaimed] — another agent holds a live (non-expired) claim. [retryAfterMs] is a hint for backoff.
  * - [NotFound] — no work item with the given [id] exists (row absent).
  * - [TerminalItem] — the item's role is TERMINAL; claiming terminal items is not supported.
+ * - [LifecycleFree] - the item is lifecycle-free (no role); it can never be claimed. Nothing is written, and the
+ *   agent's other claims are kept.
  *
  * A database failure is thrown, never returned.
  */
@@ -45,6 +47,10 @@ sealed class ClaimResult {
     ) : ClaimResult()
 
     data class TerminalItem(
+        val itemId: UUID
+    ) : ClaimResult()
+
+    data class LifecycleFree(
         val itemId: UUID
     ) : ClaimResult()
 }

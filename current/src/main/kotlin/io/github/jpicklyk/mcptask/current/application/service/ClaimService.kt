@@ -103,7 +103,7 @@ class ClaimService(
                 // A rejection row must survive the caller's unit (a keyed claim rolls back on it).
                 is ClaimResult.AlreadyClaimed ->
                     events.recordRejection(DomainEvent.ClaimRejected(itemId, rootOfId(itemId), result.retryAfterMs))
-                is ClaimResult.NotFound, is ClaimResult.TerminalItem -> Unit
+                is ClaimResult.NotFound, is ClaimResult.TerminalItem, is ClaimResult.LifecycleFree -> Unit
             }
             result
         }
