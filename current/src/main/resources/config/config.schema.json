@@ -73,7 +73,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "lifecycle": { "enum": ["auto", "manual", "permanent"] },
+        "lifecycle": { "enum": ["auto", "manual", "permanent", "none"] },
         "default_traits": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
         "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }

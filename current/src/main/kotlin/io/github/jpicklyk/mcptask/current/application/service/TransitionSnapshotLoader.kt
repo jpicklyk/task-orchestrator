@@ -110,7 +110,7 @@ class TransitionSnapshotLoader(
         leases: LeaseInput
     ): LoadedSnapshot {
         val schema = schemaResolver(item)
-        val schemaFacts = schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
+        val schemaFacts = SchemaFacts.of(schema)
         val target = (TransitionTable.resolve(item.role, trigger, schemaFacts, item.previousRole) as? TransitionTable.Resolution.To)?.role
 
         var filledKeys: Set<String> = emptySet()

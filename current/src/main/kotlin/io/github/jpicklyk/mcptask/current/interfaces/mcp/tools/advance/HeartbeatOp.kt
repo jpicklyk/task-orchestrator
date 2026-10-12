@@ -75,5 +75,6 @@ private suspend fun WriteScope.runHeartbeat(
         is ClaimResult.AlreadyClaimed -> Outcome.Err(AdvanceSupport.claimHeld(result))
         is ClaimResult.NotFound -> Outcome.Err(AdvanceSupport.itemNotFound(result.itemId))
         is ClaimResult.TerminalItem -> Outcome.Err(AdvanceSupport.claimTerminal(result.itemId))
+        is ClaimResult.LifecycleFree -> Outcome.Err(AdvanceSupport.claimLifecycleFree(result.itemId))
     }
 }

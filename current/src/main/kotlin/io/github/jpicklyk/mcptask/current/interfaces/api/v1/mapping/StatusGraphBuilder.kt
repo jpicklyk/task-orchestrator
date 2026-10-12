@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
@@ -15,7 +16,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
  * trigger) pair, per registered schema type (its review phase and lifecycle mode are the
  * [SchemaFacts]). A `To` cell emits the target role; the `ToPrevious` cell of (blocked, resume)
  * emits the sentinel `"<previousRole>"` so dashboards know they must read the live item to resolve
- * the target; an invalid cell is omitted.
+ * the target; an invalid cell is omitted. A `lifecycle: none` type is listed with lifecycleMode `none`
+ * and no transitions.
  *
  * Stateless over the RESOLVED schemas it is handed: it reads no config and caches nothing. A caller passes the
  * schema map of its own scope ([buildStatusGraph]) or the one resolved schema of one item ([rowFor]); a null schema
@@ -44,7 +46,15 @@ class StatusGraphBuilder {
         val types =
             schemas.entries.map { (typeName, schema) ->
                 val hasReview = schema.hasReviewPhase()
-                val transitions = buildTransitionsForType(SchemaFacts(hasReview, schema.lifecycleMode), triggers)
+                // A lifecycle-free type has no roles, so no transitions: an empty map, never the AUTO table.
+                val transitions =
+                    if (schema.lifecycleMode ==
+                        LifecycleMode.NONE
+                    ) {
+                        emptyMap()
+                    } else {
+                        buildTransitionsForType(SchemaFacts.of(schema), triggers)
+                    }
                 StatusGraphTypeDto(
                     type = typeName,
                     lifecycleMode = schema.lifecycleMode.name.lowercase(),
@@ -69,7 +79,7 @@ class StatusGraphBuilder {
         schema: WorkItemSchema?,
         role: Role,
     ): Map<String, String> {
-        val facts = schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
+        val facts = SchemaFacts.of(schema)
         val row = LinkedHashMap<String, String>()
         for (trigger in Trigger.User.entries.sortedBy { it.wire }) {
             resolveCell(role, trigger, facts)?.let { row[trigger.wire] = it }

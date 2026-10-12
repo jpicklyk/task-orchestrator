@@ -155,6 +155,10 @@ class SqliteClaimStore(
                     val item = WorkItemRows.withTraits(WorkItemRows.toWorkItem(row))
                     when {
                         item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
+                        // A lifecycle-free (NULL role) row never matches the acquire predicate (`role <> 'terminal'` is
+                        // not true for NULL) and is never claimable: report it before the AlreadyClaimed branch, whose
+                        // active-claim read would fail on an unclaimed row.
+                        item.role == null -> ClaimResult.LifecycleFree(itemId)
                         item.claimedBy == agentId -> ClaimResult.Success(item)
                         else -> {
                             // Held by someone else with an active claim: the hint is the time left, at least 1 ms.

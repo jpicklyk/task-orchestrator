@@ -63,14 +63,18 @@ class TreeCompletionService(
     private val advanceServiceFactory: AdvanceServiceFactory,
     private val degradedModePolicy: DegradedModePolicy
 ) {
-    /** The descendants of [rootId] (in store order), and the root itself when [includeRoot]; null when it does not exist. */
+    /**
+     * The descendants of [rootId] (in store order), and the root itself when [includeRoot]; null when it does not exist.
+     * Lifecycle-free descendants (no role) are left out: no trigger applies to them, so the expansion never targets one.
+     * The root is returned whatever its role (an explicitly targeted lifecycle-free item still fails as usual).
+     */
     suspend fun descendantTargets(
         rootId: UUID,
         includeRoot: Boolean
     ): Pair<List<WorkItem>, WorkItem?>? {
         val items = repositoryProvider.workItemRepository()
         val root = items.getById(rootId) ?: return null
-        return items.findDescendants(rootId) to root.takeIf { includeRoot }
+        return items.findDescendants(rootId).filter { it.role != null } to root.takeIf { includeRoot }
     }
 
     /**

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 
 /**
  * One validation finding: [path] is an RFC 6901 JSON Pointer into the config document (the root is the empty
@@ -40,7 +41,9 @@ fun interface ConfigStructuralValidator {
  * Semantic rules: a per-root document must not carry the server-only keys `resources` or `actor_authentication`;
  * `work_item_schemas` and the legacy `note_schemas` cannot be combined; every `default_traits` entry must name a
  * trait defined in the document or in the server layer; every trait `resources[].key` must be declared in the server
- * resource registry. For a [ConfigScope.SERVER] document the document is the server layer, so it is checked against
+ * resource registry; a `lifecycle: none` schema declares no `seats` of its own and no `required: true` note (a
+ * lifecycle-free item has no phase, so no gate could ever enforce either). For a [ConfigScope.SERVER] document the
+ * document is the server layer, so it is checked against
  * itself. [serverLayer] is the server-wide config (today the global file); with none, a per-root document sees no
  * server traits and an empty registry.
  */
@@ -140,6 +143,7 @@ class ConfigValidator(
         val knownResources = serverDocument?.resourceRegistry?.keys ?: emptySet()
 
         val schemas = root["work_item_schemas"] as? Map<*, *>
+        schemas?.forEach { (schemaName, schemaValue) -> out.addAll(lifecycleFreeViolations(schemaName.toString(), schemaValue)) }
         schemas?.forEach { (schemaName, schemaValue) ->
             val defaults = (schemaValue as? Map<*, *>)?.get("default_traits") as? List<*> ?: return@forEach
             defaults.forEachIndexed { index, trait ->
@@ -173,6 +177,41 @@ class ConfigValidator(
                         )
                     )
                 }
+            }
+        }
+        return out
+    }
+
+    /**
+     * The lifecycle-free rule for the raw schema [schemaValue] named [schemaName]: when its `lifecycle` reads as
+     * [LifecycleMode.NONE], a non-empty `seats` list is an error at `.../seats` and every note with `required: true` is
+     * an error at `.../notes/<i>/required`. Any other lifecycle yields nothing.
+     */
+    private fun lifecycleFreeViolations(
+        schemaName: String,
+        schemaValue: Any?,
+    ): List<ConfigViolation> {
+        val schema = schemaValue as? Map<*, *> ?: return emptyList()
+        val lifecycle = (schema["lifecycle"] as? String)?.let { LifecycleMode.fromString(it) }
+        if (lifecycle != LifecycleMode.NONE) return emptyList()
+        val out = mutableListOf<ConfigViolation>()
+        val seats = schema["seats"]
+        if (seats != null && !(seats is List<*> && seats.isEmpty())) {
+            out.add(
+                ConfigViolation(
+                    pointer("work_item_schemas", schemaName, "seats"),
+                    "a 'lifecycle: none' schema cannot declare seats (a lifecycle-free item has no phases)",
+                )
+            )
+        }
+        (schema["notes"] as? List<*>)?.forEachIndexed { index, note ->
+            if ((note as? Map<*, *>)?.get("required") == true) {
+                out.add(
+                    ConfigViolation(
+                        pointer("work_item_schemas", schemaName, "notes", index.toString(), "required"),
+                        "a 'lifecycle: none' schema cannot declare a required note (no gate runs on a lifecycle-free item)",
+                    )
+                )
             }
         }
         return out

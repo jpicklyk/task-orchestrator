@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
@@ -59,6 +60,7 @@ class DependencyCommandService(
                 is Outcome.Ok -> checked.value
                 is Outcome.Err -> return checked
             }
+        lifecycleFreeEndpoint(normalized)?.let { return Outcome.Err(it) }
         val depRepo = repositoryProvider.dependencyRepository()
 
         val stored = depRepo.findByItemIds(normalized.flatMapTo(LinkedHashSet()) { listOf(it.fromItemId, it.toItemId) })
@@ -171,6 +173,35 @@ class DependencyCommandService(
         return eventRootOf(item, repo)
     }
 
+    /**
+     * The `invalid_request` for the first BLOCKS edge of [normalized] (storage form: an IS_BLOCKED_BY input is already
+     * a BLOCKS edge) with a lifecycle-free endpoint, or null. A lifecycle-free item has no role a blocker could be
+     * satisfied by, so it can neither block nor be blocked; RELATES_TO edges are unaffected. The violation names the
+     * endpoint field and carries the endpoint's id. An id with no row is left to the store (not judged here).
+     */
+    private suspend fun lifecycleFreeEndpoint(normalized: List<Dependency>): DomainError? {
+        val blocking = normalized.filter { it.type == DependencyType.BLOCKS }
+        if (blocking.isEmpty()) return null
+        val roles = repositoryProvider.workItemRepository().rolesOf(blocking.flatMapTo(HashSet()) { listOf(it.fromItemId, it.toItemId) })
+
+        fun lifecycleFree(id: UUID): Boolean = roles.containsKey(id) && roles[id] == null
+        for (dep in blocking) {
+            val (field, id) =
+                when {
+                    lifecycleFree(dep.fromItemId) -> FIELD_FROM to dep.fromItemId
+                    lifecycleFree(dep.toItemId) -> FIELD_TO to dep.toItemId
+                    else -> continue
+                }
+            val reason = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
+            return DomainError(
+                code = ErrorCode.INVALID_REQUEST,
+                message = "Item $id is lifecycle-free and cannot be an endpoint of a BLOCKS dependency",
+                detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(field, reason, id.toString())))
+            )
+        }
+        return null
+    }
+
     /** Normalizes [deps] and rejects a duplicate within the request. */
     private fun checkRequest(deps: List<Dependency>): Outcome<List<Dependency>> {
         val normalized = deps.map { it.normalized() }
@@ -222,4 +253,9 @@ class DependencyCommandService(
         message: String,
         path: List<UUID>
     ): DomainError = DomainError(code = ErrorCode.CYCLE_DETECTED, message = message, detail = ErrorDetail.CycleDetected(path))
+
+    private companion object {
+        const val FIELD_FROM = "fromItemId"
+        const val FIELD_TO = "toItemId"
+    }
 }

@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -111,7 +112,12 @@ class PinBackfillStep(
                 val type = rs.getString("type")
                 val tags = if (type.isNullOrBlank() || type == LegacyTypeInference.UNTYPED) emptyList() else listOf(type)
                 val resolved = LegacyTypeInference.resolve(tags, root?.layer, server?.layer)
-                val lifecycle = resolved?.let { r -> (if (r.perRoot) root else server)?.lifecycles?.get(r.key) }
+                // Every backfilled row bears a role, so a `lifecycle: none` base schema pins 'auto' (the V26 CHECK ties
+                // 'none' to a NULL role; a 'none' pin here would fail the boot).
+                val lifecycle =
+                    resolved
+                        ?.let { r -> (if (r.perRoot) root else server)?.lifecycles?.get(r.key) }
+                        ?.let { SchemaFacts.roleBearing(it) }
                 pins +=
                     Pin(
                         rowId = rs.getLong("rid"),

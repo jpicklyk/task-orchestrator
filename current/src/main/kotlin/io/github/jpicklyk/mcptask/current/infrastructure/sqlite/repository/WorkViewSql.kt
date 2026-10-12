@@ -82,7 +82,11 @@ internal object WorkViewSql {
         visible: VisibilitySql? = null,
     ): Op<Boolean> =
         SqlOp {
+            // A lifecycle-free (NULL role) row is kept: it is never terminal. The inner walk's `y.role <> 'terminal'`
+            // deliberately drops NULL rows, so a lifecycle-free descendant never counts as open work below a terminal one.
             append("(")
+            append(WorkItemsTable.role)
+            append(" IS NULL OR ")
             append(WorkItemsTable.role)
             append(" <> 'terminal' OR ")
             append(WorkItemsTable.id)

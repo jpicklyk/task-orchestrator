@@ -65,9 +65,10 @@ every element is its own write unit (one failing element does not stop the other
 An element may carry an `idempotencyKey` (requires an `actor`): a repeated key replays the stored result with
 `replayed: true`; the same key with a different element is `idempotency_mismatch`.
 
-Placement (depth, root) is computed from the parent row inside the write unit; an item is always created in `queue`
-and there is no role field (use `advance`). A `terminal` parent under `auto` lifecycle accepts no new children
-and no reparent onto it (`invalid_transition`).
+Placement (depth, root) is computed from the parent row inside the write unit; an item is created in `queue`, or
+lifecycle-free (no role) when its type's base schema is `lifecycle: none`, and there is no role field (use
+`advance`). A `terminal` parent under `auto` lifecycle accepts no new children and no reparent onto it
+(`invalid_transition`). See `config-reference.md` "Lifecycle-free items".
 
 | Op | Element fields | Result (`results[i]`) |
 |---|---|---|
@@ -98,11 +99,22 @@ another root, or changes `traits` (one `item.pinned` event; reason precedence `t
 `trait_change`); a transition out of `terminal` (`reopen`, and the reopen cascade); and `repin`. A title-only
 update or a move within the same root leaves the pin alone. See `config-reference.md` "Schema pins".
 
+**Lifecycle flips.** Only a `type` change and `repin` may move an item between role-bearing and lifecycle-free.
+Into lifecycle-free: from `queue` or `terminal` only, and only with no `blocks` edge in either direction; the role,
+previous role, status label and claim are cleared. Out of lifecycle-free: the item enters `queue`, under the same
+closed-parent rule as `create`. A flip records `item.updated` (fields include `role`) and `item.pinned`, and writes
+no transition and runs no cascade. Any other crossing fails `invalid_transition` (`detail: {itemId, fromRole, trigger,
+allowed: []}`, `fromRole` the role or `none`, `trigger` `type_change` or `repin`) and writes nothing. A `reparent`
+(the item or any descendant moving with it), `trait_change` or `reopen` whose new pin would change an item's lifecycle
+class fails the same way with that `trigger`.
+
 **Repin.** `repin` moves the item's pin to the current heads and the base schema its type resolves to now. When the
 recomputed pin equals the stored one nothing is written and no event is recorded (`repinned: false`, `version`
 unchanged); otherwise the item's `version` goes up by one and one `item.pinned` event (reason `repin`) is recorded
 (`repinned: true`). `expectedVersion` guards it like `update`. `schemaVersion` is the item's new pin view (see
-[items_read](#items_read)). Errors: `not_found`, `ambiguous_id`, `version_conflict`, `forbidden`, `unavailable`.
+[items_read](#items_read)). A repin may flip the item's lifecycle class (see Lifecycle flips above). Errors:
+`not_found`, `ambiguous_id`, `version_conflict`, `invalid_transition` (a flip the rule forbids), `forbidden`,
+`unavailable`.
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
@@ -189,7 +201,7 @@ tool. Orchestration profile only; capability `advance`.
 
 | Field | Meaning |
 |---|---|
-| `rootId` | The descendants of this item, then the item itself last (`includeRoot`, default `true`). |
+| `rootId` | The descendants of this item (lifecycle-free ones left out), then the item itself last (`includeRoot`, default `true`). |
 | `itemIds` | Exactly these items. Exactly one of `rootId` and `itemIds`; an empty list is `invalid_request`. |
 | `trigger` | `complete` (default) or `cancel` (bypasses the note gate, not ownership). |
 | `includeRoot` | With `rootId`: also the root. |
@@ -353,8 +365,10 @@ page), and each document hit on the returned page records its id and version as 
 - Anchored (`anchorId`): `anchor: {id, title}` and a page of the anchor's children, each with
   full-subtree role counts (descendants at any depth).
 
-`childCounts` is `{role: n}` with zero roles omitted. `excludeTerminal` drops terminal items that have no
-open work below them; a terminal item with a non-terminal descendant is kept. Under a restricted scope
+`childCounts` is `{role: n}` with zero roles omitted; lifecycle-free items count under no role (they are not folded
+into `queue`), here and in the anchored roll-ups. `excludeTerminal` drops terminal items that have no
+open work below them; a terminal item with a non-terminal descendant is kept, a lifecycle-free descendant is not open
+work, and a lifecycle-free item itself is always kept. Under a restricted scope
 every list and count covers only items the caller may see. `includeChildren` with `itemId` or `anchorId`,
 or `itemId` with `anchorId`, is `invalid_request`.
 
@@ -667,6 +681,9 @@ capability (`manage-dependencies`); `delete` is destructive.
 - `type` is `blocks` (applied when absent on create) or `relates_to`. `unblockAt` is `queue`, `work`,
   `review` or `terminal` (absent means `terminal`) and is rejected on a `relates_to` edge. A self-edge
   is `invalid_request`. The 3.x `is_blocked_by` alias is not accepted: name the blocker as `from`.
+- **Lifecycle-free endpoints.** A `blocks` edge with a lifecycle-free item at either end is `invalid_request` (the
+  violation names `fromItemId` or `toItemId` with the item's id as `received`); nothing is written. `relates_to` edges
+  are allowed. The same rule applies to `items_write` `create_tree` `deps`.
 - **Patterns are one element.** `linear`, `fan_out` and `fan_in` create all their edges in one unit or
   none: a duplicate edge (`duplicate`) or a cycle (`cycle_detected`, with the cycle path) anywhere in
   the pattern leaves nothing written.
@@ -756,7 +773,8 @@ scope are skipped and counted in `excluded.outOfScope`; a selector never answers
 **Error codes** (per element; the call is `207 partial_failure` when some elements fail): `invalid_request` (field pointers
 such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credentialRefs/1`; `/actor` when the actor is missing),
 `unknown_parameter`, `not_found` (item), `ambiguous_id`, `forbidden` (token scope or capability), `invalid_transition` (also for
-claiming a terminal item), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
+claiming a terminal item, and for claiming a lifecycle-free item: `fromRole` `none`, `trigger` `claim`, nothing allowed, the
+caller's other claims kept; every `transition` trigger on a lifecycle-free item fails the same way with `fromRole` `none`), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
 `detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `not_claim_holder`, `claim_held`
 (`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
 `retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000), `config_invalid` (a config head, the server's or the root's, has no loadable canonical form; permanent,

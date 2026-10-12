@@ -6,7 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.PinReason
 import io.github.jpicklyk.mcptask.current.domain.event.PinRef
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Instant
@@ -140,6 +142,17 @@ class SchemaPinService(
                 a?.schemaLayer == b?.schemaLayer &&
                 a?.lifecycle == b?.lifecycle &&
                 (a == null) == (b == null)
+
+        /**
+         * True when storing [pin] on an item with [role] would move it across the lifecycle class boundary: a
+         * lifecycle-free item (null role) takes a pin whose lifecycle is not [LifecycleMode.NONE], or a role-bearing
+         * item takes a NONE pin. Only a type change and `repin` may flip an item's class; every other pin point
+         * rejects a crossing pin.
+         */
+        fun crossesLifecycleClass(
+            role: Role?,
+            pin: SchemaPin
+        ): Boolean = (role == null) != (pin.lifecycle == LifecycleMode.NONE)
 
         /** The event side of [pin]. */
         fun refOf(pin: SchemaPin): PinRef = PinRef(pin.serverVersionId, pin.rootVersionId, pin.schemaKey, pin.schemaLayer)

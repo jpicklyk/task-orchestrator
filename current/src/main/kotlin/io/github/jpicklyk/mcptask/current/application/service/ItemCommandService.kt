@@ -26,9 +26,12 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ParentFacts
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -252,7 +255,15 @@ class ItemCommandService(
             } catch (e: ValidationException) {
                 return Outcome.Err(ItemCommandErrors.invalid(e.message ?: "Validation failed"))
             }
-        val pinned = if (schemaPinService.enabled) item.copy(pin = schemaPinService.pinFor(item, rootId, now)) else item
+        // A type whose base schema is `lifecycle: none` creates a lifecycle-free item (no role). Lifecycle-free needs
+        // pins: with pins off every item is created in QUEUE.
+        val pin = if (schemaPinService.enabled) schemaPinService.pinFor(item, rootId, now) else null
+        val pinned =
+            when {
+                pin == null -> item
+                pin.lifecycle == LifecycleMode.NONE -> item.copy(role = null, pin = pin)
+                else -> item.copy(pin = pin)
+            }
         val created = items.create(pinned)
         val eventRoot = eventRootOf(created, hierarchy)
         events.record(DomainEvent.ItemCreated(created.id, eventRoot, created.parentId))
@@ -412,10 +423,35 @@ class ItemCommandService(
                 cmd.traits != existing.traits -> PinReason.TRAIT_CHANGE
                 else -> null
             }
-        val toStore = if (pinReason != null) updated.copy(pin = schemaPinService.pinFor(updated, newRootId, now)) else updated
+        val toStore =
+            if (pinReason != null) {
+                when (val applied = applyPin(existing, updated, schemaPinService.pinFor(updated, newRootId, now), pinReason)) {
+                    is Outcome.Err -> return applied
+                    is Outcome.Ok -> applied.value
+                }
+            } else {
+                updated
+            }
+
+        // A move to another root re-pins every descendant that changes root. Their pins are taken, and checked for a
+        // lifecycle class crossing, BEFORE the first write: a rejection leaves nothing written.
+        val newRoot = newRootId ?: existing.id
+        var descendants: List<WorkItem> = emptyList()
+        var descendantPins: Map<UUID, SchemaPin> = emptyMap()
+        if (reparented) {
+            descendants = hierarchy.findDescendants(existing.id)
+            val moved = descendants.filter { it.rootId != newRoot }
+            if (schemaPinService.enabled && moved.isNotEmpty()) {
+                descendantPins = schemaPinService.pinsFor(moved, newRoot, now)
+                moved
+                    .firstOrNull { SchemaPinService.crossesLifecycleClass(it.role, descendantPins.getValue(it.id)) }
+                    ?.let { return Outcome.Err(ItemCommandErrors.lifecycleCrossing(it.id, it.role, PinReason.REPARENT)) }
+            }
+        }
 
         val oldRoot = if (reparented) eventRootOf(existing, hierarchy) else existing.id
         val stored = items.update(toStore) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(existing.id))
+        afterFlip(existing, stored)?.let { return Outcome.Err(it) }
 
         if (!reparented) {
             val changed = itemChangedFields(existing, stored)
@@ -425,7 +461,6 @@ class ItemCommandService(
             return Outcome.Ok(ItemPatchResult(stored, reparented = false, descendantsRestamped = 0, cascadeEvents = emptyList()))
         }
 
-        val newRoot = newRootId ?: stored.id
         val enteredRoot = eventRootOf(stored, hierarchy)
         events.record(
             listOf(
@@ -439,11 +474,12 @@ class ItemCommandService(
                 )
             )
         )
+        // A move reports no item.updated for the moved item itself; a lifecycle flip in the same patch still does.
+        if (stored.role != existing.role) events.record(DomainEvent.ItemUpdated(stored.id, enteredRoot, listOf("role")))
         recordPinned(stored, enteredRoot, existing.pin, pinReason)
 
         val depthDelta = newDepth - existing.depth
         var restamped = 0
-        val descendants = hierarchy.findDescendants(existing.id)
         if (descendants.isNotEmpty() && (depthDelta != 0 || descendants.any { it.rootId != newRoot })) {
             restamped = hierarchy.restampSubtree(existing.id, depthDelta, newRoot)
             val rows =
@@ -456,7 +492,7 @@ class ItemCommandService(
                     if (changed.isEmpty()) null else DomainEvent.ItemUpdated(d.id, newRoot, changed)
                 }
             events.record(rows)
-            repinMovedDescendants(descendants, newRoot)
+            repinMovedDescendants(descendants, newRoot, descendantPins)
         }
 
         val cascades = cascade(existing.parentId, followUps)
@@ -466,16 +502,17 @@ class ItemCommandService(
     /**
      * A move to another root re-pins every descendant that changed root against [newRoot]'s heads (reason `reparent`;
      * the moved item's own precedence is unaffected), in one batched write, so no row keeps a pin naming the old root's
-     * config versions (which that root's delete cascades away). The restamp already bumped each row's version.
+     * config versions (which that root's delete cascades away). The restamp already bumped each row's version. [pins]
+     * were taken, and checked (none crosses its row's lifecycle class), before the patch's first write.
      */
     private suspend fun WriteScope.repinMovedDescendants(
         descendants: List<WorkItem>,
-        newRoot: UUID
+        newRoot: UUID,
+        pins: Map<UUID, SchemaPin>
     ) {
         if (!schemaPinService.enabled) return
         val moved = descendants.filter { it.rootId != newRoot }
         if (moved.isEmpty()) return
-        val pins = schemaPinService.pinsFor(moved, newRoot, now)
         items.writePins(pins)
         events.record(moved.map { SchemaPinService.pinnedEvent(it.id, newRoot, it.pin, pins.getValue(it.id), PinReason.REPARENT) })
     }
@@ -485,19 +522,76 @@ class ItemCommandService(
      * root pin names one of those versions at its own root's heads (reason `repin`; no version bump), so the delete never
      * trips the pin foreign key. Unreachable with consistent placement (a cross-root move re-pins its subtree); it covers
      * rows whose `root_id` disagrees with the tree. A survivor whose root is itself doomed pins against the server only.
+     * A re-point never changes a survivor's lifecycle class: a crossing pin returns the `invalid_transition` (trigger
+     * `repin`) for that survivor before anything is written; null when the re-point went through.
      */
-    private suspend fun WriteScope.repointSurvivingPins(doomed: Set<UUID>) {
-        if (!schemaPinService.enabled) return
+    private suspend fun WriteScope.repointSurvivingPins(doomed: Set<UUID>): DomainError? {
+        if (!schemaPinService.enabled) return null
         val survivors = items.findPinnedToConfigOf(doomed)
-        if (survivors.isEmpty()) return
+        if (survivors.isEmpty()) return null
         val pins = HashMap<UUID, SchemaPin>()
         for ((root, group) in survivors.groupBy { it.rootId?.takeUnless { r -> r in doomed } }) {
             pins.putAll(schemaPinService.pinsFor(group, root, now))
         }
+        survivors
+            .firstOrNull { SchemaPinService.crossesLifecycleClass(it.role, pins.getValue(it.id)) }
+            ?.let { return ItemCommandErrors.lifecycleCrossing(it.id, it.role, PinReason.REPIN) }
         items.writePins(pins)
         events.record(
             survivors.map { SchemaPinService.pinnedEvent(it.id, eventRootOf(it, hierarchy), it.pin, pins.getValue(it.id), PinReason.REPIN) }
         )
+        return null
+    }
+
+    /**
+     * [candidate] (the item as the write would store it) carrying [pin], taken for [reason] on [existing]. A pin in the
+     * item's own lifecycle class is simply attached. A crossing pin (U13b flip rule) is allowed only for a type change
+     * or `repin`:
+     * - into lifecycle-free: only from QUEUE or TERMINAL and only with no BLOCKS edge in either direction; the role,
+     *   previous role and status label are cleared and the role-change time stamped (the claim is cleared after the
+     *   write, [afterFlip]);
+     * - out of lifecycle-free: the item re-enters QUEUE, subject to the create closed-parent rule.
+     * Anything else is `invalid_transition` for [existing] with `fromRole` its role (or `none`) and trigger the
+     * [reason]'s wire value. Reads only: nothing is written here.
+     */
+    private suspend fun WriteScope.applyPin(
+        existing: WorkItem,
+        candidate: WorkItem,
+        pin: SchemaPin,
+        reason: PinReason
+    ): Outcome<WorkItem> {
+        if (!SchemaPinService.crossesLifecycleClass(existing.role, pin)) return Outcome.Ok(candidate.copy(pin = pin))
+        val crossing = ItemCommandErrors.lifecycleCrossing(existing.id, existing.role, reason)
+        if (reason != PinReason.TYPE_CHANGE && reason != PinReason.REPIN) return Outcome.Err(crossing)
+        if (existing.role != null) {
+            if (existing.role != Role.QUEUE && existing.role != Role.TERMINAL) return Outcome.Err(crossing)
+            if (hasBlocksEdge(existing.id)) return Outcome.Err(crossing)
+            return Outcome.Ok(candidate.copy(pin = pin, role = null, previousRole = null, statusLabel = null, roleChangedAt = now))
+        }
+        val parentId = candidate.parentId
+        if (parentId != null) {
+            val parent = items.getById(parentId) ?: return Outcome.Err(ItemCommandErrors.parentNotFound(parentId))
+            val facts = parentFacts(parent)
+            val decision = policy.evaluate(TransitionSnapshot.forCreate(existing.id, facts), Trigger.Structural.Create(facts))
+            if (decision is Decision.Reject) return Outcome.Err(decision.error)
+        }
+        return Outcome.Ok(candidate.copy(pin = pin, role = Role.QUEUE, previousRole = null, roleChangedAt = now))
+    }
+
+    /** True when [itemId] is either endpoint of a BLOCKS edge (an IS_BLOCKED_BY input is stored as BLOCKS). */
+    private suspend fun hasBlocksEdge(itemId: UUID): Boolean =
+        repositoryProvider.dependencyRepository().findByItemId(itemId).any { it.type != DependencyType.RELATES_TO }
+
+    /**
+     * After a write that moved [existing] into lifecycle-free ([stored] has no role), clears its claim (the item write
+     * never touches the claim columns). Returns the failure, or null.
+     */
+    private suspend fun afterFlip(
+        existing: WorkItem,
+        stored: WorkItem
+    ): DomainError? {
+        if (existing.role == null || stored.role != null || existing.claimedBy == null) return null
+        return (claimService.clearClaim(existing.id) as? Outcome.Err)?.error
     }
 
     /** Records the one `item.pinned` row of a patch pin point ([reason] null: the patch fired none). */
@@ -527,10 +621,19 @@ class ItemCommandService(
         if (!schemaPinService.enabled) return Outcome.Ok(ItemRepinResult(existing, repinned = false))
         val pin = schemaPinService.pinFor(existing, existing.rootId, now)
         if (SchemaPinService.samePin(existing.pin, pin)) return Outcome.Ok(ItemRepinResult(existing, repinned = false))
+        val target =
+            when (val applied = applyPin(existing, existing, pin, PinReason.REPIN)) {
+                is Outcome.Err -> return applied
+                is Outcome.Ok -> applied.value
+            }
         val stored =
-            items.update(existing.update { it.copy(pin = pin) })
+            items.update(existing.update { target })
                 ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
-        events.record(SchemaPinService.pinnedEvent(stored.id, eventRootOf(stored, hierarchy), existing.pin, pin, PinReason.REPIN))
+        afterFlip(existing, stored)?.let { return Outcome.Err(it) }
+        val eventRoot = eventRootOf(stored, hierarchy)
+        // A lifecycle flip (no transition row, no cascade) is reported as an item.updated naming the changed fields.
+        if (stored.role != existing.role) events.record(DomainEvent.ItemUpdated(stored.id, eventRoot, itemChangedFields(existing, stored)))
+        events.record(SchemaPinService.pinnedEvent(stored.id, eventRoot, existing.pin, pin, PinReason.REPIN))
         return Outcome.Ok(ItemRepinResult(stored, repinned = true))
     }
 
@@ -565,7 +668,7 @@ class ItemCommandService(
                     return fault("Failed to find descendants: ${LegacyFaults.message(e)}")
                 }
         }
-        repointSurvivingPins(descendants.mapTo(HashSet()) { it.id } + itemId)
+        repointSurvivingPins(descendants.mapTo(HashSet()) { it.id } + itemId)?.let { return Outcome.Err(it) }
         if (recursive) {
             if (descendants.isNotEmpty()) {
                 val released = claimService.releaseLeases(descendants.map { it.id }.toSet())
@@ -719,7 +822,7 @@ class ItemCommandService(
     private suspend fun parentFacts(parent: WorkItem): ParentFacts {
         val lifecycle =
             if (parent.role == Role.TERMINAL) {
-                configResolver.resolveSchema(parent)?.lifecycleMode ?: LifecycleMode.AUTO
+                configResolver.resolveSchema(parent)?.lifecycleMode?.let { SchemaFacts.roleBearing(it) } ?: LifecycleMode.AUTO
             } else {
                 LifecycleMode.AUTO
             }
@@ -912,6 +1015,25 @@ object ItemCommandErrors {
 
     fun isHierarchyLookupFailure(error: DomainError): Boolean =
         error.code == ErrorCode.INTERNAL && error.message.startsWith(HIERARCHY_LOOKUP_PREFIX)
+
+    /**
+     * A pin point that would move [itemId] across the lifecycle class boundary where it may not (U13b): any pin point
+     * other than a type change or `repin`, or a flip those two do not allow. `fromRole` is [role]'s wire value (`none`
+     * when lifecycle-free), trigger the [reason]'s wire value, nothing allowed.
+     */
+    fun lifecycleCrossing(
+        itemId: UUID,
+        role: Role?,
+        reason: PinReason
+    ): DomainError {
+        val from = role.wireOrNone()
+        return DomainError(
+            code = ErrorCode.INVALID_TRANSITION,
+            message = "Item $itemId cannot change lifecycle class at '${reason.wire}' from role $from.",
+            detail = ErrorDetail.InvalidTransition(itemId, from, reason.wire, emptyList()),
+            fixArgs = mapOf("itemId" to itemId.toString(), "trigger" to reason.wire, "fromRole" to from)
+        )
+    }
 
     /** True when [error] is the closed-parent rejection (a create or reparent under a TERMINAL, AUTO parent). */
     fun isClosedParent(error: DomainError): Boolean = error.code == ErrorCode.INVALID_TRANSITION

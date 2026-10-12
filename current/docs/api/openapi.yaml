@@ -76,7 +76,7 @@ components:
   schemas:
     ItemDto:
       type: object
-      required: [id, title, summary, role, priority, requiresVerification, tags, traits, properties,
+      required: [id, title, summary, priority, requiresVerification, tags, traits, properties,
                  createdAt, modifiedAt, roleChangedAt, etag, depth, isClaimed]
       properties:
         id:
@@ -99,6 +99,7 @@ components:
         role:
           type: string
           enum: [queue, work, review, terminal, blocked]
+          description: Absent for a lifecycle-free item (its type's schema declares `lifecycle: none`).
         previousRole:
           type: string
           enum: [queue, work, review]
@@ -585,6 +586,8 @@ components:
           type: string
         lifecycleMode:
           type: string
+          enum: [auto, manual, permanent, none]
+          description: A `none` type is lifecycle-free and has empty `transitions`.
         hasReviewPhase:
           type: boolean
         transitions:
