@@ -39,8 +39,8 @@ object GatePredicate {
 
     /**
      * Compute the set of note keys that count as "filled" -- i.e. notes that exist with a
-     * non-blank body. This is the single source of truth for fill-check logic, matching
-     * NoteSchemaJsonHelpers.buildFilledKeys.
+     * non-blank body. This is the single source of truth for fill-check logic (AR-92: the one
+     * predicate every gate, preview and phase-note view uses).
      */
     fun filledNoteKeys(notes: List<Note>): Set<String> = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
 

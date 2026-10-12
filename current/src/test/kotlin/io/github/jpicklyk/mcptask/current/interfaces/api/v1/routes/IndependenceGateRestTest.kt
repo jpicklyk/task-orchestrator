@@ -72,7 +72,7 @@ import kotlin.test.assertTrue
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern SeatGateParityRestTest / IndependenceGateMcpTest):
  * a single REAL [ServerComposition.build] over a SQLite test DB supplies the
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] used for BOTH the MCP
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] used for BOTH the MCP
  * tool calls ([GetContextTool], [AdvanceItemTool]) and the REST surface, wired through the REAL
  * [installRestApiRoutes] -- never a hand-built replica, and never two independently constructed
  * contexts that could drift. Actor-bearing notes are written via [ManageNotesTool]'s public

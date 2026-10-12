@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -8,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.service.TreeItemInput
 import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind

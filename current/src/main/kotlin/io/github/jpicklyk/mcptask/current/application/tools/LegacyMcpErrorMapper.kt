@@ -1,11 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
@@ -192,7 +194,7 @@ object LegacyMcpErrorMapper {
                     code,
                     kind,
                     blockers =
-                        if (failure.blockers.isNotEmpty()) NoteSchemaJsonHelpers.buildBlockersArray(failure.blockers) else null
+                        if (failure.blockers.isNotEmpty()) legacyBlockersArray(failure.blockers) else null
                 )
             is AdvanceFailure.GateBlocked ->
                 codedTransitionFailure(
@@ -201,11 +203,11 @@ object LegacyMcpErrorMapper {
                     failure.message,
                     code,
                     kind,
-                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
+                    missingNotes = legacyMissingNotesArray(failure.missingNotes),
                     missingBySeat = buildMissingBySeatJson(failure.missingBySeat),
                     previousRole = failure.previousRole.toJsonString(),
                     targetRole = failure.targetRole.toJsonString(),
-                    violations = NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)
+                    violations = legacyViolationsArray(failure.violations)
                 )
         }
     }
@@ -285,4 +287,42 @@ fun JsonObjectBuilder.putElementCode(
 fun JsonObjectBuilder.putOutcomeKindAndCode(outcome: LegacyMcpCode) {
     put("kind", JsonPrimitive(outcome.catalog.kind.toJsonString()))
     put("code", JsonPrimitive(outcome.wire))
+}
+
+private fun legacyMissingNotesArray(missingEntries: List<NoteSchemaEntry>): JsonArray =
+    JsonArray(
+        missingEntries.map { entry ->
+            buildJsonObject {
+                put("key", JsonPrimitive(entry.key))
+                put("description", JsonPrimitive(entry.description))
+                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                entry.skill?.let { put("skill", JsonPrimitive(it)) }
+            }
+        }
+    )
+
+private fun legacyBlockersArray(blockers: List<BlockerInfo>): JsonArray =
+    JsonArray(
+        blockers.map { blocker ->
+            buildJsonObject {
+                put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                put("currentRole", JsonPrimitive(blocker.currentRole?.toJsonString() ?: BlockerInfo.UNKNOWN_ROLE))
+                put("requiredRole", JsonPrimitive(blocker.requiredRole))
+            }
+        }
+    )
+
+private fun legacyViolationsArray(violations: List<IndependenceViolation>?): JsonArray? {
+    if (violations.isNullOrEmpty()) return null
+    return JsonArray(
+        violations.map { v ->
+            buildJsonObject {
+                put("key", JsonPrimitive(v.key))
+                v.seat?.let { put("seat", JsonPrimitive(it)) }
+                put("constraint", JsonPrimitive(v.constraint.toJsonString()))
+                v.conflictingSeat?.let { put("conflictingSeat", JsonPrimitive(it)) }
+                if (v.waived) put("waived", JsonPrimitive(true))
+            }
+        }
+    )
 }

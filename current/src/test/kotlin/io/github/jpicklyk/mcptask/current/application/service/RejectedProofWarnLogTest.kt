@@ -1,9 +1,11 @@
-package io.github.jpicklyk.mcptask.current.application.tools
+package io.github.jpicklyk.mcptask.current.application.service
 
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -40,7 +42,7 @@ class RejectedProofWarnLogTest {
     /** Captures WARN-level log records emitted by [ActorAware] during [block]. */
     private fun captureWarnLogs(block: () -> Unit): List<String> {
         val logbackLogger =
-            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.tools.ActorAware") as Logger
+            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.service.ActorAware") as Logger
         val listAppender =
             ListAppender<ILoggingEvent>().also {
                 it.start()

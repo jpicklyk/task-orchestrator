@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
  * Smoke tests for the manual composition root [ServerComposition].
  *
  * Verifies the object graph wires end-to-end from a test [AppConfig] into a non-null
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext], and that the
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext], and that the
  * default-off API path keeps the raw provider (no event bus / no decorator).
  */
 class ServerCompositionTest {

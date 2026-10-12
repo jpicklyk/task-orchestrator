@@ -35,7 +35,7 @@ import kotlin.coroutines.CoroutineContext
  * "replay".
  *
  * Installing one instance of this element in the [CoroutineContext] for the lifetime of a single
- * MCP call (see `McpToolAdapter`) lets [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.parseActorClaim]
+ * MCP call (see `McpToolAdapter`) lets [io.github.jpicklyk.mcptask.current.application.service.ActorAware.parseActorClaim]
  * reuse the first verification result for a repeated (proof, claim) pair within that call, so the
  * underlying verifier (and any replay cache it consults) is invoked at most once per distinct
  * (proof, claim) pair per call.

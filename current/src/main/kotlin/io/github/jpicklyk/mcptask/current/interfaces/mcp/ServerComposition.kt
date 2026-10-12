@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
@@ -15,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
@@ -351,7 +351,7 @@ class ServerComposition(
      * verifier under [DegradedModePolicy.ACCEPT_CACHED], logs one startup WARN: under that policy,
      * a [io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED] result is
      * still resolved to the self-reported actor id (see
-     * [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.resolveTrustedActorId]) — an
+     * [io.github.jpicklyk.mcptask.current.application.service.ActorAware.resolveTrustedActorId]) — an
      * operator running a real verifier should know that up front, once, rather than only from a
      * per-call WARN buried in request logs. This is intentionally NOT added to
      * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large

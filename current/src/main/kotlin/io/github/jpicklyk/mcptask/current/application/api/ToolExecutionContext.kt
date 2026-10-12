@@ -1,6 +1,5 @@
-package io.github.jpicklyk.mcptask.current.application.tools
+package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
@@ -38,7 +37,6 @@ import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -47,12 +45,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import java.util.UUID
 
 /**
- * Execution context provided to all MCP tools during invocation.
+ * Execution context provided to every tool operation (MCP and REST) during invocation.
  *
- * Provides typed access to all repository interfaces via the [RepositoryProvider].
- * Tools receive this context in their [ToolDefinition.execute] method,
- * enabling them to interact with the persistence layer without direct
- * knowledge of the repository implementations.
+ * Provides typed access to all repository interfaces via the [RepositoryProvider] and the shared
+ * application services, so operations interact with the persistence layer without direct knowledge
+ * of the repository implementations.
  */
 class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
@@ -216,7 +213,7 @@ class ToolExecutionContext(
      * needs for its `configSource`/`configFingerprint` fields. Delegates to
      * [EffectiveConfigResolver.resolveSchemaWithSource].
      */
-    suspend fun resolveSchemaWithSource(item: WorkItem): ResolvedSchema? = configResolver.resolveSchemaWithSource(item)
+    suspend fun resolveSchemaWithSource(item: WorkItem): SchemaMatch? = configResolver.resolveSchemaWithSource(item)
 
     /**
      * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
@@ -225,7 +222,7 @@ class ToolExecutionContext(
     suspend fun resolveTypeSchema(
         type: String,
         rootId: UUID?
-    ): ResolvedSchema? = configResolver.resolveTypeSchema(type, rootId)
+    ): SchemaMatch? = configResolver.resolveTypeSchema(type, rootId)
 
     /**
      * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase; false when
@@ -348,39 +345,3 @@ class ToolExecutionContext(
      */
     fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
 }
-
-/** Which config layer supplied a resolved schema; see [ToolExecutionContext.resolveSchemaWithSource]. */
-typealias SchemaSource = ConfigSource
-
-/**
- * A resolved [WorkItemSchema] together with which layer supplied its base schema and that layer's
- * config fingerprint. Returned by [ToolExecutionContext.resolveSchemaWithSource] and
- * [ToolExecutionContext.resolveTypeSchema].
- */
-typealias ResolvedSchema = SchemaMatch
-
-/**
- * Runs [block] and, on [PerRootConfigUnavailableException], logs one WARN naming [what] and [id]
- * and returns null instead of propagating. Shared by the several post-commit "decoration" call
- * sites (dispatch hints, `schemaMatch`/`expectedNotes`, `availableTraits`, the `itemContext` entry)
- * where the underlying write already succeeded — per D7, a per-root config read failure resolving a
- * response-only hint must never be reported as a failure of an already-committed operation. Callers
- * combine this with `?: continue` where the omission means skipping to the next loop item.
- */
-internal inline fun <T> omitOnConfigUnavailable(
-    logger: org.slf4j.Logger,
-    what: String,
-    id: Any?,
-    block: () -> T
-): T? =
-    try {
-        block()
-    } catch (e: PerRootConfigUnavailableException) {
-        logger.warn(
-            "Per-root config unavailable resolving {} for {}; omitting from an already-committed operation: {}",
-            what,
-            id,
-            e.message
-        )
-        null
-    }

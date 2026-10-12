@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.IdResolution
 import io.github.jpicklyk.mcptask.current.application.api.IdResolver
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.toFullJson
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

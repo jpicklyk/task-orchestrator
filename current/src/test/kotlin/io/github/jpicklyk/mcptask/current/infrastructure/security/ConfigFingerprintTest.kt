@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.security
 
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem

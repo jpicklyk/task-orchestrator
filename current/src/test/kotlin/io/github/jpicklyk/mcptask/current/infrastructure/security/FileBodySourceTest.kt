@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.infrastructure.security
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocHandlers
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocKind
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind

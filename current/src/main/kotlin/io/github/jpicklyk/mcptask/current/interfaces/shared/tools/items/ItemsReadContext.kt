@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
@@ -18,8 +19,6 @@ import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySe
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -33,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
@@ -165,7 +165,7 @@ object ItemsReadContext {
                         wire?.let { put("phase", it) }
                         put("missing", JsonArray(missing.map { JsonPrimitive(it) }))
                         buildMissingBySeatJson(missingBySeat)?.let { put("missingBySeat", it) }
-                        NoteSchemaJsonHelpers.buildViolationsArray(violations)?.let { put("violations", it) }
+                        NoteSchemaJson.buildViolationsArray(violations)?.let { put("violations", it) }
                         if (!canAdvance && !isTerminal) decision.blockedByWire()?.let { put("blockedBy", it) }
                         if (blockers.isNotEmpty()) put("blockers", JsonArray(blockers))
                         val contended = ((decision as? Decision.Reject)?.context as? RejectContext.Lease)?.contended.orEmpty()

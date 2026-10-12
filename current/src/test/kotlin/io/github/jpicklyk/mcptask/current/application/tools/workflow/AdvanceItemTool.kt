@@ -6,12 +6,16 @@
  */
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
+import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -26,6 +30,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.omitOnConfigUnavailable
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -643,7 +649,7 @@ Call to move an item between phases once its work is done — never edit status 
                     put("applied", JsonPrimitive(event.applied))
                     if (event.gateBlocked) {
                         put("gateBlocked", JsonPrimitive(true))
-                        put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
+                        put("missingNotes", driverMissingNotesArray(event.gateMissingNotes))
                     }
                     if (event.resourceBlocked) {
                         put("resourceBlocked", JsonPrimitive(true))
@@ -655,11 +661,11 @@ Call to move an item between phases once its work is done — never edit status 
                     if (event.roleBlocked) put("roleBlocked", JsonPrimitive(true))
                     if (event.dependencyBlocked) {
                         put("dependencyBlocked", JsonPrimitive(true))
-                        put("blockers", NoteSchemaJsonHelpers.buildBlockersArray(event.blockers))
+                        put("blockers", driverBlockersArray(event.blockers))
                     }
                     event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     event.error?.let { put("error", JsonPrimitive(it)) }
-                    NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
+                    NoteSchemaJson.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
                 }
             }
 
@@ -724,7 +730,7 @@ Call to move an item between phases once its work is done — never edit status 
             verification?.toJsonOrOmit()?.let { put("verification", it) }
             if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
             if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
-            NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(advanceResult.violations)?.let { put("violations", it) }
+            NoteSchemaJson.buildViolationsArrayNonEmpty(advanceResult.violations)?.let { put("violations", it) }
             put("expectedNotes", expectedNotesJson)
             guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
             skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
@@ -831,3 +837,32 @@ Call to move an item between phases once its work is done — never edit status 
         const val APPLY_FAILED = "apply_failed"
     }
 }
+
+private fun driverMissingNotesArray(missingEntries: List<io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry>): JsonArray =
+    JsonArray(
+        missingEntries.map { entry ->
+            buildJsonObject {
+                put("key", JsonPrimitive(entry.key))
+                put("description", JsonPrimitive(entry.description))
+                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                entry.skill?.let { put("skill", JsonPrimitive(it)) }
+            }
+        }
+    )
+
+private fun driverBlockersArray(blockers: List<io.github.jpicklyk.mcptask.current.application.service.BlockerInfo>): JsonArray =
+    JsonArray(
+        blockers.map { blocker ->
+            buildJsonObject {
+                put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                put(
+                    "currentRole",
+                    JsonPrimitive(
+                        blocker.currentRole?.toJsonString()
+                            ?: io.github.jpicklyk.mcptask.current.application.service.BlockerInfo.UNKNOWN_ROLE
+                    )
+                )
+                put("requiredRole", JsonPrimitive(blocker.requiredRole))
+            }
+        }
+    )

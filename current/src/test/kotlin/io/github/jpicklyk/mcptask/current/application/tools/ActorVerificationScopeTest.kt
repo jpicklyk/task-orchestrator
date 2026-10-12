@@ -7,6 +7,7 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -67,7 +68,7 @@ import kotlin.test.assertTrue
 /**
  * Independent test-author coverage for item 3dcfcbab, Part 2's per-call verification memo:
  * [ActorVerificationScope] (application/service, entirely new in 8534e8da) and its effect through
- * [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.parseActorClaim] when the SAME
+ * [io.github.jpicklyk.mcptask.current.application.service.ActorAware.parseActorClaim] when the SAME
  * proof is presented more than once inside a single MCP call.
  *
  * Oracle (task-scope Part 2, frozen at queue phase): "Per-call memo so one MCP call counts once:

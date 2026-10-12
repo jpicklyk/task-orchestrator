@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -149,7 +148,7 @@ fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields = b
  * Builds the `dispatch` JSON object for a single resolved [DispatchProfile]: `{agent?, model?,
  * effort?}`, each field present only when non-null. Used by `advance_item`'s per-transition
  * result and `get_context`'s item mode, both of which resolve a single profile for one role via
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveDispatchProfile].
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveDispatchProfile].
  */
 fun buildDispatchProfileJson(profile: DispatchProfile): JsonObject =
     buildJsonObject {
@@ -266,3 +265,6 @@ fun buildMissingBySeatJson(missingBySeat: Map<String, List<String>>?): JsonObjec
         missingBySeat.forEach { (seat, keys) -> put(seat, JsonArray(keys.map { JsonPrimitive(it) })) }
     }
 }
+
+/** Lowercase wire name of a [Role] (`queue`, `work`, ...), as every schema-entry JSON field spells it. */
+private fun Role.toJsonString(): String = name.lowercase()

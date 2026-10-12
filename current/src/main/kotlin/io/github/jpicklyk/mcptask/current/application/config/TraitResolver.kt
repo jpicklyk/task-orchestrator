@@ -213,6 +213,6 @@ class TraitResolver(
          * log filters and WARN consumers keep matching.
          */
         private val logger: Logger =
-            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext")
+            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext")
     }
 }

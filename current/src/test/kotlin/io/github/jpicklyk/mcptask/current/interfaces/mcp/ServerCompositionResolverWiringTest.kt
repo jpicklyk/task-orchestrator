@@ -20,7 +20,7 @@ import kotlin.test.assertSame
  *
  * EXISTING-SURFACE per the test-plan label (`ServerComposition`/`CompositionResult` already exist).
  * Narrowest revert per the frozen plan: "drop configResolver= arg to TEC" — this makes
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] fall back to its own
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] fall back to its own
  * default `EffectiveConfigResolver(ServiceBackedGlobalLookup(...), ...)`, which is a DIFFERENT
  * instance from the composition's local `configResolver`, reddening the identity assertions below.
  */

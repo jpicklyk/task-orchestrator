@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.api.IdFormatDefect
 import io.github.jpicklyk.mcptask.current.application.api.IdResolution
 import io.github.jpicklyk.mcptask.current.application.api.IdResolver
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
