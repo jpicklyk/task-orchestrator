@@ -27,8 +27,6 @@ interface RepositoryProvider {
 
     fun dependencyRepository(): DependencyStore
 
-    fun roleTransitionRepository(): TransitionStore
-
     fun configStore(): ConfigStore
 
     /**

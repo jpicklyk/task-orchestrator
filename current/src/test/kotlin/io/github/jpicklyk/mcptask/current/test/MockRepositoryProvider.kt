@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
@@ -27,7 +26,6 @@ class MockRepositoryProvider {
     val workItemRepo: WorkItemRepository = mockk()
     val noteRepo: NoteStore = mockk()
     val depRepo: DependencyStore = mockk()
-    val roleTransitionRepo: TransitionStore = mockk()
     val projectConfigRepo: ConfigStore = mockk()
     val planDocumentRepo: PlanDocumentStore = mockk()
     val documentStore: DocumentStore = mockk()
@@ -44,7 +42,6 @@ class MockRepositoryProvider {
         every { provider.workItemRepository() } returns workItemRepo
         every { provider.noteRepository() } returns noteRepo
         every { provider.dependencyRepository() } returns depRepo
-        every { provider.roleTransitionRepository() } returns roleTransitionRepo
         every { provider.configStore() } returns projectConfigRepo
         every { provider.planDocumentRepository() } returns planDocumentRepo
         every { provider.documentStore() } returns documentStore

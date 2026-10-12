@@ -204,7 +204,7 @@ class KeyedElementToolsTest {
                 "blocked for the gate, not another reason: $first"
             )
             assertEquals(1, records(), "only the successful element is recorded")
-            assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"))
+            assertEquals(1, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
 
             fillAcceptanceNote(gated.id, ctx)
 
@@ -214,7 +214,11 @@ class KeyedElementToolsTest {
             assertEquals("true", secondRes[0]["applied"]!!.jsonPrimitive.content)
             assertFalse(secondRes[1].isReplayed(), "the unrecorded element executes: $second")
             assertEquals("true", secondRes[1]["applied"]!!.jsonPrimitive.content, "attempt 2 succeeds now the note exists: $second")
-            assertEquals(2, rawInt("SELECT count(*) FROM role_transitions"), "the free item transitioned once, the gated item once")
+            assertEquals(
+                2,
+                rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"),
+                "the free item transitioned once, the gated item once"
+            )
             assertEquals(2, records())
             assertEquals(Role.WORK, items.getById(gated.id)!!.role)
         }
@@ -232,7 +236,7 @@ class KeyedElementToolsTest {
             assertEquals("false", blockedEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $blocked")
             assertEquals("gate_blocked", blockedEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the gate: $blocked")
             assertEquals(0, records())
-            assertEquals(0, rawInt("SELECT count(*) FROM role_transitions"))
+            assertEquals(0, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
             assertEquals(Role.QUEUE, items.getById(gated.id)!!.role)
 
             fillAcceptanceNote(gated.id, ctx)
@@ -355,7 +359,7 @@ class KeyedElementToolsTest {
             assertEquals("false", firstEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $first")
             assertEquals("gate_blocked", firstEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the note gate: $first")
             assertTrue(leases.findActiveByKeys(listOf("staging-db-credential")).isEmpty(), "no lease may survive the failed attempt")
-            assertEquals(0, rawInt("SELECT count(*) FROM role_transitions"), "no transition row may survive")
+            assertEquals(0, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"), "no transition row may survive")
             assertEquals(0, records(), "the failed element must not be recorded as ok")
             assertEquals(Role.QUEUE, items.getById(item.id)!!.role)
 

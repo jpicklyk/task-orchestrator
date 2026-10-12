@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -141,8 +141,18 @@ class P7UtcTimestampPersistenceTest {
             assertIs<ClaimResult.Success>(repo.claim(root.id, "agent-a", ttl.toInt()))
             provider.noteRepository().upsert(Note(itemId = root.id, key = "k", role = "queue", body = "b"))
             provider.dependencyRepository().create(Dependency(fromItemId = root.id, toItemId = other.id))
-            provider.roleTransitionRepository().create(
-                RoleTransition(itemId = root.id, fromRole = "queue", toRole = "work", trigger = "start")
+            provider.eventStore().append(
+                listOf(
+                    EventRecord(
+                        id = java.util.UUID.randomUUID(),
+                        occurredAt = Instant.now(),
+                        rootId = root.id,
+                        entityKind = "item",
+                        entityId = root.id,
+                        type = "item.transitioned",
+                        data = "{}"
+                    )
+                )
             )
             provider.planDocumentRepository().stash(root.id, "plan-a", "# Plan\n")
             provider.planDocumentRepository().markAdopted(root.id, "plan-a", other.id)
@@ -173,7 +183,7 @@ class P7UtcTimestampPersistenceTest {
                     Col("document_versions", "created_at"),
                     Col("links", "created_at"),
                     Col("config_heads", "updated_at"),
-                    Col("role_transitions", "transitioned_at"),
+                    Col("events", "occurred_at"),
                     Col("resource_leases", "acquired_at"),
                     Col("resource_leases", "expires_at", ttl),
                     Col("resource_leases", "original_acquired_at"),

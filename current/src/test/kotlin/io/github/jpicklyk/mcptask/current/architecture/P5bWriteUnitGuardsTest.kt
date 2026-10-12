@@ -132,7 +132,6 @@ class P5bWriteUnitGuardsTest {
             infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
             infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
             infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
-            infrastructure/sqlite/repository/SQLiteRoleTransitionRepository.kt 1
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             infrastructure/shutdown/ShutdownCoordinator.kt 1
             interfaces/api/v1/auth/BearerTokenStore.kt 2
@@ -148,7 +147,6 @@ class P5bWriteUnitGuardsTest {
             interfaces/api/v1/routes/ProjectConfigRoutes.kt 1
             interfaces/api/v1/routes/QueryParams.kt 1
             interfaces/api/v1/routes/RuleRoutes.kt 1
-            interfaces/api/v1/routes/TransitionRoutes.kt 1
             interfaces/mcp/CurrentMcpServer.kt 9
             interfaces/mcp/McpToolAdapter.kt 4
             """.trimIndent()

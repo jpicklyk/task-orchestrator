@@ -236,7 +236,6 @@ class EventActorRootIdTest {
             val outcome =
                 AdvanceService(
                     workItemRepository = wired.workItemRepository(),
-                    roleTransitionRepository = wired.roleTransitionRepository(),
                     dependencyRepository = wired.dependencyRepository(),
                     noteRepository = wired.noteRepository(),
                     schemaResolver = { null },

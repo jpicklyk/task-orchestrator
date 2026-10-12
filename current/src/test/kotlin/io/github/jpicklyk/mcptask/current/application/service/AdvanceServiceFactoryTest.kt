@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -46,7 +45,6 @@ import kotlin.test.assertIs
  */
 class AdvanceServiceFactoryTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var depRepo: DependencyStore
     private lateinit var noteRepo: NoteStore
     private lateinit var advanceStores: AdvanceMockStores
@@ -54,13 +52,11 @@ class AdvanceServiceFactoryTest {
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
-        roleTransitionRepo = mockk()
         depRepo = mockk()
         noteRepo = mockk()
         advanceStores = AdvanceMockStores(workItemRepo, depRepo)
 
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -105,7 +101,6 @@ class AdvanceServiceFactoryTest {
             val factory =
                 AdvanceServiceFactory(
                     workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
                     resourceLeaseRepository = null,
@@ -161,7 +156,6 @@ class AdvanceServiceFactoryTest {
             val factory =
                 AdvanceServiceFactory(
                     workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
                     resourceLeaseRepository = null,

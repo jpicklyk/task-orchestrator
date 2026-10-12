@@ -6,9 +6,9 @@ package io.github.jpicklyk.mcptask.current.application.service
  * through [validate] so the two surfaces enforce byte-for-byte identical rules.
  *
  * Entries are opaque credential/secret *labels* (e.g. "vault/prod-db-password", "github-pat-ci")
- * recorded on the `role_transitions` audit row — never the credential value itself. Callers must
- * never pass raw secret material here; this field is deliberately not redacted on read (see
- * TransitionRoutes.kt) because the labels themselves are not sensitive.
+ * recorded on the `item.transitioned` audit event — never the credential value itself. Callers must
+ * never pass raw secret material here; this field is deliberately not redacted on read
+ * (`items_read` `history`) because the labels themselves are not sensitive.
  */
 object CredentialRefValidation {
     /** Maximum number of credentialRefs entries accepted per transition. */

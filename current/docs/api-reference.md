@@ -236,7 +236,7 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 (`describe: true`).
 
 **Selects.** `get`, `list`, `schema`, `search`, `overview`, `related` (every profile), and `context`, `next`,
-`blocked` (the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select
+`blocked`, `history` (the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select
 needs the `READ` capability and honors the root and tag scope of the caller.
 
 | Select | Fields | Answer (`data`) |
@@ -250,6 +250,7 @@ needs the `READ` capability and honors the root and tag scope of the caller.
 | `context` | `itemId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | with `itemId`: the gate state of one item; without: `{active, blocked, stalled, claimSummary}` |
 | `next` | `parentId?`, `ancestorId?`, `role?`, `priority?`, `tags?`, `type?`, `complexityMax?`, date bounds, `orderBy?`, `includeClaimed?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view], page, reason?}` |
 | `blocked` | `parentId?`, `ancestorId?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view + blockType + blockers], page}` |
+| `history` | `itemId?`, `since?`, `until?`, `limit?`, `cursor?` | `{items: [transition entry], page}` |
 
 **Ids.** Every id field takes a full UUID or 8 to 32 hex characters of one. A prefix that matches more than
 one item is `ambiguous_id`; no match is `not_found`. Under a restricted scope an id that matches nothing
@@ -384,7 +385,7 @@ size of the capped list (at most 50); `page.capped` is true when more relatives 
 `request_shape` carries `relatedSignals`, per signal the number of hits on the returned page it found
 (zeros kept), and each returned hit records its id and version as a target version.
 
-**Orchestration selects.** `context`, `next` and `blocked` replace `get_context`, `get_next_status`,
+**Orchestration selects.** `context`, `next`, `blocked` and `history` replace `get_context`, `get_next_status`,
 `get_next_item` and `get_blocked_items`. They share the compact view, the id rules, the `fields` rule and the page
 rules above; every list is a `page` with an exact `total`, and under a restricted scope every list, count and total
 covers only items the caller may see (the scope is applied in SQL before paging). Whether an item is blocked and
@@ -449,8 +450,7 @@ together. `blocked` is the same set as the `blocked` select (role `blocked`, or 
 dependency; each entry has `blockType`, no blocker detail); the 3.x health check counted role `blocked` only. `stalled` holds the active items on the page whose
 resolved schema has unfilled required notes for their role: `{id, title, role, missing[], guidanceKey?,
 skillPointer?}`. `fields: ["ancestors"]` adds ancestors to `active` and `blocked` entries. The 3.x session-resume
-mode (`since`, `recentTransitions`) has no form here: the REST `GET /transitions` route serves recent transitions
-until `select=history` lands.
+mode (`since`, `recentTransitions`) has no form here: `history` serves the transition trail.
 
 **`next`.** The items an agent could pick up now, ranked, with eligibility decided in SQL over the whole matching set
 (an eligible item is found however many ineligible ones rank ahead of it): the item has the `role` (default
@@ -483,11 +483,31 @@ EVERY blocking dependency into the item (satisfied ones too) ordered by blocker 
 satisfied}]` (`id` a full UUID, `threshold` the role the blocker must reach, `satisfied` whether it has). `limit`
 1 to 200, default 50. `fields`: `summary`, `ancestors`.
 
+**`history`.** The transition audit trail, read from the `item.transitioned` rows of the event log, newest first
+(`seq` descending). With `itemId` (resolved and scope-checked like `get`: `forbidden`, `not_found`, `ambiguous_id`)
+it lists that item's transitions; without it, every transition of the items the caller may see (a root scope keeps
+its roots, a tag scope keeps tagged items; a row whose item was deleted is visible to an unrestricted or
+root-scoped caller only). `since` and `until` bound `occurredAt` inclusively (ISO 8601; `since` after `until` is
+`invalid_request` on `/since`); there is no default window. `limit` 1 to 200, default 50, `page.total` is exact.
+Each entry: `{seq, id, itemId, occurredAt, trigger, fromRole, toRole, fromStatusLabel?, toStatusLabel?, origin?,
+summary?, consumedCredentials?, backfilled?, actor?, verification?}`; `id` is the event id and `itemId` a full
+UUID; absent values are omitted; `consumedCredentials` is omitted when empty; `origin` is `user` or `cascade` on
+a live row; `backfilled: true` marks a row copied from the retired 3.x `role_transitions` table (V29), which has
+no `origin`. `actor` `{id, kind, parent?}` and `verification` `{status, verifier?, reason?}` appear only when the
+caller may see attribution (the `notes_read` rule); the proof hash and the verified claims are never returned.
+Cascades: a live cascade row renders the caller's `actor` with `origin: cascade`; a backfilled 3.x cascade row
+renders no `actor` and no `origin`, only `trigger: cascade`.
+Known limit: without `itemId`, a root scope matches the event's stored root only, so a token scoped to a mid-tree
+(non-root) ancestor gets an empty global history while its per-item `history` reads succeed. It under-returns and
+never leaks another root's rows.
+
 ```json
 { "select": "context", "itemId": "550e8400" }
 { "select": "context", "ancestorId": "550e8400", "limit": 25 }
 { "select": "next", "role": "queue", "tags": ["backend"], "orderBy": "oldest", "limit": 5 }
 { "select": "blocked", "ancestorId": "550e8400", "fields": ["ancestors"] }
+{ "select": "history", "itemId": "550e8400", "limit": 20 }
+{ "select": "history", "since": "2026-10-01T00:00:00Z" }
 ```
 
 ```json
@@ -1201,8 +1221,9 @@ whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT cla
 `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
 field is ever included in an MCP tool response — `VerificationResult.toJson()` enumerates only
 `status`/`verifier`/`reason`/`metadata` by design. They are surfaced only over REST, as
-`verification.proof` on `NoteDto`/`RoleTransitionDto`, and only to callers with `ADMIN`
-capability. See [api-rest.md](api-rest.md) §5/§22.
+`verification.proof` on `NoteDto`, and only to callers with `ADMIN`
+capability; the transition trail (`items_read` `history`) never returns them on either surface. See
+[api-rest.md](api-rest.md) sections 8 (`VerificationDto`) and 22.
 
 **VerificationStatus values:**
 

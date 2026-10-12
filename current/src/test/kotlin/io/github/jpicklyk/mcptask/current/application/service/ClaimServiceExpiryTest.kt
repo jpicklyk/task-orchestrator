@@ -98,7 +98,6 @@ class ClaimServiceExpiryTest {
     private fun advanceService(rig: ClaimRig) =
         AdvanceService(
             workItemRepository = rig.provider.workItemRepository(),
-            roleTransitionRepository = rig.provider.roleTransitionRepository(),
             dependencyRepository = rig.provider.dependencyRepository(),
             noteRepository = rig.provider.noteRepository(),
             schemaResolver = { null },

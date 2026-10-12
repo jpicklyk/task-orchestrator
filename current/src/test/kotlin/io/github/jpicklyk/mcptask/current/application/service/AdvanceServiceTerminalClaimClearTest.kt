@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -57,7 +56,6 @@ import kotlin.test.assertTrue
 class AdvanceServiceTerminalClaimClearTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
-    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
     private lateinit var advanceStores: AdvanceMockStores
 
@@ -71,7 +69,6 @@ class AdvanceServiceTerminalClaimClearTest {
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         advanceStores = AdvanceMockStores(workItemRepo, depRepo)
         updatedItems.clear()
@@ -86,7 +83,6 @@ class AdvanceServiceTerminalClaimClearTest {
             clearedIds.add(firstArg())
             true
         }
-        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -123,7 +119,6 @@ class AdvanceServiceTerminalClaimClearTest {
     private fun serviceWith(): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
             schemaResolver = { null },

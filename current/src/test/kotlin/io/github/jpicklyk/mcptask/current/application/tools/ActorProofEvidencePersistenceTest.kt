@@ -22,15 +22,18 @@ import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
 import io.github.jpicklyk.mcptask.current.test.notesWriteFromLegacyParams
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -120,17 +123,20 @@ class ActorProofEvidencePersistenceTest {
     }
 
     /**
-     * Same as [rawNoteProofColumns] but for `role_transitions`. Assumes exactly one row exists in
-     * the table (true for every B1 test, each using its own freshly-created, isolated SQLite database).
+     * The proof columns of the `item.transitioned` event row (its audit record since `role_transitions` was retired):
+     * the events table has no raw-proof column, so the first member is the payload's `actorProof` (always absent), and the
+     * second its `actorProofSha256`. Assumes exactly one such row exists (true for every B1 test, each using its own
+     * freshly-created, isolated SQLite database).
      */
     private fun rawTransitionProofColumns(): Pair<String?, String?> {
         var proof: String? = null
         var sha: String? = null
         transaction(db = database) {
-            exec("SELECT actor_proof, actor_proof_sha256 FROM role_transitions") { rs ->
+            exec("SELECT data FROM events WHERE type = 'item.transitioned'") { rs ->
                 if (rs.next()) {
-                    proof = rs.getString("actor_proof")
-                    sha = rs.getString("actor_proof_sha256")
+                    val data = Json.parseToJsonElement(rs.getString("data")).jsonObject
+                    proof = data["actorProof"]?.jsonPrimitive?.contentOrNull
+                    sha = data["actorProofSha256"]?.jsonPrimitive?.contentOrNull
                 }
             }
         }
@@ -339,7 +345,7 @@ class ActorProofEvidencePersistenceTest {
         }
 
     @Test
-    fun `B1c raw SQL confirms actor_proof is NULL and actor_proof_sha256 is set at rest after advance_item`(): Unit =
+    fun `B1c raw SQL confirms the transition event holds no raw proof and the proof hash at rest after advance_item`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val expectedHash = sha256Hex("abc")
@@ -363,12 +369,12 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val (rawProof, rawSha) = rawTransitionProofColumns()
-            assertNull(rawProof, "physical role_transitions.actor_proof column must be NULL at rest after advance_item")
-            assertEquals(expectedHash, rawSha, "physical role_transitions.actor_proof_sha256 column must hold the expected hash at rest")
+            assertNull(rawProof, "the item.transitioned event must carry no raw actorProof after advance_item")
+            assertEquals(expectedHash, rawSha, "the item.transitioned event must hold the expected hash at rest")
         }
 
     // ===========================================================================================
-    // S2 -- advance_item, same actor -> role_transitions row same treatment
+    // S2 -- advance_item, same actor -> the item.transitioned event gets the same treatment
     // ===========================================================================================
 
     @Test
@@ -395,7 +401,7 @@ class ActorProofEvidencePersistenceTest {
                 context
             ) as JsonObject
 
-            val transitions = repositoryProvider.roleTransitionRepository().findByItemId(UUID.fromString(itemId))
+            val transitions = repositoryProvider.transitionsOf(UUID.fromString(itemId))
             assertNotNull(transitions, "expected transitions to be found; got $transitions")
             val transition = transitions.single()
             assertNull(transition.actorClaim?.proof, "raw proof must be scrubbed to null per item 983615e7 D5")
@@ -478,7 +484,7 @@ class ActorProofEvidencePersistenceTest {
                 verifiedContext
             ) as JsonObject
 
-            val transitions = repositoryProvider.roleTransitionRepository().findByItemId(UUID.fromString(itemId))
+            val transitions = repositoryProvider.transitionsOf(UUID.fromString(itemId))
             assertNotNull(transitions)
             val transition = transitions.single()
             assertNull(transition.actorClaim?.proof)

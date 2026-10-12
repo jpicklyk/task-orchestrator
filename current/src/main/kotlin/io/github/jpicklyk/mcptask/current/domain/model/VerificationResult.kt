@@ -54,8 +54,8 @@ enum class VerificationStatus {
  * @param proofSha256 Lowercase hex SHA-256 digest of the raw proof's UTF-8 bytes, computed by
  *   [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.parseActorClaim] whenever a
  *   non-blank proof was supplied — independent of verification outcome. This is the durable,
- *   non-replayable forensic trace persisted in place of the raw proof (see `NotesTable` /
- *   `RoleTransitionsTable` `actor_proof_sha256`). Null when no proof was supplied.
+ *   non-replayable forensic trace persisted in place of the raw proof (see `NotesTable`
+ *   `actor_proof_sha256` and the `item.transitioned` event payload). Null when no proof was supplied.
  * @param proofClaims Verified JWT claims (see [ProofClaims]); populated only on
  *   [VerificationStatus.VERIFIED] by [JwksActorVerifier]. Null otherwise.
  */

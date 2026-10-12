@@ -48,7 +48,8 @@ object SeedV17 : MigrationSeed(17) {
     }
 
     override fun verify(conn: Connection) {
-        for (table in listOf("notes", "role_transitions")) {
+        // role_transitions is gone at the latest schema (V29 relocated its rows into events, which hold no raw proof).
+        for (table in listOf("notes")) {
             val remaining =
                 conn.createStatement().use { st ->
                     st.executeQuery("SELECT count(*) FROM $table WHERE actor_proof IS NOT NULL").use { rs ->

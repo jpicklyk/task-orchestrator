@@ -96,6 +96,9 @@ object SeedV18 : MigrationSeed(18) {
             COLUMNS.flatMap { (table, columns) ->
                 if (table == "project_config") {
                     listOf("config_heads" to listOf("updated_at"), "config_versions" to listOf("created_at"))
+                } else if (table == "role_transitions") {
+                    // V29 relocated the transition rows into events (transitioned_at became occurred_at).
+                    listOf("events" to listOf("occurred_at"))
                 } else {
                     listOf(table to columns)
                 }

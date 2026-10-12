@@ -271,7 +271,7 @@ object SeedV27 : MigrationSeed(27) {
 
     private fun verifyOtherTablesUnchanged(conn: Connection) {
         val pre = before ?: error("SeedV27.seed did not run before the migration")
-        for ((table, rows) in pre) {
+        for ((table, rows) in SeedV29.afterRelocation(pre)) {
             if (table == "data_steps") continue
             assertEquals(rows, count(conn, table), "$table row count changed across V27 and the step")
         }

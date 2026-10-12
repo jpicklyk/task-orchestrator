@@ -260,7 +260,6 @@ class TestInfrastructureTest {
         assertSame(mock.workItemRepo, mock.provider.workItemRepository())
         assertSame(mock.noteRepo, mock.provider.noteRepository())
         assertSame(mock.depRepo, mock.provider.dependencyRepository())
-        assertSame(mock.roleTransitionRepo, mock.provider.roleTransitionRepository())
     }
 
     @Test

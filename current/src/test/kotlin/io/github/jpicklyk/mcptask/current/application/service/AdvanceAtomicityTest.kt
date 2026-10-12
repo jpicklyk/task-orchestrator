@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -58,8 +59,9 @@ class AdvanceAtomicityTest {
     private fun driver(dir: Path) = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
 
     private val failSecondTransitionRow =
-        "CREATE TRIGGER p11_second_row BEFORE INSERT ON role_transitions " +
-            "WHEN (SELECT count(*) FROM role_transitions) >= 1 BEGIN SELECT RAISE(ABORT, 'inj'); END"
+        "CREATE TRIGGER p11_second_row BEFORE INSERT ON events " +
+            "WHEN NEW.type = 'item.transitioned' AND (SELECT count(*) FROM events WHERE type = 'item.transitioned') >= 1 " +
+            "BEGIN SELECT RAISE(ABORT, 'inj'); END"
 
     private val failLeaseRelease =
         arrayOf(
@@ -74,7 +76,7 @@ class AdvanceAtomicityTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9 a fault in the cascade's transition row rolls back the primary, the rows and the events`(
+    fun `S9 a fault in the cascade's transition event rolls back the primary and the events`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -90,7 +92,11 @@ class AdvanceAtomicityTest {
             assertEquals("apply_failed", r.text("errorCode"), "$r")
             assertEquals(Role.WORK, d.role(child), "the PRIMARY rolls back with the failed cascade")
             assertEquals(Role.WORK, d.role(parent))
-            assertEquals(0, rawCount(d.jdbcUrl, "SELECT count(*) FROM role_transitions"), "no transition row survives")
+            assertEquals(
+                0,
+                rawCount(d.jdbcUrl, "SELECT count(*) FROM events WHERE type = 'item.transitioned'"),
+                "no transition row survives"
+            )
             assertEquals(emptyList(), d.rig.rowsAfter(mark), "no event row survives a rolled-back advance")
             assertEquals(null, d.reload(child).statusLabel, "no label stamped")
 
@@ -102,7 +108,7 @@ class AdvanceAtomicityTest {
             assertEquals(true, ok.flag("applied"), "control: $ok")
             assertEquals(Role.TERMINAL, d.role(child2))
             assertEquals(Role.TERMINAL, d.role(parent2))
-            assertEquals(2, rawCount(d.jdbcUrl, "SELECT count(*) FROM role_transitions"))
+            assertEquals(2, rawCount(d.jdbcUrl, "SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
             assertEquals(
                 2,
                 d.rig
@@ -218,8 +224,8 @@ class AdvanceAtomicityTest {
             assertEquals(Role.TERMINAL, items.getById(child.id)!!.role)
             assertEquals(0, r.arr("cascadeEvents").size, "the failed cascade produces no cascade event: $r")
             assertEquals(Role.WORK, items.getById(parent.id)!!.role, "the parent was not cascaded")
-            assertEquals(0, provider.roleTransitionRepository().findByItemId(parent.id, limit = 10).size)
-            assertEquals(1, provider.roleTransitionRepository().findByItemId(child.id, limit = 10).size)
+            assertEquals(0, provider.transitionsOf(parent.id).size)
+            assertEquals(1, provider.transitionsOf(child.id).size)
         }
 
     private fun JsonElement.resultEntry(): JsonObject = ((this as JsonObject)["data"] as JsonObject).arr("results")[0].jsonObject

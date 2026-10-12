@@ -132,6 +132,12 @@ class FlywayOnlyMigrationTest {
                 it.getString(1)
             }
         exec(url, *v17ProjectConfig.toTypedArray())
+        // V29 dropped role_transitions (after copying its rows into events): restore its exact V17 DDL from the same reference.
+        val v17RoleTransitions =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'role_transitions' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17RoleTransitions.toTypedArray())
         // V26 recreated `work_items` (nullable role, pin columns) and the two item FTS tables (description, no prefix):
         // restore the exact V17 DDL from the same reference copy, carrying the rows across.
         val v17WorkItems =

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -52,12 +51,11 @@ import kotlin.test.assertTrue
 
 /**
  * Independent tests (test-author seat, item 02f1be4c "Q28a: widen the item.transitioned payload") over the production
- * composition: an applied transition's event row carries the full audit that its role_transitions row carries.
+ * composition: an applied transition's event row carries the full audit (the former role_transitions row, retired in
+ * Q28b, is no longer a second source).
  *
- * Oracles: plan section 3.4 (the six audit fields; post-Q28a history is complete), U4 (a backfill keeps every audit
- * column, so event equals row), and the item's frozen task-scope D1-D3 / AC1-AC5. Every expected value below is
- * either an input the test chose or the matching field of the role_transitions row read back through the store; none
- * is read from the implementation.
+ * Oracles: plan section 3.4 (the six audit fields; post-Q28a history is complete) and the item's frozen task-scope
+ * D1-D3 / AC1-AC5. Every expected value below is an input the test chose.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class TransitionEventAuditPayloadTest {
@@ -139,28 +137,6 @@ class TransitionEventAuditPayloadTest {
         return built.takeIf { it.isNotEmpty() }
     }
 
-    /** Every audit field of [event] equals the matching column of its role_transitions [row] (oracle U4, AC2). */
-    private fun assertParity(
-        event: EventRecord,
-        row: RoleTransition,
-        label: String,
-    ) {
-        assertEquals(row.trigger, event.str("trigger"), "$label trigger")
-        assertEquals(row.fromRole, event.str("fromRole"), "$label fromRole")
-        assertEquals(row.toRole, event.str("toRole"), "$label toRole")
-        assertEquals(row.fromStatusLabel, event.str("fromStatusLabel"), "$label fromStatusLabel")
-        assertEquals(row.toStatusLabel, event.str("toStatusLabel"), "$label toStatusLabel")
-        assertEquals(row.summary, event.str("summary"), "$label summary")
-        assertEquals(row.consumedCredentials, event.credentials(), "$label consumedCredentials")
-        assertEquals(row.verification?.proofSha256, event.str("actorProofSha256"), "$label actorProofSha256")
-        assertEquals(row.verification?.verifier, event.str("verifier"), "$label verifier")
-        assertEquals(row.verification?.reason, event.str("verificationReason"), "$label verificationReason")
-        assertEquals(expectedClaims(row.verification?.proofClaims), event.payload().orNull("actorProofClaims"), "$label actorProofClaims")
-        assertEquals(row.actorClaim?.id, event.principalId, "$label principal id")
-        assertEquals(row.actorClaim?.parent, event.str("actorParent"), "$label actor parent")
-        assertEquals(row.verification?.status?.toJsonString(), event.proofStatus, "$label proof status")
-    }
-
     /** All column values of one events row as strings, read through raw JDBC. */
     private fun eventColumns(seq: Long): Map<String, String?> =
         DriverManager.getConnection(db.db.jdbcUrl).use { c ->
@@ -220,11 +196,11 @@ class TransitionEventAuditPayloadTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // S2 -- event == role_transitions row for the primary and the cascade (AC2)
+    // S2 -- the primary and the cascade each record one event with the chosen inputs (AC2)
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S2 every item transitioned event equals its role_transitions row for the primary and for the start cascade`(
+    fun `S2 the primary and the start cascade each record one item transitioned event carrying the chosen inputs`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -241,16 +217,15 @@ class TransitionEventAuditPayloadTest {
                 events.size,
                 "one user event for the child and one cascade event for the parent: ${events.map { it.str("origin") }}"
             )
-            for (event in events) {
-                val row =
-                    d.raw
-                        .roleTransitionRepository()
-                        .findByItemId(event.entityId, limit = 500)
-                        .single()
-                assertParity(event, row, "${event.str("origin")}/${event.entityId}")
-            }
             assertEquals(setOf("user", "cascade"), events.map { it.str("origin") }.toSet())
-            assertEquals("s2", events.single { it.entityId == child.id }.str("summary"))
+            val primary = events.single { it.entityId == child.id }
+            assertEquals("s2", primary.str("summary"))
+            assertEquals(listOf("c1", "c2"), primary.credentials())
+            assertEquals("agent-q28a", primary.principalId)
+            assertEquals("parent-q28a", primary.str("actorParent"))
+            assertEquals("verified", primary.proofStatus)
+            assertEquals("sha-q28a", primary.str("actorProofSha256"))
+            assertEquals(expectedClaims(fullClaims), primary.payload().orNull("actorProofClaims"))
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -274,16 +249,13 @@ class TransitionEventAuditPayloadTest {
                     .rowsAfter(mark)
                     .transitioned()
                     .single { it.entityId == parent.id }
-            val row = d.transitions(parent).single()
             assertEquals("cascade", cascade.str("origin"))
-            assertNotNull(row.summary, "control: the cascade row stores its reason as the summary")
-            assertEquals(row.summary, cascade.str("summary"))
+            assertNotNull(cascade.str("summary"), "the cascade event stores its reason as the summary")
             assertEquals(emptyList(), cascade.credentials())
             for (key in listOf("actorProofSha256", "actorProofClaims", "verifier", "verificationReason")) {
                 assertTrue(cascade.payload().containsKey(key), "$key is present on a cascade event")
                 assertEquals(JsonNull, cascade.payload()[key], "$key is null on a cascade event")
             }
-            assertParity(cascade, row, "cascade")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -314,7 +286,6 @@ class TransitionEventAuditPayloadTest {
             assertEquals(JsonNull, data["actorProofClaims"])
             assertEquals(JsonNull, data["verifier"])
             assertEquals(JsonNull, data["verificationReason"])
-            assertParity(event, d.transitions(item).single(), "absent inputs")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -379,14 +350,6 @@ class TransitionEventAuditPayloadTest {
                 assertTrue(event.payload().containsKey("actorProofClaims"))
                 assertEquals(JsonNull, event.payload()["actorProofClaims"], "no claims -> null, not an empty object")
                 assertEquals("rejected", event.proofStatus)
-                assertParity(
-                    event,
-                    d.raw
-                        .roleTransitionRepository()
-                        .findByItemId(event.entityId, limit = 500)
-                        .single(),
-                    "rejected"
-                )
             }
         }
 
@@ -395,7 +358,7 @@ class TransitionEventAuditPayloadTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S7 the lease key merged into consumedCredentials at work entry appears in the event exactly as in the row`(
+    fun `S7 the lease key merged into consumedCredentials at work entry appears in the event`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -410,9 +373,7 @@ class TransitionEventAuditPayloadTest {
                     .rowsAfter(mark)
                     .transitioned()
                     .single()
-            val row = d.transitions(item).single()
-            assertTrue(P11_LEASE_KEY in row.consumedCredentials, "control: the row records the lease key: ${row.consumedCredentials}")
-            assertEquals(row.consumedCredentials, event.credentials())
+            assertTrue(P11_LEASE_KEY in event.credentials(), "the event records the lease key: ${event.credentials()}")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -579,7 +540,7 @@ class TransitionEventAuditPayloadTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `probe duplicate credential labels and a non-ASCII summary reach the event exactly as the row stores them`(
+    fun `probe duplicate credential labels and a non-ASCII summary reach the event as given`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -595,10 +556,8 @@ class TransitionEventAuditPayloadTest {
                     .rowsAfter(mark)
                     .transitioned()
                     .single()
-            val row = d.transitions(item).single()
-            assertEquals(summary, row.summary, "control: the row round-trips the summary")
             assertEquals(summary, event.str("summary"))
-            assertEquals(row.consumedCredentials, event.credentials())
+            assertEquals(listOf("a", "a", "b"), event.credentials())
         }
 
     @Test
@@ -617,11 +576,11 @@ class TransitionEventAuditPayloadTest {
                     .rowsAfter(mark)
                     .transitioned()
                     .single()
-            assertEquals(d.transitions(item).single().summary, event.str("summary"))
+            assertEquals("", event.str("summary"))
         }
 
     @Test
-    fun `probe a replayed keyed advance records one event and that event equals the row`(
+    fun `probe a replayed keyed advance records one event`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -638,7 +597,6 @@ class TransitionEventAuditPayloadTest {
             assertEquals(1, events.size, "the replay must not record a second event")
             val data = events.single().payload()
             for (key2 in auditKeys) assertTrue(data.containsKey(key2), "$key2 present on the tool path")
-            assertParity(events.single(), d.transitions(item).single(), "tool path")
             assertEquals(Role.WORK, d.reload(item).role)
         }
 }

@@ -46,7 +46,6 @@ class SQLiteTerminalClaimClearTest {
     private fun advanceService(): AdvanceService =
         AdvanceService(
             workItemRepository = repositoryProvider.workItemRepository(),
-            roleTransitionRepository = repositoryProvider.roleTransitionRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
             noteRepository = repositoryProvider.noteRepository(),
             schemaResolver = { null },

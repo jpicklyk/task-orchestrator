@@ -79,7 +79,6 @@ abstract class FullApiWiringSmokeScenarios(
                 )
                 // Phase 3 read
                 itemRoutes(decorated)
-                transitionRoutes(decorated)
                 // Phase 4 config: only the published JSON Schema is a route (everything else is the `config` tool)
                 configSchemaRoute()
             }
@@ -111,12 +110,7 @@ abstract class FullApiWiringSmokeScenarios(
             )
 
             // Read route: 401 without auth, 200 with a READ token — capability gate active
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/transitions").status, "read requires auth")
-            assertEquals(
-                HttpStatusCode.OK,
-                client.get("/api/v1/transitions") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "READ token reads transitions",
-            )
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/config/schema").status, "read requires auth")
 
             // Phase 4 config route reachable on the combined surface
             assertEquals(

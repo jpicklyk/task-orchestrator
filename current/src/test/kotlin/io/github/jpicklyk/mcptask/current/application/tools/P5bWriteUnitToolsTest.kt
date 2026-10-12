@@ -151,7 +151,9 @@ class P5bWriteUnitToolsTest {
     fun `S3 advance - an audit-row fault leaves role and version untouched and no transition row, then succeeds once healthy`(): Unit =
         runBlocking {
             val item = repo.create(WorkItem(title = "S3 advance", role = Role.QUEUE, depth = 0))
-            rawExec("CREATE TRIGGER s3_adv BEFORE INSERT ON role_transitions BEGIN SELECT RAISE(ABORT, 'inj'); END")
+            rawExec(
+                "CREATE TRIGGER s3_adv BEFORE INSERT ON events WHEN NEW.type = 'item.transitioned' BEGIN SELECT RAISE(ABORT, 'inj'); END"
+            )
             val (ctx, _) = contextOver()
             val params =
                 obj(
@@ -172,13 +174,13 @@ class P5bWriteUnitToolsTest {
             val after = assertNotNull(repo.getById(item.id))
             assertEquals(Role.QUEUE, after.role, "role must be unchanged")
             assertEquals(item.version, after.version, "version must be unchanged")
-            assertEquals(0, rawInt("SELECT count(*) FROM role_transitions"), "no audit row")
+            assertEquals(0, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"), "no audit row")
 
             rawExec("DROP TRIGGER s3_adv")
             val healthy = AdvanceItemTool().execute(params, contextOver().first)
             assertTrue("\"applied\":true" in healthy.toString(), "control: with the trigger gone the same call applies: $healthy")
             assertEquals(Role.WORK, assertNotNull(repo.getById(item.id)).role)
-            assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"))
+            assertEquals(1, rawInt("SELECT count(*) FROM events WHERE type = 'item.transitioned'"))
         }
 
     // ---------------------------------------------------------------- S4 (MCP text)

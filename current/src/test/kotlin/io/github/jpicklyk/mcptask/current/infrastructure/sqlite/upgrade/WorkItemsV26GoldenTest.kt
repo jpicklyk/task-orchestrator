@@ -488,6 +488,8 @@ class WorkItemsV26GoldenTest {
             }
 
             for ((table, columnsBefore) in before) {
+                // V29 dropped role_transitions (its rows live in events, which has no foreign key).
+                if (table == "role_transitions") continue
                 assertEquals(columnsBefore, fksToWorkItems(conn, table), "$table keeps its foreign keys to work_items by name")
             }
         }

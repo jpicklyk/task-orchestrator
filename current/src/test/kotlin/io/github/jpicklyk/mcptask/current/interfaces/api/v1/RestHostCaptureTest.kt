@@ -186,7 +186,7 @@ class RestHostCaptureTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
 
-            val response = client.send("/transitions", extra = host("Pi") + ua("curl/8.4.0"))
+            val response = client.send("/resources/leases", extra = host("Pi") + ua("curl/8.4.0"))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             val row = rowOf(response)
@@ -202,7 +202,7 @@ class RestHostCaptureTest {
             application { configureApp(rig.composition, writer) }
 
             assertEquals("UA=[curl/8.4.0];XCH=[<none>]", client.echo(ua("curl/8.4.0")), "harness proof for this request shape")
-            val response = client.send("/transitions", extra = ua("curl/8.4.0"))
+            val response = client.send("/resources/leases", extra = ua("curl/8.4.0"))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             assertEquals("curl", rowOf(response)["host"])
@@ -217,7 +217,7 @@ class RestHostCaptureTest {
 
             val response =
                 client.send(
-                    "/transitions",
+                    "/resources/leases",
                     extra = ua("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36")
                 )
             writer.flushNow()
@@ -236,7 +236,7 @@ class RestHostCaptureTest {
                 client.echo(ua("")),
                 "harness proof: the server sees an empty User-Agent and no X-Client-Host"
             )
-            val response = client.send("/transitions", extra = ua(""))
+            val response = client.send("/resources/leases", extra = ua(""))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             assertEquals("rest", rowOf(response)["host"])

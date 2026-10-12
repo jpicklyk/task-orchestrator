@@ -1,19 +1,28 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.EventPage
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.EventsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -22,6 +31,9 @@ import java.util.UUID
  * [append] inserts one row at a time so each row gets its AUTOINCREMENT seq back; inside a unit the rows of
  * one unit are therefore contiguous (one writer transaction at a time). Root-scoped reads use the
  * `(root_id, seq)` index; unscoped reads walk the primary key.
+ *
+ * Backfilled rows (seq 1..N, below [EventStore.SEQ_FLOOR]) are history: [readAfter] and [maxSeq] are floored so the
+ * stream never sees them, while [findByEntity] and [findByTypes] read them.
  */
 class SqliteEventStore(
     private val databaseManager: DatabaseManager
@@ -59,14 +71,15 @@ class SqliteEventStore(
         limit: Int
     ): List<EventRecord> {
         if (rootIds != null && rootIds.isEmpty()) return emptyList()
+        val from = maxOf(afterSeq, EventStore.SEQ_FLOOR)
         return databaseManager.readTx {
             EventsTable
                 .selectAll()
                 .where {
                     if (rootIds == null) {
-                        EventsTable.seq greater afterSeq
+                        EventsTable.seq greater from
                     } else {
-                        (EventsTable.seq greater afterSeq) and (EventsTable.rootItemId inList rootIds)
+                        (EventsTable.seq greater from) and (EventsTable.rootItemId inList rootIds)
                     }
                 }.orderBy(EventsTable.seq to SortOrder.ASC)
                 .limit(limit)
@@ -102,10 +115,84 @@ class SqliteEventStore(
     }
 
     override suspend fun maxSeq(): Long =
-        databaseManager.readTx {
-            val maxExpr = EventsTable.seq.max()
-            EventsTable.select(maxExpr).singleOrNull()?.get(maxExpr)
-        } ?: EventStore.SEQ_FLOOR
+        databaseManager
+            .readTx {
+                val maxExpr = EventsTable.seq.max()
+                EventsTable.select(maxExpr).singleOrNull()?.get(maxExpr)
+            }.let { maxOf(it ?: EventStore.SEQ_FLOOR, EventStore.SEQ_FLOOR) }
+
+    override suspend fun findByEntity(
+        entityId: UUID,
+        types: Set<String>,
+        page: PageRequest,
+        since: Instant?,
+        until: Instant?
+    ): EventPage {
+        if (types.isEmpty()) return EventPage(emptyList(), 0)
+        return databaseManager.readTx {
+            var condition: Op<Boolean> = (EventsTable.entityId eq entityId) and (EventsTable.type inList types)
+            since?.let { condition = condition and (EventsTable.occurredAt greaterEq it) }
+            until?.let { condition = condition and (EventsTable.occurredAt lessEq it) }
+            val total =
+                EventsTable
+                    .selectAll()
+                    .where { condition }
+                    .count()
+                    .toInt()
+            val items =
+                EventsTable
+                    .selectAll()
+                    .where { condition }
+                    .orderBy(EventsTable.seq to SortOrder.DESC)
+                    .limit(page.limit)
+                    .offset(page.offset.toLong())
+                    .map(::toRecord)
+            EventPage(items, total)
+        }
+    }
+
+    override suspend fun findByTypes(
+        types: Set<String>,
+        since: Instant?,
+        until: Instant?,
+        scope: AccessScope,
+        page: PageRequest
+    ): EventPage {
+        if (types.isEmpty() || scope.rootIds?.isEmpty() == true) return EventPage(emptyList(), 0)
+        return databaseManager.readTx {
+            val conditions = ArrayList<Op<Boolean>>()
+            conditions.add(EventsTable.type inList types)
+            since?.let { conditions.add(EventsTable.occurredAt greaterEq it) }
+            until?.let { conditions.add(EventsTable.occurredAt lessEq it) }
+            scope.rootIds?.let { conditions.add(EventsTable.rootItemId inList it) }
+            val tagScoped = scope.tagsInclude.isNotEmpty()
+            if (tagScoped) conditions.add(TagAllowlistOp(WorkItemsTable.tags, scope.tagsInclude))
+            val combined = conditions.reduce { acc, op -> acc and op }
+            // A tag-scoped read joins the item row (an event whose item is gone has no tags and is invisible); the other
+            // scopes read the events alone, so a deleted item's history stays visible to them.
+            val source =
+                if (tagScoped) {
+                    EventsTable.join(WorkItemsTable, JoinType.INNER, EventsTable.entityId, WorkItemsTable.id)
+                } else {
+                    EventsTable
+                }
+            val total =
+                source
+                    .select(EventsTable.seq)
+                    .where { combined }
+                    .count()
+                    .toInt()
+            val items =
+                source
+                    .select(EventsTable.columns)
+                    .where { combined }
+                    .orderBy(EventsTable.seq to SortOrder.DESC)
+                    .limit(page.limit)
+                    .offset(page.offset.toLong())
+                    .map(::toRecord)
+            EventPage(items, total)
+        }
+    }
 
     private fun toRecord(row: ResultRow): EventRecord =
         EventRecord(

@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -36,7 +35,6 @@ import io.ktor.util.Attributes
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
@@ -54,11 +52,9 @@ import kotlin.test.assertTrue
  * regression guard, plus the oracle that the deprecated include token is now a silent no-op (no
  * `Warning` header, no error).
  *
- * Uses [transitionRoutes]'s explicit `redactAttribution` parameter where the scenario needs to
- * control redaction independent of the process environment (S7, S9); uses [noteRoutes] /
- * [itemRoutes] (env-driven, real `AppConfig.fromEnv()`) where the scenario only needs an admin vs.
- * non-admin distinction (S5, S6, S8), matching [NoteRoutesTest]'s existing convention for those
- * routes.
+ * Uses [noteRoutes] / [itemRoutes] (env-driven, real `AppConfig.fromEnv()`) where the scenario only
+ * needs an admin vs. non-admin distinction (S5, S6, S8), matching [NoteRoutesTest]'s existing convention
+ * for those routes. The 3.x transition-route scenarios (S5 transitions, S7, S9) went with the routes (Q28b).
  *
  * `src/main` was not opened while writing this file. Evidence rows are built directly via the
  * repository (`Note`/`RoleTransition` domain constructors with an explicit `VerificationResult`
@@ -141,47 +137,6 @@ class ProofEvidenceRestTest {
             }
         }
 
-    @Test
-    fun `S5 admin GET transitions shows verification proof evidence with matching fields, actor proof absent`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val sha = "beefdead".repeat(8)
-            val claims = ProofClaims(iss = "https://test-issuer.example", sub = "agent-evidence-t", kid = "kid-s5b", alg = "RS256")
-            val item =
-                runBlocking { repo.workItemRepository().create(WorkItem(title = "Evidence transition item", depth = 0))!! }
-            runBlocking {
-                repo.roleTransitionRepository().create(
-                    RoleTransition(
-                        itemId = item.id,
-                        fromRole = "queue",
-                        toRole = "work",
-                        trigger = "start",
-                        actorClaim = ActorClaim(id = "agent-evidence-t", kind = ActorKind.SUBAGENT),
-                        verification =
-                            VerificationResult(
-                                status = VerificationStatus.VERIFIED,
-                                verifier = "jwks",
-                                proofSha256 = sha,
-                                proofClaims = claims
-                            )
-                    )
-                )
-            }
-            application { configureTestApp { transitionRoutes(repo) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/transitions") {
-                    header("Authorization", "Bearer $ADMIN_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("\"sha256\":\"$sha\""), "expected sha256 evidence: $body")
-            assertTrue(body.contains("\"iss\":\"https://test-issuer.example\""), "expected iss claim: $body")
-            assertTrue(body.contains("\"sub\":\"agent-evidence-t\""), "expected sub claim: $body")
-            assertTrue(body.contains("\"kid\":\"kid-s5b\""), "expected kid claim: $body")
-            assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value on the wire: $body")
-        }
-
     // ===========================================================================================
     // S6 (EXISTING-SURFACE, declared guard) -- non-admin, default attribution redaction (true) ->
     // actor+verification null. api-rest.md:1717. Duplicates NoteRoutesTest's existing "redacts
@@ -206,50 +161,6 @@ class ProofEvidenceRestTest {
             assertFalse(body.contains("\"actor\""), "non-admin must see no actor under default redaction: $body")
             assertFalse(body.contains("\"verification\""), "non-admin must see no verification under default redaction: $body")
         }
-
-    // ===========================================================================================
-    // S7 -- non-admin, NOTE_ATTRIBUTION=false -> verification shown, verification.proof null,
-    // actor.proof absent. D6
-    // ===========================================================================================
-
-    @Test
-    fun `S7 non-admin with attribution redaction disabled sees verification but never its proof evidence`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val sha = "cafebabe".repeat(8)
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 item", depth = 0))!! }
-            runBlocking {
-                repo.roleTransitionRepository().create(
-                    RoleTransition(
-                        itemId = item.id,
-                        fromRole = "queue",
-                        toRole = "work",
-                        trigger = "start",
-                        actorClaim = ActorClaim(id = "agent-s7", kind = ActorKind.SUBAGENT),
-                        verification =
-                            VerificationResult(
-                                status = VerificationStatus.VERIFIED,
-                                verifier = "jwks",
-                                proofSha256 = sha,
-                                proofClaims = ProofClaims(iss = "https://test-issuer.example", sub = "agent-s7")
-                            )
-                    )
-                )
-            }
-            application { configureTestApp { transitionRoutes(repo, redactAttribution = false) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/transitions") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("\"status\":\"verified\""), "verification must be shown when attribution redaction is disabled: $body")
-            assertFalse(body.contains("\"sha256\":\"$sha\""), "non-admin must never see the proof evidence sha256: $body")
-            assertFalse(body.contains("\"proof\":{"), "non-admin must never see a proof evidence object: $body")
-            assertFalse(body.contains("\"proof\":\""), "non-admin must never see actor.proof with a value: $body")
-        }
-
     // ===========================================================================================
     // O1 (reviewer-flagged gap) -- the NOTE path's non-admin proof strip was untested (S7 above
     // only exercises the TRANSITION path, via transitionRoutes' explicit redactAttribution
@@ -355,48 +266,5 @@ class ProofEvidenceRestTest {
                 body.contains("\"code\":\"invalid_request\"") && body.contains("include"),
                 "unknown query parameters are rejected: $body"
             )
-        }
-
-    // ===========================================================================================
-    // S9 (EXISTING-SURFACE) -- redactAttribution=false + a row whose actor_proof was set by raw
-    // SQL -> REST actor.proof still absent (defense in depth: mapRow never reads actor_proof). D5-6
-    // ===========================================================================================
-
-    @Test
-    fun `S9 a transition row whose actor_proof was set by raw SQL still returns actor proof null even with redaction fully disabled`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val database = db.database
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Raw SQL row", depth = 0))!! }
-            runBlocking {
-                repo.roleTransitionRepository().create(
-                    RoleTransition(
-                        itemId = item.id,
-                        fromRole = "queue",
-                        toRole = "work",
-                        trigger = "start",
-                        actorClaim = ActorClaim(id = "agent-raw", kind = ActorKind.SUBAGENT),
-                        verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
-                    )
-                )
-            }
-            // Bypass the repository entirely (the fix always nulls actor_proof on write) to
-            // simulate a row that somehow still carries a raw value in that column -- e.g. written
-            // before this fix. This is the only role_transitions row in this fresh, isolated SQLite
-            // database, so no WHERE clause / id-type assumption is needed.
-            transaction(db = database) {
-                exec("UPDATE role_transitions SET actor_proof = 'raw-sql-secret-proof'")
-            }
-
-            application { configureTestApp { transitionRoutes(repo, redactAttribution = false) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/transitions") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val body = response.bodyAsText()
-            assertFalse(body.contains("raw-sql-secret-proof"), "a raw-SQL-set actor_proof must never reach the REST response: $body")
-            assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value even with all redaction disabled: $body")
         }
 }
