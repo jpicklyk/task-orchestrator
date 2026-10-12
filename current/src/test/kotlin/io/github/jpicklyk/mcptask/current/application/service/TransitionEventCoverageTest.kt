@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
@@ -45,8 +44,8 @@ class TransitionEventCoverageTest {
             val child = d.item("child", Role.QUEUE, parent = parent)
             val mark = d.rig.maxSeq()
 
-            assertEquals(true, d.advance(child, "start").flag("applied"))
-            assertEquals(true, d.advance(child, "complete").flag("applied"))
+            assertEquals(true, d.advance(child, "start").flag("ok"))
+            assertEquals(true, d.advance(child, "complete").flag("ok"))
 
             val rows = d.rig.rowsAfter(mark).transitioned()
             assertEquals(5, rows.size, "start cascades one level (parent only), complete cascades two ancestors: ${rows.map { it.type }}")
@@ -84,7 +83,7 @@ class TransitionEventCoverageTest {
             val mark = d.rig.maxSeq()
             val sequence = listOf("start", "block", "resume", "hold", "resume", "complete", "reopen", "cancel")
 
-            sequence.forEach { trigger -> assertEquals(true, d.advance(item, trigger).flag("applied"), "$trigger must apply") }
+            sequence.forEach { trigger -> assertEquals(true, d.advance(item, trigger).flag("ok"), "$trigger must apply") }
 
             val rows =
                 d.rig
@@ -105,8 +104,8 @@ class TransitionEventCoverageTest {
             val done = d.item("done", Role.TERMINAL)
             val mark = d.rig.maxSeq()
 
-            assertEquals(false, d.advance(gated, "start").flag("applied"))
-            assertEquals(false, d.advance(done, "start").flag("applied"))
+            assertEquals(false, d.advance(gated, "start").flag("ok"))
+            assertEquals(false, d.advance(done, "start").flag("ok"))
 
             assertEquals(emptyList(), d.rig.rowsAfter(mark).transitioned())
         }
@@ -119,11 +118,10 @@ class TransitionEventCoverageTest {
             val d = driver(dir)
             val item = d.item("keyed", Role.QUEUE)
             val key = UUID.randomUUID().toString()
-            val params = d.advanceParams(item, "start", actor = "agent-1", requestId = key)
             val mark = d.rig.maxSeq()
 
-            d.rig.call(AdvanceItemTool(), *params)
-            d.rig.call(AdvanceItemTool(), *params)
+            d.advanceEnvelope(item, "start", actor = "agent-1", idempotencyKey = key)
+            d.advanceEnvelope(item, "start", actor = "agent-1", idempotencyKey = key)
 
             assertEquals(
                 1,

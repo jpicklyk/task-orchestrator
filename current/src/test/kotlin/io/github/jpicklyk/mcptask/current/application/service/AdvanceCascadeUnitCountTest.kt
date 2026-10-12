@@ -1,21 +1,20 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.actorJson
+import io.github.jpicklyk.mcptask.current.test.advanceDirect
+import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.success
+import io.github.jpicklyk.mcptask.current.test.transitionOp
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -32,43 +31,15 @@ import kotlin.test.assertFalse
  * own). A cascade that ran in its own outermost unit after the primary committed would raise the outermost write count
  * above one, which is what these tests pin. Each test first proves the cascade really happened (cascade events, roles),
  * so a count of one cannot be the result of a cascade that never ran.
+ *
+ * S1 to S3 drive the AdvanceService directly (Q32: the unit count is an outcome of the service, and the `advance` tool
+ * would wrap it in its own element unit); S6 drives the keyed element through the production `advance` tool.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AdvanceCascadeUnitCountTest {
     @RegisterExtension
     @JvmField
     val db = SqliteTestDatabase.perMethod()
-
-    private fun params(
-        id: UUID,
-        trigger: String,
-        requestId: String? = null,
-    ): JsonObject =
-        buildJsonObject {
-            put(
-                "transitions",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", id.toString())
-                            put("trigger", trigger)
-                            if (requestId != null) {
-                                put(
-                                    "actor",
-                                    buildJsonObject {
-                                        put("id", "agent-cascade")
-                                        put("kind", "subagent")
-                                    },
-                                )
-                            }
-                        },
-                    )
-                },
-            )
-            if (requestId != null) put("requestId", JsonPrimitive(requestId))
-        }
-
-    private fun JsonElement.entry(): JsonObject = (((this as JsonObject)["data"] as JsonObject).arr("results"))[0].jsonObject
 
     private suspend fun create(
         title: String,
@@ -95,10 +66,9 @@ class AdvanceCascadeUnitCountTest {
             val parent = create("parent", Role.WORK, grand)
             val child = create("child", Role.WORK, parent)
 
-            val r = AdvanceItemTool().execute(params(child.id, "complete"), ctx).entry()
+            val r = ctx.advanceDirect(child, "complete").success()
 
-            assertEquals(true, r.flag("applied"), "$r")
-            assertEquals(2, r.arr("cascadeEvents").size, "control: both ancestors cascaded: $r")
+            assertEquals(2, r.cascadeEvents.size, "control: both ancestors cascaded: $r")
             assertEquals(Role.TERMINAL, roleOf(parent))
             assertEquals(Role.TERMINAL, roleOf(grand))
             assertEquals(
@@ -117,11 +87,10 @@ class AdvanceCascadeUnitCountTest {
             val parent = create("parent", Role.QUEUE)
             val child = create("child", Role.QUEUE, parent)
 
-            val r = AdvanceItemTool().execute(params(child.id, "start"), ctx).entry()
+            val r = ctx.advanceDirect(child, "start").success()
 
-            assertEquals(true, r.flag("applied"), "$r")
-            val cascade = r.arr("cascadeEvents").single().jsonObject
-            assertEquals(true, cascade.flag("applied"), "control: the start cascade applied: $cascade")
+            val cascade = r.cascadeEvents.single()
+            assertEquals(true, cascade.applied, "control: the start cascade applied: $cascade")
             assertEquals(Role.WORK, roleOf(parent), "control: the parent was started by the cascade")
             assertEquals(Role.WORK, roleOf(child))
             assertEquals(1, counting.writes, "the start cascade shares the primary's unit; ops=${counting.ops}")
@@ -136,12 +105,18 @@ class AdvanceCascadeUnitCountTest {
             val parent = create("parent", Role.WORK)
             val child = create("child", Role.WORK, parent)
 
-            val r = AdvanceItemTool().execute(params(child.id, "complete", requestId = UUID.randomUUID().toString()), ctx).entry()
+            val r =
+                ctx
+                    .advanceTool(
+                        transitionOp(child.id, "complete", "idempotencyKey" to JsonPrimitive(UUID.randomUUID().toString())),
+                        actor = actorJson("agent-cascade")
+                    ).onlyResult()
 
-            assertEquals(true, r.flag("applied"), "$r")
-            assertEquals(1, r.arr("cascadeEvents").size, "control: the parent cascaded: $r")
+            assertEquals(true, r.flag("ok"), "$r")
+            assertEquals(1, r.arr("cascades").size, "control: the parent cascaded: $r")
             assertEquals(Role.TERMINAL, roleOf(parent))
             assertEquals(1, counting.writes, "the keyed element's unit is the only outermost unit; ops=${counting.ops}")
+            assertEquals(listOf("advance"), counting.ops, "the element unit is the advance tool's")
             assertFalse("AdvanceService.advance" in counting.ops, "the advance and its cascade JOIN the keyed unit: ${counting.ops}")
         }
 }

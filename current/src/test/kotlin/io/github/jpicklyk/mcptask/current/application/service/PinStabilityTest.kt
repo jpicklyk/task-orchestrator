@@ -20,8 +20,10 @@ import io.github.jpicklyk.mcptask.current.test.breakConfigReads
 import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.missingKeys
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -346,11 +348,11 @@ class PinStabilityTest {
             val rx = d.advance(x, "start")
             val ry = d.advance(y, "start")
 
-            assertEquals(true, rx.flag("applied"), "X is pinned to revision one, which does not require 'extra': $rx")
+            assertEquals(true, rx.flag("ok"), "X is pinned to revision one, which does not require 'extra': $rx")
             assertEquals(Role.WORK, d.role(x))
-            assertEquals(false, ry.flag("applied"), "control: Y is pinned to revision two and is gated by 'extra': $ry")
-            assertEquals("gate_blocked", ry.text("errorCode"), "$ry")
-            assertEquals(listOf("extra"), ry.arr("missingNotes").map { it.jsonObject.text("key") }, "$ry")
+            assertEquals(false, ry.flag("ok"), "control: Y is pinned to revision two and is gated by 'extra': $ry")
+            assertEquals("gate_blocked", ry.errorCode(), "$ry")
+            assertEquals(listOf("extra"), ry.missingKeys(), "$ry")
             assertEquals(Role.QUEUE, d.role(y))
         }
 
@@ -367,13 +369,13 @@ class PinStabilityTest {
             val x = rig.createItem("X", root, "root-only")
             d.note(x, "rspec", "queue")
             val gated = d.advance(x, "start")
-            assertEquals("gate_blocked", gated.text("errorCode"), "fixture: pinned to revision two it needs 'extra': $gated")
+            assertEquals("gate_blocked", gated.errorCode(), "fixture: pinned to revision two it needs 'extra': $gated")
 
             assertIs<ConfigRollbackResult.Success>(checkNotNull(rig.ctx.configService).rollback(root.id, 1))
             val after = d.advance(x, "start")
 
-            assertEquals(false, after.flag("applied"), "the head is now revision one's content, the pin still names revision two: $after")
-            assertEquals(listOf("extra"), after.arr("missingNotes").map { it.jsonObject.text("key") }, "$after")
+            assertEquals(false, after.flag("ok"), "the head is now revision one's content, the pin still names revision two: $after")
+            assertEquals(listOf("extra"), after.missingKeys(), "$after")
         }
 
     @Test
@@ -395,9 +397,9 @@ class PinStabilityTest {
             val rp = d.advance(pinned, "start")
             val ru = d.advance(unpinned, "start")
 
-            assertEquals(true, rp.flag("applied"), "control: the pinned item keeps revision one: $rp")
-            assertEquals(false, ru.flag("applied"), "the unpinned row resolves at the head, which now requires 'extra': $ru")
-            assertEquals("gate_blocked", ru.text("errorCode"), "$ru")
+            assertEquals(true, rp.flag("ok"), "control: the pinned item keeps revision one: $rp")
+            assertEquals(false, ru.flag("ok"), "the unpinned row resolves at the head, which now requires 'extra': $ru")
+            assertEquals("gate_blocked", ru.errorCode(), "$ru")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -424,7 +426,7 @@ class PinStabilityTest {
 
             val (result, rows) = rig.written { d.advance(x, "reopen") }
 
-            assertEquals(true, result.flag("applied"), "$result")
+            assertEquals(true, result.flag("ok"), "$result")
             assertEquals(Role.QUEUE, d.role(x))
             assertPin("S5 after reopen", rig.pinOf(x), server.versionId, head2.versionId, "root-only", PinLayer.ROOT, LifecycleMode.MANUAL)
             val event = rows.pins().single()
@@ -441,8 +443,8 @@ class PinStabilityTest {
             // The new pin governs what happens next: revision two requires 'extra' for the queue phase.
             d.note(x, "rspec", "queue")
             val start = d.advance(x, "start")
-            assertEquals("gate_blocked", start.text("errorCode"), "the reopened item is gated by the new pin: $start")
-            assertEquals(listOf("extra"), start.arr("missingNotes").map { it.jsonObject.text("key") }, "$start")
+            assertEquals("gate_blocked", start.errorCode(), "the reopened item is gated by the new pin: $start")
+            assertEquals(listOf("extra"), start.missingKeys(), "$start")
         }
 
     @Test
@@ -463,8 +465,8 @@ class PinStabilityTest {
 
             val (result, rows) = rig.written { d.advance(child, "reopen") }
 
-            assertEquals(true, result.flag("applied"), "$result")
-            assertEquals(1, result.arr("cascadeEvents").size, "control: the parent is reopened by the cascade: $result")
+            assertEquals(true, result.flag("ok"), "$result")
+            assertEquals(1, result.arr("cascades").size, "control: the parent is reopened by the cascade: $result")
             assertEquals(Role.WORK, d.role(parent), "control: the cascade reopened the parent (terminal to work)")
             assertEquals(head2.versionId, rig.pinOf(child)!!.rootVersionId)
             assertEquals(head2.versionId, rig.pinOf(parent)!!.rootVersionId, "a cascade out of terminal is a pin point as well")
@@ -833,10 +835,10 @@ class PinStabilityTest {
         val schema = select("""{"select":"schema","itemId":"${x.id}"}""")
         assertEquals(listOf("rspec"), schema.data.noteKeys(), "the pinned document is still served after the reset: ${schema.raw}")
         val blocked = d.advance(x, "start")
-        assertEquals("gate_blocked", blocked.text("errorCode"), "the pinned document's gate still applies after the reset: $blocked")
-        assertEquals(listOf("rspec"), blocked.arr("missingNotes").map { it.jsonObject.text("key") }, "$blocked")
+        assertEquals("gate_blocked", blocked.errorCode(), "the pinned document's gate still applies after the reset: $blocked")
+        assertEquals(listOf("rspec"), blocked.missingKeys(), "$blocked")
         d.note(x, "rspec", "queue")
-        assertEquals(true, d.advance(x, "start").flag("applied"), "control: with the note filled the same call starts")
+        assertEquals(true, d.advance(x, "start").flag("ok"), "control: with the note filled the same call starts")
 
         val fresh = rig.createItem("Fresh", root, "feature-task")
         assertPin("S12 after reset", rig.pinOf(fresh), server.versionId, null, "feature-task", PinLayer.SERVER, LifecycleMode.MANUAL)
@@ -860,7 +862,7 @@ class PinStabilityTest {
             rig.push(root, ROOT_V1)
             val x = rig.createItem("X", root, "root-only")
             val control = rig.createItem("Control", root, "root-only")
-            assertEquals("gate_blocked", d.advance(control, "start").text("errorCode"), "control: with the key intact the gate blocks")
+            assertEquals("gate_blocked", d.advance(control, "start").errorCode(), "control: with the key intact the gate blocks")
 
             DriverManager.getConnection(db.jdbcUrl).use { conn ->
                 conn.prepareStatement("UPDATE work_items SET pinned_schema_key = 'no-such-key' WHERE id = ?").use {
@@ -872,7 +874,7 @@ class PinStabilityTest {
 
             assertEquals(
                 true,
-                result.flag("applied"),
+                result.flag("ok"),
                 "an unknown pinned key is schema-free, so no gate applies and nothing crashes: $result"
             )
             assertEquals(Role.WORK, d.role(x))

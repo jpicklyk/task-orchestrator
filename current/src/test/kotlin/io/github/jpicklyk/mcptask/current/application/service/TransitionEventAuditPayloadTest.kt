@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -21,6 +20,8 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
+import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -587,11 +588,12 @@ class TransitionEventAuditPayloadTest {
             val d = driver(dir)
             val item = d.item("probe replay", Role.QUEUE)
             val key = UUID.randomUUID().toString()
-            val params = d.advanceParams(item, "start", actor = "agent-q28a", requestId = key)
             val mark = d.rig.maxSeq()
 
-            d.rig.callOk(AdvanceItemTool(), *params)
-            d.rig.callOk(AdvanceItemTool(), *params)
+            for (attempt in 1..2) {
+                val body = d.advanceEnvelope(item, "start", actor = "agent-q28a", idempotencyKey = key)
+                assertEquals(true, body.onlyResult().flag("ok"), "attempt $attempt must succeed: $body")
+            }
 
             val events = d.rig.rowsAfter(mark).transitioned()
             assertEquals(1, events.size, "the replay must not record a second event")

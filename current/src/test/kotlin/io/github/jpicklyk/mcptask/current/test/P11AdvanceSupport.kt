@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -10,12 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -205,36 +205,52 @@ internal class P11Driver(
 
     suspend fun transitions(item: WorkItem) = raw.transitionsOf(item.id)
 
-    fun advanceParams(
+    /**
+     * One `transition` op of the production `advance` tool for [item]; [actor] becomes the call's actor and [idempotencyKey]
+     * the element's key (a key requires an actor).
+     */
+    fun transition(
+        item: WorkItem,
+        trigger: String,
+        idempotencyKey: String? = null,
+    ): JsonObject =
+        transitionOp(
+            item.id,
+            trigger,
+            *(if (idempotencyKey != null) arrayOf("idempotencyKey" to JsonPrimitive(idempotencyKey)) else emptyArray()),
+        )
+
+    /** The `advance` envelope of one transition of [item]. */
+    suspend fun advanceEnvelope(
         item: WorkItem,
         trigger: String,
         actor: String? = null,
-        requestId: String? = null,
-    ): Array<Pair<String, JsonElement>> =
-        arrayOf(
-            "transitions" to
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("trigger", trigger)
-                            if (actor != null) put("actor", p11Actor(actor))
-                        },
-                    )
-                },
-            *(if (requestId != null) arrayOf("requestId" to JsonPrimitive(requestId)) else emptyArray()),
-        )
+        idempotencyKey: String? = null,
+    ): JsonObject = rig.advanceTool(transition(item, trigger, idempotencyKey), actor = actor?.let { p11Actor(it) })
 
-    /** advance_item for one transition; returns the single result entry. */
+    /**
+     * One transition of [item] through the production `advance` tool; returns the single batch element: `{ok:true, itemId,
+     * previousRole, newRole, trigger, cascades?, ...}` or `{ok:false, error:{code, kind, message, detail?}}`.
+     */
     suspend fun advance(
         item: WorkItem,
         trigger: String,
         actor: String? = null,
     ): JsonObject {
-        val response = rig.call(AdvanceItemTool(), *advanceParams(item, trigger, actor))
-        val data = response["data"]?.jsonObject ?: error("advance_item returned no data: $response")
+        val response = advanceEnvelope(item, trigger, actor)
+        val data = response["data"]?.jsonObject ?: error("advance returned no data: $response")
         return data["results"]!!.jsonArray[0].jsonObject
     }
+
+    /**
+     * One transition of [item] straight through the shared AdvanceService (ownership and leases enforced, the event
+     * actor installed); [actor] is a self-reported subagent claim. For suites whose oracle is the outcome itself.
+     */
+    suspend fun advanceService(
+        item: WorkItem,
+        trigger: String,
+        actor: String? = null,
+    ): AdvanceOutcome = rig.ctx.advanceDirect(item, trigger, actor = actor?.let { ActorClaim(it, ActorKind.SUBAGENT) })
 
     companion object {
         val REJECTION_TYPES = setOf("transition.rejected", "lease.rejected")

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.P11Driver
@@ -8,7 +7,9 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.breakConfigReads
 import io.github.jpicklyk.mcptask.current.test.configFaultFixture
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.snapshot
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
@@ -16,8 +17,6 @@ import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -34,7 +33,8 @@ import kotlin.test.assertEquals
  *
  * Oracles: fix-decisions-r1 H1; api-reference "Read-error fallback" paragraph (advance_item, complete_tree and the previews
  * read config inside a unit, so a read fault answers a transient `config_unavailable` even with a warm cache); the existing
- * element shape of AdvanceItemToolConfigUnavailableTest (`applied=false`, `errorKind=transient`, `errorCode=config_unavailable`).
+ * element shape of the `advance` tool's per-root config fault (`ok=false`, `error.code=unavailable`, `error.kind=shedding`, the
+ * catalog binding of the removed 3.x `config_unavailable`).
  * The fault is real: the config_heads table is renamed away after the cache is warm (P5bPerRootConfigInUnitTest recipe). Every
  * fault test has a same-fixture control proving the advance would otherwise apply.
  *
@@ -59,7 +59,7 @@ class AdvanceConfigFailClosedTest {
 
             val r = d.advance(f.item, "start")
 
-            assertEquals(true, r.flag("applied"), "control: the fixture must advance when config is readable: $r")
+            assertEquals(true, r.flag("ok"), "control: the fixture must advance when config is readable: $r")
             assertEquals(Role.WORK, d.role(f.item))
             assertEquals(before.transitionRows + 1, d.transitions(f.item).size)
             assertEquals(
@@ -72,7 +72,7 @@ class AdvanceConfigFailClosedTest {
         }
 
     @Test
-    fun `H1 an unkeyed advance_item fails closed as transient config_unavailable although the cache is warm`(
+    fun `H1 an unkeyed advance transition fails closed as unavailable although the cache is warm`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -83,15 +83,15 @@ class AdvanceConfigFailClosedTest {
 
             val r = d.advance(f.item, "start")
 
-            assertEquals(false, r.flag("applied"), "$r")
+            assertEquals(false, r.flag("ok"), "$r")
             assertEquals(before, d.snapshot(f.item), "no role change, no transition row, no event: $r")
             assertEquals(Role.QUEUE, d.role(f.item))
-            assertEquals("config_unavailable", r.text("errorCode"), "$r")
-            assertEquals("transient", r.text("errorKind"), "$r")
+            assertEquals("unavailable", r.errorCode(), "$r")
+            assertEquals("shedding", (r["error"] as JsonObject).text("kind"), "$r")
         }
 
     @Test
-    fun `H1 a keyed advance_item fails closed as transient config_unavailable although the cache is warm`(
+    fun `H1 a keyed advance transition fails closed as unavailable although the cache is warm`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -100,16 +100,11 @@ class AdvanceConfigFailClosedTest {
             val before = d.snapshot(f.item)
             d.breakConfigReads()
 
-            val response =
-                d.rig.call(
-                    AdvanceItemTool(),
-                    *d.advanceParams(f.item, "start", actor = "agent-h1", requestId = UUID.randomUUID().toString()),
-                )
-            val r = response["data"]!!.jsonObject["results"]!!.jsonArray[0].jsonObject
+            val r = d.advanceEnvelope(f.item, "start", actor = "agent-h1", idempotencyKey = UUID.randomUUID().toString()).onlyResult()
 
-            assertEquals(false, r.flag("applied"), "$r")
-            assertEquals("config_unavailable", r.text("errorCode"), "$r")
-            assertEquals("transient", r.text("errorKind"), "$r")
+            assertEquals(false, r.flag("ok"), "$r")
+            assertEquals("unavailable", r.errorCode(), "$r")
+            assertEquals("shedding", (r["error"] as JsonObject).text("kind"), "$r")
             assertEquals(before, d.snapshot(f.item), "no role change, no transition row, no event")
         }
 

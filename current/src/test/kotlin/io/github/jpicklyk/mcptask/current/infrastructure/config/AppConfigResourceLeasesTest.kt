@@ -8,12 +8,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
-import io.github.jpicklyk.mcptask.current.test.arr
+import io.github.jpicklyk.mcptask.current.test.contendedNames
+import io.github.jpicklyk.mcptask.current.test.errorCode
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -123,9 +122,9 @@ class AppConfigResourceLeasesTest {
 
             val result = d.advance(item, "start")
 
-            assertEquals(false, result.flag("applied"), "$result")
-            assertEquals("resource_unavailable", result.text("errorCode"), "$result")
-            assertEquals(listOf(P11_LEASE_KEY), result.arr("contendedResources").map { it.jsonPrimitive.content }, "$result")
+            assertEquals(false, result.flag("ok"), "$result")
+            assertEquals("resource_unavailable", result.errorCode(), "$result")
+            assertEquals(listOf(P11_LEASE_KEY), result.contendedNames(), "$result")
             assertEquals(Role.QUEUE, d.role(item))
         }
 
@@ -136,7 +135,7 @@ class AppConfigResourceLeasesTest {
             val holder = enforced.item("lease holder", Role.QUEUE)
             enforced.holdLease(holder)
             val controlItem = leasedItem(enforced)
-            assertEquals("resource_unavailable", enforced.advance(controlItem, "start").text("errorCode"), "control: the gate rejects")
+            assertEquals("resource_unavailable", enforced.advance(controlItem, "start").errorCode(), "control: the gate rejects")
 
             for ((index, value) in listOf("false", "0", "no", " FALSE ").withIndex()) {
                 val d = driver("off-$index", value)
@@ -144,7 +143,7 @@ class AppConfigResourceLeasesTest {
 
                 val result = d.advance(item, "start")
 
-                assertEquals(true, result.flag("applied"), "switch '$value': the gate is skipped: $result")
+                assertEquals(true, result.flag("ok"), "switch '$value': the gate is skipped: $result")
                 assertEquals(Role.WORK, d.role(item), "switch '$value'")
                 assertEquals(
                     0,
@@ -167,7 +166,7 @@ class AppConfigResourceLeasesTest {
 
             val result = d.advance(item, "start")
 
-            assertEquals("resource_unavailable", result.text("errorCode"), "$result")
+            assertEquals("resource_unavailable", result.errorCode(), "$result")
             assertEquals(Role.QUEUE, d.role(item))
         }
 
@@ -188,7 +187,7 @@ class AppConfigResourceLeasesTest {
 
             val result = d.advance(holding, "complete")
 
-            assertEquals(true, result.flag("applied"), "$result")
+            assertEquals(true, result.flag("ok"), "$result")
             assertEquals(Role.TERMINAL, d.role(holding))
             assertEquals(
                 0,
