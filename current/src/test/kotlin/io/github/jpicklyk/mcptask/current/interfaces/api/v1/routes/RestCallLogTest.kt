@@ -39,7 +39,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -284,9 +283,9 @@ class RestCallLogTest {
             assertNull(row["principal_id"])
             assertNull(row["principal_kind"])
             assertNull(row["proof_status"])
-            val parsed = runCatching { Json.parseToJsonElement(response.bodyAsText()) }.getOrNull() as? JsonObject
-            val typed = parsed?.get("error")?.jsonPrimitive?.content
-            assertEquals(typed ?: "http_401", row["error_code"], "ErrorDto.error when the 401 body is a typed ErrorDto, else http_401")
+            val parsed = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unauthenticated", parsed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, "the 401 body is the envelope")
+            assertEquals("unauthenticated", row["error_code"], "the row records the envelope code (S16)")
         }
 
     // ------------------------------------------------------------------ F1

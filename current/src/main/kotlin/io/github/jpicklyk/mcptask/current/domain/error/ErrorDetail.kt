@@ -7,7 +7,7 @@ import java.util.UUID
 enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG }
 
 /** Scope that a `forbidden` error says the caller lacks. */
-enum class ForbiddenScope { ROOT, TAG, CAPABILITY }
+enum class ForbiddenScope { ROOT, TAG, CAPABILITY, HOST }
 
 /** One offending request field. */
 data class FieldViolation(

@@ -34,6 +34,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -50,19 +51,19 @@ import kotlin.test.assertTrue
  *
  * NEW-SURFACE: every scenario binds to `installApiStatusPages`, which the item introduces. Narrowest-revert recipe
  * (from the plan): keep `installApiStatusPages` but empty its body - S8 and S9 (and the log probe) go red on behaviour
- * (an unhandled exception no longer becomes the internal ErrorDto, Ktor statuses no longer map), while S10 and S11
+ * (an unhandled exception no longer becomes the internal envelope error, Ktor statuses no longer map), while S10 and S11
  * stay green by design (they only assert what does NOT happen). A plain revert fails only on compilation.
  *
  * Harness: the production install order - `ContentNegotiation` first (as in `installRestApiRoutes`'s caller), then
  * `installApiStatusPages()` with no parameters, then routing - over Ktor's `testApplication`, with throwing routes
  * registered by the test (the function takes no parameters, so the throwing routes are the test's own).
  *
- * Oracles: [T] task-scope Build step 7 and AC4 (an uncaught `/api/v1` exception returns 500
- * `{"error":"internal","message":"Internal server error"}` and never the exception text; `BadRequestException` ->
- * 400 `bad_request`; domain `ValidationException` -> 400 `validation_error`; `NotFoundException` -> 404 `not_found`;
- * `UnsupportedMediaTypeException` -> 415 `unsupported_media_type`; `PayloadTooLargeException` -> 413
- * `payload_too_large`; `CancellationException` is never mapped; other paths keep Ktor's default 500); [R] api-rest.md
- * section 6 as of the base commit (the code/status rows above and the `ErrorDto` shape `{error, message, details?}`).
+ * Oracles: [T] task-scope Build step 7 and AC4 (an uncaught `/api/v1` exception returns 500 `internal` and never the
+ * exception text; `CancellationException` is never mapped; other paths keep Ktor's default 500), re-pointed by Q32
+ * (task-scope E, scenario S15) onto the 4.0 error envelope `{ok:false, error:{code, kind, message, detail?, fix?}, meta}`:
+ * `BadRequestException`, malformed JSON and a domain `ValidationException` -> 400 `invalid_request`;
+ * `UnsupportedMediaTypeException` -> 400 `invalid_request` on `Content-Type` (was 415); `PayloadTooLargeException` -> 413
+ * `payload_too_large`; `NotFoundException` has no producer and no special case, so it is `internal`.
  */
 class ApiStatusPagesTest {
     private val json = Json
@@ -98,16 +99,28 @@ class ApiStatusPagesTest {
         val name: String
     )
 
+    /** Asserts the error envelope of [code] at [status] and returns its `error` member. */
     private fun HttpResponse.expectError(
         status: HttpStatusCode,
-        error: String,
+        code: String,
         body: String
     ): JsonObject {
-        assertEquals(status, this.status, "status for $error: $body")
+        assertEquals(status, this.status, "status for $code: $body")
         val parsed = json.parseToJsonElement(body).jsonObject
-        assertEquals(error, parsed["error"]?.jsonPrimitive?.content, "error code: $body")
-        assertFalse(parsed["message"]?.jsonPrimitive?.content.isNullOrBlank(), "message must be present: $body")
-        return parsed
+        assertEquals("false", parsed["ok"]?.jsonPrimitive?.content, "an error envelope: $body")
+        val error = parsed["error"]!!.jsonObject
+        assertEquals(code, error["code"]?.jsonPrimitive?.content, "error code: $body")
+        assertFalse(error["message"]?.jsonPrimitive?.content.isNullOrBlank(), "message must be present: $body")
+        assertFalse(
+            parsed["meta"]
+                ?.jsonObject
+                ?.get("reqId")
+                ?.jsonPrimitive
+                ?.content
+                .isNullOrBlank(),
+            "meta.reqId: $body"
+        )
+        return error
     }
 
     // ----------------------------------------------
@@ -115,7 +128,7 @@ class ApiStatusPagesTest {
     // ----------------------------------------------
 
     @Test
-    fun `S8 an uncaught exception under api v1 returns the exact internal ErrorDto and no exception text`() =
+    fun `S8 an uncaught exception under api v1 returns the exact internal envelope error and no exception text`() =
         testApplication {
             application { statusPagesApp() }
 
@@ -125,10 +138,13 @@ class ApiStatusPagesTest {
             assertEquals(HttpStatusCode.InternalServerError, response.status)
             val expected =
                 buildJsonObject {
-                    put("error", "internal")
+                    put("code", "internal")
+                    put("kind", "transient")
                     put("message", internalMessage)
                 }
-            assertEquals(expected, json.parseToJsonElement(body).jsonObject, "the body is exactly the internal ErrorDto: $body")
+            val parsed = json.parseToJsonElement(body).jsonObject
+            assertEquals(setOf("ok", "error", "meta"), parsed.keys, "the body is the envelope: $body")
+            assertEquals(expected, parsed["error"]!!.jsonObject, "the error is exactly the internal one: $body")
             assertFalse(body.contains("SELECT"), "the exception text must not leak: $body")
             assertFalse(body.contains("hunter2"), "the exception text must not leak: $body")
             assertTrue(
@@ -138,7 +154,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S8 probe an exception with a null message and one with a cause both return the same internal ErrorDto`() =
+    fun `S8 probe an exception with a null message and one with a cause both return the same internal error`() =
         testApplication {
             application { statusPagesApp() }
 
@@ -147,25 +163,8 @@ class ApiStatusPagesTest {
 
             for (response in listOf(nullMessage, withCause)) {
                 val body = response.bodyAsText()
-                assertEquals(HttpStatusCode.InternalServerError, response.status, body)
-                assertEquals(
-                    "internal",
-                    json
-                        .parseToJsonElement(body)
-                        .jsonObject["error"]
-                        ?.jsonPrimitive
-                        ?.content,
-                    body
-                )
-                assertEquals(
-                    internalMessage,
-                    json
-                        .parseToJsonElement(body)
-                        .jsonObject["message"]
-                        ?.jsonPrimitive
-                        ?.content,
-                    body
-                )
+                val error = response.expectError(HttpStatusCode.InternalServerError, "internal", body)
+                assertEquals(internalMessage, error["message"]?.jsonPrimitive?.content, body)
                 assertFalse(body.contains("hunter2") || body.contains("SELECT"), "no exception text or cause text: $body")
             }
         }
@@ -215,47 +214,57 @@ class ApiStatusPagesTest {
     }
 
     // ----------------------------------------------
-    // S9 - Ktor and domain exceptions map to their 3.x ErrorDto
+    // S9 - Ktor and domain exceptions map to their catalog code
     // ----------------------------------------------
 
     @Test
-    fun `S9 BadRequestException maps to 400 bad_request`() =
+    fun `S9 BadRequestException maps to 400 invalid_request`() =
         testApplication {
             application { statusPagesApp() }
 
             val response = client.get("/api/v1/bad-request")
 
-            response.expectError(HttpStatusCode.BadRequest, "bad_request", response.bodyAsText())
+            response.expectError(HttpStatusCode.BadRequest, "invalid_request", response.bodyAsText())
         }
 
     @Test
-    fun `S9 domain ValidationException maps to 400 validation_error`() =
+    fun `S9 domain ValidationException maps to 400 invalid_request with its own text`() =
         testApplication {
             application { statusPagesApp() }
 
             val response = client.get("/api/v1/validation")
 
-            response.expectError(HttpStatusCode.BadRequest, "validation_error", response.bodyAsText())
+            val body = response.bodyAsText()
+            val error = response.expectError(HttpStatusCode.BadRequest, "invalid_request", body)
+            assertTrue(error.toString().contains("title must not be blank"), "the domain's own text reaches the caller: $body")
         }
 
     @Test
-    fun `S9 NotFoundException maps to 404 not_found`() =
+    fun `S9 NotFoundException has no producer and no special case so it is internal`() =
         testApplication {
             application { statusPagesApp() }
 
             val response = client.get("/api/v1/missing")
 
-            response.expectError(HttpStatusCode.NotFound, "not_found", response.bodyAsText())
+            response.expectError(HttpStatusCode.InternalServerError, "internal", response.bodyAsText())
         }
 
     @Test
-    fun `S9 probe UnsupportedMediaTypeException maps to 415 unsupported_media_type`() =
+    fun `S9 probe UnsupportedMediaTypeException maps to 400 invalid_request on Content-Type`() =
         testApplication {
             application { statusPagesApp() }
 
             val response = client.get("/api/v1/unsupported")
 
-            response.expectError(HttpStatusCode.UnsupportedMediaType, "unsupported_media_type", response.bodyAsText())
+            val body = response.bodyAsText()
+            val error = response.expectError(HttpStatusCode.BadRequest, "invalid_request", body)
+            val field =
+                error["detail"]!!
+                    .jsonObject["fields"]!!
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Content-Type", field["field"]?.jsonPrimitive?.content, body)
         }
 
     @Test
@@ -265,11 +274,13 @@ class ApiStatusPagesTest {
 
             val response = client.get("/api/v1/too-large")
 
-            response.expectError(HttpStatusCode.PayloadTooLarge, "payload_too_large", response.bodyAsText())
+            val body = response.bodyAsText()
+            val error = response.expectError(HttpStatusCode.PayloadTooLarge, "payload_too_large", body)
+            assertEquals("1024", error["detail"]!!.jsonObject["max"]?.jsonPrimitive?.content, "the limit the exception names: $body")
         }
 
     @Test
-    fun `S9 probe a malformed JSON body on a receive route maps to 400 bad_request, not 500`() =
+    fun `S9 probe a malformed JSON body on a receive route maps to 400 invalid_request, not 500`() =
         testApplication {
             application { statusPagesApp() }
 
@@ -279,7 +290,7 @@ class ApiStatusPagesTest {
                     setBody("{not json")
                 }
 
-            response.expectError(HttpStatusCode.BadRequest, "bad_request", response.bodyAsText())
+            response.expectError(HttpStatusCode.BadRequest, "invalid_request", response.bodyAsText())
         }
 
     @Test
@@ -316,24 +327,26 @@ class ApiStatusPagesTest {
             null to "threw ${e::class.simpleName}"
         }
 
-    private fun isInternalErrorDto(body: String): Boolean =
+    private fun isInternalEnvelope(body: String): Boolean =
         runCatching {
             json
                 .parseToJsonElement(body)
                 .jsonObject["error"]
+                ?.jsonObject
+                ?.get("code")
                 ?.jsonPrimitive
                 ?.content == "internal"
         }.getOrDefault(false)
 
     @Test
-    fun `S10 a throwing route outside api v1 keeps Ktor's default 500 and gets no internal ErrorDto`() =
+    fun `S10 a throwing route outside api v1 keeps Ktor's default 500 and gets no internal envelope error`() =
         testApplication {
             application { statusPagesApp() }
 
             val (status, body) = outcomeOf("/other/boom")
 
             assertEquals(HttpStatusCode.InternalServerError, status, "other paths keep Ktor's default 500")
-            assertFalse(isInternalErrorDto(body), "outside /api/v1 the body is not the StatusPages ErrorDto: $body")
+            assertFalse(isInternalEnvelope(body), "outside /api/v1 the body is not the StatusPages envelope: $body")
         }
 
     @Test
@@ -344,32 +357,32 @@ class ApiStatusPagesTest {
             val (status, body) = outcomeOf("/api/v10/boom")
 
             assertEquals(HttpStatusCode.InternalServerError, status, "Ktor's default 500 applies to /api/v10")
-            assertFalse(isInternalErrorDto(body), "/api/v10 is not /api/v1, so no StatusPages ErrorDto: $body")
+            assertFalse(isInternalEnvelope(body), "/api/v10 is not /api/v1, so no StatusPages envelope: $body")
         }
 
     @Test
-    fun `S10 control the same two throwing routes under api v1 do get the internal ErrorDto`() =
+    fun `S10 control the same two throwing routes under api v1 do get the internal error`() =
         testApplication {
             application { statusPagesApp() }
 
             val (status, body) = outcomeOf("/api/v1/boom")
 
             assertEquals(HttpStatusCode.InternalServerError, status)
-            assertTrue(isInternalErrorDto(body), "control: under /api/v1 the safety net applies: $body")
+            assertTrue(isInternalEnvelope(body), "control: under /api/v1 the safety net applies: $body")
         }
     // ----------------------------------------------
     // S11 - cancellation is never mapped
     // ----------------------------------------------
 
     @Test
-    fun `S11 a CancellationException in an api v1 route is not turned into the internal ErrorDto`() =
+    fun `S11 a CancellationException in an api v1 route is not turned into the internal envelope error`() =
         testApplication {
             application { statusPagesApp() }
 
             val (status, body) = outcomeOf("/api/v1/cancelled")
 
             assertEquals(HttpStatusCode.InternalServerError, status, "cancellation is left to Ktor's default handling")
-            assertFalse(isInternalErrorDto(body), "cancellation must not become the internal ErrorDto: $body")
+            assertFalse(isInternalEnvelope(body), "cancellation must not become the internal envelope error: $body")
             assertFalse(body.contains(internalMessage), "cancellation must not carry the StatusPages message: $body")
         }
 }

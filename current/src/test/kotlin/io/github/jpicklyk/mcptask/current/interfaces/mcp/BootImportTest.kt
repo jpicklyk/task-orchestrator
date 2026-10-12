@@ -395,7 +395,8 @@ class BootImportTest {
                 Json
                     .parseToJsonElement(
                         info.bodyAsText()
-                    ).jsonObject["configWarnings"]!!
+                    ).jsonObject["data"]!!
+                    .jsonObject["configWarnings"]!!
                     .jsonArray
                     .map { it.jsonPrimitive.content }
             assertEquals(stored, warnings, "/info.configWarnings equals the stored server head warnings")
@@ -427,6 +428,7 @@ class BootImportTest {
             val warnings =
                 Json
                     .parseToJsonElement(info.bodyAsText())
+                    .jsonObject["data"]!!
                     .jsonObject["configWarnings"]
                     ?.jsonArray
                     .orEmpty()

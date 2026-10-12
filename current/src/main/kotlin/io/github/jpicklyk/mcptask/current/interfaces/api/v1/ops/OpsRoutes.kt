@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnve
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.MAX_JSON_WRITE_BODY_BYTES
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -118,6 +117,12 @@ fun Route.opsRoutes(
         call.respondEnvelope(dispatched.envelope)
     }
 }
+
+/**
+ * Byte cap of an `/ops/{tool}` request body (1 MiB, the cap the bounded-read safety limits elsewhere use, e.g.
+ * `DidWebResolver.MAX_BODY_BYTES`): the body is read at most one byte past it and never buffered whole.
+ */
+const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024
 
 /** The `surface` of every call a REST route dispatches. */
 internal const val SURFACE_REST = "rest"

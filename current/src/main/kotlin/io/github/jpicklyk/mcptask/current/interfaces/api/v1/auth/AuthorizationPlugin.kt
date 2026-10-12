@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
@@ -25,10 +26,7 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
         onCall { call ->
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             if (principal == null) {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "unauthenticated", "error_description" to "No authenticated principal"),
-                )
+                call.respondEnvelopeError(unauthenticated("No authenticated principal."))
                 return@onCall
             }
 
@@ -41,14 +39,7 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
                     pluginConfig.requiredCapability,
                     principal.capabilities,
                 )
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to
-                            "Required capability: ${pluginConfig.requiredCapability.name.lowercase().replace('_', '-')}",
-                    ),
-                )
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, pluginConfig.requiredCapability.configName()))
                 return@onCall
             }
         }
@@ -77,8 +68,8 @@ private class CapabilityRouteSelector(
 // Route-level DSL helper that enforces a required ApiCapability before delegating to build.
 //
 // Wraps build() in a fresh transparent child route carrying a route-scoped plugin that
-// checks the resolved ApiPrincipal has cap (or ADMIN). Returns 403 Forbidden on failure,
-// 401 when unauthenticated.
+// checks the resolved ApiPrincipal has cap (or ADMIN). Answers 403 `forbidden` {scope: capability,
+// required: <cap>} on failure (as the tool dispatcher does), 401 `unauthenticated` when there is no principal.
 //
 // Usage:
 //   requireCapability(ApiCapability.READ) {

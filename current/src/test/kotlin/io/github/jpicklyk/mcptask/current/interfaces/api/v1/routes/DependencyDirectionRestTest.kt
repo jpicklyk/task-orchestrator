@@ -1,13 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.util.UUID
-import kotlin.test.assertEquals
 
 /**
  * Blind test-author coverage for item 2aa67b28 (inverted IS_BLOCKED_BY cycle-check fix):
@@ -24,22 +19,4 @@ import kotlin.test.assertEquals
 class DependencyDirectionRestTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `S6 IS_BLOCKED_BY toDto default unblockAt resolves to terminal`() {
-        val dep = Dependency(fromItemId = UUID.randomUUID(), toItemId = UUID.randomUUID(), type = DependencyType.IS_BLOCKED_BY)
-        assertEquals("terminal", dep.toDto().unblockAt)
-    }
-
-    @Test
-    fun `S6 IS_BLOCKED_BY toDto explicit unblockAt review is preserved`() {
-        val dep =
-            Dependency(
-                fromItemId = UUID.randomUUID(),
-                toItemId = UUID.randomUUID(),
-                type = DependencyType.IS_BLOCKED_BY,
-                unblockAt = "review"
-            )
-        assertEquals("review", dep.toDto().unblockAt)
-    }
 }

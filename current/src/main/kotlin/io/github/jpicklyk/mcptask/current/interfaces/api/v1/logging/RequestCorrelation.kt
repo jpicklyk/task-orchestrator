@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
@@ -55,7 +54,7 @@ private const val HTTP_PATH_MDC_MAX_LENGTH = 256
 
 /**
  * Installs MDC correlation fields for every REST request under `/api/v1`, mirroring the MCP-path
- * correlation [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter] adds around each
+ * correlation [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter] adds around each
  * tool call — see AR-78 / item b5081c9b.
  *
  * A `createApplicationPlugin`/`onCall` hook cannot wrap `proceed()` (the hook runs and returns
@@ -252,31 +251,18 @@ internal fun restToolName(
     return if (first != null && first in resources) "$verb $API_ROOT/$first" else "$verb unmatched"
 }
 
-private val CAPTURED_ERROR_CODE = AttributeKey<String>("CallLogErrorCode")
+/** The `error.code` of the error envelope a call answered, recorded by `respondEnvelope` for the call log. */
+internal val ENVELOPE_ERROR_CODE = AttributeKey<String>("CallLogErrorCode")
 private val CAPTURED_RESPONSE_BYTES = AttributeKey<Long>("CallLogResponseBytes")
 private val UUID_SEGMENT = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 /**
- * Hooks the response send pipeline of [call] to remember (a) the typed [ErrorDto]'s `error` code before it is
- * serialized and (b) the final [OutgoingContent] length. No body is ever re-parsed.
+ * Hooks the response send pipeline of [call] to remember the final [OutgoingContent] length. The error code is not read
+ * from the body: every REST error is an envelope sent through `respondEnvelope`, which records its `error.code` in
+ * [ENVELOPE_ERROR_CODE]. No body is ever re-parsed.
  */
 private fun captureResponse(call: io.ktor.server.application.ApplicationCall) {
     val pipeline = (call.response as? PipelineResponse)?.pipeline ?: return
-    pipeline.intercept(ApplicationSendPipeline.Before) { body ->
-        if (body is ErrorDto) {
-            if (!call.attributes.contains(CAPTURED_ERROR_CODE)) call.attributes.put(CAPTURED_ERROR_CODE, body.error)
-        } else if (body is Map<*, *>) {
-            // The auth plugin answers 401 with a plain map carrying the same `error` code (invalid_token, ...).
-            (body["error"] as? String)?.let {
-                if (!call.attributes.contains(
-                        CAPTURED_ERROR_CODE
-                    )
-                ) {
-                    call.attributes.put(CAPTURED_ERROR_CODE, it)
-                }
-            }
-        }
-    }
     pipeline.intercept(ApplicationSendPipeline.After) { body ->
         if (body is OutgoingContent) body.contentLength?.let { call.attributes.put(CAPTURED_RESPONSE_BYTES, it) }
     }
@@ -305,7 +291,7 @@ private fun submitRestCall(
         }
         val status = call.response.status()?.value ?: if (threw) 500 else 200
         val isError = threw || status >= 400
-        val errorCode = if (isError) call.attributes.getOrNull(CAPTURED_ERROR_CODE) ?: "http_$status" else null
+        val errorCode = if (isError) call.attributes.getOrNull(ENVELOPE_ERROR_CODE) ?: "http_$status" else null
         val segments = path.split('/').filter { it.isNotEmpty() }
         val uuidSegments = segments.filter { UUID_SEGMENT.matches(it) }
         val ops = call.attributes.getOrNull(OPS_CALL_INFO)

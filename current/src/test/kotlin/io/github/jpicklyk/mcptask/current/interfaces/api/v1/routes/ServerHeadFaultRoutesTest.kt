@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
 
 /**
  * Regression tests for fix round 2 of Q17 (F1/F2): server-head reads outside the resolver map to typed faults. A store
- * outage is transient (`config_unavailable` on `/info`, `unavailable` from the `config` tool); an unloadable head is
+ * outage is transient (`unavailable` on `/info` and from the `config` tool, Q32); an unloadable head is
  * permanent `config_invalid`.
  */
 class ServerHeadFaultRoutesTest {
@@ -101,7 +101,7 @@ class ServerHeadFaultRoutesTest {
         }
 
     @Test
-    fun `F1 GET info answers 503 config_unavailable when the server head read faults`(): Unit =
+    fun `F1 GET info answers 503 unavailable when the server head read faults`(): Unit =
         testApplication {
             val service = ConfigService(faultingProvider(), YamlConfigDocumentParser, mockk<UnitOfWork>(relaxed = true))
             application { infoApp(service) }
@@ -110,7 +110,7 @@ class ServerHeadFaultRoutesTest {
 
             val body = response.bodyAsText()
             assertEquals(HttpStatusCode.ServiceUnavailable, response.status, body)
-            assertTrue(body.contains("config_unavailable"), body)
+            assertTrue(body.contains("\"code\":\"unavailable\""), body)
         }
 
     @Test

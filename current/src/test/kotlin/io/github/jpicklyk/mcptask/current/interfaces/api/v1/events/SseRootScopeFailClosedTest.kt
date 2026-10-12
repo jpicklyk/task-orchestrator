@@ -38,6 +38,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -352,16 +353,9 @@ class SseRootScopeFailClosedTest {
                 "S6: a root-scoped principal querying an out-of-scope root must be rejected with 403, not admitted (O1/O3/O4)",
             )
             val body = errorJson.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals(
-                "insufficient_scope",
-                body["error"]?.jsonPrimitive?.content,
-                "S6: 403 body must report insufficient_scope per the declared raw JSON shape. Got: $body",
-            )
-            assertEquals(
-                "Requested roots are outside this token's scope",
-                body["error_description"]?.jsonPrimitive?.content,
-                "S6: 403 body's error_description must match the declared literal exactly. Got: $body",
-            )
+            val error = body["error"]!!.jsonObject
+            assertEquals("forbidden", error["code"]?.jsonPrimitive?.content, "S6: 403 body is the forbidden envelope. Got: $body")
+            assertEquals("root", error["detail"]!!.jsonObject["scope"]?.jsonPrimitive?.content, "S6: scope root. Got: $body")
         }
 
     // -------------------------------------------------------------------------------------------
@@ -458,10 +452,17 @@ class SseRootScopeFailClosedTest {
 
             assertEquals(HttpStatusCode.BadRequest, response.status, "S9a: a malformed root value must be rejected with 400, not ignored")
             val body = errorJson.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals("validation_error", body["error"]?.jsonPrimitive?.content, "S9a body: $body")
+            val error = body["error"]!!.jsonObject
+            assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content, "S9a body: $body")
             assertEquals(
-                "root query parameter must be a valid UUID",
-                body["error_description"]?.jsonPrimitive?.content,
+                "root",
+                error["detail"]!!
+                    .jsonObject["fields"]!!
+                    .jsonArray
+                    .single()
+                    .jsonObject["field"]
+                    ?.jsonPrimitive
+                    ?.content,
                 "S9a body: $body",
             )
         }
@@ -480,7 +481,7 @@ class SseRootScopeFailClosedTest {
                 "S9b: a present-but-empty root value yields zero valid UUIDs -> 400, same as garbage input",
             )
             val body = errorJson.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals("validation_error", body["error"]?.jsonPrimitive?.content, "S9b body: $body")
+            assertEquals("invalid_request", body["error"]!!.jsonObject["code"]?.jsonPrimitive?.content, "S9b body: $body")
         }
 
     // -------------------------------------------------------------------------------------------

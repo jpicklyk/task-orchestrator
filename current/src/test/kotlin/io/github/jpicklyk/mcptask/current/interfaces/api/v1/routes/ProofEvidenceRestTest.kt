@@ -10,16 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -27,20 +17,13 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.request.ApplicationRequest
 import io.ktor.server.routing.Route
 import io.ktor.server.testing.testApplication
-import io.ktor.util.Attributes
-import io.mockk.every
-import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -161,89 +144,6 @@ class ProofEvidenceRestTest {
             assertFalse(body.contains("\"actor\""), "non-admin must see no actor under default redaction: $body")
             assertFalse(body.contains("\"verification\""), "non-admin must see no verification under default redaction: $body")
         }
-    // ===========================================================================================
-    // O1 (reviewer-flagged gap) -- the NOTE path's non-admin proof strip was untested (S7 above
-    // only exercises the TRANSITION path, via transitionRoutes' explicit redactAttribution
-    // override). noteRoutes takes no such override -- it always reads AttributionRedactor.fromEnv()
-    // -- so there is no way to force redactNoteAttribution=false for it through a full HTTP round
-    // trip without mutating the real process environment. Instead, this calls
-    // AttributionRedactor.of(...).redact() directly on a NoteDto: the exact function noteRoutes'
-    // GET /api/v1/items/{id}/notes handler itself calls per note (diagnosis Fix step 6: "Wired
-    // into: ... GET /api/v1/items/{id}/notes ..."), so this exercises real production redaction
-    // logic for the note path, just without the HTTP/Ktor-routing layer around it -- the same style
-    // [AttributionRedactorTest] already uses for this exact function. Oracle: diagnosis Fix step 6
-    // / test-plan S7 applied to notes.
-    // ===========================================================================================
-
-    private fun makeEvidenceNoteDto(
-        sha256: String,
-        claims: ProofClaims?
-    ): NoteDto =
-        NoteDto(
-            key = "o1-note",
-            role = "queue",
-            body = "O1 body",
-            createdAt = "2026-01-01T00:00:00Z",
-            modifiedAt = "2026-01-01T00:00:00Z",
-            etag = "\"v1-1000\"",
-            actor = ActorClaimDto(id = "agent-o1", kind = "orchestrator", parent = null),
-            verification =
-                VerificationDto(
-                    status = "verified",
-                    verifier = "jwks",
-                    reason = null,
-                    proof =
-                        ProofEvidenceDto(
-                            sha256 = sha256,
-                            iss = claims?.iss,
-                            sub = claims?.sub,
-                            aud = claims?.aud,
-                            jti = claims?.jti,
-                            iat = claims?.iat,
-                            exp = claims?.exp,
-                            kid = claims?.kid,
-                            alg = claims?.alg
-                        )
-                )
-        )
-
-    /** Mocked non-admin [ApplicationCall], matching the [AttributionRedactorTest] convention for
-     * exercising [AttributionRedactor] directly. */
-    private fun makeNonAdminCall(): ApplicationCall {
-        val principal =
-            ApiPrincipal(
-                tokenId = "reader",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-                capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER
-            )
-        val attrs = Attributes()
-        attrs.put(ApiPrincipalKey, principal)
-
-        val request = mockk<ApplicationRequest>(relaxed = true)
-
-        val call = mockk<ApplicationCall>(relaxed = true)
-        every { call.attributes } returns attrs
-        every { call.request } returns request
-        return call
-    }
-
-    @Test
-    fun `O1 non-admin with attribution redaction disabled sees a note's verification but never its proof evidence`() {
-        val sha = "feedface".repeat(8)
-        val claims = ProofClaims(iss = "https://test-issuer.example", sub = "agent-o1", kid = "kid-o1", alg = "RS256")
-        val note = makeEvidenceNoteDto(sha256 = sha, claims = claims)
-        val call = makeNonAdminCall()
-
-        val redactor = AttributionRedactor.of(redactNoteAttribution = false)
-        val result = redactor.redact(note, call)
-
-        assertNotNull(result.actor, "actor attribution must be shown when attribution redaction is disabled")
-        assertNotNull(result.verification, "verification must be shown when attribution redaction is disabled")
-        assertEquals("verified", result.verification!!.status)
-        assertNull(result.verification!!.proof, "non-admin must never receive the note's proof evidence object")
-    }
-
     // ===========================================================================================
     // S8 (rewritten for b81d5849) -- admin passing the deprecated include token is now a silent
     // no-op: 200, no Warning header, actor carries no proof.

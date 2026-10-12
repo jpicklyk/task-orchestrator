@@ -14,9 +14,7 @@ import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -31,24 +29,6 @@ import kotlin.test.assertTrue
 class EtagSupportTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `etagFor produces deterministic string from epoch millis`() {
-        val ts = Instant.ofEpochMilli(1716910000000L)
-        val etag1 = etagFor(ts)
-        val etag2 = etagFor(ts)
-        assertEquals(etag1, etag2)
-        assertTrue(etag1.contains("1716910000000"), "ETag should contain millis: $etag1")
-        assertTrue(etag1.startsWith("\"v1-"), "ETag should start with \"v1-: $etag1")
-        assertTrue(etag1.endsWith("\""), "ETag should end with \": $etag1")
-    }
-
-    @Test
-    fun `etagFor changes when modifiedAt changes`() {
-        val ts1 = Instant.ofEpochMilli(1000L)
-        val ts2 = Instant.ofEpochMilli(2000L)
-        assertNotEquals(etagFor(ts1), etagFor(ts2))
-    }
 
     @Test
     fun `same item read twice returns identical ETag`() =
