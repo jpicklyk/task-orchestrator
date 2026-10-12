@@ -122,6 +122,18 @@ startup integrity report WARNs about untyped items before the step runs, so on t
 step fills the rows right after; a WARN on any later boot names residue. Back up the volume before the first 4.0 start: the
 backfill is not reversible from the data alone.
 
+**Transition trail moves into `events` (V29).** Migration V29 copies every 3.x `role_transitions` row older than
+the V20 install into `events` as a `backfilled` `item.transitioned` row under its old id, then drops the table in
+the same migration. **Back up the volume before upgrading**: the drop is irreversible, and the backup is the
+supported rollback. A row whose `transitioned_at` does not parse is still copied, never skipped: it gets the item's
+`created_at` (or the epoch `1970-01-01 00:00:00.000` when the item row is gone), `timestampRepaired: true` in its
+event data, and its `seq` at that fallback time (parseable rows first on a tie, then by id). A row dated at or
+after the V20 install is not copied: it is assumed to already have its twin `item.transitioned` event. The server
+logs the counts at INFO (`V29 role_transitions backfill: rows=N, backfilled=M (timestampRepaired=R)`) and WARNs
+when any row was not copied, naming how many were dated at or after the V20 install (and how many of those were
+future-dated, i.e. clock skew) and how many were already present in `events` by id. A fresh 3.x upgrade should
+log no WARN; if one appears, the dropped rows survive only in the pre-upgrade backup.
+
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
@@ -319,7 +331,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Last-Event-ID replay window, in event ids (seqs of the durable `events` table): a resume further behind the newest event gets `sync.lost` `buffer_evicted`. `0` = no replay. |
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
-| `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
+| `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes or on `items_read` `history` entries. |
 | `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. Read **once at startup** into the typed `AppConfig` snapshot (restart-required); no runtime code reads the environment. |
 
 ### Bearer token secret file

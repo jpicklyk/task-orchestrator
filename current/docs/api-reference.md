@@ -495,6 +495,11 @@ UUID; absent values are omitted; `consumedCredentials` is omitted when empty; `o
 a live row; `backfilled: true` marks a row copied from the retired 3.x `role_transitions` table (V29), which has
 no `origin`. `actor` `{id, kind, parent?}` and `verification` `{status, verifier?, reason?}` appear only when the
 caller may see attribution (the `notes_read` rule); the proof hash and the verified claims are never returned.
+Cascades: a live cascade row renders the caller's `actor` with `origin: cascade`; a backfilled 3.x cascade row
+renders no `actor` and no `origin`, only `trigger: cascade`.
+Known limit: without `itemId`, a root scope matches the event's stored root only, so a token scoped to a mid-tree
+(non-root) ancestor gets an empty global history while its per-item `history` reads succeed. It under-returns and
+never leaks another root's rows.
 
 ```json
 { "select": "context", "itemId": "550e8400" }
@@ -1216,8 +1221,9 @@ whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT cla
 `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
 field is ever included in an MCP tool response — `VerificationResult.toJson()` enumerates only
 `status`/`verifier`/`reason`/`metadata` by design. They are surfaced only over REST, as
-`verification.proof` on `NoteDto`/`RoleTransitionDto`, and only to callers with `ADMIN`
-capability. See [api-rest.md](api-rest.md) §5/§22.
+`verification.proof` on `NoteDto`, and only to callers with `ADMIN`
+capability; the transition trail (`items_read` `history`) never returns them on either surface. See
+[api-rest.md](api-rest.md) sections 8 (`VerificationDto`) and 22.
 
 **VerificationStatus values:**
 

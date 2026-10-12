@@ -19,50 +19,71 @@
 -- json_object with keys in this fixed order: trigger, fromRole, toRole, fromStatusLabel, toStatusLabel, summary,
 -- consumedCredentials, actorProofSha256, actorProofClaims, verifier, verificationReason, actorParent, backfilled.
 -- backfilled is true and is the only marker (no origin). Invalid consumed_credentials JSON becomes [], invalid or '{}'
--- actor_proof_claims becomes null. A row whose transitioned_at strftime cannot parse is skipped. The raw actor_proof
--- column (NULL since V17) is not carried.
+-- actor_proof_claims becomes null. The raw actor_proof column (NULL since V17) is not carried.
+--
+-- Unparseable timestamps: the table is dropped below, so a skipped row would be lost for good. A row whose
+-- transitioned_at strftime cannot parse is backfilled anyway (whatever the V20 boundary) at a deterministic fallback
+-- time: the item's created_at, else (orphan row, or an unparseable created_at) the epoch 1970-01-01 00:00:00.000. Its
+-- data gains a trailing timestampRepaired: true. seq orders by the effective time, then parseable rows before repaired
+-- ones, then id. The server logs the row counts around this migration (RoleTransitionBackfillCallback) and WARNs when
+-- any row is not copied (dated at or after the V20 install, or already present in events by id).
 --
 -- Recovery: every audit column survives inside events.data, so the table can be rebuilt from the backfilled rows plus
 -- the non-backfilled item.transitioned rows; the supported rollback is the volume backup taken before the first boot.
 
+WITH src AS (
+    SELECT rt.*,
+           w.root_id AS w_root_id,
+           w.id AS w_id,
+           strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at) AS parsed_at,
+           COALESCE(strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at),
+                    strftime('%Y-%m-%d %H:%M:%f', w.created_at),
+                    '1970-01-01 00:00:00.000') AS effective_at
+      FROM role_transitions rt
+      LEFT JOIN work_items w ON w.id = rt.item_id
+),
+picked AS (
+    SELECT s.*,
+           json_object(
+               'trigger', s.trigger,
+               'fromRole', s.from_role,
+               'toRole', s.to_role,
+               'fromStatusLabel', s.from_status_label,
+               'toStatusLabel', s.to_status_label,
+               'summary', s.summary,
+               'consumedCredentials',
+                   CASE WHEN s.consumed_credentials IS NOT NULL AND json_valid(s.consumed_credentials)
+                             AND json_type(s.consumed_credentials) = 'array'
+                        THEN json(s.consumed_credentials) ELSE json('[]') END,
+               'actorProofSha256', s.actor_proof_sha256,
+               'actorProofClaims',
+                   CASE WHEN s.actor_proof_claims IS NOT NULL AND json_valid(s.actor_proof_claims)
+                             AND json_type(s.actor_proof_claims) = 'object' AND s.actor_proof_claims <> '{}'
+                        THEN json(s.actor_proof_claims) ELSE NULL END,
+               'verifier', s.verification_verifier,
+               'verificationReason', s.verification_reason,
+               'actorParent', s.actor_parent,
+               'backfilled', json('true')
+           ) AS payload
+      FROM src s
+     WHERE (s.parsed_at IS NULL
+            OR s.parsed_at <
+               COALESCE((SELECT strftime('%Y-%m-%d %H:%M:%f', MIN(installed_on)) FROM flyway_schema_history WHERE version = '20'),
+                        '9999-12-31 00:00:00.000'))
+       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.id = s.id)
+)
 INSERT INTO events (seq, id, occurred_at, root_id, entity_kind, entity_id, type, data, principal_id, principal_kind, proof_status)
-SELECT ROW_NUMBER() OVER (ORDER BY strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at), rt.id),
-       rt.id,
-       strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at),
-       COALESCE(w.root_id, w.id, rt.item_id),
+SELECT ROW_NUMBER() OVER (ORDER BY p.effective_at, p.parsed_at IS NULL, p.id),
+       p.id,
+       p.effective_at,
+       COALESCE(p.w_root_id, p.w_id, p.item_id),
        'item',
-       rt.item_id,
+       p.item_id,
        'item.transitioned',
-       json_object(
-           'trigger', rt.trigger,
-           'fromRole', rt.from_role,
-           'toRole', rt.to_role,
-           'fromStatusLabel', rt.from_status_label,
-           'toStatusLabel', rt.to_status_label,
-           'summary', rt.summary,
-           'consumedCredentials',
-               CASE WHEN rt.consumed_credentials IS NOT NULL AND json_valid(rt.consumed_credentials)
-                         AND json_type(rt.consumed_credentials) = 'array'
-                    THEN json(rt.consumed_credentials) ELSE json('[]') END,
-           'actorProofSha256', rt.actor_proof_sha256,
-           'actorProofClaims',
-               CASE WHEN rt.actor_proof_claims IS NOT NULL AND json_valid(rt.actor_proof_claims)
-                         AND json_type(rt.actor_proof_claims) = 'object' AND rt.actor_proof_claims <> '{}'
-                    THEN json(rt.actor_proof_claims) ELSE NULL END,
-           'verifier', rt.verification_verifier,
-           'verificationReason', rt.verification_reason,
-           'actorParent', rt.actor_parent,
-           'backfilled', json('true')
-       ),
-       rt.actor_id,
-       lower(rt.actor_kind),
-       lower(rt.verification_status)
-  FROM role_transitions rt
-  LEFT JOIN work_items w ON w.id = rt.item_id
- WHERE strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at) IS NOT NULL
-   AND strftime('%Y-%m-%d %H:%M:%f', rt.transitioned_at) <
-       COALESCE((SELECT strftime('%Y-%m-%d %H:%M:%f', MIN(installed_on)) FROM flyway_schema_history WHERE version = '20'),
-                '9999-12-31 00:00:00.000')
-   AND NOT EXISTS (SELECT 1 FROM events e WHERE e.id = rt.id);
+       CASE WHEN p.parsed_at IS NULL THEN json_set(p.payload, '$.timestampRepaired', json('true')) ELSE p.payload END,
+       p.actor_id,
+       lower(p.actor_kind),
+       lower(p.verification_status)
+  FROM picked p;
 
 DROP TABLE role_transitions;

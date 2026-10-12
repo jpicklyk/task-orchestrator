@@ -188,7 +188,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
-**`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
+**`ADMIN` unlocks:** When a caller has `ADMIN`, note `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields. The transition trail (`items_read` `history`, section 15) follows the same rule for its `actor`/`verification`.
 
 ---
 
@@ -493,30 +493,6 @@ For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"ext
 plus, when the proof was cryptographically `verified`, the JWT claims that were checked. It has
 its own `ADMIN`-only gate, independent of `API_REDACT_NOTE_ATTRIBUTION` — any `ADMIN` caller sees
 it whenever `verification` itself is shown; a non-admin caller never sees it.
-
-### RoleTransitionDto
-
-```json
-{
-  "id": "<uuid>",
-  "itemId": "<uuid>",
-  "fromRole": "queue|null",
-  "toRole": "work",
-  "trigger": "start",
-  "statusLabel": "string|null",
-  "occurredAt": "ISO-8601",
-  "actor": null,        // redacted unless ADMIN
-  "verification": null, // redacted unless ADMIN
-  "consumedCredentials": ["vault:prod-db-password"] // nullable; omitted when empty
-}
-```
-
-`consumedCredentials` is the audit trail of opaque credential/resource-lease labels this transition
-consumed — caller-supplied `credentialRefs` from the advance request, unioned with any keys the
-resource-lease gate auto-derived (held exclusive leases + advisory-mode declarations) when the item
-declares `resources:`. **Not subject to `API_REDACT_NOTE_ATTRIBUTION`** — unlike `actor`/`verification`
-on this same DTO, it is visible to any caller with `READ` capability, regardless of `ADMIN` status;
-the field's purpose is external verifiability, so it is deliberately not redacted.
 
 ### DependenciesDto
 
