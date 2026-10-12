@@ -43,7 +43,7 @@ private suspend fun graph(
     req: DepsGraphRequest
 ): Outcome<ListPage<JsonObject>> {
     val root =
-        when (val r = DepsSupport.resolve(env, req.item, "/item")) {
+        when (val r = DepsSupport.resolve(env, ctx, req.item, "/item")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

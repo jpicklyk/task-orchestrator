@@ -2,10 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ActorAware
@@ -48,23 +46,13 @@ internal object AdvanceSupport {
         }
     }
 
-    /** Resolves [ref] to an item id (`not_found` / `ambiguous_id` / `invalid_request`), then checks the call's scope on it. */
+    /** Resolves [ref] to an item id the call's scope admits ([ScopedIds.resolveTarget]): never an existence oracle. */
     suspend fun resolveInScope(
         stores: RepositoryProvider,
         ctx: CallContext,
         ref: IdRef,
         field: String = "/itemId"
-    ): Outcome<UUID> {
-        val id =
-            when (val resolved = IdResolver(stores.itemStore()).resolve(ref).toOutcome(field)) {
-                is Outcome.Err -> return resolved
-                is Outcome.Ok -> resolved.value
-            }
-        return when (val guard = ScopeGuard.check(ctx.scope, id, stores.workItemRepository())) {
-            is Outcome.Err -> Outcome.Err(guard.error)
-            is Outcome.Ok -> Outcome.Ok(id)
-        }
-    }
+    ): Outcome<UUID> = ScopedIds.resolveTarget(stores.workItemRepository(), ctx.scope, ref, field)
 
     suspend fun loadItem(
         stores: RepositoryProvider,

@@ -42,7 +42,7 @@ internal val depsCreateOp =
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
             val ids =
-                when (val r = DepsSupport.resolveAll(env, listOf(req.from, req.to), "/from")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, listOf(req.from, req.to), "/from")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -71,7 +71,7 @@ internal val depsLinearOp =
                 )
             }
             val ids =
-                when (val r = DepsSupport.resolveAll(env, req.ids, "/ids")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.ids, "/ids")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -99,12 +99,12 @@ internal val depsFanOutOp =
                 return@OpSpec Outcome.Err(invalidFields(listOf(FieldViolation("/toIds", "must have at least 1 item", "0"))))
             }
             val from =
-                when (val r = DepsSupport.resolve(env, req.from, "/from")) {
+                when (val r = DepsSupport.resolve(env, ctx, req.from, "/from")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
             val targets =
-                when (val r = DepsSupport.resolveAll(env, req.toIds, "/toIds")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.toIds, "/toIds")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
@@ -129,12 +129,12 @@ internal val depsFanInOp =
                 return@OpSpec Outcome.Err(invalidFields(listOf(FieldViolation("/fromIds", "must have at least 1 item", "0"))))
             }
             val sources =
-                when (val r = DepsSupport.resolveAll(env, req.fromIds, "/fromIds")) {
+                when (val r = DepsSupport.resolveAll(env, ctx, req.fromIds, "/fromIds")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }
             val target =
-                when (val r = DepsSupport.resolve(env, req.to, "/to")) {
+                when (val r = DepsSupport.resolve(env, ctx, req.to, "/to")) {
                     is Outcome.Ok -> r.value
                     is Outcome.Err -> return@OpSpec r
                 }

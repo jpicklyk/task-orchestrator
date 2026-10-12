@@ -37,7 +37,7 @@ private suspend fun listEdges(
     req: DepsListRequest
 ): Outcome<ListPage<JsonObject>> {
     val item =
-        when (val r = DepsSupport.resolve(env, req.item, "/item")) {
+        when (val r = DepsSupport.resolve(env, ctx, req.item, "/item")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

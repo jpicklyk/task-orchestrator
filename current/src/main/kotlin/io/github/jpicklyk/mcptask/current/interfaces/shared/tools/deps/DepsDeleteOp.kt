@@ -79,7 +79,7 @@ private suspend fun WriteScope.deleteByItem(
     ref: IdRef
 ): Outcome<Int> {
     val item =
-        when (val r = DepsSupport.resolve(env, ref, "/item")) {
+        when (val r = DepsSupport.resolve(env, ctx, ref, "/item")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
@@ -98,7 +98,7 @@ private suspend fun WriteScope.deleteByEnds(
     req: DepsDeleteRequest
 ): Outcome<Int> {
     val ids =
-        when (val r = DepsSupport.resolveAll(env, listOf(requireNotNull(req.from), requireNotNull(req.to)), "/from")) {
+        when (val r = DepsSupport.resolveAll(env, ctx, listOf(requireNotNull(req.from), requireNotNull(req.to)), "/from")) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

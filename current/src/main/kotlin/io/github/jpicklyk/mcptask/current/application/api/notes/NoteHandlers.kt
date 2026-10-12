@@ -1,12 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
@@ -204,25 +203,22 @@ object NoteHandlers {
     // ---- shared steps -------------------------------------------------------------------------------------
 
     /**
-     * Resolves [rawItemId] and runs [ScopeGuard] on it: `not_found` / `ambiguous_id` for an id that names no single
-     * item, `forbidden` for an item outside the call's scope, else the item id. A restricted scope never learns whether
-     * an item exists ([ScopeGuard] fails closed); an unrestricted one gets `not_found` for a missing item.
+     * Resolves [rawItemId] by the one scope-aware rule ([ScopedIds.resolveTarget]): `not_found` / `ambiguous_id` for an
+     * id that names no single item, `forbidden` for an item outside the call's scope, else the item id. A restricted
+     * scope never learns whether an item exists (no match and out-of-scope matches are both `forbidden`, and an
+     * ambiguous prefix lists only admitted candidates); an unrestricted one gets `not_found` for a missing item.
      */
     private suspend fun admit(
         stores: RepositoryProvider,
         ctx: CallContext,
         rawItemId: String
     ): Outcome<UUID> {
+        val workItems = stores.workItemRepository()
         val itemId =
-            when (val resolved = IdResolver(stores.itemStore()).resolve(rawItemId).toOutcome("/itemId")) {
+            when (val resolved = ScopedIds.resolveTarget(workItems, ctx.scope, rawItemId, "/itemId")) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
-        val workItems = stores.workItemRepository()
-        when (val guard = ScopeGuard.check(ctx.scope, itemId, workItems)) {
-            is Outcome.Err -> return guard
-            is Outcome.Ok -> Unit
-        }
         if (workItems.getById(itemId) == null) {
             return Outcome.Err(
                 DomainError(

@@ -1,15 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimSelect
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectOrder
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
-import io.github.jpicklyk.mcptask.current.application.api.toOutcome
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
@@ -128,7 +127,7 @@ private suspend fun WriteScope.claimBySelector(
 ): Outcome<JsonElement> {
     val parentId =
         select.parentId?.let { ref ->
-            when (val resolved = IdResolver(stores.itemStore()).resolve(ref).toOutcome("/select/parentId")) {
+            when (val resolved = ScopedIds.resolve(stores.workItemRepository(), ctx.scope, ref, "/select/parentId")) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
