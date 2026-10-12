@@ -100,7 +100,7 @@ class McpProfileHttpTest {
     private val knowledgeTools =
         setOf("items_read", "items_write", "notes_read", "notes_write", "deps_read", "deps_write", "docs_read", "docs_write")
 
-    private val orchestrationTools = knowledgeTools + setOf("advance", "manage_project_config", "query_rules")
+    private val orchestrationTools = knowledgeTools + setOf("advance", "config")
 
     private val orchestrationOnly = orchestrationTools - knowledgeTools
 
@@ -264,7 +264,7 @@ class McpProfileHttpTest {
             val (session, _) = client.handshake("/mcp")
             val names = assertNotNull(client.listTools("/mcp", session).toolNames, "tools/list must return a tools result")
 
-            assertEquals(orchestrationTools, names, "plan 3.1: nine 4.0 tools plus manage_project_config and query_rules")
+            assertEquals(orchestrationTools, names, "plan 3.1: the knowledge tools plus advance and config")
             assertTrue("advance" in names, "advance is orchestration-only and must be served on /mcp")
         }
     }

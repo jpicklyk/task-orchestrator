@@ -205,7 +205,6 @@ class McpProfileCallLogTest {
     @Test
     fun `S4 a profile server built by buildProfileServer records its profile for 4_0 rows and none for 3x rows`(): Unit =
         runBlocking {
-            val root = rig.seed("S4 rules root")
             for (profile in ToolProfile.entries) {
                 val server =
                     buildProfileServer(
@@ -223,17 +222,7 @@ class McpProfileCallLogTest {
                 val opsRow = rowOf(client.run("items_read", """{"select":"list"}"""))
                 assertEquals(profile.wire, opsRow.shape()!!.profileValue().content, "4.0 row of the ${profile.wire} server")
 
-                if (profile == ToolProfile.ORCHESTRATION) {
-                    val legacy = client.run("query_rules", """{"operation":"list","rootId":"${root.id}"}""")
-                    assertTrue(legacy.isError != true, "control: query_rules answers on the orchestration server: ${legacy.content}")
-                    val legacyRow = rowOf(legacy)
-                    assertEquals("query_rules", legacyRow["tool"])
-                    val legacyShape = legacyRow.shape()
-                    assertTrue(
-                        legacyShape == null || "profile" !in legacyShape,
-                        "3.x rows get no profile key: ${legacyRow["request_shape"]}"
-                    )
-                }
+                // No 3.x control row: the 3.x McpToolAdapter has no registered tools any more (Q23 removed the last two).
             }
         }
 
