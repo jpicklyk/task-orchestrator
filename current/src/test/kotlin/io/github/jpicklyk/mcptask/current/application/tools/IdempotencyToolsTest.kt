@@ -396,7 +396,7 @@ class IdempotencyToolsTest {
             // Item should be in WORK (transitioned exactly once)
             val item = context.workItemRepository().getById(UUID.fromString(itemId))
             assertNotNull(item)
-            assertEquals("work", item.role.toJsonString())
+            assertEquals("work", item.role?.toJsonString())
 
             assertEquals(1, db.idempotencyRecordCount())
         }

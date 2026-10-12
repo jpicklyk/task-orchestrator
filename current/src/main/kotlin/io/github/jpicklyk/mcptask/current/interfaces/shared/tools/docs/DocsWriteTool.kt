@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
@@ -33,6 +34,7 @@ internal val docsUpsertOp =
                 "body and bodyFromFile. A plan or page body is at most 65536 bytes, a rule body 16384. An adopted " +
                 "plan is duplicate and an archived document invalid_request. Result: {id, kind, slug, version, contentHash, created}.",
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocUpsertRequest>(),
         errors = DOC_ERRORS + setOf(ErrorCode.VERSION_CONFLICT, ErrorCode.PAYLOAD_TOO_LARGE, ErrorCode.DUPLICATE),
         execute = { env, ctx, req -> DocHandlers.upsert(this, env, ctx, req).map { DocJson.write(it) } }
@@ -46,6 +48,7 @@ internal val docsArchiveOp =
             "Archive the document; its version does not change. Archiving an archived document does nothing. " +
                 "Result: {id, kind, slug, version, archived}.",
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocStateRequest>(),
         errors = DOC_ERRORS + ErrorCode.VERSION_CONFLICT,
         execute = { env, ctx, req -> DocHandlers.setArchived(this, env, ctx, req, archive = true).map { DocJson.write(it) } }
@@ -57,6 +60,7 @@ internal val docsUnarchiveOp =
         name = "unarchive",
         doc = "Unarchive the document. Unarchiving a live document does nothing. Result: {id, kind, slug, version, archived}.",
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocStateRequest>(),
         errors = DOC_ERRORS + ErrorCode.VERSION_CONFLICT,
         execute = { env, ctx, req -> DocHandlers.setArchived(this, env, ctx, req, archive = false).map { DocJson.write(it) } }
@@ -71,6 +75,7 @@ internal val docsDeleteOp =
                 "Result: {id, kind, slug, deleted}.",
         destructive = true,
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocDeleteRequest>(),
         errors = DOC_ERRORS,
         execute = { env, ctx, req -> DocHandlers.delete(this, env, ctx, req).map { DocJson.write(it) } }
@@ -84,6 +89,7 @@ internal val docsAttachOp =
             "Attach an item of the same root to the document. Attaching twice returns the same link. " +
                 "Result: {linkId, documentId, itemId}.",
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocAttachRequest>(),
         errors = DOC_ERRORS,
         execute = { env, ctx, req -> DocHandlers.attach(this, env, ctx, req).map { DocJson.write(it) } }
@@ -96,6 +102,7 @@ internal val docsDetachOp =
         doc = "Remove the item's attachment to the document. Result: {detached: n}, 0 when it was not attached.",
         destructive = true,
         capability = ApiCapability.WRITE_CONFIG,
+        profile = ToolProfile.KNOWLEDGE,
         request = serializer<DocAttachRequest>(),
         errors = DOC_ERRORS,
         execute = { env, ctx, req -> DocHandlers.detach(this, env, ctx, req).map { DocJson.write(it) } }

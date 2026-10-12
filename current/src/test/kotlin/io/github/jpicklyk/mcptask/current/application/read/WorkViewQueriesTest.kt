@@ -1076,10 +1076,10 @@ class WorkViewQueriesTest {
 
                 val counts = itemStore.countByParentAndRole(parentIds)
                 assertEquals(1100, parents.count { counts[it.id].orEmpty().values.sum() == 1 })
-                assertTrue(parents.withIndex().all { (i, p) -> counts.getValue(p.id).of(children[i].role) == 1 })
+                assertTrue(parents.withIndex().all { (i, p) -> counts.getValue(p.id).of(children[i].role!!) == 1 })
 
                 val rollups = itemStore.rollupByTopChild(parentIds)
-                assertTrue(parents.withIndex().all { (i, p) -> rollups.getValue(p.id).of(children[i].role) == 1 })
+                assertTrue(parents.withIndex().all { (i, p) -> rollups.getValue(p.id).of(children[i].role!!) == 1 })
 
                 val byParent = itemStore.findByParents(parentIds)
                 assertEquals(1100, byParent.values.count { it.size == 1 })

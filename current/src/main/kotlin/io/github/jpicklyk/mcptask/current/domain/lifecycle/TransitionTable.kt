@@ -14,6 +14,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role.WORK
  * The lifecycle state machine as data. The two maps below ARE the spec: a missing user cell is an
  * invalid transition; a missing cascade cell, or any cascade under a non-AUTO lifecycle, is not
  * applicable. Structural triggers are not part of the table.
+ *
+ * A null role is a lifecycle-free (NONE) item: every user trigger is invalid with
+ * [InvalidReason.LIFECYCLE_FREE] and no trigger in the table resolves, and every cascade is not
+ * applicable whatever the lifecycle.
  */
 object TransitionTable {
     /** A static cell, independent of the item's saved previous role. */
@@ -36,12 +40,25 @@ object TransitionTable {
             val role: Role
         ) : Resolution
 
-        /** [allowed] lists the user triggers valid from the same role, in [User] declaration order. */
+        /**
+         * [allowed] lists the user triggers valid from the same role, in [User] declaration order.
+         * [reason] is [InvalidReason.LIFECYCLE_FREE] for a lifecycle-free item, else [InvalidReason.NOT_IN_TABLE].
+         */
         data class Invalid(
-            val allowed: List<User>
+            val allowed: List<User>,
+            val reason: InvalidReason = InvalidReason.NOT_IN_TABLE
         ) : Resolution
 
         data object NotApplicable : Resolution
+    }
+
+    /** Why a user trigger resolved [Resolution.Invalid]. */
+    enum class InvalidReason {
+        /** The (role, trigger) cell is missing, or `resume` has no resumable previous role. */
+        NOT_IN_TABLE,
+
+        /** The item is lifecycle-free (null role): no user trigger applies. */
+        LIFECYCLE_FREE
     }
 
     /** Table targets. [AfterWork] is REVIEW when the schema has a review phase, else TERMINAL. */
@@ -127,13 +144,13 @@ object TransitionTable {
      * @throws IllegalArgumentException for a [Trigger.Structural] trigger.
      */
     fun cell(
-        role: Role,
+        role: Role?,
         trigger: Trigger,
         facts: SchemaFacts
     ): Cell =
         when (trigger) {
             is User -> {
-                when (val target = USER.getValue(role)[trigger]) {
+                when (val target = role?.let { USER.getValue(it)[trigger] }) {
                     null -> Cell.Invalid
                     is Target.Fixed -> Cell.To(target.role)
                     Target.Previous -> Cell.ToPrevious
@@ -141,7 +158,7 @@ object TransitionTable {
                 }
             }
             is Cascade -> {
-                if (facts.lifecycle != LifecycleMode.AUTO) {
+                if (role == null || facts.lifecycle != LifecycleMode.AUTO) {
                     Cell.NotApplicable
                 } else {
                     CASCADE.getValue(kindOf(trigger))[role]?.let { Cell.To(it) } ?: Cell.NotApplicable
@@ -152,12 +169,13 @@ object TransitionTable {
 
     /**
      * The cell resolved for an item whose saved previous role is [previousRole]. `resume` from
-     * BLOCKED resolves to [previousRole] when it is QUEUE, WORK or REVIEW, else it is invalid.
+     * BLOCKED resolves to [previousRole] when it is QUEUE, WORK or REVIEW, else it is invalid. For a
+     * null (lifecycle-free) [role], every user trigger is `Invalid([], LIFECYCLE_FREE)`.
      *
      * @throws IllegalArgumentException for a [Trigger.Structural] trigger.
      */
     fun resolve(
-        role: Role,
+        role: Role?,
         trigger: Trigger,
         facts: SchemaFacts,
         previousRole: Role?
@@ -170,13 +188,18 @@ object TransitionTable {
                 } else {
                     Resolution.Invalid(allowedUserTriggers(role, facts, previousRole))
                 }
-            Cell.Invalid -> Resolution.Invalid(allowedUserTriggers(role, facts, previousRole))
+            Cell.Invalid ->
+                if (role == null) {
+                    Resolution.Invalid(emptyList(), InvalidReason.LIFECYCLE_FREE)
+                } else {
+                    Resolution.Invalid(allowedUserTriggers(role, facts, previousRole))
+                }
             Cell.NotApplicable -> Resolution.NotApplicable
         }
 
-    /** The user triggers that resolve to a target from [role], in [User] declaration order. */
+    /** The user triggers that resolve to a target from [role], in [User] declaration order; empty for a null role. */
     fun allowedUserTriggers(
-        role: Role,
+        role: Role?,
         facts: SchemaFacts,
         previousRole: Role?
     ): List<User> =

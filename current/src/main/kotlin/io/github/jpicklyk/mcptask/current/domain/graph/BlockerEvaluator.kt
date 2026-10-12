@@ -21,12 +21,13 @@ object BlockerEvaluator {
     /**
      * Batched evaluation. Returns one entry per requested id (in [itemIds] order, duplicates
      * collapsed), each listing the unsatisfied blockers of the edges whose blocked side is that id,
-     * in [edges] order; an empty list means unblocked. A blocker absent from [roles] is unsatisfied.
+     * in [edges] order; an empty list means unblocked. A blocker absent from [roles], or mapped to a
+     * null (lifecycle-free) role, is unsatisfied.
      */
     fun unsatisfied(
         itemIds: Collection<UUID>,
         edges: List<BlockingEdge>,
-        roles: Map<UUID, Role>
+        roles: Map<UUID, Role?>
     ): Map<UUID, List<UnsatisfiedBlocker>> {
         val result = LinkedHashMap<UUID, MutableList<UnsatisfiedBlocker>>()
         for (id in itemIds) result.getOrPut(id) { mutableListOf() }

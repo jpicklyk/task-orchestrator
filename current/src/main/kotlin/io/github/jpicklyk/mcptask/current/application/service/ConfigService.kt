@@ -4,6 +4,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.CanonicalConfigJson
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidationResult
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
@@ -237,6 +238,7 @@ class ConfigService(
             errors = emptyList(),
             warnings = validation.warnings,
             diff = ConfigDiff.between(headRoot, parsedRoot),
+            candidate = parsed.document,
         )
     }
 
@@ -813,6 +815,8 @@ sealed class ConfigValidateResult {
         val errors: List<ConfigViolation>,
         val warnings: List<ConfigViolation>,
         val diff: ConfigDiff?,
+        /** The parsed candidate document when valid (input to the in-flight impact check); null otherwise. */
+        val candidate: ConfigDocument? = null,
     ) : ConfigValidateResult() {
         val isValid: Boolean get() = errors.isEmpty()
     }

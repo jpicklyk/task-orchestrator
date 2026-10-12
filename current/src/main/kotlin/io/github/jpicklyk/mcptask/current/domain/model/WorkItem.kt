@@ -33,7 +33,11 @@ data class WorkItem(
     val title: String,
     val description: String? = null,
     val summary: String = "",
-    val role: Role = Role.QUEUE,
+    /**
+     * The item's lifecycle role; null for a lifecycle-free (NONE) item, stored as a NULL `role`
+     * column with `lifecycle = 'none'` (V26). No write path creates one yet (Q31b).
+     */
+    val role: Role? = Role.QUEUE,
     val statusLabel: String? = null,
     val previousRole: Role? = null,
     val priority: Priority = Priority.MEDIUM,

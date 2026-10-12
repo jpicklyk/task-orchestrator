@@ -236,7 +236,7 @@ class NextItemRecommenderTest {
             link(blocker.id, subject.id)
             val unreadable =
                 object : WorkItemRepository by repo {
-                    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> = repo.rolesOf(ids) - blocker.id
+                    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> = repo.rolesOf(ids) - blocker.id
                 }
 
             assertTrue(!recommender.isBlocked(subject), "control: a readable terminal blocker satisfies the edge")

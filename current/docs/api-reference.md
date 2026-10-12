@@ -17,6 +17,21 @@ only — there are no `prompts` or `resources` capabilities; the server register
 `logging` capability backs `notifications/message` events the server sends on tool validation
 errors, per-root-config-unavailable failures, and internal errors.
 
+## Tool profiles
+
+The server builds one MCP `Server` per tool profile, so a client sees only the selects and ops of its profile (a hidden
+select or op looks absent: `invalid_request`).
+
+| Profile | HTTP path | stdio | Tools |
+|---|---|---|---|
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool with all its selects and ops, including `advance` and `config` |
+| `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
+
+`/mcp/knowledge` is exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the profile it was
+initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and applied to
+stdio only. `POST /api/v1/ops/{tool}` always serves the orchestration profile. The `initialize` `instructions` is one
+sentence naming the profile. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+
 ## Tool Categories
 
 | Tool | Category | R/W | Description |
@@ -792,7 +807,7 @@ caller's scope is `forbidden`, never `not_found`.
 | `get` | `rootId`, `version?`, `fingerprint?` | `read` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
 | `history` | `rootId`, `limit?` (1..200, default 50), `before?` | `read` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
 | `push` | `rootId`, `configYaml`, `force?`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
-| `validate` | `rootId`, `configYaml` | `read` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?}` |
+| `validate` | `rootId`, `configYaml` | `read` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?, affectedInFlight?}` |
 | `rollback` | `rootId`, `version`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, source, appended, createdAt}` |
 | `reset` | `rootId` | `write-config` (destructive) | `{rootId, appended}` |
 | `effective` | `rootId?` | `read` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
@@ -827,7 +842,15 @@ head (`effective` after `push` reads the new layer).
 `expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
 including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
-`removed` and `changed` name lists (no head, or a reset head, counts as empty).
+`removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
+`affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked) in the root's subtree, visible
+to the caller, whose resolved schema would differ if the document were pushed and the items repinned. The comparison is
+each item's schema now (at its pin, or at the heads when unpinned) against the schema under the candidate over the
+current server head. A note counts as changed only when its key is added or removed or its `role` or `required` flag
+changes. `count` is exact; `sample` lists the first 20 as `{itemId, changedNotes, schema?, lifecycle?}`, where `schema`
+(`{from, to}` of `{key, layer}` or null) and `lifecycle` (`{from, to}`) appear only when the base schema or lifecycle
+mode differs. An unreadable config is `unavailable`, an undecodable pinned version `config_invalid`; there is no
+partial result.
 
 **`effective`** is one layered read. With `rootId` it is that root's config over the server's; without it, the
 server config alone (no scope check, `read` only). `schemas` lists every registered type resolved (`configSource`

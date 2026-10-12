@@ -188,10 +188,11 @@ interface ItemStore {
     // ---------------------------------------------------------------------------------------------
 
     /**
-     * The stored role of each id in [ids]. An id with no row is absent from the result; callers
-     * that evaluate blockers treat an absent role as unsatisfied (fail-closed).
+     * The stored role of each id in [ids]. An id with no row is absent from the result; a
+     * lifecycle-free row (NULL role) maps to null. Callers that evaluate blockers treat an absent
+     * or null role alike, as unsatisfied (fail-closed).
      */
-    suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role>
+    suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?>
 
     /**
      * The trait names of each id in [ids], in their stored position order, as ONE statement for any number of ids.

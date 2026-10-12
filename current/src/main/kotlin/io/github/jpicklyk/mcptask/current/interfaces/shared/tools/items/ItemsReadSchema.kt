@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -38,6 +39,7 @@ object ItemsReadSchema {
         SelectSpec.Single<Request, JsonObject>(
             name = "schema",
             doc = "The note schema of a type or of an item; schemaFree when none matches; guidance only with fields.",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = handler@{ env, ctx, req ->

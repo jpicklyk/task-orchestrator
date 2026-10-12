@@ -37,7 +37,8 @@ fun WorkItem.toFullJson(includeTimestamps: Boolean = false): JsonObject =
         put("title", JsonPrimitive(title))
         description?.let { put("description", JsonPrimitive(it)) }
         put("summary", JsonPrimitive(summary))
-        put("role", JsonPrimitive(role.toJsonString()))
+        // A lifecycle-free item has no role; the member is omitted like the other nulls.
+        role?.let { put("role", JsonPrimitive(it.toJsonString())) }
         statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
         previousRole?.let { put("previousRole", JsonPrimitive(it.toJsonString())) }
         put("priority", JsonPrimitive(priority.toJsonString()))
@@ -64,7 +65,7 @@ fun WorkItem.toMinimalJson(): JsonObject =
         put("id", JsonPrimitive(id.toString()))
         parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
         put("title", JsonPrimitive(title))
-        put("role", JsonPrimitive(role.toJsonString()))
+        role?.let { put("role", JsonPrimitive(it.toJsonString())) }
         statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
         put("priority", JsonPrimitive(priority.toJsonString()))
         put("depth", JsonPrimitive(depth))

@@ -165,7 +165,7 @@ class DependencyNormalizationReadersTest {
         override suspend fun getById(id: UUID): WorkItem? = if (id == unreadable) null else delegate.getById(id)
 
         // The recommender reads blocker roles in batch (Q14); the unreadable item is absent from that read too.
-        override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> = delegate.rolesOf(ids) - unreadable
+        override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role?> = delegate.rolesOf(ids) - unreadable
     }
 
     @Test

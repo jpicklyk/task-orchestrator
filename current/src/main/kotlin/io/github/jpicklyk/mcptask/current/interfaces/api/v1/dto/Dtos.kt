@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
  * `properties` is deserialized from the domain JSON string on read (parse failure returns empty object).
  * `tags` is expanded from the comma-separated domain string via WorkItem.tagList().
  * `traits` is the item's typed trait list in order; always present, possibly empty.
+ * `role` is null for a lifecycle-free item (no lifecycle role).
  * All timestamps are ISO-8601 strings.
  * `etag` is derived from `modifiedAt` via [io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor].
  */
@@ -20,7 +21,7 @@ data class ItemDto(
     val description: String?,
     val summary: String,
     val type: String?,
-    val role: String,
+    val role: String?,
     val previousRole: String?,
     val statusLabel: String?,
     val priority: String,

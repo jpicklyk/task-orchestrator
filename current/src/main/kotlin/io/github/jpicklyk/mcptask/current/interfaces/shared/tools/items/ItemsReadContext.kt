@@ -132,17 +132,19 @@ object ItemsReadContext {
         val schema = preview.schema
         val notesByKey = preview.notes.associateBy { it.key }
         val isTerminal = item.role == Role.TERMINAL
-        val phase = computePhaseNoteContext(item.role, schema?.notes, notesByKey)
+        // A lifecycle-free item (null role) has no phase: no phase context, seats, dispatch or status-graph row.
+        val role = item.role
+        val phase = computePhaseNoteContext(role, schema?.notes, notesByKey)
         val missing = phase?.missingKeys ?: emptyList()
         val missingBySeat = if (isTerminal) null else computeMissingBySeat(schema, missing)
         val violations = if (isTerminal) null else preview.violations
-        val seats = schema?.seatsForRole(item.role) ?: emptyList()
+        val seats = role?.let { schema?.seatsForRole(it) } ?: emptyList()
         val dispatchBySeat =
-            if (seats.isEmpty()) emptyMap() else env.configResolver.resolveDispatchBySeat(item, schema)[item.role] ?: emptyMap()
-        val dispatch = env.resolveDispatchProfile(item, item.role, schema)
+            if (seats.isEmpty() || role == null) emptyMap() else env.configResolver.resolveDispatchBySeat(item, schema)[role] ?: emptyMap()
+        val dispatch = role?.let { env.resolveDispatchProfile(item, it, schema) }
         val blockers = if (decision is Decision.Reject) dependencyBlockers(env, ctx, decision) else emptyList()
         val chains = ancestorChains(env, listOf(item), "ancestors" in req.fields.orEmpty())
-        val wire = item.role.name.lowercase()
+        val wire = role?.name?.lowercase()
 
         return Outcome.Ok(
             buildJsonObject {
@@ -160,7 +162,7 @@ object ItemsReadContext {
                     "gateStatus",
                     buildJsonObject {
                         put("canAdvance", canAdvance)
-                        put("phase", wire)
+                        wire?.let { put("phase", it) }
                         put("missing", JsonArray(missing.map { JsonPrimitive(it) }))
                         buildMissingBySeatJson(missingBySeat)?.let { put("missingBySeat", it) }
                         NoteSchemaJsonHelpers.buildViolationsArray(violations)?.let { put("violations", it) }
@@ -175,7 +177,7 @@ object ItemsReadContext {
                         "next",
                         buildJsonObject {
                             put("trigger", Trigger.User.START.wire)
-                            put("role", decision.target.name.lowercase())
+                            decision.target?.let { put("role", it.name.lowercase()) }
                         }
                     )
                 }
@@ -221,7 +223,8 @@ object ItemsReadContext {
         item: WorkItem
     ): JsonObject =
         buildJsonObject {
-            for ((trigger, target) in graph.rowFor(schema, item.role)) {
+            val role = item.role ?: return@buildJsonObject
+            for ((trigger, target) in graph.rowFor(schema, role)) {
                 if (target == StatusGraphBuilder.PREVIOUS_ROLE_SENTINEL) {
                     item.previousRole?.let { put(trigger, it.name.lowercase()) }
                 } else {
@@ -342,13 +345,14 @@ object ItemsReadContext {
         for (item in view.active.items) {
             val schema = env.resolveSchema(item) ?: continue
             val notes = view.notes[item.id].orEmpty().associateBy { it.key }
-            val phase = computePhaseNoteContext(item.role, schema, notes) ?: continue
+            val role = item.role ?: continue
+            val phase = computePhaseNoteContext(role, schema, notes) ?: continue
             if (phase.missingKeys.isEmpty()) continue
             out.add(
                 buildJsonObject {
                     put("id", ItemView.shortId(item.id))
                     put("title", item.title)
-                    put("role", item.role.name.lowercase())
+                    put("role", role.name.lowercase())
                     put("missing", JsonArray(phase.missingKeys.map { JsonPrimitive(it) }))
                     phase.guidanceKey?.let { put("guidanceKey", it) }
                     phase.skillPointer?.let { put("skillPointer", it) }

@@ -84,7 +84,7 @@ class AdvanceCascadeUnitCountTest {
             .repositoryProvider()
             .workItemRepository()
             .getById(item.id)!!
-            .role
+            .role!!
 
     @Test
     fun `S1 S2 a complete that cascades two ancestors to terminal is still exactly one write unit`(): Unit =
