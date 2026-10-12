@@ -238,7 +238,9 @@ internal object RequestFieldConsumption {
         val methods: List<MethodInfo>
     )
 
-    private val COMPONENT = Regex("component\\d+")
+    // Value-class properties mangle these names: copy-Wahl8hI, copy-Wahl8hI$default, component2-Jf1LP30.
+    private val COMPONENT = Regex("component\\d+(-[A-Za-z0-9_]+)?")
+    private val COPY = Regex("copy(-[A-Za-z0-9_]+)?(\\\$default)?")
 
     private fun scan(
         classRoot: Path,
@@ -404,8 +406,7 @@ internal object RequestFieldConsumption {
                             val generated =
                                 name == "<init>" ||
                                     name == "<clinit>" ||
-                                    name == "copy" ||
-                                    name == "copy\$default" ||
+                                    COPY.matches(name) ||
                                     name == "equals" ||
                                     name == "hashCode" ||
                                     name == "toString" ||
