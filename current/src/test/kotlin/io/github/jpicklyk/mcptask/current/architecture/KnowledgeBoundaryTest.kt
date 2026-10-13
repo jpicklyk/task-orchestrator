@@ -153,6 +153,7 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.domain.model.SeatOwnership",
             "import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService",
+            "import io.github.jpicklyk.mcptask.current.application.run.RunService",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService as Adv",
             "val s = io.github.jpicklyk.mcptask.current.application.service.ClaimService(x)",
             "val t = io.github.jpicklyk.mcptask.current.domain.lifecycle.RoleTable.lookup(r)",
