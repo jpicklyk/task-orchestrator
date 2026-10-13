@@ -1690,7 +1690,7 @@ an `idempotencyKey`. Every element commits on its own unless `atomic` is true; t
 `207 partial_failure` over REST when some elements failed). It is served over MCP and `POST /api/v1/ops/docs_write`, and replaces the write half
 of `manage_plan_documents` and `PUT /api/v1/roots/{rootId}/plans/{slug}`.
 
-Every op needs the `WRITE_DOCS` capability (`write-docs`; before 4.0 R10 it was `write-config`, which no longer grants any `docs_write` op): a `write-notes` token cannot
+Every op needs the `WRITE_DOCS` capability (`write-docs`; before 4.0 it was `write-config`, which no longer grants any `docs_write` op): a `write-notes` token cannot
 rewrite documents, because rule documents are served to agents as instructions by the `config` tool's `rules` op. Every op also checks the caller's root and tag
 scope on `rootId`; a forbidden element is never executed and records no event.
 

@@ -495,7 +495,9 @@ components:
       description: >-
         The forbidden error envelope; error.detail.scope is capability (the token lacks the route's
         capability), root or tag (the item is outside the token's scope) or host (the Host header is
-        not allowed; required is a fixed literal, never the allowlist).
+        not allowed; required is a fixed literal, never the allowlist). A token-file credential with
+        profile director gets scope capability and required director on every path except
+        POST /api/v1/ops/director/{tool}.
       content:
         application/json:
           schema:
@@ -560,7 +562,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -632,7 +634,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability; or a prefix that matches no item the caller may see)
+          description: forbidden envelope (capability; or a prefix that matches no item the caller may see, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -700,7 +702,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -760,7 +762,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -801,6 +803,8 @@ paths:
           description: Not modified
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /ops/{tool}:
     post:
@@ -896,7 +900,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope) or another 403 catalog code
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director)) or another 403 catalog code
           content:
             application/json:
               schema:
@@ -1015,7 +1019,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `read`)
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1056,7 +1060,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `admin`)
+          description: forbidden envelope (the token lacks `admin`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1135,7 +1139,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `read`)
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1160,6 +1164,8 @@ paths:
                         $ref: "#/components/schemas/ServiceInfoDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           description: config_invalid envelope (the stored server config head cannot be loaded)
           content:

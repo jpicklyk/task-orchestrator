@@ -59,7 +59,7 @@ class AuthenticationPluginTest {
         }
 
     // -------------------------------------------------------------------------
-    // CredentialResolver — directly exercises the auth logic
+    // CredentialResolver -- directly exercises the auth logic
     // -------------------------------------------------------------------------
 
     @Test
