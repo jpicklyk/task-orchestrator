@@ -7,6 +7,7 @@ application/knowledge/link/LinkService.kt -> io.github.jpicklyk.mcptask.current.
 application/knowledge/link/LinkService.kt -> io.github.jpicklyk.mcptask.current.application.service.eventRootOf
 application/knowledge/related/RelatedService.kt -> io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 application/port/EventStore.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
+application/port/LeaseStore.kt -> io.github.jpicklyk.mcptask.current.application.support.PageRequest
 application/read/WorkViewQueries.kt -> io.github.jpicklyk.mcptask.current.application.api.ListPage
 application/read/WorkViewQueries.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
 application/read/WorkViews.kt -> io.github.jpicklyk.mcptask.current.application.api.ListPage
