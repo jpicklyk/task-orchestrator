@@ -728,9 +728,10 @@ class SqliteSearchIndexContractTest {
             suspend fun scoped(vararg roots: WorkItem): Set<UUID> =
                 owners(Corpus.NOTE, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = roots.map { it.id }.toSet()))
 
-            assertEquals(ids(t.f, t.f1, t.f2), scoped(t.f))
+            // R15 ruling (roots only): the mid-tree scope id f admits nothing, so its subtree is no longer reached through it.
+            assertEquals(emptySet<UUID>(), scoped(t.f))
             assertEquals(ids(t.r, t.f, t.g, t.f1, t.f2, t.g1), scoped(t.r))
-            assertEquals(ids(t.f, t.f1, t.f2, t.r2, t.r2c), scoped(t.f, t.r2))
+            assertEquals(ids(t.r2, t.r2c), scoped(t.f, t.r2))
             assertEquals(
                 t.everything,
                 owners(Corpus.NOTE, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = null)),
@@ -815,6 +816,7 @@ class SearchServiceOnSqliteTest {
         title: String,
         summary: String = "",
         parent: WorkItem? = null,
+        id: UUID = UUID.randomUUID(),
     ): WorkItem =
         assertNotNull(
             provider.workItemRepository().create(
@@ -823,7 +825,8 @@ class SearchServiceOnSqliteTest {
                     summary = summary,
                     parentId = parent?.id,
                     depth = (parent?.depth ?: -1) + 1,
-                    rootId = parent?.let { it.rootId ?: it.id },
+                    id = id,
+                    rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 )
             )
         )

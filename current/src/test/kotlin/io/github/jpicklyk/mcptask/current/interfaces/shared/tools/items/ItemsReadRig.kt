@@ -198,7 +198,7 @@ internal suspend fun EventLogRig.make(
             summary = summary,
             parentId = parent?.id,
             depth = (parent?.depth ?: -1) + 1,
-            rootId = parent?.let { it.rootId ?: it.id },
+            rootId = parent?.let { it.rootId ?: it.id } ?: id,
             role = role,
             priority = priority,
             tags = tags,

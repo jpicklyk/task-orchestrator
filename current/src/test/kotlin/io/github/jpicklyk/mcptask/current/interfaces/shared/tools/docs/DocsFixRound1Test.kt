@@ -100,7 +100,7 @@ class DocsFixRound1Test {
         title: String
     ): UUID {
         val uuid = UUID.fromString(id)
-        rig.raw.workItemRepository().create(WorkItem(id = uuid, title = title, depth = 0))
+        rig.raw.workItemRepository().create(WorkItem(id = uuid, title = title, depth = 0, rootId = uuid))
         return uuid
     }
 

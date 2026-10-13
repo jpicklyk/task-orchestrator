@@ -96,7 +96,7 @@ class AdvanceToolTest {
                 type = type,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 createdAt = createdAt,
                 claimedBy = claimedBy,
                 claimedAt = claimedAt,

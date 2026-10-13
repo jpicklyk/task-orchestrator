@@ -1687,21 +1687,31 @@ class ItemsWriteTreeTest {
         }
 
     @Test
-    fun `S12 tag scope - a root create needs a listed tag in tags, a parent is judged on its own tags`(): Unit =
+    fun `S12 tag scope - a root create is forbidden root regardless of tags, a parent is judged on its own tags`(): Unit =
         runBlocking {
             val k = seeded()
             val before = k.snapshot()
             val counts = k.tableCounts()
+            // R15 ruling (test-plan S8, D4): a tag-only principal may never create a depth-0 root, with or without a listed tag.
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("NoTag", extra = listOf("tags" to JsonArray(emptyList()))))).errorAt(),
-                "tag",
-                "alpha"
+                "root",
+                ""
             )
-            assertForbidden(k.callScoped(tagScoped, twTree(twRoot("NoTagAtAll"))).errorAt(), "tag", "alpha")
+            assertForbidden(k.callScoped(tagScoped, twTree(twRoot("NoTagAtAll"))).errorAt(), "root", "")
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("Beta", extra = listOf("tags" to strings("beta"))))).errorAt(),
-                "tag",
-                "alpha"
+                "root",
+                ""
+            )
+            assertForbidden(
+                k
+                    .callScoped(
+                        tagScoped,
+                        twTree(twRoot("Alpha", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))
+                    ).errorAt(),
+                "root",
+                ""
             )
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("Under"), extra = listOf("parentId" to jstr(r2.toString())))).errorAt(),
@@ -1714,12 +1724,11 @@ class ItemsWriteTreeTest {
                 "alpha"
             )
             assertUntouched(k, before, counts)
-            k.callScoped(tagScoped, twTree(twRoot("Alpha", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))).okResult()
             k.callScoped(tagScoped, twTree(twRoot("Under"), extra = listOf("parentId" to jstr(c1.toString())))).okResult()
             assertEquals(
-                counts.getValue("work_items") + 3,
+                counts.getValue("work_items") + 1,
                 k.tableCounts().getValue("work_items"),
-                "control: a listed tag and an in-scope parent write"
+                "control: an in-scope parent writes"
             )
         }
 
