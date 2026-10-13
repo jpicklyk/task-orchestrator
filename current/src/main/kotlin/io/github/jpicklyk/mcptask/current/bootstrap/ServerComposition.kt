@@ -34,6 +34,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashByt
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
 import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -310,13 +311,7 @@ class ServerComposition(
             if (apiConfig is ApiAuthConfig.Jwks) {
                 val keyProvider =
                     DefaultJwksKeySetProvider(
-                        VerifierConfig.Jwks(
-                            jwksUri = apiConfig.url,
-                            issuer = apiConfig.issuer,
-                            audience = apiConfig.audience,
-                            algorithms = apiConfig.algorithms,
-                            cacheTtlSeconds = apiConfig.cacheTtlSeconds,
-                        ),
+                        apiConfig.toKeySource(),
                         Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir)),
                     )
                 shutdownCoordinator.addCleanupAction("Close REST JWKS key provider") {
@@ -380,7 +375,7 @@ class ServerComposition(
                                 "reject for cross-org deployments that must not trust an unverified claim.",
                         )
                     }
-                    JwksActorVerifier(vc, DefaultJwksKeySetProvider(vc, configBaseDir)).also { jwksVerifier ->
+                    JwksActorVerifier(vc, DefaultJwksKeySetProvider(vc.toKeySource(), configBaseDir)).also { jwksVerifier ->
                         shutdownCoordinator.addCleanupAction("Close JWKS ActorVerifier") {
                             jwksVerifier.close()
                         }

@@ -1,0 +1,16 @@
+# AR-58 package-cycle baseline: edges that close application/<sub> package cycles (phase 4 removes them).
+application/config/DocumentSchemaCatalog.kt -> io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+application/config/EffectiveConfigResolver.kt -> io.github.jpicklyk.mcptask.current.application.service.statusLabelKey
+application/config/LayerBackedGlobalLookup.kt -> io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+application/knowledge/link/LinkParser.kt -> io.github.jpicklyk.mcptask.current.application.api.IdRef
+application/knowledge/link/LinkService.kt -> io.github.jpicklyk.mcptask.current.application.api.IdRef
+application/knowledge/link/LinkService.kt -> io.github.jpicklyk.mcptask.current.application.service.eventRootOf
+application/knowledge/related/RelatedService.kt -> io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+application/port/EventStore.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
+application/port/LeaseStore.kt -> io.github.jpicklyk.mcptask.current.application.support.PageRequest
+application/read/WorkViewQueries.kt -> io.github.jpicklyk.mcptask.current.application.api.ListPage
+application/read/WorkViewQueries.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
+application/read/WorkViews.kt -> io.github.jpicklyk.mcptask.current.application.api.ListPage
+application/read/WorkViews.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
+application/support/UnscopedUnitOfWork.kt -> io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+application/telemetry/CallLogFields.kt -> io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService

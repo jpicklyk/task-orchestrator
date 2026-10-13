@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -96,7 +97,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val doc = resolver.resolve(did)
 
             assertEquals("did:web:example.com", doc.id)
@@ -135,7 +136,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val doc = resolver.resolve(did)
 
             assertEquals("did:web:example.com:agents:abc", doc.id)
@@ -167,7 +168,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve(requestedDid) }
@@ -238,7 +239,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             // A 404 response still returns a body — the JSON parsing will fail,
             // which should be wrapped in DidResolutionException.
             val ex =
@@ -259,7 +260,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -273,7 +274,7 @@ class DidWebResolverTest {
             val networkCause = RuntimeException("connection refused")
             val engine = MockEngine { _ -> throw networkCause }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -326,7 +327,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val doc = resolver.resolve(did)
 
             assertEquals(2, doc.verificationMethods.size)
@@ -372,7 +373,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val doc = resolver.resolve(did)
 
             assertEquals("did:web:minimal.example", doc.id)
@@ -407,7 +408,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -427,7 +428,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -457,7 +458,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -484,7 +485,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -511,7 +512,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -536,7 +537,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val doc = resolver.resolve(did)
             assertEquals(did, doc.id)
         }
@@ -559,7 +560,7 @@ class DidWebResolverTest {
                     )
                 }
 
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
             val ex =
                 assertThrows<DidResolutionException> {
                     kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
@@ -653,7 +654,7 @@ class DidWebResolverTest {
             logbackLogger.level = Level.WARN
 
             try {
-                val resolver = DidWebResolver(engine)
+                val resolver = DidWebResolver(engine, publicEgressGuard())
                 val doc = resolver.resolve(did)
 
                 // Only the valid entry should appear in the result.

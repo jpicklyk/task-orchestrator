@@ -21,6 +21,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolve
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidWebResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -48,7 +50,7 @@ import java.util.Date
  *
  * These tests exercise the full pipeline:
  *   JwksActorVerifier → DefaultJwksKeySetProvider → DidResolverRegistry
- *     → DidWebResolver(MockEngine) → DidDocumentJwksExtractor
+ *     → DidWebResolver(MockEngine, publicEgressGuard()) → DidDocumentJwksExtractor
  *
  * The HTTP layer is mocked via Ktor's [MockEngine]. No real network calls are made.
  * All test cases use real Ed25519 keypairs and real JWT signing.
@@ -280,16 +282,17 @@ class DidVerificationIntegrationTest {
                 requireSubMatch = true,
                 didLooseKidMatch = didLooseKidMatch
             )
-        val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+        val registry = DidResolverRegistry(listOf(DidWebResolver(engine, publicEgressGuard())))
         val extractor = DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship)
         val provider =
             DefaultJwksKeySetProvider(
-                config = config,
+                config = config.toKeySource(),
                 configBaseDir =
                     java.nio.file.Path
                         .of("."),
                 didResolverRegistry = registry,
-                didDocumentJwksExtractor = extractor
+                didDocumentJwksExtractor = extractor,
+                egressGuard = publicEgressGuard(config.allowInsecureUrl)
             )
         return JwksActorVerifier(config = config, keySetProvider = provider, clock = clock)
     }
