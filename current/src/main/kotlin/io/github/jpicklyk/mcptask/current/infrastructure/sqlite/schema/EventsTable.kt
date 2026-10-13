@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema
 
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.isNotNull
 
 /**
  * The append-only domain-event log. Mirrors `V20__Events.sql`.
@@ -34,5 +35,6 @@ object EventsTable : Table("events") {
         index("idx_events_entity_seq", false, entityId, seq)
         index("idx_events_type_occurred", false, type, occurredAt)
         index("idx_events_req_id", false, reqId)
+        index("idx_events_run_seq", false, runId, seq, filterCondition = { runId.isNotNull() })
     }
 }

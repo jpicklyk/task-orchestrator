@@ -36,6 +36,20 @@ class CallTelemetry(
     private val searchShapeRef = AtomicReference<SearchShape?>(null)
     private val relatedSignalsRef = AtomicReference<Map<String, Int>?>(null)
     private val hitSignalsRef = AtomicReference<List<HitSignals>?>(null)
+    private val rootState = AtomicReference(RootState())
+    private val runRef = AtomicReference<RunStamp?>(null)
+    private val fieldsRef = AtomicReference<List<String>?>(null)
+
+    private data class RootState(
+        val root: UUID? = null,
+        val multi: Boolean = false
+    )
+
+    /** The run and seat a call was made under; set as one atomic pair. */
+    data class RunStamp(
+        val runId: UUID,
+        val seat: String?
+    )
 
     /**
      * One returned hit of a `related` call and the signals that found it.
@@ -67,6 +81,50 @@ class CallTelemetry(
     /** First recorded related-signal counts win. */
     fun setRelatedSignals(counts: Map<String, Int>) {
         relatedSignalsRef.compareAndSet(null, counts.toMap())
+    }
+
+    /**
+     * The single root this call read (target-version reads) or wrote (events); null when none was recorded or when
+     * the call touched more than one distinct root ([multiRoot]).
+     */
+    val rootId: UUID? get() = rootState.get().takeUnless { it.multi }?.root
+
+    /** True once the call recorded two distinct roots; sticky. */
+    val multiRoot: Boolean get() = rootState.get().multi
+
+    /** First root wins; a second distinct root makes the call [multiRoot] for good. */
+    fun setRoot(rootId: UUID) {
+        rootState.updateAndGet { s ->
+            when {
+                s.multi -> s
+                s.root == null -> RootState(rootId, false)
+                s.root == rootId -> s
+                else -> RootState(s.root, true)
+            }
+        }
+    }
+
+    /** The run id of this call, as first recorded; null when never called. */
+    val runId: UUID? get() = runRef.get()?.runId
+
+    /** The seat of this call, as first recorded with the run id; null when none. */
+    val seat: String? get() = runRef.get()?.seat
+
+    /** First recorded run (id and seat together) wins. */
+    fun setRun(
+        runId: UUID,
+        seat: String?
+    ) {
+        runRef.compareAndSet(null, RunStamp(runId, seat))
+    }
+
+    /** Sorted distinct `fields` names an `items_read` select accepted; null when none were recorded. */
+    val fields: List<String>? get() = fieldsRef.get()
+
+    /** First recorded fields win; an empty collection records nothing. */
+    fun setFields(names: Collection<String>) {
+        if (names.isEmpty()) return
+        fieldsRef.compareAndSet(null, names.toSortedSet().toList())
     }
 
     /** Who made the call, as first recorded: the claim's id and kind and the verification status wire value. */
@@ -184,6 +242,24 @@ suspend fun recordCallResultCounts(
     eligible: Int?
 ) {
     currentCallTelemetry()?.setResultCounts(result, eligible)
+}
+
+/** Records the root a call read or wrote; a no-op outside a call or for a null root. */
+suspend fun recordCallRoot(rootId: UUID?) {
+    if (rootId != null) currentCallTelemetry()?.setRoot(rootId)
+}
+
+/** Records the `fields` names an `items_read` select accepted; a no-op outside a call or for an empty collection. */
+suspend fun recordCallFields(names: Collection<String>) {
+    currentCallTelemetry()?.setFields(names)
+}
+
+/** Records the run and seat of a call; a no-op outside a call. */
+suspend fun recordCallRun(
+    runId: UUID,
+    seat: String?
+) {
+    currentCallTelemetry()?.setRun(runId, seat)
 }
 
 /** Records the query shape of a search call (hash, term count, match mode); a no-op outside a call. */

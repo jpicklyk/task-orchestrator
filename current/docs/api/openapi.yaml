@@ -1007,7 +1007,8 @@ paths:
         Append-only lease-interval audit log - answers "who held resource R at time T" after a lease
         has already been released, stolen, or force-released, which the current-holders-only
         /resources/leases list cannot. No pruning/retention in v1. Answers the response envelope: a
-        list page, newest-first by acquiredAt, with `page.total` equal to `items.length`. Item shape:
+        list page, newest-first `(acquiredAt DESC, id ASC)`, with `page.total` the count of all matching
+        intervals, `page.truncated` true while more remain and `page.next` the cursor for the next page. Item shape:
         `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, releasedAt?,
         releaseReason?, releasedByActorId?}`; the two actor ids are present only for ADMIN callers.
         Requires `read`.
@@ -1038,6 +1039,14 @@ paths:
             minimum: 1
             maximum: 200
             default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: >-
+            The previous page's `page.next` (an offset only, not bound to key/at). Absent is the first
+            page; a malformed or empty value is invalid_cursor.
+          schema:
+            type: string
       responses:
         "200":
           description: Envelope with ok=true and a list page of lease intervals
@@ -1046,7 +1055,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
         "400":
-          description: invalid_request envelope (fields key, at or limit)
+          description: invalid_request envelope (fields key, at or limit) or invalid_cursor envelope
           content:
             application/json:
               schema:

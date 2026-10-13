@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -681,7 +682,8 @@ class ItemCommandServiceTest {
             val interval =
                 d.raw
                     .resourceLeaseRepository()
-                    .findRecentIntervals(P11_LEASE_KEY, 10)
+                    .findRecentIntervals(P11_LEASE_KEY, PageRequest(10))
+                    .items
                     .single()
             assertNull(interval.releasedAt, "the refusal precedes any lease release")
             assertEquals(
@@ -717,7 +719,8 @@ class ItemCommandServiceTest {
             val interval =
                 d.raw
                     .resourceLeaseRepository()
-                    .findRecentIntervals(P11_LEASE_KEY, 10)
+                    .findRecentIntervals(P11_LEASE_KEY, PageRequest(10))
+                    .items
                     .single()
             assertNotNull(interval.releasedAt, "the lease interval is closed")
             assertEquals(emptyList(), d.raw.resourceLeaseRepository().findActiveForItem(kid.id))

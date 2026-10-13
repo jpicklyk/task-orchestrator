@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
@@ -93,7 +94,7 @@ object ItemsReadContext {
                     ErrorCode.UNAVAILABLE
                 ),
             handler = handler@{ env, ctx, req ->
-                unknownFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
+                acceptFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
                 try {
                     if (req.itemId != null) itemMode(env, ctx, req, req.itemId) else healthMode(env, ctx, req)
                 } catch (e: PerRootConfigUnavailableException) {
@@ -123,6 +124,7 @@ object ItemsReadContext {
             }
         val item = env.workItemRepository().getById(id) ?: return Outcome.Err(itemNotFound(id))
         recordCallTargetVersion(item.id, item.version)
+        recordCallRoot(item.rootId ?: item.id.takeIf { item.parentId == null })
 
         // canAdvance is the advance own policy evaluation of start (ownership excluded); the schema, notes and violations
         // come from the SAME read unit, so missing / missingBySeat / violations never disagree with canAdvance / blockedBy.

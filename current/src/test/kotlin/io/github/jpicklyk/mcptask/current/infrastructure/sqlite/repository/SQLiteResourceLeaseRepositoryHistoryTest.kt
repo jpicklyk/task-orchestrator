@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
@@ -97,7 +98,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val holder = createHolder()
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holder, "agent-a", listOf("staging-db" to 900)))
 
-            val intervals = repository.findRecentIntervals("staging-db", 10)
+            val intervals = repository.findRecentIntervals("staging-db", PageRequest(10)).items
             assertEquals(1, intervals.size)
             val interval = intervals.single()
             assertEquals(holder, interval.holderItemId)
@@ -119,7 +120,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val second = repository.acquireAll(holder, "agent-a", listOf("staging-db" to 1800))
             assertIs<LeaseAcquireResult.Success>(second)
 
-            val intervals = repository.findRecentIntervals("staging-db", 10)
+            val intervals = repository.findRecentIntervals("staging-db", PageRequest(10)).items
             assertEquals(1, intervals.size, "a same-holder refresh must extend the OPEN interval, not open a second row")
             val interval = intervals.single()
             assertNull(interval.releasedAt)
@@ -142,7 +143,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val stolen = repository.acquireAll(holderB, "agent-b", listOf("staging-db" to 900))
             assertIs<LeaseAcquireResult.Success>(stolen)
 
-            val intervals = repository.findRecentIntervals("staging-db", 10)
+            val intervals = repository.findRecentIntervals("staging-db", PageRequest(10)).items
             assertEquals(2, intervals.size, "expect the closed A interval plus the new open B interval")
 
             val aInterval = intervals.single { it.holderItemId == holderA }
@@ -179,7 +180,8 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
 
             val bInterval =
                 repository
-                    .findRecentIntervals("staging-db", 10)
+                    .findRecentIntervals("staging-db", PageRequest(10))
+                    .items
                     .single { it.holderItemId == holderB }
             assertEquals("expired", bInterval.releaseReason, "B's interval must be closed as expired by A's re-take")
             assertNotNull(bInterval.releasedAt)
@@ -187,7 +189,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             // Even if B's item releases later, the audit must never show two holders at once:
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holderB))
             val now = clock.now()
-            val holdersNow = repository.findHoldersAt("staging-db", now)
+            val holdersNow = repository.findHoldersAt("staging-db", now).items
             assertEquals(1, holdersNow.size, "exactly one holder at T — got: ${holdersNow.map { it.holderItemId }}")
             assertEquals(holderA, holdersNow.single().holderItemId)
         }
@@ -203,7 +205,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
 
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holder))
 
-            val interval = repository.findRecentIntervals("staging-db", 10).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(10)).items.single()
             assertEquals("expired", interval.releaseReason, "an already-lapsed hold closes as expired, not released")
             val releasedAt = requireNotNull(interval.releasedAt)
             assertTrue(
@@ -248,7 +250,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val released = repository.releaseAllForItem(holder)
             assertIs<LeaseReleaseResult.Success>(released)
 
-            val interval = repository.findRecentIntervals("staging-db", 10).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(10)).items.single()
             assertEquals("released", interval.releaseReason)
             assertEquals(null, interval.releasedByActorId, "a normal release has no acting principal")
             assertTrue(interval.releasedAt != null)
@@ -263,7 +265,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val released = repository.forceReleaseByKey("staging-db", "admin-token-123")
             assertIs<LeaseReleaseResult.Success>(released)
 
-            val interval = repository.findRecentIntervals("staging-db", 10).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(10)).items.single()
             assertEquals("force_released", interval.releaseReason)
             assertEquals("admin-token-123", interval.releasedByActorId)
         }
@@ -276,7 +278,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
 
             assertIs<LeaseReleaseResult.Success>(repository.forceReleaseByKey("staging-db"))
 
-            val interval = repository.findRecentIntervals("staging-db", 10).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(10)).items.single()
             assertEquals("force_released", interval.releaseReason)
             assertNull(interval.releasedByActorId)
         }
@@ -291,9 +293,9 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val holder = createHolder()
             val acquired = repository.acquireAll(holder, "agent-a", listOf("staging-db" to 900))
             assertIs<LeaseAcquireResult.Success>(acquired)
-            val interval = repository.findRecentIntervals("staging-db", 1).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(1)).items.single()
 
-            val holders = repository.findHoldersAt("staging-db", interval.acquiredAt)
+            val holders = repository.findHoldersAt("staging-db", interval.acquiredAt).items
             assertEquals(1, holders.size, "at == acquiredAt must be treated as held (inclusive lower bound)")
             assertEquals(holder, holders.single().holderItemId)
         }
@@ -303,9 +305,9 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
         runBlocking {
             val holder = createHolder()
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holder, "agent-a", listOf("staging-db" to 900)))
-            val interval = repository.findRecentIntervals("staging-db", 1).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(1)).items.single()
 
-            val holders = repository.findHoldersAt("staging-db", interval.expiresAt)
+            val holders = repository.findHoldersAt("staging-db", interval.expiresAt).items
             assertTrue(holders.isEmpty(), "at == expiresAt must be treated as NOT held (exclusive upper bound)")
         }
 
@@ -319,13 +321,13 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             // so acquired_at < released_at and the just-before probe has a real interval to hit.
             clock.advanceSeconds(2)
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holder))
-            val interval = repository.findRecentIntervals("staging-db", 1).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(1)).items.single()
             val releasedAt = requireNotNull(interval.releasedAt)
 
-            val heldAtRelease = repository.findHoldersAt("staging-db", releasedAt)
+            val heldAtRelease = repository.findHoldersAt("staging-db", releasedAt).items
             assertTrue(heldAtRelease.isEmpty(), "at == releasedAt must be treated as NOT held (exclusive upper bound)")
 
-            val heldJustBefore = repository.findHoldersAt("staging-db", releasedAt.minusMillis(1))
+            val heldJustBefore = repository.findHoldersAt("staging-db", releasedAt.minusMillis(1)).items
             assertEquals(1, heldJustBefore.size, "an instant just before releasedAt must still be held")
         }
 
@@ -334,10 +336,10 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
         runBlocking {
             val holder = createHolder()
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holder, "agent-a", listOf("staging-db" to 900)))
-            val interval = repository.findRecentIntervals("staging-db", 1).single()
+            val interval = repository.findRecentIntervals("staging-db", PageRequest(1)).items.single()
 
             val farFuture = interval.expiresAt.plusSeconds(3600)
-            val holders = repository.findHoldersAt("staging-db", farFuture)
+            val holders = repository.findHoldersAt("staging-db", farFuture).items
             assertTrue(holders.isEmpty(), "an open interval must not be reported held past its own expiresAt")
         }
 
@@ -350,7 +352,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holderB, "agent-b", listOf("key-b" to 900)))
 
             val now = clock.now()
-            val holders = repository.findHoldersAt(null, now)
+            val holders = repository.findHoldersAt(null, now).items
             assertEquals(2, holders.size)
             assertEquals(setOf(holderA, holderB), holders.map { it.holderItemId }.toSet())
         }
@@ -374,7 +376,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             val deleteResult = repositoryProvider.workItemRepository().delete(holder)
             assertNotNull(deleteResult)
 
-            val intervals = repository.findRecentIntervals("staging-db", 10)
+            val intervals = repository.findRecentIntervals("staging-db", PageRequest(10)).items
             assertEquals(1, intervals.size, "the history row must survive holder deletion — no FK, no CASCADE")
             assertEquals(holder, intervals.single().holderItemId)
             assertEquals("released", intervals.single().releaseReason)

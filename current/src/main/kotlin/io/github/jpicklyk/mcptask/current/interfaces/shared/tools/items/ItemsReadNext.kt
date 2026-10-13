@@ -97,7 +97,7 @@ object ItemsReadNext {
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->
-                unknownFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
+                acceptFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
                 val role = req.role?.role ?: Role.QUEUE
                 val faults = ArrayList<FieldViolation>()
                 if (role == Role.TERMINAL) {

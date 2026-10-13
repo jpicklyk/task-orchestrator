@@ -402,7 +402,7 @@ object BaselineDataset {
             "data" to "{\"origin\":\"baseline\"}"
         )
 
-        // V21 (+ V30 columns): two call_log rows, every column non-default and pairwise distinct (replayed 1 vs 0, attempts 2 vs 3, ...).
+        // V21 (+ V30 and V31 columns): two call_log rows, every column non-default and pairwise distinct (replayed 1 vs 0, attempts 2 vs 3, ...).
         val callTarget = uuid("task1")
         insert(
             conn,
@@ -437,7 +437,9 @@ object BaselineDataset {
             "eligible_count" to 9,
             // V30 (absent below V30, so insert drops them).
             "hit_signals" to "[{\"id\":\"$callTarget\",\"kind\":\"item\",\"signals\":[\"edges\",\"text\"]}]",
-            "lifecycle_free_rejections" to 7
+            "lifecycle_free_rejections" to 7,
+            // V31 (absent below V31, so insert drops it).
+            "root_id" to id("root:call-1")
         )
         insert(
             conn,
@@ -471,7 +473,8 @@ object BaselineDataset {
             "result_count" to 8,
             "eligible_count" to 11,
             "hit_signals" to "[{\"id\":\"$callTarget\",\"kind\":\"document\",\"signals\":[\"links\"]}]",
-            "lifecycle_free_rejections" to 13
+            "lifecycle_free_rejections" to 13,
+            "root_id" to id("root:call-2")
         )
 
         // V23: one data_steps row, every column non-default (rows_affected 7). The table is absent below V23, so insert drops it.

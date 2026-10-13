@@ -47,7 +47,7 @@ import kotlin.test.assertTrue
  * McpToolAdapterMdcTest): [McpOperationAdapter] runs each call inside `MDCContext` carrying `transport`, `tool`,
  * `sessionId`, `reqId` and (when an actor is supplied) `actorId`, so every log line in flight carries them -- the
  * handler's own lines, after a dispatcher hop, and the dispatcher's error line. The 3.x adapter's UUID `requestId` and
- * its per-call INFO line have no 4.0 counterpart (the reqId is the call id; McpOperationAdapter logs no per-call line).
+ * its UUID-shaped per-call INFO line differ in 4.0 (the reqId is the call id; the 4.0 per-call INFO line is asserted in McpCallLogLineTest).
  *
  * Test pitfall: `ILoggingEvent.getMDCPropertyMap` is read lazily, so [MdcSnapshotAppender] snapshots it inside `append()`,
  * on the logging call's own thread while the call's MDC scope is still live.

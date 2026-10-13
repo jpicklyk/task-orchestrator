@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchHitMix
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchShape
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
@@ -168,7 +169,11 @@ class SearchService(
             page.map { hit ->
                 val document = hit.primary.document
                 // The version each returned document was read at, so a later read of it can be joined to this search.
-                if (document != null) recordCallTargetVersion(hit.primary.id, document.version.toLong())
+                if (document != null) {
+                    recordCallTargetVersion(hit.primary.id, document.version.toLong())
+                    // A document hit's owner is its root: already in hand, no extra query.
+                    recordCallRoot(hit.primary.ownerItemId)
+                }
                 SearchHit(
                     kind = hit.corpus.kind,
                     itemId = hit.primary.ownerItemId,
