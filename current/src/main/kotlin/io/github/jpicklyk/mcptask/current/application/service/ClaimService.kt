@@ -2,7 +2,6 @@
 
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
