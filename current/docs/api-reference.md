@@ -549,8 +549,10 @@ size of the capped list (at most 50); `page.capped` is true when more relatives 
 (zeros kept), and each returned hit records its id and version as a target version. The row's `hit_signals`
 column lists the returned page hit by hit, in page order, as `[{id, kind, signals}]` (`kind` is `item` or
 `document`, `signals` the signals that found it in the order edges, links, tags, text; never a title or any
-text), so a later call in the same session that targets one of those ids can be attributed to the signals that
-found it. It is NULL for an empty page and for every other call.
+text), so a later MCP call in the same session that targets one of those ids can be attributed to the signals that
+found it. Exclude later `related` and `search` calls from that join (`c.operation NOT IN ('related','search')`),
+since they record their own hits as target versions. Follow-through is effectively MCP-only: REST call_log rows
+carry no `session_id`. It is NULL for an empty page and for every other call.
 
 **Orchestration selects.** `context`, `next`, `blocked` and `history` replace `get_context`, `get_next_status`,
 `get_next_item` and `get_blocked_items`. They share the compact view, the id rules, the `fields` rule and the page

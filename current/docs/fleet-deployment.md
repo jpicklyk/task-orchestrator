@@ -222,8 +222,14 @@ Two columns added by migration V30 serve follow-through and rejection reports:
 - `hit_signals` (JSON text): for an `items_read` `related` call, the returned page hit by hit, in page order, as
   `[{"id":"<uuid>","kind":"item"|"document","signals":[...]}]`, `signals` being the signals that found the hit
   (`edges`, `links`, `tags`, `text`, in that order). A later call in the same `session_id` whose `target_ids` or
-  `target_versions` names one of those ids is a follow-through for those signals. Ids and signal names only, never a
-  title or any text. NULL for every other call and for an empty page. At most 50 entries (about 4.5 KB) per row.
+  `target_versions` names one of those ids is a follow-through for those signals, provided that call is not itself a
+  `related` or `search` call: those record the hits they return as `target_versions`, so a re-surfaced hit would
+  otherwise count as followed. Filter them out with `c.operation NOT IN ('related','search')`, for example
+  `... JOIN call_log c ON c.session_id = r.session_id AND c.at > r.at AND c.operation NOT IN ('related','search')
+  AND (h.id IN (SELECT value FROM json_each(c.target_ids)) OR c.target_versions LIKE '%' || h.id || '%')`.
+  Follow-through is effectively MCP-only: REST rows carry no `session_id` (NULL), so the session join never matches a
+  REST `related` row. Ids and signal names only, never a title or any text. NULL for every other call and for an
+  empty page. At most 50 entries (about 5.3 KB in the worst case, a document hit with 4 signals at about 105 B) per row.
 - `lifecycle_free_rejections` (integer): how many rejections in the response a lifecycle-free item caused. Judged
   from the response envelope: each failed batch element when the body has `data.results`, else the top-level
   `error` (never both, so a non-atomic batch's `partial_failure` is not counted twice). A rejection counts when it is
@@ -237,8 +243,9 @@ Rows written before V30 read NULL in both columns.
 Each MCP tool call that was not cancelled also logs one INFO line from `McpOperationAdapter`, inside the call's MDC
 (so it carries `reqId`, `sessionId`, `tool`, `transport` and `actorId`):
 `tool call: name=<tool>, operation=<select or op, or ->, outcome=ok|error, errorCode=<code, or - on ok>,
-latencyMs=<n>, responseBytes=<n>`. It is logged whatever happens to the call-log row, and never carries an
-argument value or body text. REST requests log no per-request line.
+latencyMs=<n>, responseBytes=<n>`. It is logged whatever happens to the call-log row. The message never carries an
+argument value or body text; the MDC `actorId` is the one argument-derived field (length-capped, and already present
+on every log line before this line existed). REST requests log no per-request line.
 
 Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
 rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
