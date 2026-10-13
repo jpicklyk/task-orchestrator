@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.isLiteralLoopbackHost
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import org.slf4j.LoggerFactory
 import java.net.MalformedURLException
 import java.net.URL

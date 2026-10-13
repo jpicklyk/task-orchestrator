@@ -38,9 +38,8 @@ data class VerifiedApiToken(
  * Verifies `Authorization: Bearer <jwt>` tokens for the REST API layer.
  *
  * Accepts a [JwksKeySetProvider] for key caching and fetching — the interface makes this
- * class testable without needing a concrete [io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache]
- * instance. In production, pass a [io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider]
- * (or the [io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache] typealias for it).
+ * class testable without needing a concrete [DefaultJwksKeySetProvider] instance. In production, pass a
+ * [DefaultJwksKeySetProvider].
  *
  * Verification steps (mirroring [JwksActorVerifier][io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier]):
  * 1. Parse the JWT.

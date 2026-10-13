@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import java.util.UUID
 
 /**
@@ -24,7 +23,7 @@ data class ApiPrincipal(
 )
 
 /**
- * Synthetic principal attached to every request when [ApiAuthConfig.Unauthenticated] is active.
+ * Synthetic principal attached to every request when [io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig.Unauthenticated] is active.
  *
  * Granted [ApiCapability.ADMIN] (implies all other capabilities via the existing
  * `grants`/`requireCapability` logic) and an unrestricted [ApiScope] (`rootIds = null`),
@@ -124,6 +123,6 @@ enum class ApiAuthMode {
     /** JWT validated against a JWKS endpoint. */
     JWKS,
 
-    /** No credential at all -- [ApiAuthConfig.Unauthenticated] mode's synthetic principal. */
+    /** No credential at all -- [io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig.Unauthenticated] mode's synthetic principal. */
     UNAUTHENTICATED,
 }

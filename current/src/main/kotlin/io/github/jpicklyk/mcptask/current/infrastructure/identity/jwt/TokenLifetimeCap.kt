@@ -12,17 +12,8 @@ import java.time.Instant
 const val AUTH_CLOCK_SKEW_SECONDS = 60L
 
 /**
- * Sane upper bound (~100 years) for `actor_authentication.verifier.max_token_lifetime_seconds` /
- * `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`. Configuring a cap near [Long.MAX_VALUE] would overflow
- * when [AUTH_CLOCK_SKEW_SECONDS] is added in [TokenLifetimeCap.violation]; both config loaders
- * reject a value above this ceiling at parse time (same startup-failure path as the existing
- * `<= 0` check), so the addition inside [TokenLifetimeCap.violation] can never overflow.
- */
-const val MAX_TOKEN_LIFETIME_SECONDS_CEILING = 3_153_600_000L // 100 years, in seconds
-
-/**
  * Pure predicate for the actor-token lifetime cap, shared by [JwksActorVerifier] and
- * `JwksApiVerifier` (`interfaces/api/v1/auth`) so the two verifiers' identical logic cannot drift
+ * [JwksApiVerifier] so the two verifiers' identical logic cannot drift
  * apart (they were previously duplicated verbatim in each class).
  *
  * Semantics (both checks use [AUTH_CLOCK_SKEW_SECONDS] leeway):
@@ -34,7 +25,7 @@ const val MAX_TOKEN_LIFETIME_SECONDS_CEILING = 3_153_600_000L // 100 years, in s
  *    pass. `iat` is OPTIONAL per RFC 7519 §4.1.6, so its absence never fails the token on its own —
  *    only (a) applies then.
  *
- * `maxTokenLifetimeSeconds` is assumed already bounded to at most [MAX_TOKEN_LIFETIME_SECONDS_CEILING]
+ * `maxTokenLifetimeSeconds` is assumed already bounded to at most [io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING]
  * by the caller's config loader (both loaders enforce this at parse time), so `maxTokenLifetimeSeconds
  * + AUTH_CLOCK_SKEW_SECONDS` below can never overflow [Long].
  *
@@ -65,7 +56,7 @@ object TokenLifetimeCap {
 
 /**
  * Pure, nanosecond-precision predicates for the `exp`/`nbf` clock-skew checks, shared by
- * [JwksActorVerifier] and `JwksApiVerifier` (`interfaces/api/v1/auth`) so the two cannot drift
+ * [JwksActorVerifier] and [JwksApiVerifier] so the two cannot drift
  * apart.
  *
  * Both claims arrive as [java.util.Date] (millisecond precision) from Nimbus's `JWTClaimsSet`, and

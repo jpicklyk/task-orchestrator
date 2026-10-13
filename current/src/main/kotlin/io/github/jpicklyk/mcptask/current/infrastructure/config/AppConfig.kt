@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
 import org.slf4j.LoggerFactory
 
 /**
@@ -51,7 +50,7 @@ enum class FtsIntegrityMode {
  * source location.
  *
  * Validation that throws on misconfiguration (the REST API auth config and the actor-authentication
- * config) intentionally stays in its existing loader classes ([ApiAuthConfigLoader],
+ * config) intentionally stays in its existing loader classes ([io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader],
  * [YamlActorAuthenticationConfigService]); those already accept an injectable `envResolver`. The
  * composition root passes [envResolver] into them so they read from the same source as this
  * snapshot, preserving their fail-fast behavior unchanged.

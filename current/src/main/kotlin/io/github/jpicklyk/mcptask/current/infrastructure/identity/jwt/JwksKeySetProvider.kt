@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 import com.nimbusds.jose.jwk.JWKSet
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidDocumentJwksExtractor
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolverRegistry
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidWebResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.validateDidWebIdentifier
@@ -365,7 +364,7 @@ class DefaultJwksKeySetProvider(
     /**
      * Validates a `did:web` issuer's method-specific identifier before it is evaluated against
      * the allowlist/pattern or resolved over the network — see [validateDidWebIdentifier] for the
-     * rules. Non-`did:web` issuers are not validated here (the only registered [DidResolver] is
+     * rules. Non-`did:web` issuers are not validated here (the only registered [io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolver] is
      * [DidWebResolver], so an untrusted non-`did:web` issuer is rejected downstream by
      * [isIssuerTrusted] instead).
      */
