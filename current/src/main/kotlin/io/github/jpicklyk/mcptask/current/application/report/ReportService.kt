@@ -22,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
@@ -178,7 +179,11 @@ class ReportService(
 
     private fun parseInstant(raw: String): Instant? =
         try {
-            OffsetDateTime.parse(raw, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant().truncatedTo(ChronoUnit.MILLIS)
+            OffsetDateTime
+                .parse(raw, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                .toInstant()
+                .truncatedTo(ChronoUnit.MILLIS)
+                .takeIf { it.atZone(ZoneOffset.UTC).year in 0..9999 }
         } catch (_: DateTimeParseException) {
             null
         }
