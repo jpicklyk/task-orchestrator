@@ -21,15 +21,19 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanoni
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -40,10 +44,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackf
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -346,7 +346,7 @@ class ServerComposition(
      * verifier under [DegradedModePolicy.ACCEPT_CACHED], logs one startup WARN: under that policy,
      * a [io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED] result is
      * still resolved to the self-reported actor id (see
-     * [io.github.jpicklyk.mcptask.current.application.service.ActorAware.resolveTrustedActorId]) — an
+     * [io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy.resolveTrustedActorId]) — an
      * operator running a real verifier should know that up front, once, rather than only from a
      * per-call WARN buried in request logs. This is intentionally NOT added to
      * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large

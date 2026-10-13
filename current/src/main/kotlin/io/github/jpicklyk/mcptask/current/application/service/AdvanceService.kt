@@ -14,8 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -408,7 +406,7 @@ class AdvanceService(
         // Degraded-mode policy (MCP only): resolve the caller's trusted id, or reject outright.
         var callerId: String? = null
         if (enforceOwnership && actorClaim != null && verification != null) {
-            when (val resolution = ActorAware.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)) {
+            when (val resolution = ActorTrustPolicy.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)) {
                 is PolicyResolution.Rejected -> return AdvanceOutcome.Failure(
                     AdvanceFailure.PolicyRejected(resolution.reason, AdvanceErrors.unauthenticated(resolution.reason))
                 )

@@ -13,10 +13,10 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
@@ -64,7 +64,7 @@ import kotlin.test.assertTrue
  *
  * Harness: real SQLite DB via [SqliteTestDatabase], same pattern as
  * [ActorProofMcpExposureTest]. JWKS signing/mocking follows
- * `infrastructure.config.JwksActorVerifierExpRequiredTest`'s [JwksKeySetProvider] mock + real RSA
+ * `infrastructure.identity.jwt.JwksActorVerifierExpRequiredTest`'s [JwksKeySetProvider] mock + real RSA
  * key + real [SignedJWT] pattern.
  *
  * Oracle: item 983615e7's frozen `diagnosis` note (Fix steps 3-5) and `test-plan` note -- never
@@ -187,7 +187,7 @@ class ActorProofEvidencePersistenceTest {
     }
 
     // -------------------------------------------------------------------------
-    // JWKS signing / mocking helpers (pattern: infrastructure.config.JwksActorVerifierExpRequiredTest)
+    // JWKS signing / mocking helpers (pattern: infrastructure.identity.jwt.JwksActorVerifierExpRequiredTest)
     // -------------------------------------------------------------------------
 
     private fun mockProvider(keys: List<RSAKey>): JwksKeySetProvider {

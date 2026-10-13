@@ -8,5 +8,3 @@
 # below that no longer matches a real violation (delete the line once the violation is fixed).
 #
 # infrastructure -> interfaces (R3)
-infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore

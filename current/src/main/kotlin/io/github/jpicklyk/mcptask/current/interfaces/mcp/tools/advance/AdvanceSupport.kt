@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceErrors
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -40,7 +40,14 @@ internal object AdvanceSupport {
         ctx: CallContext
     ): Outcome<String> {
         val principal = ctx.principal ?: return Outcome.Err(actorRequired())
-        return when (val resolved = ActorAware.resolveTrustedActorId(principal.claim, principal.verification, env.degradedModePolicy)) {
+        return when (
+            val resolved =
+                ActorTrustPolicy.resolveTrustedActorId(
+                    principal.claim,
+                    principal.verification,
+                    env.degradedModePolicy
+                )
+        ) {
             is PolicyResolution.Trusted -> Outcome.Ok(resolved.trustedId)
             is PolicyResolution.Rejected -> Outcome.Err(AdvanceErrors.unauthenticated(resolved.reason))
         }
