@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
@@ -227,8 +228,14 @@ internal suspend fun checkItemScope(
 /** Joins [tags] as the stored comma-separated column; an empty list is no tags. */
 internal fun joinTags(tags: List<String>): String? = tags.joinToString(",").takeIf { it.isNotBlank() }
 
-/** True when [tags] (trimmed, exact match) carry a tag the scope lists, or the scope lists none. */
-internal fun tagsSatisfyScope(
-    tags: List<String>,
-    scope: AccessScope
-): Boolean = scope.tagsInclude.isEmpty() || tags.map { it.trim() }.any { it in scope.tagsInclude }
+/**
+ * The `forbidden{root}` error for a depth-0 write (create a root, move an item to the top level) the caller's scope does
+ * not own. `required` is the sorted listed root ids, or empty under a tag-only scope.
+ */
+internal fun rootWriteForbidden(ctx: CallContext): DomainError =
+    ScopeGuard.forbidden(
+        ForbiddenScope.ROOT,
+        ctx.scope.rootIds
+            ?.map { it.toString() }
+            .orEmpty()
+    )

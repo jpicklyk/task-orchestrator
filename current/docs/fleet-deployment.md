@@ -420,8 +420,11 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
 - `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
-- `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
-  list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
+- `scope.root_ids` restricts access to specific project trees (absent/`null` = unrestricted; an empty
+  list `[]` fails startup rather than meaning unrestricted — omit the key instead). Every listed id must
+  be a depth-0 project root: an existing non-root anchor fails startup naming the token id and the anchor
+  (a JWT carrying one is a `401`, with one WARN per `sub`), and an anchor that does not exist yet is accepted
+  and admits nothing until the root is created. `scope` itself
   and `scope.tags_include` fail closed on any malformed shape too — see
   [api-rest.md §1](api-rest.md#1-authentication) for the full fail-closed rules
 - Token rotation requires a server restart (no live reload)

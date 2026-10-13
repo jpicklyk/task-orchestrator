@@ -5,12 +5,15 @@ import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A resolved credential: the [principal] it establishes, its [expiresAt] (null for a token-file entry without
@@ -33,14 +36,22 @@ data class Resolved(
  *
  * @param tokenEntries The token file's entries, loaded once at startup ([BearerTokenStore.loadWithEntries]).
  * @param jwtVerifier The REST JWT verifier (JWKS mode), or null.
+ * @param nonRootAnchors Returns the subset of a set of `scope.root_ids` anchors that name an existing item which is
+ *   not a depth-0 root (anchor validation, R15). A JWT whose anchors include one resolves to null (unauthenticated),
+ *   with one WARN per `sub`; a lookup fault resolves to null too (fail closed). Bearer entries are validated once at
+ *   startup instead. Defaults to "none".
  * @param clock The time source for entry expiry.
  */
 class CredentialResolver(
     private val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
     private val jwtVerifier: JwksApiVerifier?,
+    private val nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() },
     private val clock: () -> Instant = { Instant.now() }
 ) {
     private val logger = LoggerFactory.getLogger(CredentialResolver::class.java)
+
+    /** Subs already warned about a non-root anchor; bounded, cleared when full, so a hostile issuer cannot grow it. */
+    private val warnedSubs: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** Resolves [raw] (the presented token, already stripped of its scheme), or null when it proves nothing. */
     suspend fun resolve(raw: String): Resolved? {
@@ -55,11 +66,38 @@ class CredentialResolver(
             return Resolved(entry.principal, expiry, entry.profile)
         }
         val verified = jwtVerifier?.verifyWithExpiry(raw) ?: return null
+        val anchors = verified.principal.scope.rootIds
+        if (!anchors.isNullOrEmpty()) {
+            val bad =
+                try {
+                    nonRootAnchors(anchors)
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    logger.warn("JWT scope anchor validation failed; the credential is refused: {}", e.message)
+                    return null
+                }
+            if (bad.isNotEmpty()) {
+                warnOnce(verified.principal.id, bad.minOf { it.toString() })
+                return null
+            }
+        }
         return Resolved(verified.principal, verified.expiresAt, profile = null)
+    }
+
+    private fun warnOnce(
+        sub: String,
+        anchor: String
+    ) {
+        if (warnedSubs.size >= MAX_WARNED_SUBS) warnedSubs.clear()
+        if (warnedSubs.add(sub)) {
+            logger.warn("JWT sub '{}' is refused: scope.root_ids anchor {} is not a depth-0 root", sub, anchor)
+        }
     }
 
     private fun sha256(input: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
 }
+
+private const val MAX_WARNED_SUBS = 1024
 
 /** The token-file `profile` value that confines a credential to `/api/v1/ops/director/{tool}`. */
 const val DIRECTOR_CREDENTIAL_PROFILE = "director"

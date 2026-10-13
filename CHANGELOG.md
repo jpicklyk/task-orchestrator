@@ -92,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Scope is `root_id`, roots only.** A token's `scope.root_ids` is tested against the item's stamped `root_id` everywhere (tool scope checks, search, SSE); the ancestor-chain walk and the recursive search fallback are gone. Every `root_ids` anchor must be a depth-0 root: an existing non-root anchor fails startup naming the token id and the anchor, and a JWT carrying one is a `401`. Breaking for scoped REST tokens: creating a depth-0 root and moving an item to the top level are `forbidden` (`root`) unless the token holds `admin`, so a `tags_include`-only token loses root create and a `root_ids` token loses `clear: ["parentId"]`.
 - The JWT, DID and bearer-token identity code moved to `infrastructure.identity.{jwt,did,bearer}` (`ScopeClaimParser` sits at the `identity` root; `Principal` and `ApiCapability` live in `application.api` and `AccessScope` replaces `ApiScope`), and the degraded-mode trust decision is now `ActorTrustPolicy.resolveTrustedActorId` (the `ActorAware` companion is gone; `ActorAware` and `ActorParseResult` live in `application.api`). Logger categories follow the classes: a log filter on `...infrastructure.config.JwksActorVerifier`, `...interfaces.api.v1.auth.JwksApiVerifier` or `...application.service.ActorAware` must name the new package or class. `CurrentMcpServer` no longer defaults `appConfig`; only the entry point reads the process environment.
 
 #### Workflow and claims

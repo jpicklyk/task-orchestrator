@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
@@ -75,6 +76,7 @@ import org.slf4j.LoggerFactory
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Paths
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -727,6 +729,8 @@ internal fun Application.installRestApiRoutes(
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
+    val nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { ids -> ScopeGuard.nonRoots(ids, effectiveProvider.workItemRepository()) }
+
     // The REST safety net: an uncaught /api/v1 exception becomes a 500 `internal` body, never exception text.
     // Installed only here (API enabled) and scoped to /api/v1 paths, so API-disabled deployments are untouched.
     installApiStatusPages()
@@ -743,6 +747,8 @@ internal fun Application.installRestApiRoutes(
                 // plugin's Jwks branch finds a null verifier and 401s every request (the bug being
                 // fixed). Null in bearer/disabled modes — the plugin never reads it there.
                 this.jwksVerifier = jwksVerifier
+                // JWT scope.root_ids anchors must be depth-0 roots (R15); bearer anchors are validated at startup.
+                this.nonRootAnchors = nonRootAnchors
                 // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
                 // /api/v1, REGARDLESS of where install() is textually called (registering a route
                 // in a separate, sibling route("/api/v1") block does NOT scope it away — Ktor has
@@ -797,6 +803,7 @@ internal fun Application.installRestApiRoutes(
                     tokenEntries = apiTokenEntries,
                     allowQueryToken = allowQueryToken,
                     jwksVerifier = jwksVerifier,
+                    nonRootAnchors = nonRootAnchors,
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                     authConfig = apiConfig,
                     workItemRepository = effectiveProvider.workItemRepository(),

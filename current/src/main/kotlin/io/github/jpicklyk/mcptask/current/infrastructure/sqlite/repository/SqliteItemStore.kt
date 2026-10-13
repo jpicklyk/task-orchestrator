@@ -219,7 +219,7 @@ class SqliteItemStore(
     ): List<WorkItem> =
         databaseManager.readTx {
             val conditions =
-                ItemQueries.conditions(ItemQuerySpec(role = role), rootIds?.let { ScopeResolver.resolve(it) }, null)
+                ItemQueries.conditions(ItemQuerySpec(role = role), rootIds?.let { ScopeResolver.subtree(it) }, null)
                     ?: return@readTx emptyList()
             WorkItemsTable
                 .selectAll()
@@ -377,7 +377,7 @@ class SqliteItemStore(
     override suspend fun countInScopeByRole(rootIds: Set<UUID>): Map<Role, Int> {
         if (rootIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
-            val scope = ScopeResolver.resolve(rootIds)
+            val scope = ScopeResolver.subtree(rootIds)
             if (scope == ResolvedScope.Empty) return@readTx emptyMap()
             countByRole(scope.toCondition())
         }
@@ -573,7 +573,7 @@ class SqliteItemStore(
         return databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (rootIds != null) {
-                val resolved = ScopeResolver.resolve(rootIds)
+                val resolved = ScopeResolver.subtree(rootIds)
                 if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
                 conditions.add(resolved.toCondition())
             }
@@ -612,7 +612,7 @@ class SqliteItemStore(
         databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (ancestorId != null) {
-                val resolved = ScopeResolver.resolve(setOf(ancestorId))
+                val resolved = ScopeResolver.subtree(setOf(ancestorId))
                 if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
                 conditions.add(resolved.toCondition())
             }
@@ -707,7 +707,7 @@ class SqliteItemStore(
         val accessScope = scopeRoots?.let { ScopeResolver.resolve(it) }
         val conditions = ItemQueries.conditions(ItemQueries.specOf(filter), accessScope, at) ?: return null
         if (ancestorId != null) {
-            val ancestorScope = ScopeResolver.resolve(setOf(ancestorId))
+            val ancestorScope = ScopeResolver.subtree(setOf(ancestorId))
             if (ancestorScope == ResolvedScope.Empty) return null
             conditions.add(ancestorScope.toCondition())
         }
@@ -757,9 +757,8 @@ internal class ResolvedRoots(
 )
 
 /**
- * Resolves the root restriction of [scope] (inside a transaction): null when nothing is visible (an empty or
- * unresolvable root set), else the [ResolvedRoots]. One probe statement for stamped depth-0 roots; the traversal
- * fallback of [ScopeResolver] otherwise.
+ * Resolves the root restriction of [scope] (inside a transaction): null when nothing is visible (an empty
+ * root set), else the [ResolvedRoots]: `root_id IN (...)`, no probe and no traversal.
  */
 internal fun resolveRoots(scope: AccessScope): ResolvedRoots? {
     val rootIds = scope.rootIds ?: return ResolvedRoots(null)
