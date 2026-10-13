@@ -453,7 +453,7 @@ class ReportParityTest {
         val mine = ReportParityScenarios.scenarios
         assertTrue(mine.any { it.kind == ParityKind.HAPPY })
         assertTrue(mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted })
-        assertTrue(mine.all { it.tool == "report" && it.member == "usage" })
+        assertTrue(mine.all { it.tool == "report" && it.member in setOf("usage", "gates", "contention") })
         assertTrue(ProductionParity.scenarios.containsAll(mine), "every report scenario is registered in the production catalog")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "usage"), "the MCP leg runs on the director")
@@ -471,7 +471,10 @@ class ReportParityTest {
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.ORCHESTRATION))
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE))
         assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR))
-        assertEquals(listOf("usage"), ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second })
+        assertEquals(
+            listOf("usage", "gates", "contention"),
+            ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second }
+        )
     }
 
     @Test
@@ -509,10 +512,10 @@ class ReportParityTest {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
-        assertEquals(listOf("usage"), operations.map { it.getValue("name").jsonPrimitive.content })
+        assertEquals(listOf("usage", "gates", "contention"), operations.map { it.getValue("name").jsonPrimitive.content })
         val properties =
             operations
-                .single()
+                .first { it.getValue("name").jsonPrimitive.content == "usage" }
                 .getValue("parameters")
                 .jsonObject
                 .getValue("properties")

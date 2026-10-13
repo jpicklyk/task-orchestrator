@@ -23,7 +23,8 @@ internal val reportUsageSelect =
     SelectSpec.PagedWith<ReportUsageRequest, JsonObject>(
         name = "usage",
         doc =
-            "Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), " +
+            "Call-log usage per group over [since, until). groupBy tool (default), operation, host, surface, principalKind, errorCode, " +
+                "day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), " +
                 "avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then " +
                 "key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives " +
                 "since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window " +
