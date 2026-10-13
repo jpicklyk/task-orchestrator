@@ -50,7 +50,7 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | Tool | Category | R/W | Description |
 |---|---|---|---|
 | `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems, create a whole tree, complete one, or repin an item (`ops[]`, per-element results) |
-| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy, or find an item's relatives; orchestration profile adds `context` (gate state or health view), `next` (ranked pick-up candidates) and `blocked` (4.0 envelope) |
+| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy, or find an item's relatives; orchestration profile adds `context` (gate state or health view) and `next` (ranked pick-up candidates), and orchestration and director add `blocked` (4.0 envelope) |
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
@@ -398,8 +398,10 @@ it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `s
 `schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
 (`describe: true`).
 
-**Selects.** `get`, `list`, `schema`, `search`, `overview`, `related` (every profile), and `context`, `next`,
-`blocked`, `history` (the orchestration profile only; the knowledge profile neither lists nor accepts them). Every select
+**Selects.** `get`, `list` and `overview` (the knowledge, orchestration and director profiles), `schema`, `search`
+and `related` (knowledge and orchestration; the director profile neither lists nor accepts them, since they can return
+note bodies), `blocked` (orchestration and director), and `context`, `next` and `history` (orchestration only). A select a
+profile does not carry is neither listed nor accepted. Every select
 needs the `READ` capability and honors the root and tag scope of the caller.
 
 | Select | Answer (`data`) |
