@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.requireHttpsOrLoopbackKeySource
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
@@ -507,12 +509,12 @@ class YamlActorAuthenticationConfigService private constructor(
 
     /**
      * Enforces the https-or-loopback rule (mirroring the REST API's `API_JWKS_URL` /
-     * `API_JWKS_ALLOW_INSECURE_URL` contract, see [ApiAuthConfigLoader]) on a single configured
+     * `API_JWKS_ALLOW_INSECURE_URL` contract, see [io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader]) on a single configured
      * actor-authentication key-source value ([raw] — either `oidc_discovery` or `jwks_uri`,
      * named by [keyName] for the error message).
      *
      * `https` is always accepted. `http` is accepted only when [allowInsecureUrl] is true AND the
-     * URL's host is a literal loopback address ([isLiteralLoopbackHost] — no DNS resolution, so a
+     * URL's host is a literal loopback address ([io.github.jpicklyk.mcptask.current.infrastructure.identity.isLiteralLoopbackHost] — no DNS resolution, so a
      * host merely resolving to loopback is still rejected). Every other outcome — any other
      * scheme, a malformed URL, or `http` without both conditions — throws
      * [IllegalArgumentException] naming `actor_authentication.verifier.<keyName>`, which the

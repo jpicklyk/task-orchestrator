@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN

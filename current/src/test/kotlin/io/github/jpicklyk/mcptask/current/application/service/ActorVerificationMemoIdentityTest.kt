@@ -7,22 +7,19 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.application.api.ActorAware
+import io.github.jpicklyk.mcptask.current.application.api.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
-import io.github.jpicklyk.mcptask.current.application.service.ActorParseResult
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -150,7 +147,7 @@ class ActorVerificationMemoIdentityTest {
                 )
 
                 val resolution =
-                    ActorAware.resolveTrustedActorId(
+                    ActorTrustPolicy.resolveTrustedActorId(
                         victimResult.claim,
                         victimResult.verification,
                         DegradedModePolicy.REJECT

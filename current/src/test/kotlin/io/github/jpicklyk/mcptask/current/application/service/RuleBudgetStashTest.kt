@@ -7,11 +7,11 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
@@ -77,7 +77,7 @@ class RuleBudgetStashTest {
 
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig,
-    ): Map<io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes, BearerTokenStore.TokenEntry> =
+    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
         (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
             BearerTokenStore.TokenEntry(principal, expiresAt = null)
         } ?: emptyMap()

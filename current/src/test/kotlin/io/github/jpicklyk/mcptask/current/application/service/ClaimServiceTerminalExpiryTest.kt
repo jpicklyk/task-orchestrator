@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -182,14 +183,14 @@ class ClaimServiceTerminalExpiryTest {
             val h = rig.seed("history holder")
             rig.service.acquireLeases(h.id, "actor-1", listOf("res-k" to 60)).ok()
             val leases = rig.provider.resourceLeaseRepository()
-            val open = leases.findRecentIntervals("res-k", 10).single()
+            val open = leases.findRecentIntervals("res-k", PageRequest(10)).items.single()
             assertNull(open.releasedAt, "control: the interval is open before the sweep")
             assertEquals(e, open.expiresAt, "control: the interval expiry is T + ttl")
             clock.set(e.plusSeconds(500))
 
             rig.service.sweepExpired().ok()
 
-            val closed = leases.findRecentIntervals("res-k", 10).single()
+            val closed = leases.findRecentIntervals("res-k", PageRequest(10)).items.single()
             assertEquals("expired", closed.releaseReason)
             assertEquals(e, closed.releasedAt, "closed at the row's expires_at, not at the sweep instant")
         }
@@ -205,7 +206,11 @@ class ClaimServiceTerminalExpiryTest {
 
             rig.service.acquireLeases(o.id, "actor-2", listOf("res-k" to 60)).ok()
 
-            val intervals = rig.provider.resourceLeaseRepository().findRecentIntervals("res-k", 10)
+            val intervals =
+                rig.provider
+                    .resourceLeaseRepository()
+                    .findRecentIntervals("res-k", PageRequest(10))
+                    .items
             assertEquals(2, intervals.size, "closed interval plus the new open one: $intervals")
             val old = intervals.single { it.holderItemId == h.id }
             assertEquals("expired", old.releaseReason)

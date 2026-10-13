@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -13,7 +11,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
 /**
- * Unit tests for [DegradedModePolicy] resolution via [ActorAware.resolveTrustedActorId].
+ * Unit tests for [DegradedModePolicy] resolution via [ActorTrustPolicy.resolveTrustedActorId].
  *
  * Covers the three-policy matrix against the five [VerificationStatus] values:
  * - Policy: ACCEPT_CACHED, ACCEPT_SELF_REPORTED, REJECT
@@ -78,7 +76,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_CACHED — VERIFIED returns trusted actor id`() {
         val verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -91,7 +89,7 @@ class DegradedModePolicyTest {
                 verifier = "jwks",
                 metadata = mapOf("verifiedFromCache" to "true", "cacheAgeSeconds" to "450")
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -106,7 +104,7 @@ class DegradedModePolicyTest {
                 verifier = "jwks",
                 reason = "network error"
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         // Falls back to the self-reported claim.id (pre-v3.3 behavior preserved)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
@@ -123,7 +121,7 @@ class DegradedModePolicyTest {
                 reason = "JWKS refresh failed",
                 metadata = mapOf("verifiedFromCache" to "true", "cacheAgeSeconds" to "600")
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -138,7 +136,7 @@ class DegradedModePolicyTest {
                 reason = "JWKS endpoint unreachable",
                 metadata = mapOf("verifiedFromCache" to "false")
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -153,7 +151,7 @@ class DegradedModePolicyTest {
                 verifier = "jwks"
                 // no metadata at all
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -161,7 +159,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_CACHED — ABSENT falls back to self-reported actor id`() {
         val verification = VerificationResult(status = VerificationStatus.ABSENT, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -169,7 +167,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_CACHED — UNCHECKED falls back to self-reported actor id`() {
         val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -183,7 +181,7 @@ class DegradedModePolicyTest {
                 reason = "signature mismatch",
                 metadata = mapOf("failureKind" to "crypto")
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -195,7 +193,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_SELF_REPORTED — VERIFIED returns self-reported actor id`() {
         val verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -203,7 +201,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_SELF_REPORTED — UNAVAILABLE still returns self-reported actor id`() {
         val verification = VerificationResult(status = VerificationStatus.UNAVAILABLE, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -211,7 +209,7 @@ class DegradedModePolicyTest {
     @Test
     fun `ACCEPT_SELF_REPORTED — ABSENT returns self-reported actor id`() {
         val verification = VerificationResult(status = VerificationStatus.ABSENT, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -220,7 +218,7 @@ class DegradedModePolicyTest {
     fun `ACCEPT_SELF_REPORTED — UNCHECKED noop verifier returns self-reported actor id without warning log`() {
         // noop verifier → no warning expected (this is normal no-JWKS operation)
         val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -233,7 +231,7 @@ class DegradedModePolicyTest {
                 verifier = "jwks",
                 reason = "expired token"
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_SELF_REPORTED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -245,7 +243,7 @@ class DegradedModePolicyTest {
     @Test
     fun `REJECT — VERIFIED returns trusted actor id`() {
         val verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
@@ -258,7 +256,7 @@ class DegradedModePolicyTest {
                 verifier = "jwks",
                 reason = "JWKS endpoint down"
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
         assertInstanceOf(PolicyResolution.Rejected::class.java, result)
         val rejection = result as PolicyResolution.Rejected
         assertNotNull(rejection.reason)
@@ -270,7 +268,7 @@ class DegradedModePolicyTest {
     @Test
     fun `REJECT — ABSENT returns Rejected`() {
         val verification = VerificationResult(status = VerificationStatus.ABSENT, verifier = "jwks")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
         assertInstanceOf(PolicyResolution.Rejected::class.java, result)
         assert((result as PolicyResolution.Rejected).reason.contains("absent")) {
             "Expected reason to mention 'absent': ${result.reason}"
@@ -280,7 +278,7 @@ class DegradedModePolicyTest {
     @Test
     fun `REJECT — UNCHECKED returns Rejected`() {
         val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
         assertInstanceOf(PolicyResolution.Rejected::class.java, result)
         assert((result as PolicyResolution.Rejected).reason.contains("unchecked")) {
             "Expected reason to mention 'unchecked': ${result.reason}"
@@ -296,7 +294,7 @@ class DegradedModePolicyTest {
                 reason = "signature invalid",
                 metadata = mapOf("failureKind" to "crypto")
             )
-        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+        val result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
         assertInstanceOf(PolicyResolution.Rejected::class.java, result)
         val rejection = result as PolicyResolution.Rejected
         assert(rejection.reason.contains("rejected")) {

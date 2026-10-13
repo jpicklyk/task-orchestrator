@@ -40,7 +40,8 @@ import kotlin.test.assertTrue
  *
  * Oracles: task-scope TS5 and D7/D8 (GET leases is a page of `{resourceKey, holderItemId, acquiredByActorId? (ADMIN only),
  * acquiredAt, expiresAt, originalAcquiredAt}` ordered by (resourceKey, holderItemId) with `total` equal to the items returned;
- * history is newest-first with `limit` default 50 and valid range 1 to 200, a non-integer or out-of-range `limit` is
+ * history is newest-first with `limit` default 50 and valid range 1 to 200, its page `total` the full matching count with
+ * `truncated` and `next` per the list-page contract (envelope amendment U22), a non-integer or out-of-range `limit` is
  * `invalid_request` on field `limit`, a bad `key` on `key`, an unparsable `at` on `at`; DELETE answers
  * `{resourceKey, releasedCount}` and a repeat is `not_found` of kind `lease`; a missing capability is `forbidden` with scope
  * `capability`; a missing token keeps the legacy 401), the envelope spec (ok/data/meta shape, list data, catalog statuses) and the
@@ -207,7 +208,7 @@ class ResourceLeaseRoutesTest {
     // ------------------------------------------------------------------ S6 history
 
     @Test
-    fun `S6 history is newest first, limit bounds the page and total equals the items returned`() =
+    fun `S6 history is newest first, limit bounds the page and total is the full count with truncated and next`() =
         withRoutes {
             val older = lease("older-lock", actor = "agent-old")
             clock.advanceSeconds(60)
@@ -229,15 +230,16 @@ class ResourceLeaseRoutesTest {
             val one = client.getAs("/api/v1/resources/leases/history?limit=1", ADMIN_TOKEN).envelope()
             assertEquals(listOf(newer.toString()), one.items().map { it.str("holderItemId") })
             assertEquals(
-                1,
+                2,
                 one
                     .page()
                     .getValue("total")
                     .jsonPrimitive.content
                     .toInt(),
-                "total is the number of items returned"
+                "total is the full matching count, not the number of items returned"
             )
-            assertEquals("false", one.page().str("truncated"))
+            assertEquals("true", one.page().str("truncated"))
+            assertTrue("next" in one.page(), "a truncated page carries a next cursor")
         }
 
     @Test
