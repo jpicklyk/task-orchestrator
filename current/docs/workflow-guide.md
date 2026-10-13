@@ -942,9 +942,9 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 
 > **Single-claim-per-call:** `claim_item` enforces `claims.size ≤ 1`. Calls with `claims.size > 1` are rejected immediately with error code `multi_claim_not_supported`, regardless of whether entries use `itemId` or `selector` mode. Issue one `claim_item` call per item. The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle); a future `claim_heartbeats` table mitigation could re-evaluate the constraint. The `releases` array remains batchable.
 
-### Atomic Find-and-Claim (Selector Mode)
+### Serialized Find-and-Claim (Selector Mode)
 
-The two-call pattern above has an inherent race: between `get_next_item` returning an item ID and `claim_item(itemId=...)` locking it, another agent can claim the same item. For high-concurrency fleets, selector mode eliminates the **user-facing** race window by resolving the filter and claiming the top match in a single MCP call. A much smaller server-side window between recommend and claim still exists and surfaces as `already_claimed` — typically rare in practice.
+The two-call pattern above has an inherent race: between `get_next_item` returning an item ID and `claim_item(itemId=...)` locking it, another agent can claim the same item. For high-concurrency fleets, selector mode eliminates the **user-facing** race window by resolving the filter and claiming the top match in a single MCP call.
 
 `get_next_item` and `claim_item.selector` accept **identical filter shapes** — the same `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before`, and `orderBy` parameters apply in both tools, backed by the same shared eligibility logic (`NextItemRecommender`).
 
@@ -956,7 +956,6 @@ claim_item(claims=[{ selector: { priority: "high", complexityMax: 4, orderBy: "o
   outcome=success, selectorResolved=true → proceed with advance_item + work (itemId is in the result)
   outcome=queue_empty, kind=permanent    → nothing matches these filters at all; back off or wait
   outcome=none_eligible, kind=transient  → matches exist but none is claimable now (see `excluded`); retry after `retryAfterMs`
-  outcome=already_claimed                → TOCTOU race (rare); retry immediately with a fresh requestId
 advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
   ... do work ...
 claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (use the itemId from the selector result)
@@ -978,7 +977,7 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 }
 ```
 
-`orderBy: "oldest"` provides fair-share FIFO draining: agents process items in creation order rather than racing to the same high-priority items. When `queue_empty` is returned, the queue is genuinely drained — the agent can idle, exit, or poll after a delay. When `none_eligible` is returned instead, matches exist but are all excluded right now; the agent should back off `retryAfterMs` and retry rather than treating the drain as finished.
+`orderBy: "oldest"` provides FIFO (oldest-first) draining: agents process items in creation order rather than racing to the same high-priority items. When `queue_empty` is returned, the queue is genuinely drained — the agent can idle, exit, or poll after a delay. When `none_eligible` is returned instead, matches exist but are all excluded right now; the agent should back off `retryAfterMs` and retry rather than treating the drain as finished.
 
 **Selector hygiene and ancestor-claim filtering.** In selector mode, items whose ancestor chain contains a live claim held by a *different* agent are automatically excluded from the eligible set. This sub-tree isolation protects in-progress feature orchestration from fleet drain workers picking up child items. Use specific selectors (`parentId: null` to restrict to top-level items, or tag filters such as `tags: "feature"`) when your fleet operates at the top level; broader selectors like `role: queue` will naturally skip sub-items of in-progress features without returning errors. Items excluded by ancestor-claim filtering appear as `none_eligible` (`excluded.ancestorClaimed`) rather than surfacing information about the competing agent's identity. See [Fleet Deployment Guide — Fleet Topology Patterns](./fleet-deployment.md#fleet-topology-patterns) for recommended patterns.
 

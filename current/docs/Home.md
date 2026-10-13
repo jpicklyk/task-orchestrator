@@ -17,7 +17,7 @@ MCP Task Orchestrator is an open-source MCP server that gives AI agents persiste
 - Dependency patterns: `linear`, `fan_out`, `fan_in` with `blocks` and `relates_to` edges
 - Versioned documents (`docs_read`, `docs_write`), `[[...]]` links with backlinks, and `related` search across items, notes and documents
 - Opaque-cursor paging on every list, `fields` and `ifVersion` on reads, and 8-hex-character short ids
-- Multi-agent claims (the `advance` tool's `claim`, `release` and `heartbeat` ops) with TTL-based ownership, a selector for atomic find-and-claim, and ancestor-claim sub-tree protection; see [Fleet Deployment](fleet-deployment.md) for topology patterns
+- Multi-agent claims (the `advance` tool's `claim`, `release` and `heartbeat` ops) with TTL-based ownership, a selector for serialized find-and-claim, and ancestor-claim sub-tree protection; see [Fleet Deployment](fleet-deployment.md) for topology patterns
 - Upgrading from 3.x: read "Upgrading from 3.x" in the [Changelog](https://github.com/jpicklyk/task-orchestrator/blob/main/CHANGELOG.md) first
 
 ---

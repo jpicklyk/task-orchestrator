@@ -29,12 +29,12 @@ import kotlin.coroutines.CoroutineContext
  *
  * The same proof is legitimately verified more than once within a single MCP tool call — e.g.
  * a batch verifies once per element — and a proof is also reused
- * across separate calls (heartbeats). An opt-in, one-use [io.github.jpicklyk.mcptask.current.infrastructure.config.JtiReplayCache]
+ * across separate calls (heartbeats). An opt-in, one-use [io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JtiReplayCache]
  * would otherwise reject the second in-call verification of the very same (proof, claim) as a
  * "replay".
  *
  * Installing one instance of this element in the [CoroutineContext] for the lifetime of a single
- * MCP call (see `McpOperationAdapter`) lets [io.github.jpicklyk.mcptask.current.application.service.ActorAware.parseActorClaim]
+ * MCP call (see `McpOperationAdapter`) lets [io.github.jpicklyk.mcptask.current.application.api.ActorAware.parseActorClaim]
  * reuse the first verification result for a repeated (proof, claim) pair within that call, so the
  * underlying verifier (and any replay cache it consults) is invoked at most once per distinct
  * (proof, claim) pair per call.

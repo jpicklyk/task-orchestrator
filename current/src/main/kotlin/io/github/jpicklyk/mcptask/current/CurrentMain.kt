@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
 import io.github.jpicklyk.mcptask.current.bootstrap.Failed
 import io.github.jpicklyk.mcptask.current.bootstrap.RepairCompleted
 import io.github.jpicklyk.mcptask.current.bootstrap.StartupFailedException
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JvmTimezone
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -67,7 +68,7 @@ fun main() {
         )
 
         // Create and run the MCP server (blocks until server closes)
-        val mcpServer = CurrentMcpServer(version, coordinator)
+        val mcpServer = CurrentMcpServer(version, coordinator, AppConfig.fromEnv())
         val outcome = mcpServer.run()
         if (outcome is Failed) {
             // Don't use exitProcess(1) here either — throw and let the catch below rethrow, so the

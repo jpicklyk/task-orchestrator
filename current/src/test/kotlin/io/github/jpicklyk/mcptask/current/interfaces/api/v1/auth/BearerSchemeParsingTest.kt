@@ -1,5 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START

@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs

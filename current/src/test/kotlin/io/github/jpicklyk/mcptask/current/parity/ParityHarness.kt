@@ -14,9 +14,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256

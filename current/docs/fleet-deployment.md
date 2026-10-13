@@ -1324,9 +1324,9 @@ Metrics and observability infrastructure are explicitly deferred to a future rel
 
 Lifecycle and edge-case behaviors that operators encounter once a claim-mode fleet is running.
 
-### Atomic Claim Acquisition (Selector Mode)
+### Serialized Find-and-Claim (Selector Mode)
 
-Fleet agents can eliminate the **user-facing** race window inherent in the two-call `items_read` `next` -> `advance` `claim` (by `itemId`) pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match in a single MCP call. (A much smaller server-side window between recommend and claim remains and surfaces as `claim_held` - typically rare in practice.)
+Fleet agents can eliminate the **user-facing** race window inherent in the two-call `items_read` `next` -> `advance` `claim` (by `itemId`) pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match in a single MCP call. The selector and the claim run in one serialized write unit, so concurrent selectors each get a different item.
 
 ```json
 {
@@ -1340,7 +1340,7 @@ Fleet agents can eliminate the **user-facing** race window inherent in the two-c
 }
 ```
 
-`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When nothing matches the selector filters at all, the element is ok with `claimed: false` and no `reason` - the queue is genuinely drained, no point retrying the same filters soon. When items match but every one is claimed, ancestor-claimed, or dependency-blocked, the element is ok with `claimed: false`, a `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and an aggregate `excluded` breakdown - signal to back off and retry rather than idle for good.
+`orderBy: "oldest"` (createdAt ascending) provides **FIFO (oldest-first) queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When nothing matches the selector filters at all, the element is ok with `claimed: false` and no `reason` - the queue is genuinely drained, no point retrying the same filters soon. When items match but every one is claimed, ancestor-claimed, or dependency-blocked, the element is ok with `claimed: false`, a `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and an aggregate `excluded` breakdown - signal to back off and retry rather than idle for good.
 
 The `select` filters of the `claim` op are a subset of the `items_read` `next` filters, and both share the same eligibility rules.
 

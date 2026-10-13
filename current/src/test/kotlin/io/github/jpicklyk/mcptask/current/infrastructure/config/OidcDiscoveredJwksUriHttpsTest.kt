@@ -11,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode

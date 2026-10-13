@@ -14,15 +14,15 @@ import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
@@ -88,7 +88,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param shutdownCoordinator Shutdown coordinator for graceful shutdown. Cleanup actions drain LIFO, so
  *   registration order is: database (first, drained last), JWKS providers, MCP server, HTTP server.
  * @param appConfig Typed environment snapshot, read ONCE at construction. Built before
- *   [databaseManager] so the DB layer reads its config from the same snapshot. Injectable for tests.
+ *   [databaseManager] so the DB layer reads its config from the same snapshot. Required: only the entry point reads the process environment (`AppConfig.fromEnv()`); tests inject their own.
  * @param onBeforeTransportStart Test seam invoked as the first statement inside the try block
  *   wrapping the actual transport start (arg "stdio" or "http"), before the real start is
  *   attempted. No-op by default; production behaviour is unchanged.
@@ -101,7 +101,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CurrentMcpServer(
     private val version: String,
     private val shutdownCoordinator: ShutdownCoordinator = ShutdownCoordinator(),
-    private val appConfig: AppConfig = AppConfig.fromEnv(),
+    private val appConfig: AppConfig,
     internal val onBeforeTransportStart: (String) -> Unit = {},
     internal val stdioInput: () -> InputStream = { System.`in` },
     internal val stdioOutput: () -> OutputStream = { System.out },

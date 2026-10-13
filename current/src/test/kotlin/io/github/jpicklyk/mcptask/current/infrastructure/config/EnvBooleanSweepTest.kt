@@ -5,7 +5,8 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.slf4j.LoggerFactory

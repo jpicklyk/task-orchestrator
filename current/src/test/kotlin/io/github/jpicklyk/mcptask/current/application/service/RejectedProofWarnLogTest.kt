@@ -4,8 +4,6 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -20,12 +18,12 @@ import kotlin.test.assertTrue
 /**
  * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config and
  * invalid actor_authentication values". Covers test-plan scenarios S4 and S14, plus the
- * "reason=null omits the proof" adversarial probe, for [ActorAware.resolveTrustedActorId] under
+ * "reason=null omits the proof" adversarial probe, for [ActorTrustPolicy.resolveTrustedActorId] under
  * [DegradedModePolicy.ACCEPT_CACHED].
  *
  * Oracle source: the item's frozen `diagnosis` note (decision D5) and `test-plan` note (queue
  * phase) -- never this file's own reading of the fixed source. Scenario labelled EXISTING-SURFACE
- * per the test-plan: [ActorAware.resolveTrustedActorId]'s signature, [PolicyResolution], and every
+ * per the test-plan: [ActorTrustPolicy.resolveTrustedActorId]'s signature, [PolicyResolution], and every
  * [VerificationStatus] value are all pre-existing. Only the internal REJECTED branch's behavior
  * changes -- pre-fix, REJECTED silently fell into the same `else` branch as ABSENT/UNCHECKED with
  * no logging at all; post-fix it gets its own WARN naming the verifier and reason (never the
@@ -33,16 +31,16 @@ import kotlin.test.assertTrue
  * yields behavioral red directly (`warnings.size` goes from 1 to 0), with no signature change and
  * no narrowest-revert recipe required.
  *
- * [ActorAware]'s logger has no injection seam (`private val logger =
- * LoggerFactory.getLogger(ActorAware::class.java)`), so its WARN output is captured externally via
+ * [ActorTrustPolicy]'s logger has no injection seam (`private val logger =
+ * LoggerFactory.getLogger(ActorTrustPolicy::class.java)`), so its WARN output is captured externally via
  * a Logback [ListAppender] attached to that logger name -- the same convention already used by
  * `EnvBooleanTest.captureWarnLogs` and `DidDocumentJwksExtractorTest`.
  */
 class RejectedProofWarnLogTest {
-    /** Captures WARN-level log records emitted by [ActorAware] during [block]. */
+    /** Captures WARN-level log records emitted by [ActorTrustPolicy] during [block]. */
     private fun captureWarnLogs(block: () -> Unit): List<String> {
         val logbackLogger =
-            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.service.ActorAware") as Logger
+            LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy") as Logger
         val listAppender =
             ListAppender<ILoggingEvent>().also {
                 it.start()
@@ -73,7 +71,7 @@ class RejectedProofWarnLogTest {
         lateinit var result: PolicyResolution
         val warnings =
             captureWarnLogs {
-                result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+                result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
             }
 
         assertTrue(result is PolicyResolution.Trusted, "expected Trusted, got $result")
@@ -98,7 +96,7 @@ class RejectedProofWarnLogTest {
         lateinit var result: PolicyResolution
         val warnings =
             captureWarnLogs {
-                result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+                result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
             }
 
         assertTrue(result is PolicyResolution.Trusted, "expected Trusted, got $result")
@@ -114,7 +112,7 @@ class RejectedProofWarnLogTest {
         lateinit var result: PolicyResolution
         val warnings =
             captureWarnLogs {
-                result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+                result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
             }
 
         assertTrue(result is PolicyResolution.Trusted, "expected Trusted, got $result")
@@ -135,7 +133,7 @@ class RejectedProofWarnLogTest {
         lateinit var result: PolicyResolution
         val warnings =
             captureWarnLogs {
-                result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+                result = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
             }
 
         assertTrue(result is PolicyResolution.Trusted, "expected Trusted, got $result")
