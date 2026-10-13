@@ -22,8 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Short ids need 8 hex characters.** Every id field takes a full UUID or 8 to 32 hex characters; 3.x accepted shorter prefixes.
 - **Environment.** `USE_FLYWAY` is removed and ignored (one WARN if still set) and `API_WARN_ON_CLAIMED_ADVANCE` is removed. `SCHEMA_MODE`, `FTS_INTEGRITY` and `MCP_TOOL_PROFILE` are new, and `DATABASE_BUSY_TIMEOUT_MS` now governs only the startup paths. The default `CORS_ALLOWED_HEADERS` gains `X-Client-Host` and the default `CORS_EXPOSE_HEADERS` gains `X-Req-Id`; a deployment that sets either explicitly keeps its own list.
 - **Clients and the plugin.** Every 3.x tool call shape and every 3.x REST resource route is gone (see Removed), and every `/api/v1` body is the envelope. The 3.x plugin (config-sync, phase-guard, the hook matchers, the skills) does not work against a 4.0 server until the 4.0 plugin ships: its hooks fail open, so nothing is blocked, but nothing syncs or gates either.
+- **Key and DID fetches refuse non-public addresses.** Every JWKS, OIDC discovery and `did:web` fetch now passes an egress guard: a key source or DID host that resolves to a loopback, link-local, private (RFC 1918), CGNAT, unique-local or unspecified address fails, and verification reports `unavailable` naming the refused address (REST fails the request closed). A private identity provider or a corporate JWKS on `10.0.0.0/8` stops working on upgrade; loopback is admitted only with `allow_insecure_url: true` (actor verifier) or `API_JWKS_ALLOW_INSECURE_URL=true` (REST), and other private ranges have no opt-in in 4.0.
 
 ### Added
+
+#### Identity
+
+- **Added: `max_stale_seconds` and `API_JWKS_MAX_STALE_SECONDS`.** How old a cached key set may be, from its real fetch time, and still be served after a failed refresh (`stale_on_error`); past it the key set is unavailable and every token fails as `unavailable` instead of trusting a possibly revoked key forever. Default `max(3600, cache TTL)`; a value that is not a positive integer or is below the cache TTL fails startup (`actor_authentication.verifier.max_stale_seconds` in the config, the env var for REST).
 
 #### Tools, profiles and the envelope
 
@@ -102,6 +107,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Changed: item search covers descriptions; `work_items` is recreated (V26).** The item FTS tables index `title`, `summary` and `description`, and the unused `prefix` index on them is dropped. The migration recreates `work_items` (every row, rowid and value preserved) and adds the nullable `lifecycle` and pin columns; `role` becomes nullable. Back up the database file before upgrading.
 - **Changed: the static JWKS actor verifier warns when `audience`/`issuer` are missing.** A `type: jwks` verifier in static mode (`jwks_uri`/`jwks_path`/`oidc_discovery`) with no `audience`, or no `issuer` when `oidc_discovery` is not set, logs a startup WARN; an `oidc_discovery` config whose discovery document supplies no `issuer` logs a one-time WARN. Behaviour is unchanged: such configs still parse and verify tokens as before. Set `audience` (and `issuer` for `jwks_uri`/`jwks_path`) to bind tokens to this server.
 - **Changed: environment variables are read only through `AppConfig`, and `jwks_path` resolves against `AGENT_CONFIG_DIR`.** The composition root builds the config base directory once from `AppConfig`; `bodyFromFile` paths, the global config file and a relative `actor_authentication` `jwks_path` all resolve against it (the working directory when `AGENT_CONFIG_DIR` is unset), so no service reads `AGENT_CONFIG_DIR` itself.
+
+#### Identity
+
+- **Changed: one JWT verification pipeline.** The actor verifier and the REST JWT verifier are thin mappers over one `JwtVerifier` (algorithm allowlist, key selection, signature, `exp` required, `nbf`, lifetime cap, `iss`, `aud`, DID `sub == iss`, subject match, `jti` replay), so a fix to one check lands on both paths. Results, reasons and `failureKind` values are unchanged.
+- **Changed: key refresh backs off after a failure.** A failed JWKS or DID-document refresh no longer re-fetches on every call past the TTL: the stale key set is served and the next attempt waits 15 s, doubling per consecutive failure up to 300 s, reset by a success.
+- **Changed: an unknown `kid` forces one key refresh.** A token naming a key the cached set lacks triggers one refresh (at most one per 30 s per key source) before it is rejected, so a rotated-in key verifies without waiting for the TTL.
+- **Changed: key and DID fetches are egress-guarded.** See Upgrading. The guard resolves the host before the fetch; DNS rebinding between that check and the connect is a known limit.
 
 ### Removed
 

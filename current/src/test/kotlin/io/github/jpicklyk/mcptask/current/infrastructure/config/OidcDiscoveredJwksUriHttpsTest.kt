@@ -13,6 +13,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -132,10 +134,11 @@ class OidcDiscoveredJwksUriHttpsTest {
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    httpClientEngineForTest = engine
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             try {
                 val result = provider.getKeySet()
@@ -163,10 +166,11 @@ class OidcDiscoveredJwksUriHttpsTest {
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    httpClientEngineForTest = engine
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             try {
                 val ex = assertThrows<IllegalStateException> { provider.getKeySet() }
@@ -192,10 +196,11 @@ class OidcDiscoveredJwksUriHttpsTest {
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    httpClientEngineForTest = engine
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             try {
                 assertThrows<IllegalStateException> { provider.getKeySet() }
@@ -216,10 +221,11 @@ class OidcDiscoveredJwksUriHttpsTest {
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, algorithms = listOf("RS256"))
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    httpClientEngineForTest = engine
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             val verifier = JwksActorVerifier(config = config, keySetProvider = provider)
             try {
@@ -258,10 +264,11 @@ class OidcDiscoveredJwksUriHttpsTest {
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, allowInsecureUrl = true)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    httpClientEngineForTest = engine
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             try {
                 val result = provider.getKeySet()

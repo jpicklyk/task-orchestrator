@@ -21,6 +21,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.validateDi
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.IssuerNotTrustedException
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -119,11 +121,12 @@ class DidIdentifierValidationTest {
             val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             val result = provider.getKeySetForIssuer(did)
@@ -144,11 +147,12 @@ class DidIdentifierValidationTest {
                 VerifierConfig.Jwks(didPattern = "did:web:*.example.com%3A8443", cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             val result = provider.getKeySetForIssuer(did)
@@ -169,11 +173,12 @@ class DidIdentifierValidationTest {
             val config = VerifierConfig.Jwks(didAllowlist = listOf(did), cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             val result = provider.getKeySetForIssuer(did)
@@ -198,11 +203,12 @@ class DidIdentifierValidationTest {
                 val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config,
+                        config.toKeySource(),
                         java.nio.file.Path
                             .of("."),
                         clock = fixedClock(),
-                        didResolverRegistry = registry
+                        didResolverRegistry = registry,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
 
                 val ex =
@@ -218,7 +224,7 @@ class DidIdentifierValidationTest {
         }
 
     // S11: same malformed-host DID rejected end-to-end through JwksActorVerifier +
-    // DefaultJwksKeySetProvider + DidWebResolver(MockEngine) — REJECTED/policy, zero HTTP
+    // DefaultJwksKeySetProvider + DidWebResolver(MockEngine, publicEgressGuard()) — REJECTED/policy, zero HTTP
     // requests. D3
     @Test
     fun `S11 malformed issuer rejects end-to-end with zero HTTP requests`() =
@@ -260,13 +266,14 @@ class DidIdentifierValidationTest {
             val jwtStr = jwt.serialize()
 
             val config = VerifierConfig.Jwks(didPattern = "did:web:*.example.com", cacheTtlSeconds = 300)
-            val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+            val registry = DidResolverRegistry(listOf(DidWebResolver(engine, publicEgressGuard())))
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
             val verifier = JwksActorVerifier(config = config, keySetProvider = provider)
 
@@ -293,7 +300,7 @@ class DidIdentifierValidationTest {
                         headers = headersOf("Content-Type", "application/json")
                     )
                 }
-            val resolver = DidWebResolver(engine)
+            val resolver = DidWebResolver(engine, publicEgressGuard())
 
             val ex =
                 assertThrows<DidSecurityViolationException> {
@@ -318,11 +325,12 @@ class DidIdentifierValidationTest {
                 val config = VerifierConfig.Jwks(didPattern = "did:web:*", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config,
+                        config.toKeySource(),
                         java.nio.file.Path
                             .of("."),
                         clock = fixedClock(),
-                        didResolverRegistry = registry
+                        didResolverRegistry = registry,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
 
                 val ex =
@@ -351,11 +359,12 @@ class DidIdentifierValidationTest {
                     VerifierConfig.Jwks(didPattern = "did:web:example.com:agents:*", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config,
+                        config.toKeySource(),
                         java.nio.file.Path
                             .of("."),
                         clock = fixedClock(),
-                        didResolverRegistry = registry
+                        didResolverRegistry = registry,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
 
                 val ex =
@@ -378,11 +387,12 @@ class DidIdentifierValidationTest {
             val config = VerifierConfig.Jwks(didPattern = "did:web:agents.*", cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             assertThrows<IssuerNotTrustedException> {
@@ -409,11 +419,12 @@ class DidIdentifierValidationTest {
             val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             assertTrue(provider.matchesGlob(did, pattern))
@@ -435,11 +446,12 @@ class DidIdentifierValidationTest {
             val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config,
+                    config.toKeySource(),
                     java.nio.file.Path
                         .of("."),
                     clock = fixedClock(),
-                    didResolverRegistry = registry
+                    didResolverRegistry = registry,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
 
             assertTrue(!provider.matchesGlob(spaceDid, pattern))
@@ -471,15 +483,16 @@ class DidIdentifierValidationTest {
                             headers = headersOf("Content-Type", "application/json")
                         )
                     }
-                val registry = DidResolverRegistry(listOf(DidWebResolver(providerEngine)))
+                val registry = DidResolverRegistry(listOf(DidWebResolver(providerEngine, publicEgressGuard())))
                 val config = VerifierConfig.Jwks(didPattern = "did:web:h.example.com:*", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config,
+                        config.toKeySource(),
                         java.nio.file.Path
                             .of("."),
                         clock = fixedClock(),
-                        didResolverRegistry = registry
+                        didResolverRegistry = registry,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
 
                 val providerEx =
@@ -502,7 +515,7 @@ class DidIdentifierValidationTest {
                             headers = headersOf("Content-Type", "application/json")
                         )
                     }
-                val resolver = DidWebResolver(resolverEngine)
+                val resolver = DidWebResolver(resolverEngine, publicEgressGuard())
 
                 val resolverEx =
                     assertThrows<DidSecurityViolationException> {

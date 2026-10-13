@@ -10,9 +10,6 @@ infrastructure/config/YamlStatusLabelService.kt 1
 infrastructure/identity/bearer/BearerTokenStore.kt 2
 infrastructure/identity/did/DidDocumentJwksExtractor.kt 1
 infrastructure/identity/did/DidWebResolver.kt 4
-infrastructure/identity/jwt/JwksActorVerifier.kt 6
-infrastructure/identity/jwt/JwksApiVerifier.kt 6
-infrastructure/identity/jwt/JwksKeySetProvider.kt 5
 infrastructure/shutdown/ShutdownCoordinator.kt 1
 infrastructure/sqlite/StartupCompaction.kt 1
 infrastructure/sqlite/StartupIntegrity.kt 1

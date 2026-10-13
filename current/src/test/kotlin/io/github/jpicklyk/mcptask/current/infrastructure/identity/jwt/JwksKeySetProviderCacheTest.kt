@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -59,7 +60,8 @@ class JwksKeySetProviderCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json")
-                val cache = DefaultJwksKeySetProvider(config, tempDir)
+                val cache =
+                    DefaultJwksKeySetProvider(config.toKeySource(), tempDir, egressGuard = publicEgressGuard(config.allowInsecureUrl))
                 try {
                     val result = cache.getKeySet()
                     assertNotNull(result.keys)
@@ -92,7 +94,13 @@ class JwksKeySetProviderCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 300)
-                val cache = DefaultJwksKeySetProvider(config, tempDir, clock = fixedClock)
+                val cache =
+                    DefaultJwksKeySetProvider(
+                        config.toKeySource(),
+                        tempDir,
+                        clock = fixedClock,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
+                    )
                 try {
                     val first = cache.getKeySet()
                     val second = cache.getKeySet()
@@ -131,7 +139,13 @@ class JwksKeySetProviderCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 60)
-                val cache = DefaultJwksKeySetProvider(config, tempDir, clock = advancingClock)
+                val cache =
+                    DefaultJwksKeySetProvider(
+                        config.toKeySource(),
+                        tempDir,
+                        clock = advancingClock,
+                        egressGuard = publicEgressGuard(config.allowInsecureUrl)
+                    )
                 try {
                     val first = cache.getKeySet()
                     // Advance past TTL
@@ -194,7 +208,14 @@ class JwksKeySetProviderCacheTest {
                     cacheTtlSeconds = 60,
                     staleOnError = true,
                 )
-            val cache = DefaultJwksKeySetProvider(config, tempDir, clock = advancingClock, httpClientEngineForTest = engine)
+            val cache =
+                DefaultJwksKeySetProvider(
+                    config.toKeySource(),
+                    tempDir,
+                    clock = advancingClock,
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
+                )
             try {
                 // First call: fresh fetch succeeds and populates the cache.
                 val first = cache.getKeySet()
@@ -264,7 +285,14 @@ class JwksKeySetProviderCacheTest {
                     cacheTtlSeconds = 60,
                     staleOnError = false, // hard-fail mode
                 )
-            val cache = DefaultJwksKeySetProvider(config, tempDir, clock = advancingClock, httpClientEngineForTest = engine)
+            val cache =
+                DefaultJwksKeySetProvider(
+                    config.toKeySource(),
+                    tempDir,
+                    clock = advancingClock,
+                    httpClientEngineForTest = engine,
+                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
+                )
             try {
                 // Prime the cache.
                 cache.getKeySet()
