@@ -271,6 +271,9 @@ class EffectiveConfigResolver private constructor(
     /** `independence:` policy (A2) for [rootId]: per-root block wins WHOLESALE, else global. */
     suspend fun resolveIndependencePolicy(rootId: UUID?): IndependencePolicy = layered(rootId).independencePolicy()
 
+    /** `runs:` settings for [rootId], resolved per field (see [LayeredConfig.runsConfig]). */
+    suspend fun resolveRunsConfig(rootId: UUID?): RunsConfig = layered(rootId).runsConfig()
+
     /** Status labels for every trigger in [triggers] from ONE per-root read (see [LayeredConfig.statusLabel]). */
     suspend fun resolveStatusLabels(
         triggers: Collection<String>,

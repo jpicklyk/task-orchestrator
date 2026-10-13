@@ -101,6 +101,8 @@ class FlywayOnlyMigrationTest {
         exec(url, "DROP TABLE config_heads")
         exec(url, "DROP TABLE config_known_fingerprints")
         exec(url, "DROP TABLE config_versions")
+        exec(url, "DROP TABLE run_items")
+        exec(url, "DROP TABLE runs")
         exec(url, "DROP TABLE call_log")
         exec(url, "DROP TABLE events")
         exec(url, "DROP TABLE idempotency_records")

@@ -550,15 +550,22 @@ class ApiEventBus(
         /**
          * The SSE projection of one row, or null for a table-only type. 3.x names stream unchanged;
          * `item.transitioned` streams as `item.advanced` (newRole = toRole), `item.reparented` as `scope.left` /
-         * `scope.entered` by side, `claim.acquired` / `claim.released` as `item.updated`.
+         * `scope.entered` by side, `claim.acquired` / `claim.released` as `item.updated`. The `run.*` types stream
+         * unchanged with [ApiEvent.runId] set to the run and no item id.
          */
         fun project(record: EventRecord): ApiEvent? {
             val data = parseData(record.data)
             val str = { key: String -> data?.get(key)?.jsonPrimitive?.contentOrNull }
             var newRole: String? = null
-            var itemId: String = record.entityId.toString()
+            var itemId: String? = record.entityId.toString()
+            var runId: String? = null
             val type =
                 when (record.type) {
+                    in DomainEvent.RUN_TYPES -> {
+                        runId = record.entityId.toString()
+                        itemId = null
+                        record.type
+                    }
                     DomainEvent.ITEM_CREATED -> ApiEventType.ITEM_CREATED
                     DomainEvent.ITEM_UPDATED -> ApiEventType.ITEM_UPDATED
                     DomainEvent.ITEM_DELETED -> ApiEventType.ITEM_DELETED
@@ -591,6 +598,7 @@ class ApiEventBus(
                 newRole = newRole,
                 actor = actor,
                 rootId = record.rootId.toString(),
+                runId = runId,
             )
         }
 

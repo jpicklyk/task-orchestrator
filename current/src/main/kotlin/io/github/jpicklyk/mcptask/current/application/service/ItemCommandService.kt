@@ -669,6 +669,20 @@ class ItemCommandService(
     // delete
     // -------------------------------------------------------------------------
 
+    /**
+     * The runs on root [rootId] that are not closed. A provider that serves no runs (its `runStore()` throws
+     * [UnsupportedOperationException], as the interface default does) has none.
+     */
+    private suspend fun openRunsOnRoot(rootId: UUID): Int {
+        val runStore =
+            try {
+                repositoryProvider.runStore()
+            } catch (e: UnsupportedOperationException) {
+                return 0
+            }
+        return runStore.countNotClosedByRoot(rootId)
+    }
+
     private suspend fun WriteScope.deleteBody(
         itemId: UUID,
         recursive: Boolean
@@ -684,6 +698,10 @@ class ItemCommandService(
             if (children.isNotEmpty()) return Outcome.Err(ItemCommandErrors.hasChildren(itemId, children.size))
         }
         val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
+        if (root.parentId == null) {
+            val openRuns = openRunsOnRoot(itemId)
+            if (openRuns > 0) return Outcome.Err(ItemCommandErrors.rootHasOpenRuns(itemId, openRuns))
+        }
 
         var descendantsDeleted = 0
         var descendants: List<WorkItem> = emptyList()
@@ -919,6 +937,7 @@ object ItemCommandErrors {
     private const val FIELD_PARENT = "parentId"
     private const val FIELD_RECURSIVE = "recursive"
     private const val FIELD_ITEM = "item"
+    private const val FIELD_ITEM_ID = "itemId"
     private const val HIERARCHY_LOOKUP_PREFIX = "failed to verify hierarchy for parent "
 
     fun itemNotFound(id: UUID): DomainError = notFound(id, "WorkItem not found with id: $id")
@@ -977,6 +996,17 @@ object ItemCommandErrors {
                 ErrorDetail.InvalidRequest(
                     listOf(FieldViolation(FIELD_RECURSIVE, "item has children; delete recursively", childCount.toString()))
                 )
+        )
+
+    /** A root delete refused because [openRuns] runs on it are still open or paused (close them first). */
+    fun rootHasOpenRuns(
+        rootId: UUID,
+        openRuns: Int
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_REQUEST,
+            message = "Root $rootId has $openRuns open run(s); close them before deleting the root",
+            detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(FIELD_ITEM_ID, "root has $openRuns open runs", rootId.toString())))
         )
 
     fun invalid(message: String): DomainError =
