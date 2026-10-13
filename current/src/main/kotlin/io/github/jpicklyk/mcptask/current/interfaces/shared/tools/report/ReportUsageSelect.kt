@@ -8,17 +8,15 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.PageWith
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /**
  * `report usage`: call_log aggregates per group over a half-open window. Each item is
- * `{key{<groupBy>: value|null}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}`;
- * `data.window` follows `page`.
+ * `{key{<groupBy>?: value}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}`;
+ * `data.window` follows `page`. A NULL group value omits the `<groupBy>` member, so `key` is `{}`; it is never JSON null.
  */
 internal val reportUsageSelect =
     SelectSpec.PagedWith<ReportUsageRequest, JsonObject>(
@@ -26,9 +24,9 @@ internal val reportUsageSelect =
         doc =
             "Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), " +
                 "avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then " +
-                "key asc (a null key first). data.window gives since, until, retainedSince (the oldest raw row held), basis " +
-                "raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a " +
-                "root-scoped one sees only rows of its roots.",
+                "key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives " +
+                "since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window " +
+                "starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.",
         profiles = director(),
         request = serializer<ReportUsageRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
@@ -44,13 +42,13 @@ internal val reportUsageSelect =
         item = { it }
     )
 
-/** One `usage` group on the wire; every metric is always present. */
+/** One `usage` group on the wire; every metric is always present, and a NULL group value is an omitted `key` member. */
 internal fun usageItem(
     groupBy: ReportGroupBy,
     row: UsageRow
 ): JsonObject =
     buildJsonObject {
-        put("key", buildJsonObject { put(groupBy.wire, row.key?.let { JsonPrimitive(it) } ?: JsonNull) })
+        put("key", buildJsonObject { row.key?.let { put(groupBy.wire, it) } })
         put("calls", row.calls)
         put("errors", row.errors)
         put("responseBytes", row.responseBytes)

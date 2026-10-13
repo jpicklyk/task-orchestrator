@@ -887,7 +887,8 @@ a `root_ids` token's own roots (§3).
 **Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
 31): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
-page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. Grouping by `principal` needs `admin`. The
+page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
+when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
 field reference is in [`api-reference.md`](api-reference.md#report).
 
 **Faults.** Every fault answers an envelope and is checked in this order:

@@ -857,7 +857,8 @@ paths:
         The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
         reports. Its one select so far is `usage`: call-log calls, errors, response bytes, token estimate, average
         and maximum latency, retries and replays per `groupBy` group over a half-open `[since, until)` window
-        (default the last 7 days, at most 31), with `data.window` next to `items` and `page`. A tag-scoped token is
+        (default the last 7 days, at most 31), with `data.window` next to `items` and `page`. Each item's `key` is
+        `{<groupBy>: value}`, or `{}` when the group value is missing (never a JSON `null`). A tag-scoped token is
         `forbidden` (`scope: tag`); a root-scoped token sees only calls recorded against its roots; `groupBy:
         principal` needs `admin` (else `forbidden`, `scope: capability`).
       parameters:

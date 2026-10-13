@@ -34,7 +34,7 @@ data class UsageQuery(
 )
 
 /**
- * One group of a `usage` report. [key] is the group value (null when the column is NULL). [errors] counts rows with
+ * One group of a `usage` report. [key] is the group value (null when the column is NULL; the wire omits the `key` member then, never JSON null). [errors] counts rows with
  * outcome `error`; [responseBytes] and [responseTokensEst] are sums (a NULL counts 0); [latencySumMs] is the sum of
  * `latency_ms`, so the average is exact; [maxLatencyMs] is the maximum; [retries] is the sum of `attempts - 1`;
  * [replays] counts replayed rows.

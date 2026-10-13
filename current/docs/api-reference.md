@@ -1827,7 +1827,7 @@ selects of this tool and are not served yet.
 
 | Select | Answer (`data`) |
 |---|---|
-| `usage` | `{items: [{key: {<groupBy>: value \| null}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}], page: {total, truncated, next?}, window: {since, until, retainedSince?, basis, truncatedByRetention?}}` |
+| `usage` | `{items: [{key: {<groupBy>?: value}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}], page: {total, truncated, next?}, window: {since, until, retainedSince?, basis, truncatedByRetention?}}` |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
@@ -1837,8 +1837,9 @@ selects of this tool and are not served yet.
   `retries` is the sum of `attempts - 1`; `replays` counts idempotent replays.
 - **Grouping.** `groupBy` defaults to `tool`. `usage` accepts `tool`, `operation`, `host`, `surface`, `principalKind`,
   `errorCode`, `day` (the UTC date of the call) and `principal` (the principal id); `noteKey`, `type`, `trait` and
-  `resource` belong to other selects and are `invalid_request` on `/groupBy`. A missing value is a `null` key. Groups are
-  ordered by `calls` descending, then key ascending (a `null` key first); `page.total` is the number of groups.
+  `resource` belong to other selects and are `invalid_request` on `/groupBy`. A missing (NULL) value omits the
+  `<groupBy>` member, so `key` is `{}`, never a JSON `null`. Groups are ordered by `calls` descending, then key
+  ascending (an empty key first); `page.total` is the number of groups.
 - **Retention.** `window.retainedSince` is the oldest raw `call_log` row still held, over the whole table (absent when it
   is empty); `window.truncatedByRetention: true` appears only when `since` is before it. `basis` is `raw`.
 - **Visibility.** A tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
@@ -1858,7 +1859,7 @@ selects of this tool and are not served yet.
 <!-- generated:tool report -->
 Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group).
 
-**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc (a null key first). data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
