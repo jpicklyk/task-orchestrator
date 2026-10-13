@@ -114,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Changed: one JWT verification pipeline.** The actor verifier and the REST JWT verifier are thin mappers over one `JwtVerifier` (algorithm allowlist, key selection, signature, `exp` required, `nbf`, lifetime cap, `iss`, `aud`, DID `sub == iss`, subject match, `jti` replay), so a fix to one check lands on both paths. Results, reasons and `failureKind` values are unchanged.
 - **Changed: key refresh backs off after a failure.** A failed JWKS or DID-document refresh no longer re-fetches on every call past the TTL: the stale key set is served and the next attempt waits 15 s, doubling per consecutive failure up to 300 s, reset by a success.
-- **Changed: an unknown `kid` forces one key refresh.** A token naming a key the cached set lacks triggers one refresh (at most one per 30 s per key source) before it is rejected, so a rotated-in key verifies without waiting for the TTL.
+- **Changed: an unknown `kid` forces one key refresh.** A token naming a key the cached set lacks triggers one refresh (at most one per 30 s per provider, shared across DID issuers) before it is rejected, so a rotated-in key verifies without waiting for the TTL.
 - **Changed: key and DID fetches are egress-guarded.** See Upgrading. The guard resolves the host before the fetch; DNS rebinding between that check and the connect is a known limit.
 
 ### Removed
