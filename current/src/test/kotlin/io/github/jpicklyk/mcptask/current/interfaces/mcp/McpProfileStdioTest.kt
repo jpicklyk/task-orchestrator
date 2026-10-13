@@ -112,7 +112,39 @@ class McpProfileStdioTest {
         for (profile in ToolProfile.entries) {
             assertEquals(profile, ToolProfile.parse(profile.wire), "round trip of ${profile.name}")
         }
-        assertEquals(setOf("knowledge", "orchestration"), ToolProfile.entries.map { it.wire }.toSet())
+        assertEquals(setOf("knowledge", "orchestration", "director"), ToolProfile.entries.map { it.wire }.toSet())
+        assertEquals(3, ToolProfile.entries.size, "R5: exactly three profiles")
+    }
+
+    @Test
+    fun `S1 parse accepts director trimmed and in any case`() {
+        assertEquals(ToolProfile.DIRECTOR, ToolProfile.parse("director"))
+        assertEquals(ToolProfile.DIRECTOR, ToolProfile.parse(" Director "))
+        assertEquals(ToolProfile.DIRECTOR, ToolProfile.parse("DIRECTOR"))
+        assertEquals(ToolProfile.DIRECTOR, ToolProfile.parse("\tdirector\n"))
+        assertEquals("director", ToolProfile.DIRECTOR.wire)
+    }
+
+    @Test
+    fun `S1 parse rejects director near misses instead of coercing them`() {
+        // Oracle: task-scope AC1, trimmed and case-insensitive only; anything else is unknown and fails startup (fail closed).
+        // The NUL probes are an oracle judgement: NUL is not whitespace, so a NUL-padded name is not the name.
+        val rejected =
+            listOf("directors", "dir", "director2", "dire ctor", "director,knowledge", "directo", "director\u0000", "\u0000director")
+        for (raw in rejected) {
+            assertNull(ToolProfile.parse(raw), "'${raw.replace("\u0000", "<NUL>")}' is not a profile name and must not parse")
+        }
+    }
+
+    @Test
+    fun `S1 the director value reaches parse through AppConfig and empty or unset still means orchestration`() {
+        assertEquals(
+            ToolProfile.DIRECTOR,
+            ToolProfile.parse(AppConfig.fromEnv(env = mapOf("MCP_TOOL_PROFILE" to " Director ")::get).mcpToolProfileRaw),
+            "the env value reaches parse"
+        )
+        assertEquals(ToolProfile.ORCHESTRATION, ToolProfile.parse(null), "control: unset is still orchestration, never director")
+        assertEquals(ToolProfile.ORCHESTRATION, ToolProfile.parse("  "), "control: blank is still orchestration")
     }
 
     @Test

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import java.util.UUID
 
@@ -103,6 +104,39 @@ object ParityCoverage {
                 emptyList()
             }
         }
+
+    /** The declared profile set of the select or op [tool].[member] in [registry], or null when it is not registered. */
+    fun profilesOf(
+        registry: ToolRegistry,
+        tool: String,
+        member: String
+    ): Set<ToolProfile>? =
+        when (val spec = registry[tool]) {
+            is SelectToolSpec -> spec.selects.singleOrNull { it.name == member }?.profiles
+            is OpsToolSpec<*> -> spec.ops.singleOrNull { it.name == member }?.profiles
+            else -> null
+        }
+
+    /**
+     * Every member with an EMPTY profile set (REST only, R5 AC5/AC6), decided by set emptiness and never by a name list, so a
+     * renamed REST-only member stays REST-only.
+     */
+    fun restOnly(registry: ToolRegistry): List<Pair<String, String>> =
+        members(registry).filter { (tool, member) -> profilesOf(registry, tool, member)?.isEmpty() == true }
+
+    /**
+     * The MCP profile a member's MCP leg runs on (R5 AC6): ORCHESTRATION when the member's set contains it, else the first of
+     * KNOWLEDGE and DIRECTOR that does; null for a REST-only member (empty set), which has no MCP leg. A member the registry
+     * does not know keeps the historical ORCHESTRATION leg.
+     */
+    fun mcpLegProfile(
+        registry: ToolRegistry,
+        tool: String,
+        member: String
+    ): ToolProfile? {
+        val profiles = profilesOf(registry, tool, member) ?: return ToolProfile.ORCHESTRATION
+        return listOf(ToolProfile.ORCHESTRATION, ToolProfile.KNOWLEDGE, ToolProfile.DIRECTOR).firstOrNull { it in profiles }
+    }
 
     /**
      * The required scenarios [scenarios] do not provide.

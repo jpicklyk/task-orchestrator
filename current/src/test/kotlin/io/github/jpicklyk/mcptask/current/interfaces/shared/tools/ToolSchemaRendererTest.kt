@@ -158,11 +158,22 @@ class ToolSchemaRendererTest {
 
     @Test
     fun `S5 no top-level required so a describe-only call is schema-valid`() {
+        var rendered = 0
         for (spec in listOf(fx.readTool, fx.writeTool)) {
             for (profile in ToolProfile.entries) {
-                val s = schema(spec, profile)
+                // R5: the fixture members are knowledge/orchestration only, so the director profile renders no schema for them.
+                val s = ToolSchemaRenderer.inputSchema(spec, profile) ?: continue
+                rendered++
                 assertFalse("required" in s, "${spec.name}/$profile must not declare a top-level required: ${s["required"]}")
             }
+        }
+        assertEquals(4, rendered, "control: both fixture tools render in knowledge and orchestration (and not in director)")
+    }
+
+    @Test
+    fun `S5 fixture tools without a director member render no schema and no tool in director`() {
+        for (spec in fx.registry.tools) {
+            assertNull(ToolSchemaRenderer.inputSchema(spec, ToolProfile.DIRECTOR), "${spec.name} has no director member")
         }
     }
 

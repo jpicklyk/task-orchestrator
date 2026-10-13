@@ -1,15 +1,27 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.Doc
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -20,6 +32,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The seeded tree and the scenario catalog for [ParityFixtureTools]; the catalog is the fixture twin of [ProductionParity]. */
@@ -260,6 +273,66 @@ internal object FixtureParityCatalog {
 }
 
 /**
+ * R5 fixture for the profile-aware parity harness (task-scope AC5, AC6): one select tool whose members carry every kind of
+ * profile set. The REST-only member's name is a parameter, so a renamed REST-only member can be proved to stay exempt by its
+ * EMPTY SET and not by its name.
+ *
+ * Domain invariants satisfied by construction: each member declares a non-blank doc and a request class whose fields all carry
+ * a `@Doc`; no member touches the database, so no work-item invariant is in play.
+ */
+private class ProfileModeFixtures(
+    val restOnlyName: String = "web_peek"
+) {
+    @Serializable
+    data class PeekReq(
+        @Doc("Marker.") val marker: String = "x"
+    )
+
+    private fun peek(
+        name: String,
+        profiles: Set<ToolProfile>
+    ) = SelectSpec.Single<PeekReq, JsonObject>(
+        name = name,
+        doc = "Peek.",
+        profiles = profiles,
+        request = serializer<PeekReq>(),
+        handler = { _, _, _ -> Outcome.Ok(buildJsonObject { put("who", name) }) },
+        data = { it }
+    )
+
+    val tool =
+        SelectToolSpec(
+            "pm_items",
+            "Profile-mode parity fixture.",
+            listOf(
+                peek("know_peek", knowledge()),
+                peek("orch_peek", orchestration()),
+                peek("dir_peek", director()),
+                peek("know_only", setOf(ToolProfile.KNOWLEDGE)),
+                peek(restOnlyName, emptySet())
+            )
+        )
+
+    val registry: ToolRegistry get() = ToolRegistry(listOf(tool))
+
+    fun scenario(
+        member: String,
+        kind: ParityKind = ParityKind.HAPPY,
+        expectContains: List<String> = listOf("\"who\":\"$member\"")
+    ) = ParityScenario(
+        name = "pm_items $member",
+        tool = "pm_items",
+        member = member,
+        kind = kind,
+        token = FixtureParityCatalog.reader,
+        arguments = """{"select":"$member"}""",
+        expectStatus = 200,
+        expectContains = expectContains,
+        expectDbChanged = false
+    )
+}
+
+/**
  * Independent tests (test-author seat, item f67e1762) for the parity harness and its coverage guard: scenarios S2, S13, S14,
  * S17, S18, S19 and S20 of the frozen test-plan (NEW-SURFACE, except S20).
  *
@@ -476,4 +549,72 @@ class ParityCoverageGuardTest {
             assertTrue(seamed.isError, "control: a READ-only access seam makes the same call forbidden: ${seamed.text}")
             assertEquals(1, fx.seen.size, "the forbidden element did not run")
         }
+
+    // ------------------------------------------------------------------ R5 profile sets (b342d320): AC5, AC6, S11
+
+    private val modes = ProfileModeFixtures()
+
+    @Test
+    fun `S11 the MCP leg of a member runs on a profile whose set contains it`() {
+        val registry = modes.registry
+        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "pm_items", "know_peek"))
+        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "pm_items", "orch_peek"))
+        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "pm_items", "dir_peek"))
+        assertEquals(ToolProfile.KNOWLEDGE, ParityCoverage.mcpLegProfile(registry, "pm_items", "know_only"))
+        assertNull(ParityCoverage.mcpLegProfile(registry, "pm_items", "web_peek"), "an empty set has no MCP leg")
+        for ((tool, member) in ParityCoverage.members(registry)) {
+            val leg = ParityCoverage.mcpLegProfile(registry, tool, member)
+            val declared = ParityCoverage.profilesOf(registry, tool, member)!!
+            assertEquals(declared.isNotEmpty(), leg != null, "$tool.$member: a leg exists exactly when the set is non-empty")
+            if (leg != null) assertTrue(leg in declared, "$tool.$member: the leg ${leg.wire} must be in the member's own set")
+        }
+    }
+
+    @Test
+    fun `S11 every non-empty member passes the harness on its own profile, including a director-only and a knowledge-only one`() {
+        val harness = ParityHarness(modes.registry)
+        for (member in listOf("know_peek", "orch_peek", "dir_peek", "know_only")) {
+            harness.run(modes.scenario(member))
+        }
+    }
+
+    @Test
+    fun `S11 a REST-only member runs the REST leg only and is unknown on every MCP profile`() {
+        val outcome = ParityHarness(modes.registry).run(modes.scenario("web_peek"))
+        assertEquals(200, outcome.restStatus)
+        assertTrue("\"who\":\"web_peek\"" in outcome.body, "the REST leg answered the member: ${outcome.body}")
+        assertFalse(outcome.dbChanged)
+    }
+
+    @Test
+    fun `S11 the REST-only exemption follows the empty set so a renamed member stays exempt`() {
+        val renamed = ProfileModeFixtures(restOnlyName = "zz_renamed_rest")
+        assertEquals(listOf("pm_items" to "zz_renamed_rest"), ParityCoverage.restOnly(renamed.registry))
+        assertEquals(listOf("pm_items" to "web_peek"), ParityCoverage.restOnly(modes.registry))
+        ParityHarness(renamed.registry).run(renamed.scenario("zz_renamed_rest"))
+    }
+
+    @Test
+    fun `S11 a member with a non-empty set is never reported REST-only`() {
+        val restOnly = ParityCoverage.restOnly(modes.registry)
+        for ((tool, member) in ParityCoverage.members(modes.registry)) {
+            val empty = ParityCoverage.profilesOf(modes.registry, tool, member)!!.isEmpty()
+            assertEquals(empty, (tool to member) in restOnly, "$tool.$member")
+        }
+        assertEquals(1, restOnly.size, restOnly.toString())
+    }
+
+    @Test
+    fun `S11 a REST-only member still needs a HAPPY and a SCOPE_FORBIDDEN scenario`() {
+        val missing = ParityCoverage.missing(modes.registry, emptyList())
+        assertTrue(MissingParity("pm_items", "web_peek", ParityKind.HAPPY) in missing, missing.toString())
+        assertTrue(MissingParity("pm_items", "web_peek", ParityKind.SCOPE_FORBIDDEN) in missing, missing.toString())
+        assertEquals(10, missing.size, "5 members x 2 requirements: $missing")
+    }
+
+    @Test
+    fun `S11 the REST-only leg is not vacuous - a wrong body expectation fails it`() {
+        val wrong = modes.scenario("web_peek", expectContains = listOf("\"who\":\"not_this_member\""))
+        assertFailsWith<AssertionError> { ParityHarness(modes.registry).run(wrong) }
+    }
 }
