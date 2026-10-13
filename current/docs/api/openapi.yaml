@@ -855,12 +855,19 @@ paths:
         `push`, `rollback` and `reset` (capability `write-config`). Only `GET /config/schema` stays a route.
 
         The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
-        reports. Its one select so far is `usage`: call-log calls, errors, response bytes, token estimate, average
-        and maximum latency, retries and replays per `groupBy` group over a half-open `[since, until)` window
-        (default the last 7 days, at most 31), with `data.window` next to `items` and `page`. Each item's `key` is
-        `{<groupBy>: value}`, or `{}` when the group value is missing (never a JSON `null`). A tag-scoped token is
-        `forbidden` (`scope: tag`); a root-scoped token sees only calls recorded against its roots; `groupBy:
-        principal` needs `admin` (else `forbidden`, `scope: capability`).
+        reports. Its selects are `usage`, `gates` and `contention`. `usage` reports call-log calls, errors,
+        response bytes, token estimate, average and maximum latency, retries and replays per `groupBy` group over a
+        half-open `[since, until)` window (default the last 7 days, at most 31), with `data.window` next to `items`
+        and `page`. `gates` counts rejected transitions (`transition.rejected` events; `blocks` and `items`) per
+        `noteKey` (default), `type`, `trait` or `errorCode`. `contention` counts claim and lease events per
+        `resource` (`acquired`, `rejected`, `expired`, `released`, `forceReleased`, with `contentionRate`,
+        `expiryRate` and `forceReleaseRate` rounded to 4 decimals and omitted when the denominator is 0). Each
+        item's `key` is `{<groupBy>: value}`, or `{}` when the group value is missing (never a JSON `null`).
+        Scope differs per select. `usage` reads `call_log` rows, which carry no tags: a tag-scoped token is
+        `forbidden` (`scope: tag`) and a root-scoped token sees only calls recorded against its roots; `groupBy:
+        principal` needs `admin` (else `forbidden`, `scope: capability`). `gates` and `contention` read events:
+        a tag-scoped token is not refused and sees only the events whose item currently carries an allowed tag, and
+        a root-scoped token sees only the events of its roots.
       parameters:
         - name: tool
           in: path
