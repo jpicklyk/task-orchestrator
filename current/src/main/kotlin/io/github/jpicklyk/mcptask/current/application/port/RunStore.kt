@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import java.time.Instant
 import java.util.UUID
 
@@ -45,4 +46,25 @@ interface RunStore {
 
     /** The number of runs on root [rootId] that are not closed (open or paused). */
     suspend fun countNotClosedByRoot(rootId: UUID): Int
+
+    /**
+     * The runs matching every given filter, newest first (`openedAt` descending, then `id` ascending): those on a root
+     * in [rootIds] (null means any root; an empty set matches nothing), with [status], and closed at or after
+     * [closedSince] (a run with no `closedAt` never matches).
+     */
+    suspend fun list(
+        rootIds: Set<UUID>? = null,
+        status: RunStatus? = null,
+        closedSince: Instant? = null
+    ): List<Run>
+
+    /**
+     * The ids of the runs whose id, as 32 lower-case hex digits without dashes, starts with [prefix] (compared ignoring
+     * case), in ascending id order, at most [limit] of them. A prefix that is not hex, or longer than 32 digits, matches
+     * nothing.
+     */
+    suspend fun findIdsByPrefix(
+        prefix: String,
+        limit: Int = 2
+    ): List<UUID>
 }

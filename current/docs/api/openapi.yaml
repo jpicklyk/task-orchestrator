@@ -866,6 +866,15 @@ paths:
         `{<groupBy>: value}`, or `{}` when the group value is missing (never a JSON `null`). A tag-scoped token is
         `forbidden` (`scope: tag`); a root-scoped token sees only calls recorded against its roots; `groupBy:
         principal` needs `admin` (else `forbidden`, `scope: capability`).
+
+        The `runs_read` tool (`get`, `list`; capability `read`) and the `runs_write` tool (`open`, `update`, `close`,
+        `pause`, `resume`, `mark`; capability `runs`) serve runs. A run is as visible as its root: a run whose root
+        is outside the token's scope is `forbidden` (`root` or `tag`) before any permission rule, and `list` leaves
+        it out. `close` is for the coordinator, the director profile or a human token; `pause` and `resume` for the
+        director profile or a human token; `update` for the coordinator only (before the coordinator token exists,
+        the caller that opened the run); a refusal is `forbidden` with `detail.scope: principal_kind` and
+        `detail.required` the allowed kinds. `mark` is REST only: it sets a named instant on a run in any status,
+        first write wins, and `marked: false` reports a replay.
       parameters:
         - name: tool
           in: path
@@ -942,7 +951,8 @@ paths:
       description: |
         The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
         envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
-        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`). For a member of that set the envelope is
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`; `runs_write` `open`,
+        `close`, `pause`, `resume`). For a member of that set the envelope is
         byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
         A registered tool with no member in the director set is 403 `forbidden` (`scope: capability`,

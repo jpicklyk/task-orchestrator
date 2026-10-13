@@ -11,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs.docsWrite
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.reportTool
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsReadTool
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsWriteTool
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.json.JsonObject
@@ -123,7 +125,7 @@ class ToolRegistry(
 /**
  * The production 4.0 tools; Q32 removed the 3.x tool list they replaced. Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
  * `deps_read` and `deps_write`; Q13 added `advance`; Q18 added `items_write`; Q19 added `items_read`; Q25 added
- * `docs_read` and `docs_write`; Q23 added `config`; R9 added `report` (director only).
+ * `docs_read` and `docs_write`; Q23 added `config`; R9 added `report` (director only); R20 added `runs_read` and `runs_write`.
  */
 fun buildToolSpecs(): List<ToolSpec> =
     listOf(
@@ -138,4 +140,6 @@ fun buildToolSpecs(): List<ToolSpec> =
         docsWriteTool(),
         configTool(),
         reportTool(),
+        runsReadTool(),
+        runsWriteTool(),
     )

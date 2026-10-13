@@ -38,7 +38,7 @@ over MCP.
 |---|---|---|---|
 | `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read` and `report`: no read that can return a note, document or transition-summary body, and no write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`) and `runs_write` (`open`, `close`, `pause`, `resume` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
@@ -60,6 +60,8 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
 | `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window); director profile only on MCP |
+| `runs_read` | Runs | Read | Get one run or list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`); orchestration and director profiles |
+| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs: ops of one 4.0 tool; `mark` is REST only |
 
 ---
 
@@ -1872,6 +1874,146 @@ Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool report -->
+
+---
+
+## Category: Runs
+
+A run is a bounded, budgeted pass over a set of member items of one root. The run tools are 4.0 registry tools: the request is
+the envelope request and every answer is the response envelope. Each field is documented once in the tool's own schema
+(`describe: true`).
+
+### runs_read
+
+**Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (a page of runs, `openedAt` descending
+then id). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
+`unmarked` (a mark key; only closed runs that do not carry it, so combining it with a `status` other than `closed` is
+`invalid_request` on `/unmarked`). A run is as visible as its root: `get` of a run whose root is outside the caller's scope is
+`forbidden` (never `not_found`), and `list` leaves such runs out.
+
+**The run view** (every `runs_read` and `runs_write` result): `{runId, rootId, scopeId?, label?, title?, status,
+pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, coordinatorSeenAt?,
+coordinatorStalled, stallAfterSeconds, budget?: {tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}, usage:
+{reportedTokens, reportedCostUsd, observedTokens}, hints, marks, members, activeSeats, version}`. Absent members are
+omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD.
+
+**Request reference.** Generated from the registry (see [Overview](#overview)).
+
+<!-- generated:tool runs_read -->
+Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters). A run is outside the call scope when its root is.
+
+**`runs_read` select `get`** (orchestration and director profiles; capability `read`): Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call scope is forbidden, not not_found.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `list`** (orchestration and director profiles; capability `read`): List runs, newest first (openedAt descending). status, rootId and endedSince (closedAt at or after, inclusive) filter; unmarked names a mark key and keeps only closed runs without it, so it cannot be combined with a status other than closed. Runs on roots outside the call scope are left out.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only runs on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `status` | string: open \| paused \| closed | no | Only runs in this status: open, paused or closed. |
+| `endedSince` | string (date-time) | no | Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z). |
+| `unmarked` | string | no | Only closed runs that do not carry this mark key (lowercase letters, digits, - and _, starting with a letter). Implies closed runs. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool runs_read -->
+
+### runs_write
+
+**Ops.** `open` (a run on a root over up to 500 of its items; the caller is recorded as `openedBy`), `update` (add or remove
+items, lower the budget, replace the hints; `expectedVersion` guards a concurrent change), `close` (reason `completed`,
+`cancelled`, `failed` or `abandoned`; the answer adds `snapshot: {reason, countsByRole, inFlight, released, openDecisions}`),
+`pause`, `resume` and `mark` (REST only: sets a named instant, first write wins, at most 32 marks; the answer adds
+`marked`, false for a replay). Every op needs the `runs` capability and a run whose root is in scope.
+
+**Permissions.** `open` any caller with `runs`. `close`, any reason: the coordinator, the director profile or a human
+token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update`: the
+coordinator only. `mark`: any caller with `runs`. Until the coordinator token ships, the coordinator is the caller that
+opened the run (a request-body `actor` never matches a credential's `api:` id). A refusal is `forbidden` with `detail:
+{scope: "principal_kind", required}` where `required` lists the allowed kinds. The scope check on the run's root comes
+first, so a permission refusal never reveals whether an out-of-scope run exists.
+
+**Request reference.** Generated from the registry (see [Overview](#overview)).
+
+<!-- generated:tool runs_write -->
+Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
+
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | yes | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `items` | array of string | no | Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. |
+| `scopeId` | string | no | An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `label` | string | no | A short label, at most 64 characters. |
+| `title` | string | no | A title, at most 200 characters. |
+| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
+| `budget.tokens` | integer | no | Token limit. |
+| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
+| `budget.maxActiveSeats` | integer | no | Most seats active at once. |
+| `stallAfterSeconds` | integer | no | Seconds without a coordinator sign of life before the run reads as stalled. Default from config. |
+| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+
+Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `update`** (orchestration profile only; capability `runs`): Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), replace the hints. Coordinator only. A paused run is run_paused; a closed run is run_closed. expectedVersion guards against a concurrent change. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `addItems` | array of string | no | Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `removeItems` | array of string | no | Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
+| `budget.tokens` | integer | no | Token limit. |
+| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
+| `budget.maxActiveSeats` | integer | no | Most seats active at once. |
+| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+| `expectedVersion` | integer | no | Fails with version_conflict unless the run is at this version. |
+
+Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `run_paused`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`runs_write` op `close`** (orchestration and director profiles; capability `runs`; destructive): End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). Coordinator, director or a human. Any reason but completed ends active seats and releases claims and leases of the members; completed is refused while a seat is active. Returns the run and a snapshot of what the close recorded.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `reason` | string: completed \| cancelled \| failed \| abandoned | yes | Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `pause`** (director profile only; capability `runs`): Pause an open run (reason manual). Director or a human only; the opener of a run may not pause it. A run that is not open is invalid_run_state. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `resume`** (director profile only; capability `runs`): Resume a manually paused run. Director or a human only. A budget or attempts pause cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `mark`** (REST only; capability `runs`): Set a named mark on a run to now. REST only. Allowed in every status, including closed; the first write of a key wins and a replay changes nothing (marked false). A run holds at most 32 marks. Returns the run and marked.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `key` | string | yes | The mark key: lowercase letters, digits, - and _, starting with a letter, at most 64 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool runs_write -->
 
 ---
 

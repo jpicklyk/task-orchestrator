@@ -14,47 +14,65 @@
               "enum": [
                 "open",
                 "close",
-                "ack",
-                "answer",
                 "pause",
-                "resume",
-                "withdraw"
+                "resume"
               ]
             },
             "rootId": {
               "type": "string",
-              "description": "Project root of the run: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+              "description": "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
             },
             "items": {
               "type": "array",
-              "description": "Ids of the member items (UUID or hex prefix), at most 500. [ops: open]",
+              "description": "Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. [ops: open]",
               "items": {
                 "type": "string"
               }
             },
             "scopeId": {
               "type": "string",
-              "description": "Optional item whose subtree bounds the run (a UUID or a hex prefix). [ops: open]"
+              "description": "An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
             },
             "label": {
               "type": "string",
-              "description": "Short display label, at most 64 characters. [ops: open]"
+              "description": "A short label, at most 64 characters. [ops: open]"
             },
             "title": {
               "type": "string",
-              "description": "Display title, at most 200 characters. [ops: open]"
+              "description": "A title, at most 200 characters. [ops: open]"
             },
             "budget": {
               "type": "object",
-              "description": "Caps at or below the config ceilings: tokens, costUsd, attemptsPerSeat, maxActiveSeats. Absent means no cap. [ops: open]"
+              "description": "Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open]",
+              "properties": {
+                "tokens": {
+                  "type": "integer",
+                  "description": "Token limit."
+                },
+                "costUsd": {
+                  "type": "number",
+                  "description": "Cost limit in US dollars, a decimal such as 12.5."
+                },
+                "attemptsPerSeat": {
+                  "type": "integer",
+                  "description": "Most attempts one seat may take."
+                },
+                "maxActiveSeats": {
+                  "type": "integer",
+                  "description": "Most seats active at once."
+                }
+              }
             },
             "stallAfterSeconds": {
               "type": "integer",
-              "description": "Seconds without a heartbeat before a seat or the coordinator shows as stalled; default from config. [ops: open]"
+              "description": "Seconds without a coordinator sign of life before the run reads as stalled. Default from config. [ops: open]"
             },
             "hints": {
               "type": "object",
-              "description": "Free-form routing hints (for example model), stored and echoed, never enforced. [ops: open]"
+              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open]",
+              "additionalProperties": {
+                "type": "string"
+              }
             },
             "runId": {
               "type": "string",
@@ -62,33 +80,13 @@
             },
             "reason": {
               "type": "string",
-              "description": "Why the run ends; close ends active seats and releases member claims and leases. [ops: close]",
+              "description": "Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. [ops: close]",
               "enum": [
                 "completed",
                 "cancelled",
                 "failed",
                 "abandoned"
               ]
-            },
-            "summary": {
-              "type": "string",
-              "description": "Closing summary, at most 500 characters. [ops: close]"
-            },
-            "decisionId": {
-              "type": "string",
-              "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [ops: ack, answer, withdraw]"
-            },
-            "option": {
-              "type": "string",
-              "description": "Key of the chosen option. [ops: answer]"
-            },
-            "text": {
-              "type": "string",
-              "description": "Free-form answer, at most 1000 characters; freeform classes only. [ops: answer]"
-            },
-            "rationale": {
-              "type": "string",
-              "description": "Why this answer, at most 1000 characters. [ops: answer]"
             },
             "idempotencyKey": {
               "type": "string",
@@ -111,7 +109,7 @@
     },
     "type": "object"
   },
-  "description": "Direct runs: open or close a run, pause or resume it by hand, and acknowledge, answer or withdraw a decision. An answer is final. Call with describe:true for each operation's parameters and errors.",
+  "description": "Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

@@ -201,7 +201,7 @@ Each token grants a set of additive capabilities:
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset` (checked per op by the dispatcher, section 20a). Grants no `docs_write` op. |
 | `WRITE_DOCS` | `write-docs` | `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
-| `RUNS` | `runs` | Reserved for the run tools; parsed and grantable, no endpoint checks it yet |
+| `RUNS` | `runs` | Every `runs_write` op (`open`, `update`, `close`, `pause`, `resume`, `mark`), checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
 | `DECIDE` | `decide` | Reserved for decision answering; parsed and grantable, no endpoint checks it yet |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
 
@@ -915,6 +915,23 @@ page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `k
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
 field reference is in [`api-reference.md`](api-reference.md#report).
 
+**Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (newest
+first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unmarked`, a mark key that keeps only closed
+runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`). `POST /ops/runs_write`
+serves `open`, `update`, `close`, `pause`, `resume` and `mark`, each needing `runs`. A run is as visible as its root:
+`get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
+permission rule and before `not_found` could differ, and `list` leaves such runs out. Who may do what: `open` any `runs`
+caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for a request-body
+actor); `close` (any reason but the server-only `budget_exhausted`) the coordinator, the director profile or a human
+token; `pause` and `resume` the director profile or a human token (a service or agent token on `/ops/runs_write`
+is refused, the same token on `/ops/director/runs_write` is not); `update` the coordinator only; `mark` any `runs`
+caller. A refusal is `forbidden` with `detail: {scope: "principal_kind", required}` naming the allowed kinds. Until the
+coordinator token exists the coordinator is the caller that opened the run. `mark` is REST only (it is on no MCP
+profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
+nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
+`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `version`, ...); `close` adds `snapshot`, `mark` adds
+`marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
+
 **Faults.** Every fault answers an envelope and is checked in this order:
 
 | Condition | Status | Envelope |
@@ -954,7 +971,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get` and `list`; `runs_write` `open`, `close`, `pause` and `resume`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
