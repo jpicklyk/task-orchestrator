@@ -81,6 +81,18 @@ interface ReportQueries {
     /** The page of `usage` groups [query] asks for, with the total group count. */
     suspend fun usage(query: UsageQuery): UsagePage
 
+    /**
+     * The daily-basis counterpart of [usage] (R13): the groups of whole folded days from `usage_daily` for days before
+     * [rawFrom] (the instant the fold covers up to, at 00:00Z, null when nothing is folded), summed with the raw `call_log`
+     * rows from [rawFrom] on (all of the window when null), in ONE statement. [UsageQuery.since] and [UsageQuery.until] are
+     * already day-aligned by the caller; the two parts never overlap. `groupBy = PRINCIPAL` is not supported (no principal id
+     * is kept per day). Same ordering, paging and visibility rules as [usage].
+     */
+    suspend fun usageDaily(
+        query: UsageQuery,
+        rawFrom: Instant?
+    ): UsagePage
+
     /** The oldest `call_log.at` still held, over the whole table (retention prunes by age, not per root); null when empty. */
     suspend fun retainedSince(): Instant?
 

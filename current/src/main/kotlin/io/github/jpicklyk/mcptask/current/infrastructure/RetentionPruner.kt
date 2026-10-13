@@ -23,7 +23,8 @@ data class RetentionPass(
     val callLog: Int,
     val events: Int,
     val leaseHistory: Int,
-    val capped: Boolean
+    val capped: Boolean,
+    val foldedDays: Int = 0
 ) {
     val total: Int get() = callLog + events + leaseHistory
 }
@@ -44,7 +45,9 @@ data class RetentionPass(
  *    [RetentionSettings.eventsDays]; a type the class map does not know is never deleted;
  *  - the latest `claim.expired` row per item survives (the claim-expiry sweep deduplicates against it);
  *  - only closed lease intervals (`released_at IS NOT NULL`) are deleted;
- *  - `call_log` rows are deleted only before [foldWatermark] (nothing while it answers null).
+ *  - `call_log` rows are deleted only before the fold watermark ([folder] when given, else [foldWatermark]; nothing
+ *    while it answers null), and a pass folds the completed days into `usage_daily` BEFORE it deletes anything. A fold
+ *    failure aborts the pass (nothing is pruned: the safe direction).
  *
  * The pruner writes no events and runs no VACUUM. Each pass logs one INFO line. A failed pass is logged at WARN and
  * never fatal; the loop runs on its own scope, which [stop] cancels and joins.
@@ -56,7 +59,8 @@ class RetentionPruner(
     private val interval: Duration = Duration.ofHours(1),
     private val batchSize: Int = 5_000,
     private val passCap: Int = 200_000,
-    private val foldWatermark: CallLogFoldWatermark = CallLogFoldWatermark.NONE
+    private val foldWatermark: CallLogFoldWatermark = CallLogFoldWatermark.NONE,
+    private val folder: UsageDailyFolder? = null
 ) {
     init {
         require(batchSize > 0) { "batchSize must be positive: $batchSize" }
@@ -64,6 +68,8 @@ class RetentionPruner(
     }
 
     private val logger = LoggerFactory.getLogger(RetentionPruner::class.java)
+    private val watermark: CallLogFoldWatermark get() = folder ?: foldWatermark
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
@@ -95,6 +101,7 @@ class RetentionPruner(
     /** Runs one pass and returns the rows it deleted. A failed write unit is thrown (rows of earlier units stay deleted). */
     suspend fun pruneOnce(): RetentionPass {
         val started = System.nanoTime()
+        val foldedDays = folder?.foldOnce()?.days ?: 0
         val sources = sources()
         val totals = Counts()
         var next = 0
@@ -120,13 +127,15 @@ class RetentionPruner(
                 callLog = totals.callLog,
                 events = totals.events,
                 leaseHistory = totals.leaseHistory,
-                capped = budget <= 0 && next < sources.size
+                capped = budget <= 0 && next < sources.size,
+                foldedDays = foldedDays
             )
         logger.info(
-            "Retention pass: events={} lease_history={} call_log={} capped={} units={} ({} ms)",
+            "Retention pass: events={} lease_history={} call_log={} folded_days={} capped={} units={} ({} ms)",
             pass.events,
             pass.leaseHistory,
             pass.callLog,
+            pass.foldedDays,
             pass.capped,
             units,
             (System.nanoTime() - started) / 1_000_000
@@ -171,7 +180,7 @@ class RetentionPruner(
                         }
                     }
                     Source.CallLog -> {
-                        val folded = foldWatermark.foldedThrough()
+                        val folded = watermark.foldedThrough()
                         val cutoff = cutoff(now, settings.callLogDays)
                         if (folded == null || cutoff == null) {
                             0

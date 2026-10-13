@@ -31,7 +31,7 @@ import java.util.UUID
 /**
  * The window a report covered, as `data.window` echoes it: the half-open range `[since, until)` actually queried (UTC,
  * millisecond precision), [retainedSince] (the oldest raw `call_log` row still held; null when the table is empty),
- * [basis] (`raw`: the raw table) and [truncatedByRetention] (true exactly when the window starts before [retainedSince]).
+ * [basis] (`raw`: the raw table; `daily`: whole UTC days from `usage_daily` plus the raw tail, with `since` floored and `until` ceiled to day boundaries as read) and [truncatedByRetention] (true when the window starts before the oldest data held: [retainedSince] on the raw basis, the older of it and the earliest folded day on the daily one).
  */
 data class ReportWindow(
     val since: Instant,
@@ -92,30 +92,81 @@ class ReportService(
                     is Outcome.Ok -> r.value
                 }
             val queries = stores.reportQueries()
-            val result =
-                queries.usage(
-                    UsageQuery(
-                        since = window.first,
-                        until = window.second,
-                        groupBy = dimension,
-                        scopeRootIds = ctx.scope.rootIds,
-                        rootId = rootId,
-                        limit = page.limit,
-                        offset = page.offset
+            val daily = stores.usageDailyStore()
+            val retainedSince = queries.retainedSince()
+            val folded =
+                daily
+                    .watermark()
+                    ?.foldedThrough
+                    ?.plusDays(1)
+                    ?.atStartOfDay(ZoneOffset.UTC)
+                    ?.toInstant()
+            val length = Duration.between(window.first, window.second)
+            val rawBasis =
+                length <= MAX_RAW_WINDOW && !(folded != null && retainedSince != null && window.first.isBefore(retainedSince))
+            if (rawBasis) {
+                val result =
+                    queries.usage(
+                        UsageQuery(window.first, window.second, dimension, ctx.scope.rootIds, rootId, page.limit, page.offset)
+                    )
+                return@read Outcome.Ok(
+                    UsageReport(
+                        groupBy = groupBy,
+                        page = ListPage.of(result.rows, result.totalGroups, page),
+                        window =
+                            ReportWindow(
+                                since = window.first,
+                                until = window.second,
+                                retainedSince = retainedSince,
+                                basis = BASIS_RAW,
+                                truncatedByRetention = retainedSince != null && window.first < retainedSince
+                            )
                     )
                 )
-            val retainedSince = queries.retainedSince()
+            }
+            if (dimension == UsageDimension.PRINCIPAL) {
+                return@read Outcome.Err(
+                    invalid("/groupBy", "principal needs the raw call log; the window needs the daily basis", groupBy.wire)
+                )
+            }
+            // Daily basis: whole UTC days. since floors to its midnight; until is ceiled to the next midnight only when it
+            // ends inside folded days (whose raw rows may be pruned), so the window never splits a folded day.
+            val since =
+                window.first
+                    .atZone(ZoneOffset.UTC)
+                    .toLocalDate()
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+            val until =
+                if (folded != null && window.second <= folded) {
+                    val floor =
+                        window.second
+                            .atZone(ZoneOffset.UTC)
+                            .toLocalDate()
+                            .atStartOfDay(ZoneOffset.UTC)
+                            .toInstant()
+                    if (floor == window.second) floor else floor.plus(Duration.ofDays(1))
+                } else {
+                    window.second
+                }
+            val result =
+                queries.usageDaily(
+                    UsageQuery(since, until, dimension, ctx.scope.rootIds, rootId, page.limit, page.offset),
+                    folded
+                )
+            val earliestFolded = daily.earliestFoldedDay()?.atStartOfDay(ZoneOffset.UTC)?.toInstant()
+            val horizon = listOfNotNull(retainedSince, earliestFolded).minOrNull()
             Outcome.Ok(
                 UsageReport(
                     groupBy = groupBy,
                     page = ListPage.of(result.rows, result.totalGroups, page),
                     window =
                         ReportWindow(
-                            since = window.first,
-                            until = window.second,
+                            since = since,
+                            until = until,
                             retainedSince = retainedSince,
-                            basis = BASIS_RAW,
-                            truncatedByRetention = retainedSince != null && window.first < retainedSince
+                            basis = BASIS_DAILY,
+                            truncatedByRetention = horizon != null && since < horizon
                         )
                 )
             )
@@ -158,7 +209,7 @@ class ReportService(
     /**
      * The effective half-open window: until defaults to the clock's now, since to until minus 7 days. Both must be
      * ISO 8601 instants with `Z` or an offset (truncated to milliseconds, the precision `call_log.at` keeps), since must
-     * be before until, and the window must span at most 31 days (the raw-table cap).
+     * be before until, and the window must span at most 400 days. A window of at most 31 days that the raw table fully holds reads the raw basis; anything else reads the daily basis (D6).
      */
     private fun window(
         sinceRaw: String?,
@@ -171,8 +222,8 @@ class ReportService(
         val effectiveUntil = until ?: clock.now().truncatedTo(ChronoUnit.MILLIS)
         val effectiveSince = since ?: effectiveUntil.minus(DEFAULT_WINDOW)
         if (!effectiveSince.isBefore(effectiveUntil)) return Outcome.Err(invalid("/since", "must be before until", sinceRaw))
-        if (Duration.between(effectiveSince, effectiveUntil) > MAX_RAW_WINDOW) {
-            return Outcome.Err(invalid("/since", "the window (until minus since) must be at most 31 days", sinceRaw))
+        if (Duration.between(effectiveSince, effectiveUntil) > MAX_DAILY_WINDOW) {
+            return Outcome.Err(invalid("/since", "the window (until minus since) must be at most 400 days", sinceRaw))
         }
         return Outcome.Ok(effectiveSince to effectiveUntil)
     }
@@ -212,11 +263,17 @@ class ReportService(
         /** `data.window.basis` of a window read from the raw `call_log` table. */
         const val BASIS_RAW = "raw"
 
+        /** `data.window.basis` of a window read from `usage_daily` (completed UTC days) plus the raw tail. */
+        const val BASIS_DAILY = "daily"
+
         /** The default window: the last 7 days. */
         val DEFAULT_WINDOW: Duration = Duration.ofDays(7)
 
         /** The longest window the raw table serves. */
         val MAX_RAW_WINDOW: Duration = Duration.ofDays(31)
+
+        /** The longest window a report serves (the daily basis). */
+        val MAX_DAILY_WINDOW: Duration = Duration.ofDays(400)
 
         /** The `groupBy` values `usage` accepts, in wire order. */
         val USAGE_GROUPS: List<ReportGroupBy> = ReportGroupBy.entries.filter { it.dimension != null }
