@@ -1,61 +1,37 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.seeds
 
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.MigrationSeed
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
 import java.sql.Connection
 import java.sql.SQLException
-import java.sql.Types
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 /**
- * V32 adds the empty tables `usage_daily` (the per-day, per-dimension rollup of `call_log`) and `usage_fold` (the one-row fold
- * watermark). Pure `CREATE TABLE` twice: no index statement, no trigger, no row touched, no existing table changed.
+ * V32 adds two new tables, `runs` and `run_items`, with the indexes `idx_runs_root_status` on `runs(root_id, status)` and
+ * `idx_run_items_item` on `run_items(item_id)`. No existing table, column, index or trigger is touched and no row is rewritten.
  *
- * Oracle: the frozen migration-assessment of item 515ec0a4, section 1 (the DDL: the 18 `usage_daily` columns in the plan's
- * order, every one NOT NULL, the nine-column composite primary key `day, root_id, tool, operation, surface, host,
- * principal_kind, outcome, error_code`, `length(day) = 10`, `outcome IN ('ok', 'error')`, `calls >= 1`, every other metric
- * `>= 0`; `usage_fold` with `singleton INTEGER PRIMARY KEY CHECK (singleton = 1)`, `length(folded_through) = 10`,
- * `length(folded_at) = 23`; no foreign key, no default, no extra index), section 2 (a NULL never conflicts in a primary key, so
- * the dimensions are NOT NULL and an absent value is the sentinel `''` or the zero-length blob; an `ON CONFLICT (pk) DO UPDATE`
- * upsert must therefore find the existing row), section 3 (both tables start empty: nothing is backfilled) and its verification
- * list, plus sqlite.org/lang_upsert.html and sqlite.org/optoverview.html (a range on the leading primary-key column is served by
- * the key's autoindex). Nothing is read back from the migration file.
+ * Oracle: the frozen migration-assessment of item 8a71510c, sections 1 to 4 (the column lists with their types, nullability and
+ * defaults; the closed-vocabulary CHECKs on status, pause_reason and terminal_reason; the length CHECKs on label, title and the
+ * 23-character timestamps; `stall_after_s > 0`; the three foreign keys, all ON DELETE CASCADE; the two indexes with column order;
+ * no data migration) and the verification list of section 4 (CHECK rejections, foreign key list, a JDBC round trip for both
+ * cascade directions and for a root delete with a closed run, every other table's count unchanged). Nothing is read back from
+ * the migration file.
  */
 object SeedV32 : MigrationSeed(32) {
-    private val ROOT = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
-    private val ZERO_ROOT = ByteArray(16)
-    private val EMPTY_ROOT = ByteArray(0)
+    private val ROOT = BaselineDataset.id("seed32-root")
+    private val CHILD_A = BaselineDataset.id("seed32-child-a")
+    private val CHILD_B = BaselineDataset.id("seed32-child-b")
+    private val RUN_ONE = BaselineDataset.id("seed32-run-one")
+    private val RUN_TWO = BaselineDataset.id("seed32-run-two")
+    private val RUN_PROBE = BaselineDataset.id("seed32-run-probe")
+    private val TS = BaselineDataset.TS
 
     /** Row counts of every user table at the pre-migration version, captured by [seed] and compared by [verify]. */
     @Volatile
     private var before: Map<String, Int>? = null
-
-    private val DAILY_COLUMNS =
-        listOf(
-            Triple("day", "TEXT", 1),
-            Triple("root_id", "BLOB", 2),
-            Triple("tool", "TEXT", 3),
-            Triple("operation", "TEXT", 4),
-            Triple("surface", "TEXT", 5),
-            Triple("host", "TEXT", 6),
-            Triple("principal_kind", "TEXT", 7),
-            Triple("outcome", "TEXT", 8),
-            Triple("error_code", "TEXT", 9),
-            Triple("calls", "INTEGER", 0),
-            Triple("errors", "INTEGER", 0),
-            Triple("request_bytes", "INTEGER", 0),
-            Triple("response_bytes", "INTEGER", 0),
-            Triple("response_tokens_est", "INTEGER", 0),
-            Triple("latency_ms_sum", "INTEGER", 0),
-            Triple("latency_ms_max", "INTEGER", 0),
-            Triple("retries", "INTEGER", 0),
-            Triple("replays", "INTEGER", 0)
-        )
-
-    private val METRICS =
-        listOf("errors", "request_bytes", "response_bytes", "response_tokens_est", "latency_ms_sum", "latency_ms_max", "retries", "replays")
 
     override fun seed(conn: Connection) {
         before = UpgradeHarness.userTables(conn).associateWith { count(conn, it) }
@@ -64,14 +40,14 @@ object SeedV32 : MigrationSeed(32) {
     // expected() keeps its default (an empty map): no existing column is rewritten by this migration.
 
     override fun verify(conn: Connection) {
-        verifyUsageDailyColumns(conn)
-        verifyUsageFoldColumns(conn)
-        verifyNoExtraObjects(conn)
-        verifyStartsEmptyAndExistingTablesUntouched(conn)
-        verifyDailyChecks(conn)
-        verifyFoldChecks(conn)
-        verifyUpsertAndSentinels(conn)
-        verifyQueryPlan(conn)
+        verifyRunsColumns(conn)
+        verifyRunItemsColumns(conn)
+        verifyIndexes(conn)
+        verifyForeignKeys(conn)
+        verifyExistingTablesUntouched(conn)
+        verifyChecks(conn)
+        verifyDefaults(conn)
+        verifyCascades(conn)
     }
 
     private data class Column(
@@ -82,18 +58,380 @@ object SeedV32 : MigrationSeed(32) {
         val pk: Int
     )
 
+    private fun col(
+        name: String,
+        type: String,
+        notNull: Int = 0,
+        default: String? = null,
+        pk: Int = 0
+    ) = Column(name, type, notNull, default, pk)
+
+    private fun verifyRunsColumns(conn: Connection) {
+        val expected =
+            listOf(
+                col("id", "BLOB", notNull = 1, pk = 1),
+                col("root_id", "BLOB", notNull = 1),
+                col("scope_id", "BLOB"),
+                col("label", "TEXT"),
+                col("title", "TEXT"),
+                col("status", "TEXT", notNull = 1),
+                col("pause_reason", "TEXT"),
+                col("pause_decision_id", "BLOB"),
+                col("terminal_reason", "TEXT"),
+                col("opened_by", "TEXT"),
+                col("opened_by_kind", "TEXT"),
+                col("opened_at", "TEXT", notNull = 1),
+                col("closed_by", "TEXT"),
+                col("closed_at", "TEXT"),
+                col("coordinator_seen_at", "TEXT"),
+                col("stall_after_s", "INTEGER", notNull = 1),
+                col("budget", "TEXT"),
+                col("reported_tokens", "INTEGER", notNull = 1, default = "0"),
+                col("reported_cost_micro", "INTEGER", notNull = 1, default = "0"),
+                col("observed_tokens", "INTEGER", notNull = 1, default = "0"),
+                col("hints", "TEXT"),
+                col("marks", "TEXT"),
+                col("version", "INTEGER", notNull = 1, default = "1")
+            )
+        assertEquals(expected, tableInfo(conn, "runs"), "runs has exactly the frozen columns, types, nullability and defaults")
+    }
+
+    private fun verifyRunItemsColumns(conn: Connection) {
+        val expected =
+            listOf(
+                col("run_id", "BLOB", notNull = 1, pk = 1),
+                col("item_id", "BLOB", notNull = 1, pk = 2),
+                col("added_at", "TEXT", notNull = 1)
+            )
+        assertEquals(expected, tableInfo(conn, "run_items"), "run_items has exactly the frozen columns and the (run_id, item_id) key")
+    }
+
+    private fun verifyIndexes(conn: Connection) {
+        val runs = indexList(conn, "runs")
+        val runIndex = runs["idx_runs_root_status"] ?: error("idx_runs_root_status missing: ${runs.keys}")
+        assertEquals(listOf("root_id", "status"), indexColumns(conn, "idx_runs_root_status"), "idx_runs_root_status column order")
+        assertEquals(0, runIndex.unique, "idx_runs_root_status is not unique")
+        assertEquals(0, runIndex.partial, "idx_runs_root_status is a full index")
+
+        val items = indexList(conn, "run_items")
+        val itemIndex = items["idx_run_items_item"] ?: error("idx_run_items_item missing: ${items.keys}")
+        assertEquals(listOf("item_id"), indexColumns(conn, "idx_run_items_item"), "idx_run_items_item column")
+        assertEquals(0, itemIndex.unique, "idx_run_items_item is not unique")
+        assertEquals(0, itemIndex.partial, "idx_run_items_item is a full index")
+    }
+
+    private fun verifyForeignKeys(conn: Connection) {
+        val runs = foreignKeys(conn, "runs")
+        assertEquals(
+            listOf(FkRow(from = "root_id", table = "work_items", to = "id", onDelete = "CASCADE")),
+            runs,
+            "runs.root_id references work_items(id) ON DELETE CASCADE and nothing else is a foreign key (scope_id and pause_decision_id have none)"
+        )
+        val items = foreignKeys(conn, "run_items").sortedBy { it.from }
+        assertEquals(
+            listOf(
+                FkRow(from = "item_id", table = "work_items", to = "id", onDelete = "CASCADE"),
+                FkRow(from = "run_id", table = "runs", to = "id", onDelete = "CASCADE")
+            ),
+            items,
+            "run_items references runs(id) and work_items(id), both ON DELETE CASCADE"
+        )
+    }
+
+    private fun verifyExistingTablesUntouched(conn: Connection) {
+        val counts = before ?: error("SeedV32.seed did not run before the migration")
+        for ((table, rows) in SeedV29.afterRelocation(counts) - "data_steps") {
+            assertEquals(rows, count(conn, table), "$table row count changed across V32")
+        }
+        assertEquals(0, count(conn, "runs"), "the migration creates runs empty (no backfill)")
+        assertEquals(0, count(conn, "run_items"), "the migration creates run_items empty (no backfill)")
+    }
+
+    private fun verifyChecks(conn: Connection) {
+        // Control first: the baseline insert is accepted, so every rejection below is attributable to its one changed value.
+        insertRun(conn, RUN_PROBE)
+        deleteRun(conn, RUN_PROBE)
+
+        fun rejected(
+            what: String,
+            vararg overrides: Pair<String, Any?>
+        ) {
+            assertFailsWith<SQLException>("$what must be rejected by a CHECK") { insertRun(conn, RUN_PROBE, *overrides) }
+            deleteRun(conn, RUN_PROBE)
+        }
+
+        fun accepted(
+            what: String,
+            vararg overrides: Pair<String, Any?>
+        ) {
+            insertRun(conn, RUN_PROBE, *overrides)
+            assertEquals(1, countRuns(conn, RUN_PROBE), "$what must be accepted and stored")
+            deleteRun(conn, RUN_PROBE)
+        }
+
+        rejected("status 'Open' (case-sensitive vocabulary)", "status" to "Open")
+        rejected("status 'archived'", "status" to "archived")
+        rejected("stall_after_s 0", "stall_after_s" to 0)
+        rejected("stall_after_s -1", "stall_after_s" to -1)
+        rejected("a 65-character label", "label" to "l".repeat(65))
+        rejected("a 201-character title", "title" to "t".repeat(201))
+        rejected("pause_reason 'bogus'", "status" to "paused", "pause_reason" to "bogus")
+        rejected("terminal_reason 'bogus'", "status" to "closed", "terminal_reason" to "bogus")
+        rejected("a 22-character opened_at", "opened_at" to TS.dropLast(1))
+        rejected("a 24-character opened_at", "opened_at" to TS + "0")
+        rejected("a 22-character closed_at", "status" to "closed", "terminal_reason" to "completed", "closed_at" to TS.dropLast(1))
+        rejected("a 22-character coordinator_seen_at", "coordinator_seen_at" to TS.dropLast(1))
+
+        // The boundaries and every vocabulary member are accepted, so the rejections above are not an over-strict table.
+        accepted("a 64-character label", "label" to "l".repeat(64))
+        accepted("a 200-character title", "title" to "t".repeat(200))
+        accepted("stall_after_s 1", "stall_after_s" to 1)
+        for (status in listOf("open", "paused", "closed")) accepted("status $status", "status" to status)
+        for (reason in listOf("budget", "attempts", "manual")) {
+            accepted(
+                "pause_reason $reason",
+                "status" to "paused",
+                "pause_reason" to reason
+            )
+        }
+        for (reason in listOf("completed", "cancelled", "failed", "abandoned", "budget_exhausted")) {
+            accepted("terminal_reason $reason", "status" to "closed", "terminal_reason" to reason, "closed_at" to TS)
+        }
+
+        // run_items: a 22-character added_at is rejected, a 23-character one is accepted (needs real parents).
+        withForeignKeys(conn) {
+            insertItem(conn, ROOT, parent = null, depth = 0)
+            insertRun(conn, RUN_ONE)
+            insertItem(conn, CHILD_A, parent = ROOT, depth = 1)
+            assertFailsWith<SQLException>(
+                "a 22-character added_at must be rejected"
+            ) { insertMember(conn, RUN_ONE, CHILD_A, TS.dropLast(1)) }
+            insertMember(conn, RUN_ONE, CHILD_A, TS)
+            assertFailsWith<SQLException>("the (run_id, item_id) key must reject a duplicate membership") {
+                insertMember(conn, RUN_ONE, CHILD_A, TS)
+            }
+            deleteRun(conn, RUN_ONE)
+            deleteItem(conn, CHILD_A)
+            deleteItem(conn, ROOT)
+        }
+        assertEquals(
+            0L,
+            scalar(conn, "SELECT count(*) FROM work_items WHERE id IN (x'${hex(ROOT)}', x'${hex(CHILD_A)}')"),
+            "probe items removed"
+        )
+    }
+
+    private fun verifyDefaults(conn: Connection) {
+        insertRun(conn, RUN_PROBE)
+        try {
+            val row =
+                conn
+                    .prepareStatement(
+                        "SELECT reported_tokens, reported_cost_micro, observed_tokens, version, label, title, budget, hints, marks, " +
+                            "scope_id, pause_reason, pause_decision_id, terminal_reason, closed_at, coordinator_seen_at FROM runs WHERE id = ?"
+                    ).use { ps ->
+                        ps.setBytes(1, RUN_PROBE)
+                        ps.executeQuery().use { rs ->
+                            check(rs.next()) { "probe run vanished" }
+                            (1..15).map { rs.getObject(it) }
+                        }
+                    }
+            assertEquals(
+                listOf(0, 0, 0, 1),
+                row.take(4).map {
+                    (it as Number).toInt()
+                },
+                "reported_tokens, reported_cost_micro, observed_tokens default 0; version defaults 1"
+            )
+            row.drop(4).forEachIndexed { i, v -> assertNull(v, "nullable column #${i + 4} reads NULL when not supplied") }
+        } finally {
+            deleteRun(conn, RUN_PROBE)
+        }
+    }
+
+    private fun verifyCascades(conn: Connection) {
+        withForeignKeys(conn) {
+            // 1. Deleting an item drops its membership rows and leaves the run.
+            insertItem(conn, ROOT, parent = null, depth = 0)
+            insertItem(conn, CHILD_A, parent = ROOT, depth = 1)
+            insertItem(conn, CHILD_B, parent = ROOT, depth = 1)
+            insertRun(conn, RUN_ONE)
+            insertMember(conn, RUN_ONE, CHILD_A, TS)
+            insertMember(conn, RUN_ONE, CHILD_B, TS)
+            assertEquals(2, countMembers(conn, RUN_ONE), "control: both memberships exist")
+            deleteItem(conn, CHILD_A)
+            assertEquals(1, countMembers(conn, RUN_ONE), "deleting an item drops exactly its run_items row")
+            assertEquals(1, countRuns(conn, RUN_ONE), "deleting an item leaves the run itself")
+
+            // 2. Deleting a run drops its membership rows and leaves the items.
+            deleteRun(conn, RUN_ONE)
+            assertEquals(0, countMembers(conn, RUN_ONE), "deleting a run drops its run_items rows")
+            assertEquals(
+                1L,
+                scalar(conn, "SELECT count(*) FROM work_items WHERE id = x'${hex(CHILD_B)}'"),
+                "deleting a run leaves its items"
+            )
+
+            // 3. Deleting a root drops its (closed) runs.
+            insertRun(conn, RUN_TWO, "status" to "closed", "terminal_reason" to "completed", "closed_at" to TS)
+            deleteItem(conn, CHILD_B)
+            assertEquals(1, countRuns(conn, RUN_TWO), "control: the closed run exists before the root delete")
+            deleteItem(conn, ROOT)
+            assertEquals(0, countRuns(conn, RUN_TWO), "deleting the root drops the runs that name it")
+
+            // 4. The foreign key is real: a run naming a root that does not exist is rejected while enforcement is on.
+            val ghost = BaselineDataset.id("seed32-no-such-root")
+            assertFailsWith<SQLException>("a run naming no work item must be rejected") { insertRun(conn, RUN_PROBE, "root_id" to ghost) }
+            assertEquals(0, countRuns(conn, RUN_PROBE), "the rejected run left no row")
+        }
+        assertEquals(0, count(conn, "runs"), "the round trip leaves runs empty again")
+        assertEquals(0, count(conn, "run_items"), "the round trip leaves run_items empty again")
+        assertEquals(
+            0,
+            conn.createStatement().use { st ->
+                st.executeQuery("PRAGMA foreign_key_check").use { rs ->
+                    var n = 0
+                    while (rs.next()) n++
+                    n
+                }
+            },
+            "PRAGMA foreign_key_check is empty after the migration and the round trip"
+        )
+    }
+
+    private fun withForeignKeys(
+        conn: Connection,
+        block: () -> Unit
+    ) {
+        conn.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+        try {
+            block()
+        } finally {
+            conn.createStatement().use { it.execute("PRAGMA foreign_keys = OFF") }
+        }
+    }
+
+    private fun insertItem(
+        conn: Connection,
+        id: ByteArray,
+        parent: ByteArray?,
+        depth: Int
+    ) {
+        conn
+            .prepareStatement(
+                "INSERT INTO work_items (id, parent_id, title, role, lifecycle, depth, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, 'seed32 probe', 'queue', NULL, ?, ?, ?, ?)"
+            ).use { ps ->
+                ps.setBytes(1, id)
+                if (parent == null) ps.setNull(2, java.sql.Types.BLOB) else ps.setBytes(2, parent)
+                ps.setInt(3, depth)
+                ps.setString(4, TS)
+                ps.setString(5, TS)
+                ps.setString(6, TS)
+                ps.executeUpdate()
+            }
+    }
+
+    private fun deleteItem(
+        conn: Connection,
+        id: ByteArray
+    ) {
+        conn.prepareStatement("DELETE FROM work_items WHERE id = ?").use { ps ->
+            ps.setBytes(1, id)
+            ps.executeUpdate()
+        }
+    }
+
+    /** Inserts a run with the minimal valid values for the NOT NULL columns; [overrides] replace or add columns by name. */
+    private fun insertRun(
+        conn: Connection,
+        id: ByteArray,
+        vararg overrides: Pair<String, Any?>
+    ) {
+        val values =
+            linkedMapOf<String, Any?>(
+                "id" to id,
+                "root_id" to ROOT,
+                "status" to "open",
+                "opened_at" to TS,
+                "stall_after_s" to 600
+            )
+        for ((k, v) in overrides) values[k] = v
+        val columns = values.keys.joinToString()
+        val marks = values.keys.joinToString { "?" }
+        conn.prepareStatement("INSERT INTO runs ($columns) VALUES ($marks)").use { ps ->
+            values.values.forEachIndexed { i, v ->
+                when (v) {
+                    null -> ps.setNull(i + 1, java.sql.Types.NULL)
+                    is ByteArray -> ps.setBytes(i + 1, v)
+                    is Int -> ps.setInt(i + 1, v)
+                    else -> ps.setString(i + 1, v.toString())
+                }
+            }
+            ps.executeUpdate()
+        }
+    }
+
+    private fun deleteRun(
+        conn: Connection,
+        id: ByteArray
+    ) {
+        conn.prepareStatement("DELETE FROM runs WHERE id = ?").use { ps ->
+            ps.setBytes(1, id)
+            ps.executeUpdate()
+        }
+    }
+
+    private fun insertMember(
+        conn: Connection,
+        run: ByteArray,
+        item: ByteArray,
+        addedAt: String
+    ) {
+        conn.prepareStatement("INSERT INTO run_items (run_id, item_id, added_at) VALUES (?, ?, ?)").use { ps ->
+            ps.setBytes(1, run)
+            ps.setBytes(2, item)
+            ps.setString(3, addedAt)
+            ps.executeUpdate()
+        }
+    }
+
+    private fun countMembers(
+        conn: Connection,
+        run: ByteArray
+    ): Int = scalar(conn, "SELECT count(*) FROM run_items WHERE run_id = x'${hex(run)}'").toInt()
+
+    private fun countRuns(
+        conn: Connection,
+        run: ByteArray
+    ): Int = scalar(conn, "SELECT count(*) FROM runs WHERE id = x'${hex(run)}'").toInt()
+
+    private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+
+    private data class IndexInfo(
+        val unique: Int,
+        val partial: Int
+    )
+
+    private data class FkRow(
+        val from: String,
+        val table: String,
+        val to: String,
+        val onDelete: String
+    )
+
     private fun tableInfo(
         conn: Connection,
         table: String
     ): List<Column> =
         conn.createStatement().use { st ->
-            st.executeQuery("PRAGMA table_info($table)").use { rs ->
+            st.executeQuery("PRAGMA table_xinfo($table)").use { rs ->
                 buildList {
                     while (rs.next()) {
                         add(
                             Column(
                                 rs.getString("name"),
-                                rs.getString("type"),
+                                rs.getString("type").uppercase(),
                                 rs.getInt("notnull"),
                                 rs.getString("dflt_value"),
                                 rs.getInt("pk")
@@ -104,247 +442,37 @@ object SeedV32 : MigrationSeed(32) {
             }
         }
 
-    private fun verifyUsageDailyColumns(conn: Connection) {
-        val columns = tableInfo(conn, "usage_daily")
-        assertEquals(DAILY_COLUMNS.map { it.first }, columns.map { it.name }, "usage_daily columns, in the plan's order")
-        assertEquals(DAILY_COLUMNS.map { it.second }, columns.map { it.type.uppercase() }, "usage_daily column types")
-        assertEquals(DAILY_COLUMNS.map { it.third }, columns.map { it.pk }, "the nine dimensions are the primary key, in key order")
-        assertTrue(
-            columns.all { it.notNull == 1 },
-            "every usage_daily column is NOT NULL: ${columns.filter { it.notNull != 1 }.map { it.name }}"
-        )
-        assertTrue(
-            columns.all {
-                it.default == null
-            },
-            "no usage_daily column has a default: ${columns.filter { it.default != null }.map { it.name }}"
-        )
-    }
-
-    private fun verifyUsageFoldColumns(conn: Connection) {
-        val columns = tableInfo(conn, "usage_fold")
-        assertEquals(listOf("singleton", "folded_through", "folded_at"), columns.map { it.name }, "usage_fold columns, in order")
-        assertEquals(listOf("INTEGER", "TEXT", "TEXT"), columns.map { it.type.uppercase() })
-        assertEquals(listOf(1, 0, 0), columns.map { it.pk }, "singleton is the only key column")
-        assertEquals(listOf(1, 1), columns.drop(1).map { it.notNull }, "folded_through and folded_at are NOT NULL")
-        assertTrue(columns.all { it.default == null }, "no usage_fold column has a default")
-    }
-
-    private fun verifyNoExtraObjects(conn: Connection) {
-        assertEquals(
-            0L,
-            scalar(
-                conn,
-                "SELECT count(*) FROM sqlite_master WHERE tbl_name IN ('usage_daily', 'usage_fold') AND type <> 'table' AND sql IS NOT NULL"
-            ),
-            "pure CREATE TABLE: no explicit index, trigger or view on the new tables"
-        )
-        val indexes =
-            conn.createStatement().use { st ->
-                st.executeQuery("PRAGMA index_list(usage_daily)").use { rs -> buildList { while (rs.next()) add(rs.getString("name")) } }
-            }
-        assertEquals(listOf("sqlite_autoindex_usage_daily_1"), indexes, "usage_daily has only its primary-key autoindex")
-        assertEquals(
-            0L,
-            scalar(conn, "SELECT count(*) FROM pragma_index_list('usage_fold')"),
-            "usage_fold has no index: an INTEGER PRIMARY KEY is the rowid"
-        )
-        assertEquals(
-            0L,
-            scalar(conn, "SELECT count(*) FROM pragma_foreign_key_list('usage_daily')") +
-                scalar(conn, "SELECT count(*) FROM pragma_foreign_key_list('usage_fold')"),
-            "no foreign key: a fold row outlives the root it names"
-        )
-    }
-
-    private fun verifyStartsEmptyAndExistingTablesUntouched(conn: Connection) {
-        assertEquals(0, count(conn, "usage_daily"), "the migration backfills nothing into usage_daily")
-        assertEquals(0, count(conn, "usage_fold"), "the migration writes no watermark")
-        val counts = before ?: error("SeedV32.seed did not run before the migration")
-        for ((table, rows) in SeedV29.afterRelocation(counts) - "data_steps") {
-            assertEquals(rows, count(conn, table), "$table row count changed across V32")
-        }
-    }
-
-    @Suppress("LongParameterList")
-    private fun insertDaily(
+    private fun indexList(
         conn: Connection,
-        day: String? = "2026-03-06",
-        root: ByteArray? = ROOT,
-        tool: String? = "seed32.tool",
-        operation: String? = "",
-        outcome: String? = "ok",
-        calls: Long? = 1,
-        metrics: Map<String, Long> = emptyMap(),
-        onConflict: String = ""
-    ) {
-        val values = METRICS.map { metrics[it] ?: 0L }
-        // A zero-length blob is written as the SQL literal x'': a driver may bind an empty byte array as NULL.
-        val rootSql = if (root != null && root.isEmpty()) "x''" else "?"
-        conn
-            .prepareStatement(
-                "INSERT INTO usage_daily (day, root_id, tool, operation, surface, host, principal_kind, outcome, error_code, calls, " +
-                    METRICS.joinToString() +
-                    ") VALUES (?, $rootSql, ?, ?, 'mcp', '', '', ?, '', ?, " + METRICS.joinToString { "?" } + ") " + onConflict
-            ).use { ps ->
-                var i = 1
-                if (day == null) ps.setNull(i++, Types.VARCHAR) else ps.setString(i++, day)
-                if (root == null) {
-                    ps.setNull(i++, Types.BLOB)
-                } else if (root.isNotEmpty()) {
-                    ps.setBytes(i++, root)
-                }
-                if (tool == null) ps.setNull(i++, Types.VARCHAR) else ps.setString(i++, tool)
-                if (operation == null) ps.setNull(i++, Types.VARCHAR) else ps.setString(i++, operation)
-                if (outcome == null) ps.setNull(i++, Types.VARCHAR) else ps.setString(i++, outcome)
-                if (calls == null) ps.setNull(i++, Types.INTEGER) else ps.setLong(i++, calls)
-                values.forEach { v -> ps.setLong(i++, v) }
-                ps.executeUpdate()
-            }
-    }
-
-    private fun verifyDailyChecks(conn: Connection) {
-        // Accepted shapes at the boundary of every CHECK.
-        insertDaily(conn, tool = "seed32.ok-a")
-        insertDaily(conn, tool = "seed32.ok-b", outcome = "error", calls = 1)
-        insertDaily(conn, tool = "seed32.ok-zero", metrics = METRICS.associateWith { 0L })
-
-        assertFailsWith<SQLException>(
-            "a 9-character day must be rejected"
-        ) { insertDaily(conn, tool = "seed32.bad-day9", day = "2026-3-06") }
-        assertFailsWith<SQLException>(
-            "an 11-character day must be rejected"
-        ) { insertDaily(conn, tool = "seed32.bad-day11", day = "2026-03-06Z") }
-        assertFailsWith<SQLException>("an outcome other than ok or error must be rejected") {
-            insertDaily(conn, tool = "seed32.bad-outcome", outcome = "x")
-        }
-        assertFailsWith<SQLException>("calls 0 must be rejected") { insertDaily(conn, tool = "seed32.bad-calls", calls = 0) }
-        assertFailsWith<SQLException>("calls -1 must be rejected") { insertDaily(conn, tool = "seed32.bad-calls-neg", calls = -1) }
-        for (metric in METRICS) {
-            assertFailsWith<SQLException>("$metric -1 must be rejected") {
-                insertDaily(
-                    conn,
-                    tool = "seed32.bad-$metric",
-                    metrics =
-                        mapOf(
-                            metric to -1L
-                        )
-                )
-            }
-        }
-        assertFailsWith<SQLException>("a NULL day must be rejected") { insertDaily(conn, tool = "seed32.null-day", day = null) }
-        assertFailsWith<SQLException>("a NULL root_id must be rejected") { insertDaily(conn, tool = "seed32.null-root", root = null) }
-        assertFailsWith<SQLException>("a NULL tool must be rejected") { insertDaily(conn, tool = null) }
-        assertFailsWith<SQLException>("a NULL operation must be rejected") { insertDaily(conn, tool = "seed32.null-op", operation = null) }
-        assertFailsWith<SQLException>("a NULL outcome must be rejected") { insertDaily(conn, tool = "seed32.null-outcome", outcome = null) }
-        assertFailsWith<SQLException>("a NULL calls must be rejected") { insertDaily(conn, tool = "seed32.null-calls", calls = null) }
-        assertFailsWith<SQLException>("a duplicate primary key must be rejected without an upsert clause") {
-            insertDaily(conn, tool = "seed32.ok-a")
-        }
-
-        conn.createStatement().use { it.executeUpdate("DELETE FROM usage_daily WHERE tool LIKE 'seed32.%'") }
-        assertEquals(0, count(conn, "usage_daily"), "the probe rows are removed again")
-    }
-
-    private fun insertFold(
-        conn: Connection,
-        singleton: Long? = 1,
-        through: String? = "2026-03-05",
-        at: String? = "2026-03-06 10:15:30.123"
-    ) {
-        conn.prepareStatement("INSERT INTO usage_fold (singleton, folded_through, folded_at) VALUES (?, ?, ?)").use { ps ->
-            if (singleton == null) ps.setNull(1, Types.INTEGER) else ps.setLong(1, singleton)
-            if (through == null) ps.setNull(2, Types.VARCHAR) else ps.setString(2, through)
-            if (at == null) ps.setNull(3, Types.VARCHAR) else ps.setString(3, at)
-            ps.executeUpdate()
-        }
-    }
-
-    private fun verifyFoldChecks(conn: Connection) {
-        insertFold(conn)
-        assertEquals(1, count(conn, "usage_fold"))
-        assertFailsWith<SQLException>("a second row with singleton 1 must be rejected") { insertFold(conn) }
-        assertFailsWith<SQLException>("singleton 2 must be rejected") { insertFold(conn, singleton = 2) }
-        assertFailsWith<SQLException>("singleton 0 must be rejected") { insertFold(conn, singleton = 0) }
-        conn.createStatement().use { it.executeUpdate("DELETE FROM usage_fold") }
-
-        assertFailsWith<SQLException>("a 9-character folded_through must be rejected") { insertFold(conn, through = "2026-3-05") }
-        assertFailsWith<SQLException>("an 11-character folded_through must be rejected") { insertFold(conn, through = "2026-03-05Z") }
-        assertFailsWith<SQLException>("a 22-character folded_at must be rejected") { insertFold(conn, at = "2026-03-06 10:15:30.12") }
-        assertFailsWith<SQLException>("a 24-character folded_at must be rejected") { insertFold(conn, at = "2026-03-06 10:15:30.1234") }
-        assertFailsWith<SQLException>("a NULL folded_through must be rejected") { insertFold(conn, through = null) }
-        assertFailsWith<SQLException>("a NULL folded_at must be rejected") { insertFold(conn, at = null) }
-        assertEquals(0, count(conn, "usage_fold"), "every rejected insert left no row, and the probe row is removed")
-    }
-
-    private fun verifyUpsertAndSentinels(conn: Connection) {
-        val upsert =
-            "ON CONFLICT (day, root_id, tool, operation, surface, host, principal_kind, outcome, error_code) " +
-                "DO UPDATE SET calls = excluded.calls, errors = excluded.errors"
-
-        insertDaily(conn, tool = "seed32.upsert", calls = 3, metrics = mapOf("errors" to 1L), onConflict = upsert)
-        insertDaily(conn, tool = "seed32.upsert", calls = 5, metrics = mapOf("errors" to 2L), onConflict = upsert)
-        assertEquals(
-            1L,
-            scalar(conn, "SELECT count(*) FROM usage_daily WHERE tool = 'seed32.upsert'"),
-            "the same key upserts into the same row"
-        )
-        assertEquals(
-            5L,
-            scalar(conn, "SELECT calls FROM usage_daily WHERE tool = 'seed32.upsert'"),
-            "the upsert replaces the metric, it does not add"
-        )
-        assertEquals(2L, scalar(conn, "SELECT errors FROM usage_daily WHERE tool = 'seed32.upsert'"))
-
-        // The absent-root sentinel (zero-length blob) and a real 16-byte root are different keys; an all-zero 16-byte root is a third.
-        insertDaily(conn, tool = "seed32.upsert", root = EMPTY_ROOT, calls = 7, onConflict = upsert)
-        insertDaily(conn, tool = "seed32.upsert", root = ZERO_ROOT, calls = 9, onConflict = upsert)
-        assertEquals(
-            3L,
-            scalar(conn, "SELECT count(*) FROM usage_daily WHERE tool = 'seed32.upsert'"),
-            "x'' is distinct from a 16-byte root, even an all-zero one"
-        )
-        insertDaily(conn, tool = "seed32.upsert", root = EMPTY_ROOT, calls = 8, onConflict = upsert)
-        assertEquals(
-            3L,
-            scalar(conn, "SELECT count(*) FROM usage_daily WHERE tool = 'seed32.upsert'"),
-            "a second sentinel row upserts into the first (a NULL root would have inserted a duplicate)"
-        )
-        assertEquals(8L, scalar(conn, "SELECT calls FROM usage_daily WHERE tool = 'seed32.upsert' AND length(root_id) = 0"))
-        assertEquals(
-            1L,
-            scalar(conn, "SELECT count(*) FROM usage_daily WHERE tool = 'seed32.upsert' AND root_id = x'00000000000000000000000000000000'")
-        )
-        assertEquals(
-            1L,
-            scalar(
-                conn,
-                "SELECT count(*) FROM usage_daily WHERE tool = 'seed32.upsert' AND typeof(root_id) = 'blob' AND length(root_id) = 0"
-            ),
-            "the sentinel stays a blob"
-        )
-
-        conn.createStatement().use { it.executeUpdate("DELETE FROM usage_daily WHERE tool = 'seed32.upsert'") }
-        assertEquals(0, count(conn, "usage_daily"), "the probe rows are removed again")
-    }
-
-    private fun verifyQueryPlan(conn: Connection) {
-        val window = plan(conn, "SELECT calls FROM usage_daily WHERE day >= '2026-03-01' AND day < '2026-03-07'")
-        assertTrue("sqlite_autoindex_usage_daily_1" in window, "a day range is served by the primary-key autoindex: $window")
-        val windowAndRoot = plan(conn, "SELECT calls FROM usage_daily WHERE day >= '2026-03-01' AND day < '2026-03-07' AND root_id = x'01'")
-        assertTrue(
-            "sqlite_autoindex_usage_daily_1" in windowAndRoot,
-            "a day range with a root is served by the same autoindex: $windowAndRoot"
-        )
-    }
-
-    private fun plan(
-        conn: Connection,
-        sql: String
-    ): String =
+        table: String
+    ): Map<String, IndexInfo> =
         conn.createStatement().use { st ->
-            st.executeQuery("EXPLAIN QUERY PLAN $sql").use { rs ->
-                buildList { while (rs.next()) add(rs.getString("detail")) }.joinToString(" | ")
+            st.executeQuery("PRAGMA index_list($table)").use { rs ->
+                buildMap { while (rs.next()) put(rs.getString("name"), IndexInfo(rs.getInt("unique"), rs.getInt("partial"))) }
+            }
+        }
+
+    private fun indexColumns(
+        conn: Connection,
+        index: String
+    ): List<String> =
+        conn.createStatement().use { st ->
+            st.executeQuery("PRAGMA index_info($index)").use { rs -> buildList { while (rs.next()) add(rs.getString("name")) } }
+        }
+
+    private fun foreignKeys(
+        conn: Connection,
+        table: String
+    ): List<FkRow> =
+        conn.createStatement().use { st ->
+            st.executeQuery("PRAGMA foreign_key_list($table)").use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            FkRow(rs.getString("from"), rs.getString("table"), rs.getString("to"), rs.getString("on_delete"))
+                        )
+                    }
+                }
             }
         }
 

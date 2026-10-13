@@ -43,6 +43,25 @@
         "require_verified": { "type": "boolean" }
       }
     },
+    "runs": {
+      "description": "Run settings, allowed in the server and per-root documents and resolved per field (per-root, then server, then default). Budgets are opt-in: an absent ceiling is unlimited.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stall_after": { "description": "Seconds without coordinator activity before a run counts as stalled (default 600).", "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "budgets": {
+          "description": "Ceilings a run's own budget may not exceed.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tokens": { "type": "integer", "minimum": 1 },
+            "cost_usd": { "description": "US dollars.", "type": "number", "exclusiveMinimum": 0 },
+            "attempts_per_seat": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+            "max_active_seats": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+          }
+        }
+      }
+    },
     "actor_authentication": {
       "description": "Server-only; contents are validated by the actor-authentication service. Rejected in a per-root document.",
       "type": ["object", "null"]

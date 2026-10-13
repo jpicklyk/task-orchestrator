@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema
 import org.jetbrains.exposed.v1.core.Table
 
 /**
- * The per-day summary of `call_log`. Mirrors `V32__Usage_Daily.sql`; written and read through raw SQL by
+ * The per-day summary of `call_log`. Mirrors `V33__Usage_Daily.sql`; written and read through raw SQL by
  * `SqliteUsageDailyStore` and `SqliteReportQueries`, so this mapping only declares the schema.
  *
  * Every dimension is NOT NULL: an absent value is the sentinel `''` (TEXT dimensions) or the zero-length blob (`root_id`;

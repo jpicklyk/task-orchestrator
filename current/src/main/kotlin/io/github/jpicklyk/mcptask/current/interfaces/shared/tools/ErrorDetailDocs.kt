@@ -50,6 +50,11 @@ object ErrorDetailDocs {
                     "resources" to "array of {name: string, mode: string}",
                     "retryAfterMs" to "integer, optional"
                 ),
+            ErrorCode.RUN_CLOSED to linkedMapOf("runId" to ID, "terminalReason" to "string"),
+            ErrorCode.RUN_PAUSED to
+                linkedMapOf("runId" to ID, "pauseReason" to "string: budget | attempts | manual", "pauseDecisionId" to "$ID, optional"),
+            ErrorCode.INVALID_RUN_STATE to
+                linkedMapOf("runId" to ID, "status" to "string: open | paused | closed", "allowed" to "array of string"),
             ErrorCode.SCHEMA_VIOLATION to
                 linkedMapOf(
                     "type" to "string, optional",

@@ -61,6 +61,11 @@ class RedactionTest {
             "currentVersion",
             "scope",
             "required",
+            "runId",
+            "terminalReason",
+            "pauseReason",
+            "pauseDecisionId",
+            "status",
         )
 
     // Names that denote a principal identity. Exact (case-insensitive) matches.
@@ -146,9 +151,9 @@ class RedactionTest {
     }
 
     @Test
-    fun `S15 walk covers all 23 detail classes and their nested value types`() {
+    fun `S15 walk covers all 26 detail classes and their nested value types`() {
         val owners = allFieldsWalked().map { it.first.simpleName }.toSet()
-        assertEquals(23, allDetailClasses().size)
+        assertEquals(26, allDetailClasses().size)
         for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation", "GateViolation")) {
             assertTrue(nested in owners, "nested value type $nested was not walked")
         }

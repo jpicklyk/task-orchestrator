@@ -47,6 +47,8 @@ class LayerBackedGlobalLookup(
 
     override fun independencePolicy(): IndependencePolicy = document.independence ?: IndependencePolicy.DEFAULT
 
+    override fun runsConfig(): RunsConfig? = document.runs
+
     override fun fingerprint(): String? = layer?.fingerprint
 
     override fun versionId(): java.util.UUID? = layer?.versionId

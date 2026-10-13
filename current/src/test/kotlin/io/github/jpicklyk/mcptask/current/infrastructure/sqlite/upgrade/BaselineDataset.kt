@@ -487,8 +487,8 @@ object BaselineDataset {
             "binary_version" to "3.16.0"
         )
 
-        // V32: one usage_daily row and the usage_fold singleton, every column non-empty, non-default and pairwise distinct. Both
-        // tables are absent below V32, so insert drops them there. The metric literals only have to be distinct (the pairwise guard
+        // V33: one usage_daily row and the usage_fold singleton, every column non-empty, non-default and pairwise distinct. Both
+        // tables are absent below V33, so insert drops them there. The metric literals only have to be distinct (the pairwise guard
         // compares columns of the one row, so `errors` differs from `calls` although this row is an error group).
         insert(
             conn,
@@ -652,6 +652,78 @@ object BaselineDataset {
             "relation" to "references",
             "anchor" to "overview",
             "created_at" to TS_PLUS_2
+        )
+
+        // V32 tables (skipped below V32, where they do not exist): a paused run and a closed run on the baseline root,
+        // and one membership row each. Every column carries a non-default value in at least one row, and no two columns
+        // of a table agree in every row, so BaselineColumnCoverageTest sees each one (all timestamps are 23 characters).
+        insert(
+            conn,
+            "runs",
+            "id" to id("run:paused"),
+            "root_id" to id("root"),
+            "scope_id" to id("feature"),
+            "label" to "baseline-paused",
+            "title" to "Baseline paused run",
+            "status" to "paused",
+            "pause_reason" to "manual",
+            "pause_decision_id" to id("decision:baseline"),
+            "terminal_reason" to null,
+            "opened_by" to "actor-one",
+            "opened_by_kind" to "subagent",
+            "opened_at" to TS,
+            "closed_by" to null,
+            "closed_at" to null,
+            "coordinator_seen_at" to TS_PLUS_1,
+            "stall_after_s" to 600,
+            "budget" to "{\"maxTokens\":500000}",
+            "reported_tokens" to 1200,
+            "reported_cost_micro" to 3400,
+            "observed_tokens" to 1500,
+            "hints" to "{\"concurrency\":2}",
+            "marks" to "{\"baseline\":\"2026-03-01T10:15:31.123Z\"}",
+            "version" to 3
+        )
+        insert(
+            conn,
+            "runs",
+            "id" to id("run:closed"),
+            "root_id" to id("root"),
+            "scope_id" to null,
+            "label" to "baseline-closed",
+            "title" to "Baseline closed run",
+            "status" to "closed",
+            "pause_reason" to null,
+            "pause_decision_id" to null,
+            "terminal_reason" to "completed",
+            "opened_by" to "api:token-two",
+            "opened_by_kind" to "external",
+            "opened_at" to TS_PLUS_1,
+            "closed_by" to "actor-two",
+            "closed_at" to TS_PLUS_3,
+            "coordinator_seen_at" to TS_PLUS_2,
+            "stall_after_s" to 900,
+            "budget" to null,
+            "reported_tokens" to 2100,
+            "reported_cost_micro" to 4300,
+            "observed_tokens" to 2600,
+            "hints" to null,
+            "marks" to null,
+            "version" to 2
+        )
+        insert(
+            conn,
+            "run_items",
+            "run_id" to id("run:paused"),
+            "item_id" to id("task1"),
+            "added_at" to TS_PLUS_2
+        )
+        insert(
+            conn,
+            "run_items",
+            "run_id" to id("run:closed"),
+            "item_id" to id("task2"),
+            "added_at" to TS_PLUS_3
         )
     }
 }

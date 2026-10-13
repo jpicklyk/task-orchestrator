@@ -10,7 +10,7 @@ import java.time.Instant
 import java.time.LocalDate
 
 /**
- * SQLite implementation of [UsageDailyStore] over `usage_daily` and `usage_fold` (V32). Every statement joins the ambient
+ * SQLite implementation of [UsageDailyStore] over `usage_daily` and `usage_fold` (V33). Every statement joins the ambient
  * unit and binds its values.
  *
  * [foldDay] is ONE `INSERT ... SELECT ... GROUP BY ... ON CONFLICT DO UPDATE` that REPLACES every metric with the freshly

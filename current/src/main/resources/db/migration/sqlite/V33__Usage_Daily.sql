@@ -1,4 +1,4 @@
--- V32: Usage daily -- the per-day summary of call_log (the fold) and its watermark (plan R13).
+-- V33: Usage daily -- the per-day summary of call_log (the fold) and its watermark (plan R13).
 --
 -- usage_daily holds one row per (UTC day, dimensions) group, written by the retention pruner's fold from the
 -- completed days of call_log, so usage reports reach past the raw retention window. usage_fold is the one-row

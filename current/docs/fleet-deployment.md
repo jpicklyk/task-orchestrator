@@ -299,7 +299,7 @@ never used for authorization, scoping or identity. See
 overrides that variable must add the header itself for browser clients to send it.
 
 `call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
-(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V32); see
+(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V33); see
 [Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
