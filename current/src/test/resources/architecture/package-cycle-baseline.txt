@@ -12,7 +12,4 @@ application/read/WorkViewQueries.kt -> io.github.jpicklyk.mcptask.current.applic
 application/read/WorkViews.kt -> io.github.jpicklyk.mcptask.current.application.api.ListPage
 application/read/WorkViews.kt -> io.github.jpicklyk.mcptask.current.application.api.PageRequest
 application/support/UnscopedUnitOfWork.kt -> io.github.jpicklyk.mcptask.current.application.service.EventRecorder
-application/telemetry/CallLogFields.kt -> io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-application/telemetry/CallLogFields.kt -> io.github.jpicklyk.mcptask.current.application.port.TokenEstimate
 application/telemetry/CallLogFields.kt -> io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
-application/telemetry/CallTelemetryFactory.kt -> io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
