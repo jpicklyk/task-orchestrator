@@ -513,8 +513,8 @@ When adding features, update:
 ## Questions?
 
 - **Technical questions**: Open a GitHub issue
-- **Architecture questions**: See [docs/developer-guides/architecture.md](docs/developer-guides/architecture.md)
-- **Setup issues**: See [docs/troubleshooting.md](docs/troubleshooting.md)
+- **Architecture questions**: See [CLAUDE.md](CLAUDE.md)
+- **Setup issues**: See [current/docs/quick-start.md](current/docs/quick-start.md)
 - **General discussion**: Start a GitHub discussion
 
 Thank you for contributing to MCP Task Orchestrator!

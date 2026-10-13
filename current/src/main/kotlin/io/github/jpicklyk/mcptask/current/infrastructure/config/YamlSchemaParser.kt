@@ -824,7 +824,9 @@ internal object YamlSchemaParser {
      * no `resources:` key are absent from the result, not mapped to an empty list), then emits two
      * cross-trait warnings against the already-parsed [registry]:
      *  - a requirement referencing a key absent from [registry] ("undeclared resource") — warned but
-     *    still honored with built-in defaults, never dropped;
+     *    still honored with built-in defaults, never dropped. This is a deferred finding reported only
+     *    by the MIGRATION parse; a strict push or boot import rejects the undeclared key via
+     *    `ConfigValidator` instead;
      *  - a resource key declared by [RESOURCE_FANOUT_WARNING_THRESHOLD] or more traits ("fan-out").
      */
     @Suppress("UNCHECKED_CAST")
