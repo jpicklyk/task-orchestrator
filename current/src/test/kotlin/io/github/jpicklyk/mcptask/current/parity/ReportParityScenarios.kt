@@ -104,11 +104,12 @@ internal object ReportParityScenarios {
         expectStatus: Int,
         expectCode: String? = null,
         expectContains: List<String> = emptyList(),
-        expectAbsent: List<String> = emptyList()
+        expectAbsent: List<String> = emptyList(),
+        member: String = "usage"
     ) = ParityScenario(
         name = "report $name",
         tool = "report",
-        member = "usage",
+        member = member,
         kind = kind,
         token = token,
         arguments = arguments,
@@ -418,7 +419,270 @@ internal object ReportParityScenarios {
             )
         )
 
-    val scenarios: List<ParityScenario> = happy + scopeForbidden + other + nullKeys
+    // ------------------------------------------------------------------ R11 (item 82397512): gates and contention
+
+    /** The selects R11 adds; every scenario below runs once per select, so a rule is asserted on both. */
+    private val newSelects = listOf("gates", "contention")
+
+    private fun both(
+        name: String,
+        kind: ParityKind,
+        token: ParityToken,
+        arguments: (select: String) -> String,
+        expectStatus: Int,
+        expectCode: String? = null,
+        expectContains: List<String> = emptyList(),
+        expectAbsent: List<String> = emptyList()
+    ): List<ParityScenario> =
+        newSelects.map { select ->
+            scenario(
+                "$select $name",
+                kind,
+                token,
+                arguments(select),
+                expectStatus,
+                expectCode,
+                expectContains,
+                expectAbsent,
+                member = select
+            )
+        }
+
+    /**
+     * The fixture seeds `call_log` and items only (the parity seeder has no `events` writer), so every answer below is over an
+     * empty event table: the scenarios pin the envelope, status, window echo, scope handling and validation, byte-equal across
+     * MCP and REST; the counted values are asserted at the store and service level.
+     */
+    val r11Happy: List<ParityScenario> =
+        both(
+            "happy",
+            ParityKind.HAPPY,
+            reader,
+            { select -> """{"select":"$select"}""" },
+            200,
+            expectContains = listOf("\"total\":0", "\"basis\":\"raw\""),
+            expectAbsent = listOf("retainedSince", "x_tool", "y_tool")
+        ) +
+            scenario(
+                "gates groupBy type",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"gates","groupBy":"type"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                member = "gates"
+            ) +
+            scenario(
+                "gates groupBy trait",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"gates","groupBy":"trait"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                member = "gates"
+            ) +
+            scenario(
+                "gates groupBy errorCode",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"gates","groupBy":"errorCode"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                member = "gates"
+            ) +
+            scenario(
+                "gates groupBy noteKey",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"gates","groupBy":"noteKey"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                member = "gates"
+            ) +
+            scenario(
+                "contention groupBy resource",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"contention","groupBy":"resource"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                member = "contention"
+            )
+
+    val r11ScopeForbidden: List<ParityScenario> =
+        both(
+            "scope root",
+            ParityKind.SCOPE_FORBIDDEN,
+            rootScoped,
+            { select -> """{"select":"$select","rootId":"$r2"}""" },
+            403,
+            "forbidden",
+            expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
+            expectAbsent = listOf("y_tool")
+        )
+
+    val r11Other: List<ParityScenario> =
+        both(
+            "tag scope is not forbidden",
+            ParityKind.OTHER,
+            tagScoped,
+            { select -> """{"select":"$select"}""" },
+            200,
+            expectContains = listOf("\"total\":0"),
+            expectAbsent = listOf("forbidden")
+        ) +
+            both(
+                "filtered by root scope",
+                ParityKind.OTHER,
+                rootScoped,
+                { select -> """{"select":"$select"}""" },
+                200,
+                expectContains = listOf("\"total\":0")
+            ) +
+            both(
+                "own root under a root scope",
+                ParityKind.OTHER,
+                rootScoped,
+                { select -> """{"select":"$select","rootId":"$r1"}""" },
+                200,
+                expectContains = listOf("\"total\":0")
+            ) +
+            both(
+                "without the read capability",
+                ParityKind.OTHER,
+                noRead,
+                { select -> """{"select":"$select"}""" },
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"capability\"", "\"required\":\"read\"")
+            ) +
+            listOf("tool", "principal", "resource", "day", "host").map { groupBy ->
+                scenario(
+                    "gates groupBy $groupBy",
+                    ParityKind.OTHER,
+                    admin,
+                    """{"select":"gates","groupBy":"$groupBy"}""",
+                    400,
+                    "invalid_request",
+                    expectContains = listOf("/groupBy"),
+                    member = "gates"
+                )
+            } +
+            listOf("noteKey", "type", "trait", "errorCode", "tool", "principal").map { groupBy ->
+                scenario(
+                    "contention groupBy $groupBy",
+                    ParityKind.OTHER,
+                    admin,
+                    """{"select":"contention","groupBy":"$groupBy"}""",
+                    400,
+                    "invalid_request",
+                    expectContains = listOf("/groupBy"),
+                    member = "contention"
+                )
+            } +
+            both(
+                "groupBy with other casing",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","groupBy":"${if (select == "gates") "NoteKey" else "Resource"}"}""" },
+                400,
+                "invalid_request"
+            ) +
+            both(
+                "unknown runId",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","runId":"$r1"}""" },
+                400,
+                "unknown_parameter",
+                listOf("/runId")
+            ) +
+            both(
+                "unknown noteKey filter",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","noteKey":"spec"}""" },
+                400,
+                "unknown_parameter",
+                listOf("/noteKey")
+            ) +
+            both(
+                "unknown rootId",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","rootId":"99999999-9999-4999-8999-999999999999"}""" },
+                404,
+                "not_found"
+            ) +
+            both(
+                "rootId of a child",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","rootId":"$c1"}""" },
+                400,
+                "invalid_request",
+                expectContains = listOf("/rootId")
+            ) +
+            both(
+                "since not before until",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","since":"2026-10-09T00:00:00Z","until":"2026-10-09T00:00:00Z"}""" },
+                400,
+                "invalid_request"
+            ) +
+            both(
+                "window over 31 days",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","since":"2026-09-09T11:59:59.999Z"}""" },
+                400,
+                "invalid_request"
+            ) +
+            both(
+                "window of exactly 31 days",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","since":"2026-09-09T12:00:00Z"}""" },
+                200,
+                expectContains = listOf("\"total\":0")
+            ) +
+            both(
+                "since with an offset is echoed in UTC",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","since":"2026-10-08T11:30:00+02:00","until":"2026-10-09T12:00:00+02:00"}""" },
+                200,
+                expectContains = listOf("2026-10-08T09:30:00Z", "2026-10-09T10:00:00Z")
+            ) +
+            both(
+                "limit zero",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","limit":0}""" },
+                400,
+                "invalid_request",
+                expectContains = listOf("\"field\":\"limit\"")
+            ) +
+            both(
+                "limit above the maximum",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","limit":201}""" },
+                400,
+                "invalid_request",
+                expectContains = listOf("\"field\":\"limit\"")
+            ) +
+            both(
+                "garbled cursor",
+                ParityKind.OTHER,
+                reader,
+                { select -> """{"select":"$select","cursor":"!!!not-a-cursor"}""" },
+                400,
+                "invalid_cursor"
+            )
+
+    val scenarios: List<ParityScenario> = happy + scopeForbidden + other + nullKeys + r11Happy + r11ScopeForbidden + r11Other
 
     val exemptions: List<ScopeExempt> = emptyList()
 }
@@ -441,6 +705,75 @@ class ReportParityTest {
     @Test
     fun `S17 scope, capability, validation, window and strictness scenarios agree across MCP director and REST`() {
         for (s in ReportParityScenarios.other) harness.run(s)
+    }
+
+    @Test
+    fun `R11 S15 happy gates and contention scenarios agree across MCP director and REST in body, status and database`() {
+        for (s in ReportParityScenarios.r11Happy) harness.run(s)
+    }
+
+    @Test
+    fun `R11 S15 scope-forbidden gates and contention scenarios agree across MCP director and REST under the same access`() {
+        for (s in ReportParityScenarios.r11ScopeForbidden) harness.run(s)
+    }
+
+    @Test
+    fun `R11 S15 scope, capability, validation, window and strictness scenarios agree across MCP director and REST`() {
+        for (s in ReportParityScenarios.r11Other) harness.run(s)
+    }
+
+    @Test
+    fun `R11 S15 control - every report select holds a happy and a restricted scope-forbidden scenario and runs on the director`() {
+        val selects = listOf("usage", "gates", "contention")
+        for (select in selects) {
+            val mine = ReportParityScenarios.scenarios.filter { it.member == select }
+            assertTrue(mine.any { it.kind == ParityKind.HAPPY }, "$select has a happy scenario")
+            assertTrue(
+                mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted },
+                "$select has a restricted scope-forbidden scenario"
+            )
+            assertTrue(ProductionParity.scenarios.containsAll(mine), "every $select scenario is registered in the production catalog")
+            assertEquals(
+                ToolProfile.DIRECTOR,
+                ParityCoverage.mcpLegProfile(registry, "report", select),
+                "$select MCP leg runs on the director"
+            )
+            assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", select), select)
+        }
+        assertEquals(selects.toSet(), ReportParityScenarios.scenarios.map { it.member }.toSet(), "no scenario names another select")
+        assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
+    }
+
+    @Test
+    fun `R11 S15 the compact director report entry grows by at most 20 characters over the R9 entry of 1540`() {
+        // Base: the compact length of golden/tools/report.director.json at 31d23235 (R9 merged, before R11) is 1540.
+        // After R11 the entry is 1526: the select-neutral groupBy description saves more than the two enum values cost.
+        val baseCompact = 1_540
+        val tool = assertNotNull(McpOperationAdapter.toolFor(assertNotNull(registry["report"]), ToolProfile.DIRECTOR))
+        val size = ToolGoldens.compact(tool).length
+        assertTrue(size <= baseCompact + 20, "the compact report entry is $size characters, base $baseCompact")
+        assertTrue(size in 1..1_800, "the compact report entry is $size characters")
+    }
+
+    @Test
+    fun `R11 S15 describe lists gates and contention with the same six inputs and no rollup or filter input`() {
+        val spec = assertNotNull(registry["report"])
+        val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
+        val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
+        assertEquals(listOf("usage", "gates", "contention"), operations.map { it.getValue("name").jsonPrimitive.content })
+        for (operation in operations) {
+            val name = operation.getValue("name").jsonPrimitive.content
+            val properties =
+                operation
+                    .getValue("parameters")
+                    .jsonObject
+                    .getValue("properties")
+                    .jsonObject.keys
+            assertTrue(properties.containsAll(setOf("rootId", "since", "until", "groupBy", "limit", "cursor")), "$name inputs: $properties")
+            for (reserved in listOf("runId", "anchorId", "principalId", "tool", "noteKey", "filters")) {
+                assertTrue(reserved !in properties, "$reserved is not an input of $name: $properties")
+            }
+        }
     }
 
     @Test
