@@ -142,7 +142,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
-- `MCP_TOOL_PROFILE` — `orchestration` (default) or `knowledge` (case-insensitive); the stdio transport's tool profile. HTTP serves both: `/mcp` is orchestration, `/mcp/knowledge` is knowledge. Any other value fails startup
+- `MCP_TOOL_PROFILE` — `orchestration` (default), `knowledge` or `director` (case-insensitive); the stdio transport's tool profile. HTTP serves all three: `/mcp` is orchestration, `/mcp/knowledge` is knowledge, `/mcp/director` is director. Any other value fails startup
 - `MCP_SERVER_NAME` — service name reported in MCP identity and REST well-known/service metadata (default: `mcp-task-orchestrator-current`)
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".

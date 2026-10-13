@@ -15,8 +15,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
@@ -56,7 +56,7 @@ internal fun updateItemOp(): OpSpec<UpdateItemRequest, ItemWriteResult> =
         name = UpdateItemOp.NAME,
         doc = "Update an item; absent or null keeps a value, clear nulls optional fields.",
         capability = ApiCapability.WRITE_ITEMS,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<UpdateItemRequest>(),
         errors =
             setOf(

@@ -821,12 +821,13 @@ paths:
         token's root/tag scope reaches every handler; an out-of-scope item is `forbidden`
         (`scope: root|tag`), list reads filter instead.
 
-        Faults answer an envelope with status 400 `invalid_request`: a tool that is unknown or not in
-        the served profile (field `tool`), a `Content-Type` other than `application/json` (field
+        Faults answer an envelope with status 400 `invalid_request`: a tool that is not registered
+        (field `tool`), a `Content-Type` other than `application/json` (field
         `Content-Type`; absent is accepted), an `Idempotency-Key` header (field `Idempotency-Key`; use
         `ops[].idempotencyKey`), or a body that is not a JSON object (field `$`). A body over 1 MiB
         is 413 `payload_too_large`. A missing or invalid credential answers the 401 unauthenticated
-        envelope (see Unauthorized). Serves the orchestration profile.
+        envelope (see Unauthorized). Serves every registered select and op whatever its MCP profile set,
+        REST-only members included.
 
         The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
         removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),

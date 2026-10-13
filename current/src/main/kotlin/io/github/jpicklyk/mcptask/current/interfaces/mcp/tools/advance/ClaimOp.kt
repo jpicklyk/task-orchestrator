@@ -20,8 +20,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -49,7 +49,7 @@ internal val claimOp =
             "Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). " +
                 "Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false " +
                 "and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         request = serializer<ClaimRequest>(),
         errors =

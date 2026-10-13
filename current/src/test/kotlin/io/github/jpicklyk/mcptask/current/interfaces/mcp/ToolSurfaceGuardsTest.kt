@@ -12,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
@@ -67,7 +69,8 @@ class ToolSurfaceGuardsTest {
                         OpSpec<FixtureTools.CreateReq, String>(
                             name = "make",
                             doc = "Make.",
-                            profile = profile,
+                            // R5 mechanical migration: the pre-R5 single-profile declaration as its profile set.
+                            profiles = if (profile == ToolProfile.KNOWLEDGE) knowledge() else orchestration(),
                             capability = ApiCapability.WRITE_ITEMS,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
@@ -193,7 +196,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -225,7 +228,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -256,7 +259,7 @@ class ToolSurfaceGuardsTest {
                             name = "go",
                             doc = "Go.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<NakedReq>(),
                             execute = {
                                 _,
@@ -278,7 +281,7 @@ class ToolSurfaceGuardsTest {
                     SelectSpec.Single<NakedReq, String>(
                         name = "go",
                         doc = "Go.",
-                        profile = ToolProfile.KNOWLEDGE,
+                        profiles = knowledge(),
                         request = serializer<NakedReq>(),
                         handler = { _, _, _ -> Outcome.Ok("x") },
                         data = { JsonPrimitive(it) }

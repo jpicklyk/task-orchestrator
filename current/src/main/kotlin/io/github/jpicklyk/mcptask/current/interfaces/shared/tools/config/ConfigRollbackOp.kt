@@ -8,8 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
@@ -28,7 +28,7 @@ internal val configRollbackOp =
         doc =
             "Append a copy of an earlier version as the new head (source rollback, history kept). Rolling back to the " +
                 "head's own content appends nothing (appended false). An absent version, or a root with no config, is not_found.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.WRITE_CONFIG,
         request = serializer<ConfigRollbackRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.VERSION_CONFLICT),

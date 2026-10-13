@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
  *
  * `{tool, description, inputSchema, operations: [{name, description, parameters, errors: [{code, kind, detail?}]}]}`
  *
- * over the selects/ops visible in the profile, in registration order, narrowed to [only] when given.
+ * over the selects/ops visible to the view (an MCP profile, or [ToolView.Rest]), in registration order, narrowed to [only] when given.
  * `parameters` is the request class's full generated schema, including its own `required` list.
  * `errors` is the declared codes plus the common ones, sorted by wire code: `invalid_request`,
  * `unknown_parameter`, `unavailable`, `internal` for every operation, plus `invalid_cursor` for a paged
@@ -27,7 +27,7 @@ object ToolDescriber {
 
     fun describe(
         spec: ToolSpec,
-        profile: ToolProfile,
+        profile: ToolView,
         only: Set<String>?
     ): JsonObject {
         val operations =

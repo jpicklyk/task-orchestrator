@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -81,7 +82,7 @@ class McpOperationAdapterMdcTest {
                 SelectSpec.Single<ProbeReq, String>(
                     name = "log",
                     doc = "Log one line.",
-                    profile = ToolProfile.KNOWLEDGE,
+                    profiles = knowledge(),
                     request = serializer<ProbeReq>(),
                     handler = { _, _, req ->
                         if (req.fail) throw IllegalStateException("forced internal error for MDC coverage")

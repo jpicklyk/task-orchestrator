@@ -19,8 +19,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * A 4.0 tool declaration (plan section 3.2, Q1b). The contract is PROVISIONAL until Q11, its first real
- * consumer, merges.
+ * A 4.0 tool declaration (plan section 3.2, Q1b). The contract is PROVISIONAL until R20 merges.
  *
  * A spec is a context-free declaration: handlers receive the one composed [ToolExecutionContext] as
  * `env` at call time, so guards and goldens render specs without a database. Each select or op lives in
@@ -40,13 +39,13 @@ class SelectToolSpec(
 
 /**
  * One select of a [SelectToolSpec]: its [request] class (decoded strictly; `actor`, `describe` and
- * `select` are lifted first), the [profile] that first shows it, the [capability] a caller needs (READ
+ * `select` are lifted first), the [profiles] it is visible in (an empty set is REST-only), the [capability] a caller needs (READ
  * unless declared otherwise; ADMIN grants all), and the [errors] its handler may return beyond the common ones.
  */
 sealed class SelectSpec<R : Any, T>(
     val name: String,
     val doc: String,
-    val profile: ToolProfile,
+    val profiles: Set<ToolProfile>,
     val request: KSerializer<R>,
     val errors: Set<ErrorCode>,
     val capability: ApiCapability
@@ -55,13 +54,13 @@ sealed class SelectSpec<R : Any, T>(
     class Single<R : Any, T>(
         name: String,
         doc: String,
-        profile: ToolProfile,
+        profiles: Set<ToolProfile>,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
         val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<T>,
         val data: (T) -> JsonElement?
-    ) : SelectSpec<R, T>(name, doc, profile, request, errors, capability) {
+    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
         override suspend fun respond(
             env: ToolExecutionContext,
             ctx: CallContext,
@@ -73,13 +72,13 @@ sealed class SelectSpec<R : Any, T>(
     class Paged<R : Any, T>(
         name: String,
         doc: String,
-        profile: ToolProfile,
+        profiles: Set<ToolProfile>,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
         val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<ListPage<T>>,
         val item: (T) -> JsonElement
-    ) : SelectSpec<R, T>(name, doc, profile, request, errors, capability) {
+    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
         override suspend fun respond(
             env: ToolExecutionContext,
             ctx: CallContext,
@@ -135,14 +134,14 @@ class OpsToolSpec<R>(
 
 /**
  * One op of an [OpsToolSpec]: its element [request] class (decoded strictly; `op` and `idempotencyKey`
- * are lifted first), the [profile] that first shows it, whether it is [destructive], the [capability] a caller
+ * are lifted first), the [profiles] it is visible in (an empty set is REST-only), whether it is [destructive], the [capability] a caller
  * needs (required, no default: a new write op must never silently be READ-only), the [errors] it may return
  * beyond the common ones, and [execute], which runs inside the element's write unit.
  */
 class OpSpec<E : Any, R>(
     val name: String,
     val doc: String,
-    val profile: ToolProfile,
+    val profiles: Set<ToolProfile>,
     val destructive: Boolean = false,
     val capability: ApiCapability,
     val request: KSerializer<E>,
@@ -173,16 +172,16 @@ class BoundOp<R> internal constructor(
     val run: suspend WriteScope.(ToolExecutionContext, CallContext) -> Outcome<R>
 )
 
-/** A tool's selects or ops visible in [profile], in registration order. */
-internal fun SelectToolSpec.visibleSelects(profile: ToolProfile): List<SelectSpec<*, *>> = selects.filter { profile.includes(it.profile) }
+/** A tool's selects or ops visible to [view] ([ToolView.sees]), in registration order. */
+internal fun SelectToolSpec.visibleSelects(view: ToolView): List<SelectSpec<*, *>> = selects.filter { view.sees(it.profiles) }
 
 /** See [visibleSelects]. */
-internal fun <R> OpsToolSpec<R>.visibleOps(profile: ToolProfile): List<OpSpec<*, R>> = ops.filter { profile.includes(it.profile) }
+internal fun <R> OpsToolSpec<R>.visibleOps(view: ToolView): List<OpSpec<*, R>> = ops.filter { view.sees(it.profiles) }
 
-/** Names of the selects or ops of [spec] visible in [profile], in registration order. */
+/** Names of the selects or ops of [spec] visible to [profile], in registration order. */
 internal fun visibleNames(
     spec: ToolSpec,
-    profile: ToolProfile
+    profile: ToolView
 ): List<String> =
     when (spec) {
         is SelectToolSpec -> spec.visibleSelects(profile).map { it.name }

@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.serializer
 
 /** `notes_write upsert`: create or replace the note at (item, key). */
@@ -20,7 +20,7 @@ internal val noteUpsertOp =
                 "Give exactly one of body and bodyFromFile. A body over the schema's maxLength for the key is accepted " +
                 "with a warning, or rejected, depending on the server's note limits mode. A key the current schema requires but " +
                 "the item's pinned schema lacks is schema_pinned_conflict: repin the item first.",
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         destructive = false,
         capability = ApiCapability.WRITE_NOTES,
         request = serializer<NoteUpsertRequest>(),
@@ -43,7 +43,7 @@ internal val noteDeleteOp =
     OpSpec<NoteDeleteRequest, NoteWriteOutcome>(
         name = "delete",
         doc = "Delete the note at (item, key). A missing note is not_found.",
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         destructive = true,
         capability = ApiCapability.WRITE_NOTES,
         request = serializer<NoteDeleteRequest>(),

@@ -30,17 +30,20 @@ envelope and the server log.
 ## Tool profiles
 
 The server builds one MCP `Server` per tool profile, so a client sees only the selects and ops of its profile (a hidden
-select or op looks absent: `invalid_request`).
+select or op looks absent: `invalid_request`). Each select and op declares the set of profiles it appears in; the
+generated tables below name that set, and an empty set ("REST only") is served by `POST /api/v1/ops/{tool}` and never
+over MCP.
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
 | `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only) and `deps_read`: no read that can return a note, document or transition-summary body, and no write |
 
-`/mcp/knowledge` is exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the profile it was
-initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and applied to
-stdio only. `POST /api/v1/ops/{tool}` always serves the orchestration profile. The `initialize` `instructions` is one
-sentence naming the profile. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+`/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
+profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
+applied to stdio only. `POST /api/v1/ops/{tool}` serves every registered select and op whatever its profile set,
+REST-only members included. The `initialize` `instructions` is one sentence naming the profile and `describe`. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
 
 ## Tool Categories
 
@@ -703,7 +706,7 @@ a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above
 <!-- generated:tool items_read -->
 Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text).
 
-**`items_read` select `get`** (knowledge and orchestration profiles; capability `read`): One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.
+**`items_read` select `get`** (knowledge, orchestration and director profiles; capability `read`): One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -713,7 +716,7 @@ Read work items. Selects: get (one item), list (a filtered page), schema (the no
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `list`** (knowledge and orchestration profiles; capability `read`): A filtered, sorted page of the items the caller may see, as compact views with an exact total.
+**`items_read` select `list`** (knowledge, orchestration and director profiles; capability `read`): A filtered, sorted page of the items the caller may see, as compact views with an exact total.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -770,7 +773,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `overview`** (knowledge and orchestration profiles; capability `read`): A hierarchy summary: global, one item's children (itemId) or an anchor's children (anchorId).
+**`items_read` select `overview`** (knowledge, orchestration and director profiles; capability `read`): A hierarchy summary: global, one item's children (itemId) or an anchor's children (anchorId).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -832,7 +835,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `blocked`** (orchestration profile only; capability `read`): A page of the blocked items (default limit 50, max 200): role blocked (blockType explicit) or open with an unsatisfied blocking dependency (dependency), each with its blockers (id, title, role, threshold, satisfied). fields: summary, ancestors.
+**`items_read` select `blocked`** (orchestration and director profiles; capability `read`): A page of the blocked items (default limit 50, max 200): role blocked (blockType explicit) or open with an unsatisfied blocking dependency (dependency), each with its blockers (id, title, role, threshold, satisfied). fields: summary, ancestors.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1059,7 +1062,7 @@ prefix lists only the candidates the scope admits.
 <!-- generated:tool deps_read -->
 Read dependency edges between items. select: list (edges of one item, with direction and type filters) or graph (the blocking graph around an item). Edge: {id, from, to, type, unblockAt?}; from blocks to.
 
-**`deps_read` select `list`** (knowledge and orchestration profiles; capability `read`): List the dependency edges touching one item, oldest first. incoming = what blocks it, outgoing = what it blocks. Edges whose other end is outside the scope of the call are left out and not counted.
+**`deps_read` select `list`** (knowledge, orchestration and director profiles; capability `read`): List the dependency edges touching one item, oldest first. incoming = what blocks it, outgoing = what it blocks. Edges whose other end is outside the scope of the call are left out and not counted.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1071,7 +1074,7 @@ Read dependency edges between items. select: list (edges of one item, with direc
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`deps_read` select `graph`** (knowledge and orchestration profiles; capability `read`): The blocking graph around one item: every item connected to it by blocks edges in either direction, blockers first. level is the longest blocker path from an item with no blocker; cyclic items come last. relates_to edges are ignored. Items outside the scope of the call are neither listed nor traversed. page.capped means the walk stopped at 1000 items.
+**`deps_read` select `graph`** (knowledge, orchestration and director profiles; capability `read`): The blocking graph around one item: every item connected to it by blocks edges in either direction, blockers first. level is the longest blocker path from an item with no blocker; cyclic items come last. relates_to edges are ignored. Items outside the scope of the call are neither listed nor traversed. page.capped means the walk stopped at 1000 items.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

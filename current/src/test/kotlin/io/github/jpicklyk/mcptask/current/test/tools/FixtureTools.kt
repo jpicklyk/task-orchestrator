@@ -14,8 +14,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -116,7 +117,7 @@ class FixtureTools {
         SelectSpec.Single<GetReq, String>(
             name = "get",
             doc = "Read one thing by id.",
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<GetReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             handler = { _, ctx, req ->
@@ -136,7 +137,7 @@ class FixtureTools {
         SelectSpec.Paged<ListReq, String>(
             name = "list",
             doc = "List things.",
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<ListReq>(),
             handler = { _, ctx, req ->
                 seen += ctx
@@ -153,7 +154,7 @@ class FixtureTools {
         SelectSpec.Single<AuditReq, String>(
             name = "audit",
             doc = "Audit things.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             request = serializer<AuditReq>(),
             handler = { _, ctx, req ->
                 seen += ctx
@@ -166,7 +167,7 @@ class FixtureTools {
         SelectSpec.Single<PeekReq, String>(
             name = "peek",
             doc = "Peek.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             request = serializer<PeekReq>(),
             handler = { _, _, req -> Outcome.Ok("peek:${req.what}") },
             data = { JsonPrimitive(it) }
@@ -177,7 +178,7 @@ class FixtureTools {
             name = "create",
             doc = "Create a thing.",
             capability = ApiCapability.WRITE_ITEMS,
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<CreateReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->
@@ -196,7 +197,7 @@ class FixtureTools {
             name = "rename",
             doc = "Rename a thing.",
             capability = ApiCapability.WRITE_ITEMS,
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<RenameReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -208,7 +209,7 @@ class FixtureTools {
         OpSpec<PurgeReq, String>(
             name = "purge",
             doc = "Purge a thing.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             destructive = true,
             capability = ApiCapability.WRITE_ITEMS,
             request = serializer<PurgeReq>(),
@@ -222,7 +223,7 @@ class FixtureTools {
         OpSpec<ResetReq, String>(
             name = "reset",
             doc = "Reset.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             capability = ApiCapability.WRITE_ITEMS,
             request = serializer<ResetReq>(),
             execute = { _, _, req -> Outcome.Ok("reset:${req.reason}") }

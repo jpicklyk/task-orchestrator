@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.parity.ParityCoverage
 import io.github.jpicklyk.mcptask.current.parity.ParityKind
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
@@ -106,7 +107,7 @@ class ConfigRegistrationTest {
         for (op in spec.ops) {
             val expected = if (op.name in reads) ApiCapability.READ else ApiCapability.WRITE_CONFIG
             assertEquals(expected, op.capability, op.name)
-            assertEquals(ToolProfile.ORCHESTRATION, op.profile, op.name)
+            assertEquals(orchestration(), op.profiles, op.name)
         }
         assertEquals(listOf("reset"), spec.ops.filter { it.destructive }.map { it.name }, "only reset is destructive")
     }

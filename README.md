@@ -352,7 +352,7 @@ Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/
 | **Documents** | `docs_read`, `docs_write` | Versioned plan, rule and page documents per project root |
 | **Project config** | `config` | Push, validate, roll back and inspect per-project schema config and rule text |
 
-Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration. Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
+Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration, and a `director` profile (`/mcp/director`, or `MCP_TOOL_PROFILE=director`) exposes only item and dependency reads. Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
 
 ---
 

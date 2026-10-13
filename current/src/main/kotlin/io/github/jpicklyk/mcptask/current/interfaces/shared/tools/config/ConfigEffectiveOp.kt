@@ -19,7 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceRequirem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -41,7 +41,7 @@ internal val configEffectiveOp =
         doc =
             "The resolved config view: every type's schema, the traits, the status graph and the layer fingerprints. With " +
                 "rootId it is that root's config layered over the server's; without it, the server config alone.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.READ,
         request = serializer<ConfigEffectiveRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),

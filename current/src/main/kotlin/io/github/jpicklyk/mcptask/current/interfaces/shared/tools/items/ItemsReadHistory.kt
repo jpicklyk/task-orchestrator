@@ -8,8 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -61,7 +61,7 @@ object ItemsReadHistory {
                     "otherwise every transition the caller may see; since/until bound the time. Each entry has seq, id, " +
                     "itemId, occurredAt, trigger, fromRole, toRole, status labels, origin, summary, consumedCredentials, " +
                     "backfilled (a pre-4.0 row) and, when attribution is visible, actor and verification.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

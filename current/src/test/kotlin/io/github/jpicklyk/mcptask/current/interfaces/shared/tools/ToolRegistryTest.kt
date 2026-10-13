@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -98,9 +100,9 @@ class ToolRegistryTest {
     private fun <E : Any> op(
         name: String,
         request: KSerializer<E>,
-        profile: ToolProfile = ToolProfile.KNOWLEDGE
+        profiles: Set<ToolProfile> = knowledge()
     ): OpSpec<E, String> =
-        OpSpec(name = name, doc = "An op.", profile = profile, capability = ApiCapability.WRITE_ITEMS, request = request, execute = {
+        OpSpec(name = name, doc = "An op.", profiles = profiles, capability = ApiCapability.WRITE_ITEMS, request = request, execute = {
             _,
             _,
             _
@@ -116,9 +118,9 @@ class ToolRegistryTest {
     private fun <R : Any> select(
         name: String,
         request: KSerializer<R>,
-        profile: ToolProfile = ToolProfile.KNOWLEDGE
+        profiles: Set<ToolProfile> = knowledge()
     ): SelectSpec<R, String> =
-        SelectSpec.Single(name = name, doc = "A select.", profile = profile, request = request, handler = {
+        SelectSpec.Single(name = name, doc = "A select.", profiles = profiles, request = request, handler = {
             _,
             _,
             _
@@ -349,7 +351,7 @@ class ToolRegistryTest {
                     opsTool(
                         "ops_tool",
                         op("make_a", serializer<TitleString>()),
-                        op("make_b", serializer<TitleInt>(), ToolProfile.ORCHESTRATION)
+                        op("make_b", serializer<TitleInt>(), orchestration())
                     )
                 )
             )

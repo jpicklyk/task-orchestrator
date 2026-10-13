@@ -14,11 +14,11 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -47,7 +47,7 @@ internal val configRulesOp =
             "Read git-tracked rule text (rule/<key> plan documents). rootId alone lists {key, rulesVersion, updatedAt}; " +
                 "rootId with key returns one rule's body; itemId with noteKey follows that note's skill pointer to the rule " +
                 "under the item's root. Any other combination is invalid_request.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.READ,
         request = serializer<ConfigRulesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),

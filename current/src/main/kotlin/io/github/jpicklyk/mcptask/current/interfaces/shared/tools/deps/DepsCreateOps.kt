@@ -19,8 +19,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -37,7 +37,7 @@ internal val depsCreateOp =
         name = "create",
         doc = "Create one dependency edge: from blocks to (type blocks, the default) or relates_to. A duplicate or a cycle is rejected.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<DepsCreateRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -61,7 +61,7 @@ internal val depsLinearOp =
         name = "linear",
         doc = "Create a chain: each item in ids blocks the next. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<DepsLinearRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -91,7 +91,7 @@ internal val depsFanOutOp =
         name = "fan_out",
         doc = "Create from to each of toIds. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<DepsFanOutRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -121,7 +121,7 @@ internal val depsFanInOp =
         name = "fan_in",
         doc = "Create each of fromIds to the to item. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<DepsFanInRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->

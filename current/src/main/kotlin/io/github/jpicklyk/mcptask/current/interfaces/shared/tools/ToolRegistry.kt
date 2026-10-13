@@ -63,8 +63,8 @@ class ToolRegistry(
 
     operator fun get(name: String): ToolSpec? = byName[name]
 
-    /** The tools with at least one select/op visible in [profile], in registration order. */
-    fun visible(profile: ToolProfile): List<ToolSpec> = tools.filter { visibleNames(it, profile).isNotEmpty() }
+    /** The tools with at least one select/op visible to [profile] (a [ToolProfile], or [ToolView.Rest]), in registration order. */
+    fun visible(profile: ToolView): List<ToolSpec> = tools.filter { visibleNames(it, profile).isNotEmpty() }
 
     private class Member(
         val name: String,

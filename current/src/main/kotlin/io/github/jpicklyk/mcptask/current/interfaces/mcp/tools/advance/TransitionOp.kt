@@ -19,8 +19,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -43,7 +43,7 @@ internal val transitionOp =
             "Move one item between phases with a trigger (start, complete, block, hold, resume, cancel, reopen). " +
                 "Gates, dependencies, claim ownership and resource leases apply; the result lists cascaded parents, " +
                 "unblocked items and what the next phase expects.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         request = serializer<TransitionRequest>(),
         errors =

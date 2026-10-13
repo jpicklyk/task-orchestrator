@@ -10,7 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
 
@@ -33,7 +33,7 @@ internal fun deleteItemOp(): OpSpec<DeleteItemRequest, ItemWriteResult> =
         doc = "Delete an item; a parent needs recursive.",
         destructive = true,
         capability = ApiCapability.WRITE_ITEMS,
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<DeleteItemRequest>(),
         errors =
             setOf(

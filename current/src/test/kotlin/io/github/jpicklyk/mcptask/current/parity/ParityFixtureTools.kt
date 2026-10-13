@@ -13,8 +13,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -91,7 +91,7 @@ class ParityFixtureTools {
         SelectSpec.Single<GetReq, JsonObject>(
             name = "get",
             doc = "Read one item by id.",
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<GetReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             handler = { env, ctx, req ->
@@ -120,7 +120,7 @@ class ParityFixtureTools {
         SelectSpec.Paged<ListReq, JsonObject>(
             name = "list",
             doc = "List the items visible to the caller.",
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<ListReq>(),
             handler = { env, ctx, req ->
                 val repo = env.repositoryProvider.workItemRepository()
@@ -142,7 +142,7 @@ class ParityFixtureTools {
             name = "rename",
             doc = "Rename an item.",
             capability = ApiCapability.WRITE_ITEMS,
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<RenameReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -172,7 +172,7 @@ class ParityFixtureTools {
             name = "retag",
             doc = "Replace an item's tags.",
             capability = ApiCapability.WRITE_NOTES,
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<RetagReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -215,7 +215,7 @@ class ParityFixtureTools {
         SelectSpec.Single<EchoReq, String>(
             name = "echo",
             doc = "Echo the calling surface.",
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<EchoReq>(),
             handler = { _, ctx, _ -> Outcome.Ok(ctx.surface) },
             data = { JsonPrimitive(it) }
@@ -226,7 +226,7 @@ class ParityFixtureTools {
             name = "stamp",
             doc = "Write the calling surface into an item's title.",
             capability = ApiCapability.WRITE_ITEMS,
-            profile = ToolProfile.KNOWLEDGE,
+            profiles = knowledge(),
             request = serializer<StampReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->

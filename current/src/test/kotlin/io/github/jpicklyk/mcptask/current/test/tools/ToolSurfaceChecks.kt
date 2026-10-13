@@ -18,7 +18,8 @@ import kotlinx.serialization.json.JsonPrimitive
 object ToolSurfaceChecks {
     const val PER_TOOL_CEILING = 8_000
     const val KNOWLEDGE_TOTAL_CEILING = 22_000
-    const val ORCHESTRATION_TOTAL_CEILING = 38_000
+    const val ORCHESTRATION_TOTAL_CEILING = 42_000
+    const val DIRECTOR_TOTAL_CEILING = 14_000
 
     /** Compact char count per visible tool of [profile], in registry order. */
     fun sizes(
@@ -33,6 +34,7 @@ object ToolSurfaceChecks {
         when (profile) {
             ToolProfile.KNOWLEDGE -> KNOWLEDGE_TOTAL_CEILING
             ToolProfile.ORCHESTRATION -> ORCHESTRATION_TOTAL_CEILING
+            ToolProfile.DIRECTOR -> DIRECTOR_TOTAL_CEILING
         }
 
     /** One message per breached ceiling: a tool over 8,000 in a profile, or a profile total over its ceiling. */

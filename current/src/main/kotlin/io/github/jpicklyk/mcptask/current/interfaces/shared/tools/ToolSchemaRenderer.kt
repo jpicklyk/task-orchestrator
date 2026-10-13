@@ -9,7 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Renders a [ToolSpec] for one [ToolProfile]: its input schema, its description and its MCP annotations.
+ * Renders a [ToolSpec] for one [ToolView] (an MCP [ToolProfile], or [ToolView.Rest]): its input schema, its description and its MCP annotations.
  *
  * - Select tool properties: `select` (an enum of the visible selects in registration order), the union of
  *   the visible selects' fields (first appearance order), then `describe`.
@@ -34,7 +34,7 @@ object ToolSchemaRenderer {
     /** The input schema `{type:object, properties}` of [spec] in [profile], or null when nothing is visible. */
     fun inputSchema(
         spec: ToolSpec,
-        profile: ToolProfile
+        profile: ToolView
     ): JsonObject? {
         val properties =
             when (spec) {
@@ -56,7 +56,7 @@ object ToolSchemaRenderer {
      */
     fun annotations(
         spec: ToolSpec,
-        profile: ToolProfile
+        profile: ToolView
     ): ToolAnnotations =
         when (spec) {
             is SelectToolSpec ->
@@ -72,7 +72,7 @@ object ToolSchemaRenderer {
 
     private fun selectProperties(
         spec: SelectToolSpec,
-        profile: ToolProfile
+        profile: ToolView
     ): JsonObject? {
         val visible = spec.visibleSelects(profile)
         if (visible.isEmpty()) return null
@@ -86,7 +86,7 @@ object ToolSchemaRenderer {
 
     private fun opsProperties(
         spec: OpsToolSpec<*>,
-        profile: ToolProfile
+        profile: ToolView
     ): JsonObject? {
         val visible = spec.visibleOps(profile)
         if (visible.isEmpty()) return null

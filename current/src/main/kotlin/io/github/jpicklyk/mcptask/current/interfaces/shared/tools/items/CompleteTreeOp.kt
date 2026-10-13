@@ -17,8 +17,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.Transitio
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -43,7 +43,7 @@ internal fun completeTreeOp(): OpSpec<CompleteTreeRequest, ItemWriteResult> =
     OpSpec(
         name = CompleteTreeOp.NAME,
         doc = "Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         request = serializer<CompleteTreeRequest>(),
         errors =

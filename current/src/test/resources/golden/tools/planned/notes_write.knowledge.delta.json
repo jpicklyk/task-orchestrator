@@ -1,0 +1,6 @@
+{
+  "takeover": {
+    "type": "boolean",
+    "description": "Admin only: take over a note first written by another actor. Never with a seat token."
+  }
+}
