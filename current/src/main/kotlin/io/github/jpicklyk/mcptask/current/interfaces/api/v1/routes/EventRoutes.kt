@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -166,7 +166,7 @@ private class SseInlineAuthConfig {
     /**
      * The resolved REST auth mode. When [ApiAuthConfig.Unauthenticated] (opt-in:
      * `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`), every SSE connection is attached
-     * [LOCAL_UNAUTH_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
+     * [LOCAL_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
      * Unauthenticated branch so unauthenticated mode does not 401 every SSE connection.
      */
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
@@ -212,8 +212,8 @@ private val sseInlineAuthPlugin =
             // mirrors ApiBearerAuth's Unauthenticated branch. Must run before the header/?token=
             // resolution below, or a credential-less SSE connection is 401'd in this mode too.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
-                if (respondIfRootQueryRejected(call, LOCAL_UNAUTH_PRINCIPAL)) return@onCall
-                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL.withHostOf(call))
+                if (respondIfRootQueryRejected(call, LOCAL_PRINCIPAL)) return@onCall
+                call.attributes.put(SsePrincipalKey, LOCAL_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 

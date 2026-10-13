@@ -27,7 +27,7 @@ object ToolSchemaRenderer {
     const val OP_DOC = "The operation this element runs."
     const val ATOMIC_DOC = "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
     const val IDEMPOTENCY_KEY_DOC =
-        "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
+        "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
     const val DESCRIBE_DOC = "true: return the operations, their parameters and errors instead of running the tool."
     const val DESCRIBE_HINT = "Call with describe:true for each operation's parameters and errors."
 

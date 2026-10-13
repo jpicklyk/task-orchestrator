@@ -73,6 +73,7 @@ class TransportStartFailureTest {
             mapOf(
                 "DATABASE_PATH" to dbPath,
                 "MCP_TRANSPORT" to transport,
+                "MCP_ALLOW_UNAUTHENTICATED" to "true",
                 "MCP_HTTP_HOST" to "127.0.0.1",
                 "MCP_HTTP_PORT" to httpPort.toString(),
                 "READINESS_FILE" to readinessFile.toString()

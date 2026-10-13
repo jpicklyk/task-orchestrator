@@ -11,7 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuth
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditClaim
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditClaim
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.post
@@ -108,7 +108,7 @@ class WriteRouteAuthInvariantTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S15 - the audit claim is api colon id for every ProofStatus x PrincipalKind pair`() {
+    fun `S15 - the audit claim is api colon id for every credential ProofStatus x PrincipalKind pair, the bare id for NONE`() {
         for (mode in ProofStatus.entries) {
             for (kind in PrincipalKind.entries) {
                 val tokenId = "s15-${mode.name.lowercase()}-${kind.name.lowercase()}"
@@ -121,8 +121,9 @@ class WriteRouteAuthInvariantTest {
                         capabilities = setOf(ApiCapability.READ),
                     )
                 val claim = principal.auditClaim()
-                assertEquals("api:$tokenId", claim.id, "S15: mode=$mode kind=$kind must audit as api:$tokenId")
-                assertEquals(ActorKind.EXTERNAL, claim.kind, "S15: every REST principal audits as external")
+                val expectedId = if (mode == ProofStatus.NONE) tokenId else "api:$tokenId"
+                assertEquals(expectedId, claim.id, "S15: mode=$mode kind=$kind must audit as $expectedId")
+                assertEquals(ActorKind.EXTERNAL, claim.kind, "S15: every transport principal audits as external")
                 assertEquals(null, claim.parent, "S15: no parent")
                 assertEquals(null, claim.proof, "S15: the credential is never echoed into the audit")
             }

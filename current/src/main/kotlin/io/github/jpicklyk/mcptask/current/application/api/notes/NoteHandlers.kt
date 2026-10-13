@@ -149,8 +149,8 @@ object NoteHandlers {
                         key = req.key,
                         role = req.role,
                         body = text,
-                        actorClaim = principal?.claim,
-                        verification = principal?.verification,
+                        actorClaim = principal.claim,
+                        verification = principal.verification,
                         bodyFromFile = file,
                         expectedVersion = expected
                     )

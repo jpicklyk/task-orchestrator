@@ -467,6 +467,7 @@ class BootImportTest {
             mapOf(
                 "DATABASE_PATH" to dbFile.toString(),
                 "MCP_TRANSPORT" to "http",
+                "MCP_ALLOW_UNAUTHENTICATED" to "true",
                 "MCP_HTTP_HOST" to "127.0.0.1",
                 "MCP_HTTP_PORT" to "0",
                 "READINESS_FILE" to readiness.toString(),

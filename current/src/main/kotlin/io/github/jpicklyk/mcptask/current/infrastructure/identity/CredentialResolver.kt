@@ -61,17 +61,22 @@ class CredentialResolver(
     private fun sha256(input: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
 }
 
-/** The token-file `profile` value that confines a credential to `/api/v1/ops/director/{tool}`. */
+/**
+ * The token-file `profile` value that confines a credential to the director paths: `/api/v1/ops/director/{tool}` over
+ * REST and `/mcp/director` over MCP.
+ */
 const val DIRECTOR_CREDENTIAL_PROFILE = "director"
 
 /**
- * Synthetic principal attached to every request in unauthenticated mode (`API_AUTH_MODE=none` +
- * `API_ALLOW_UNAUTHENTICATED=true`): [ApiCapability.ADMIN] and an unrestricted scope, so every capability and scope
- * check passes unchanged. Kind [PrincipalKind.AGENT], proof [ProofStatus.NONE]; audited as `api:local-unauth`.
+ * The one local principal (V10): every call no credential establishes runs as it. Stdio, HTTP `/mcp` in local mode
+ * (`MCP_ALLOW_UNAUTHENTICATED=true` with the API off, or `API_AUTH_MODE=none`) and REST in unauthenticated mode
+ * (`API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`) all attach it, so ownership, claims and idempotency keys
+ * meet across hosts. [ApiCapability.ADMIN] and an unrestricted scope, so every capability and scope check passes
+ * unchanged. Kind [PrincipalKind.AGENT], proof [ProofStatus.NONE]; audited as the bare id `local` (no `api:` prefix).
  */
-val LOCAL_UNAUTH_PRINCIPAL =
+val LOCAL_PRINCIPAL =
     Principal(
-        id = "local-unauth",
+        id = "local",
         kind = PrincipalKind.AGENT,
         proofStatus = ProofStatus.NONE,
         scope = AccessScope.unrestricted(),

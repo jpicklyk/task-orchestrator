@@ -1043,7 +1043,16 @@ class McpDirectorProfileTest {
                 version = "test",
                 shutdownCoordinator = coordinator,
                 appConfig =
-                    appConfigFor("s4-http", "http", "director", mapOf("MCP_HTTP_HOST" to "127.0.0.1", "MCP_HTTP_PORT" to port.toString()))
+                    appConfigFor(
+                        "s4-http",
+                        "http",
+                        "director",
+                        mapOf(
+                            "MCP_HTTP_HOST" to "127.0.0.1",
+                            "MCP_HTTP_PORT" to port.toString(),
+                            "MCP_ALLOW_UNAUTHENTICATED" to "true"
+                        )
+                    )
             )
         val run = startRun(server)
         try {

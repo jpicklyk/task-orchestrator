@@ -17,7 +17,10 @@ tool section ends with a block between `<!-- generated:tool NAME -->` markers, a
 class `@Doc` (or the op's profile, capability or errors) and run `./gradlew :current:regenerateApiReference`;
 `ApiReferenceFreshnessTest` fails when a block is stale and names that task. The same data is served at runtime
 by a `describe: true` call on any tool. A write element also takes `op` and an optional `idempotencyKey`, and a select call takes
-`select`, `describe` and `actor`; the transport lifts those first, so the generated tables do not list them.
+`select` and `describe`; the dispatcher reads those first, so the generated tables do not list them. No call takes
+an `actor`: the caller is the principal its transport established (the bearer credential over REST and HTTP `/mcp`,
+the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
+with no principal is `unauthenticated` before anything in it is read.
 
 **See also:** [`search-and-discovery.md`](./search-and-discovery.md) for the architecture behind
 FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score interpretation).
@@ -72,11 +75,11 @@ array of flat objects, each naming its op in `op` (`create`, `update`, `delete`,
 and `repin` in the orchestration profile only; the knowledge profile neither lists nor accepts them). It is the 4.0
 replacement of `manage_items`, `create_work_tree` and `complete_tree`, and the same call is served over MCP and
 as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
-gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
+gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool }`
 returns `data.results[i]` (`{ok:true, ...}` or `{ok:false, error}`), a `data.summary`, and `meta.reqId`. By default
 every element is its own write unit (one failing element does not stop the others, and the call answers
 `partial_failure`); `atomic: true` runs the whole array in one unit and the first failure rolls everything back.
-An element may carry an `idempotencyKey` (requires an `actor`): a repeated key replays the stored result with
+An element may carry an `idempotencyKey`: a repeated key replays the stored result with
 `replayed: true`; the same key with a different element is `idempotency_mismatch`.
 
 Placement (depth, root) is computed from the parent row inside the write unit; an item is created in `queue`, or
@@ -151,7 +154,7 @@ under a root scope is allowed only when the item itself is a listed root. Under 
 resolves to nothing the caller may see is `forbidden` (scope is no existence oracle), and an ambiguous prefix lists only
 the candidates the scope admits (the shared `items_read` "Ids" rule, Q32).
 
-**Actor and events.** The caller's actor (body `actor` over MCP, the bearer principal over REST) is recorded as the
+**Actor and events.** The caller's principal (`api:<id>` for a credential, `local` for the local principal) is recorded as the
 principal of the `item.created`, `item.updated`, `item.reparented`, `item.deleted` and `item.pinned` events the call
 writes. `item.pinned` (`{from, to, reason}`, where `from` / `to` are `{server, root, key, layer}` with the two config
 version ids) is recorded in the events table only; it is not projected onto the SSE stream.
@@ -892,7 +895,7 @@ are thin translations to it (see `api-rest.md` section 11). `notes_read` replace
   page, `truncated` is true exactly when notes exist after this page, and `next` (an opaque cursor) is
   present exactly when `truncated`, so following `next` until it is absent always terminates.
 - `actor` (`{id, kind, parent?}`) and `verification` (`{status, verifier?, reason?}`) appear only when
-  the caller may see attribution: an MCP caller always, a REST token when it is `ADMIN` or
+  the caller may see attribution: on every transport, a principal with `ADMIN`, or any principal when
   `API_REDACT_NOTE_ATTRIBUTION=false`. Proof evidence (the proof hash and verified claims) is never
   returned.
 
@@ -969,9 +972,8 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   `note_limits` is layered per root (see
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)).
   A per-root config that cannot be read answers `unavailable` (`retryAfterMs`). A config head that exists but cannot be loaded answers `config_invalid` (permanent).
-- **Attribution.** Over MCP the body `actor` is lifted as before and recorded with the note
-  (verification included); over REST `/ops` the principal is the bearer token's and a body `actor` is
-  ignored.
+- **Attribution.** The note records the call's principal (`api:<id>` for a credential, `local` for the local
+  principal) with its verification, on every transport; a body `actor` is `unknown_parameter`.
 
 ```json
 {
@@ -1120,8 +1122,8 @@ capability (`manage-dependencies`); `delete` is destructive.
 - **Delete matching.** `{id}` takes a full dependency UUID; an unknown one is `not_found`. `{from, to}`
   without `type` matches edges of either type; `{from, to}` or `{item}` that matches nothing is
   `deleted: 0`.
-- **Attribution.** `dependency.added` and `dependency.removed` events carry the call principal: over
-  MCP the body `actor`, over REST `/ops` the bearer token.
+- **Attribution.** `dependency.added` and `dependency.removed` events carry the call's principal on every
+  transport.
 
 ```json
 {
@@ -1215,9 +1217,9 @@ required notes, resource lease; the first failure wins), and the role change, it
 release, and every cascade it triggers commit together or not at all. Unblocked downstream items are then reported.
 
 **Call shape.** `ops` is an array of flat objects, each naming its `op`. Optional top-level `atomic` (default false: each
-element succeeds or fails alone; true: the first failure rolls the whole call back and is returned with its `error.index`) and
-`actor` (`{id, kind, parent?, proof?}`; on REST the bearer token is the actor and a body `actor` is ignored). Each element may
-carry an optional `idempotencyKey` (needs an actor); a repeat of the same key and payload replays the stored result, the same
+element succeeds or fails alone; true: the first failure rolls the whole call back and is returned with its `error.index`). The
+caller is the call's principal on every transport. Each element may
+carry an optional `idempotencyKey`; a repeat of the same key and payload replays the stored result, the same
 key with another payload is `idempotency_mismatch`. All ops need the `advance` capability.
 
 | Op | Result element (on top of `ok: true`) |
@@ -1238,16 +1240,15 @@ phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?,
 non-empty. Empty and null members are omitted.
 
 **Ownership.** When an item has an active (non-expired) claim, `transition` requires the caller's trusted actor id to equal the
-holder, on every trigger and on both MCP and REST; any other caller (including one with no actor) gets `not_claim_holder`.
+holder, on every trigger and on both MCP and REST; any other caller gets `not_claim_holder`.
 An unclaimed item, or one whose claim has lapsed, can be transitioned by anyone. Cascades are system transitions and bypass the
 check. A transition that lands the item in `terminal` clears its claim. There is no override: an operator who must take over a
 claimed item waits out the claim TTL.
 
 **Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor). The holder claiming
 again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
-it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). Claim, release and heartbeat
-need an `actor` (`invalid_request` on `/actor` otherwise); the holder id is the trusted id after the degraded-mode policy (`unauthenticated`
-when the policy rejects). The holder's identity never appears in any error detail.
+it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). For claim, release and
+heartbeat the holder id is the principal's audited id after the degraded-mode policy (`unauthenticated` when the policy rejects). The holder's identity never appears in any error detail.
 
 `select` filters: `role` (default `queue`), `parentId`, `tags` (any), `priority`, `type`, `complexityMax`, `createdAfter`,
 `createdBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy` (`priority` default, `oldest`, `newest`). The best eligible
@@ -1258,7 +1259,7 @@ dependencyBlocked, outOfScope}`; nothing matched at all has no `reason`. Under a
 scope are skipped and counted in `excluded.outOfScope`; a selector never answers `forbidden`.
 
 **Error codes** (per element; the call is `207 partial_failure` when some elements fail): `invalid_request` (field pointers
-such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credentialRefs/1`; `/actor` when the actor is missing),
+such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credentialRefs/1`),
 `unknown_parameter`, `not_found` (item), `ambiguous_id`, `forbidden` (token scope or capability), `invalid_transition` (also for
 claiming a terminal item, and for claiming a lifecycle-free item: `fromRole` `none`, `trigger` `claim`, nothing allowed, the
 caller's other claims kept; every `transition` trigger on a lifecycle-free item fails the same way with `fromRole` `none`), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
@@ -1369,7 +1370,7 @@ and the server-set reads `GET /config`, `/config/schemas[/{type}]`, `/config/tra
 `/config/status-graph`. The same call is served over MCP and as `POST /api/v1/ops/config`. Only
 `GET /api/v1/config/schema` (the published JSON Schema) stays a route.
 
-The request is `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`; each element is a flat object naming its op in
+The request is `{ "ops": [...], "atomic"?: bool }`; each element is a flat object naming its op in
 `op`, with an optional `idempotencyKey`. One failed element of a non-atomic call is `207 partial_failure` on REST;
 `atomic: true` fails the whole call with the code's own status. Every `rootId` is a UUID or a hex prefix of 8 to 32
 characters and must name a depth-0 item. The scope check runs first, before existence and depth: a root outside the
@@ -1508,12 +1509,11 @@ parsed (`PerRootConfigService`, on every schema-resolving read) and to the serve
 op: it is written only by the boot import of the mounted file, and `effective` without a `rootId` is its read.
 
 **Trust-model caveat.** `push`, `rollback` and `reset` can silently rewrite a project's gate configuration
-(required notes, review phases, trait routing) for every item under a root. Under `MCP_TRANSPORT=http`, the `/mcp`
-endpoint is **unauthenticated regardless of REST API auth mode**: any client that can reach the port can call these
-ops for any root. This is the existing MCP transport trust model (see [`fleet-deployment.md`](./fleet-deployment.md),
-"MCP HTTP Transport (`/mcp`) Is Unauthenticated - Read First") applying to config data the way it applies to every
-other MCP tool. Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
-single trusted process.
+(required notes, review phases, trait routing) for every item under a root. Under `MCP_TRANSPORT=http`, `/mcp`
+authenticates exactly like `/api/v1` when the REST API runs a credential mode (`API_AUTH_MODE=bearer` or `jwks`), so
+these ops need a credential with `write-config`. In the two local modes (`API_AUTH_MODE=none`, or the API disabled under
+`MCP_ALLOW_UNAUTHENTICATED=true`) every caller is the `local` principal (ADMIN) and can call these ops for any root:
+fence the port at the network layer, or bind it to `127.0.0.1`, before exposing it beyond a single trusted process.
 
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
@@ -1878,7 +1878,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 ## Idempotency
 
 The write tools (`items_write`, `notes_write`, `deps_write`, `advance`) take no `requestId`: each `ops[]` element may
-carry an `idempotencyKey` (needs an `actor`), recorded per `(principal, tool, key)` for 24 hours. A repeated key with
+carry an `idempotencyKey`, recorded per `(principal, tool, key)` for 24 hours. A repeated key with
 the same element replays the stored result with `replayed: true`; the same key with a different element is
 `idempotency_mismatch`. Only an element that committed is recorded, so a failed element re-runs on retry with the same
 key. `items_write` `create_tree` and `complete_tree` follow this rule like every other op: one element is one unit and
@@ -1938,8 +1938,8 @@ Every response, success or error, carries `meta.reqId`: the call's 8-character c
 base32, for example `k7f3q9ab`). Over MCP it is also `_meta.reqId` on the tool result, and over REST the `X-Req-Id`
 response header. It is the `req_id` of every event row the call wrote, the MDC `reqId` log key, and the primary key of
 the call's row in the `call_log` table, whose `operation` column holds the select name, the single distinct op, `mixed`
-or `describe`, and whose `principal_id` column holds the self-reported actor id (capped), with `proof_status` saying
-whether it was verified. `tools/list` and `initialize` have none. See `fleet-deployment.md` -> "Call log and `reqId`".
+or `describe`, and whose `principal_id` column holds the audited id of the call's principal (`api:<id>` or `local`), with
+`proof_status` saying how it was verified. `tools/list` and `initialize` have none. See `fleet-deployment.md` -> "Call log and `reqId`".
 
 ## List data
 
@@ -2023,24 +2023,26 @@ and element replays the stored result.
 
 ### Overview
 
-Actor attribution tracks *who* made changes to work items. Every write op (`advance`, `notes_write`, `items_write`, `deps_write`, `docs_write`, `config`) can carry an optional `actor` claim: the body `actor` over MCP, the bearer principal over REST (a body `actor` is ignored there). By default the server uses a no-op verifier, so claims are persisted as `unchecked`; configuring `actor_authentication.verifier: {type: jwks}` switches to cryptographic verification of the claim's proof. See [fleet-deployment.md](./fleet-deployment.md) -> Actor authentication.
+Actor attribution tracks *who* made changes to work items. The actor of every call is the principal its transport
+established, never a request body: `api:<id>` for a bearer or JWT credential (REST, and `/mcp` over HTTP when the
+API runs a credential mode) and `local` for the local principal (stdio, `/mcp` in local mode, REST
+`API_AUTH_MODE=none`). Its kind is always `external`. A body `actor`, top-level or in an `ops[]` element, is
+`unknown_parameter` on every tool. See [fleet-deployment.md](./fleet-deployment.md) -> Actor authentication.
 
-### Actor Claim Shape
+### Actor Shape
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| id | string | yes | Identifier for the actor |
-| kind | string | yes | `orchestrator`, `subagent`, `user`, or `external` |
-| parent | string | no | ID of the dispatching agent — forms a delegation chain |
-| proof | string | no | Opaque credential - checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. The raw proof is never persisted (since migration V17) - only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record). |
-
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | The audited id: `api:<credential id>` or `local` |
+| kind | string | `external` for every transport principal |
+| parent | string | Always absent for a transport principal |
 ### Verification Record
 
 Every persisted actor claim includes a verification record.
 
 **Where it appears.** A verification record is returned as `verification` `{status, verifier?, reason?}` on `notes_read`
-entries and on `items_read` `history` entries, and only to a caller allowed to see attribution (an MCP caller always;
-a REST token when it is `ADMIN` or `API_REDACT_NOTE_ATTRIBUTION=false`). The record is always persisted; the metadata
+entries and on `items_read` `history` entries, and only to a caller allowed to see attribution (on every transport, a
+principal with `ADMIN`, or any principal when `API_REDACT_NOTE_ATTRIBUTION=false`). The record is always persisted; the metadata
 below is stored with it and is not part of the MCP wire shape.
 
 | Field | Type | Description |
@@ -2077,53 +2079,19 @@ transition trail (`items_read` `history`) never returns them either. They are st
 | `verifiedFromCache` | `verified` + stale JWKS cache | `"true"` when the verification used a key set served from stale cache |
 | `cacheAgeSeconds` | `verified` + stale JWKS cache | Age of the cached key set in seconds at verification time |
 
-### Chain Propagation Convention
+### Verifier names
 
-Delegation chains are built by convention:
-1. The orchestrator includes `actor: { id: "orch-1", kind: "orchestrator" }` on its calls
-2. When dispatching a subagent, it passes its own `id` as context
-3. The subagent includes `actor: { id: "sub-1", kind: "subagent", parent: "orch-1" }` on its MCP calls
-4. Query responses preserve the chain for post-mortem analysis
-
-This is a documentation convention, not enforced by the server. Stage 1 trusts self-reported claims.
-
-### Enforcing Actor Attribution
-
-Actor claims are **optional by default** — users who don't need actor authentication pay no extra token cost. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml`:
-
-```yaml
-actor_authentication:
-  enabled: true   # read by the plugin hook, not the server
-```
-
-When enabled, the plugin's `PreToolUse` hook blocks a write call where one or more elements are missing an `actor` object. The call never reaches the server, so the agent must retry with actor claims included. The hook's tool matchers belong to the plugin and are updated for the 4.0 tool names with the 4.0 plugin.
-
-When `enabled` is `false` or the `actor_authentication` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
-
-> **Note:** The hook re-reads the config file on every call, so a change to `enabled` takes effect on the next write without an MCP reconnect. `enabled` is read only by the hook, from the client-side workspace or user config, not by the server.
-
-#### Subagent Behavior
-
-Actor claims are self-reported by convention — the server does not inject them automatically. This means:
-
-- **Uninstructed subagents** make calls with no actor data, producing anonymous transitions and notes
-- **Instructed subagents** include actor claims only when the delegation prompt tells them to
-- The enforcement hook applies to all callers in the session, including subagents, providing a safety net regardless of prompt quality
-
-For reliable attribution, combine actor authentication enforcement with explicit delegation instructions:
-
-```
-Include an "actor" object on every write call (advance, notes_write, items_write, ...):
-{ "id": "your-agent-name", "kind": "subagent", "parent": "orchestrator-id" }
-```
+A transport principal's verification record names its source: `api-jwks` (`verified`) for a verified JWT, fresh or
+stale; `api-bearer` (`unchecked`) for a token-file credential; `local` (`unchecked`) for the local principal. The
+plugin's `actor_authentication.enabled` hook no longer has a server-side counterpart: the server ignores any body
+`actor`.
 
 ---
-
 ## Actor Authentication & Verification
 
 ### Verifier Configuration
 
-The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
+Since R14 no request body carries an actor claim or proof, so the actor verifier below is not consulted on any tool call; its configuration is still parsed and its future is decided with the trust-policy work (R18). The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
 
 ```yaml
 actor_authentication:

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -30,7 +29,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -127,7 +125,7 @@ class NotesWriteSurfaceAndConfigTest {
         arguments: JsonObject
     ): JsonObject {
         val spec = checkNotNull(ToolRegistry(buildToolSpecs())["notes_write"])
-        return withContext(ActorVerificationScope()) {
+        return run {
             buildToolDispatcher(ctx).dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "r2req000", surface)
         }.envelope.body
     }

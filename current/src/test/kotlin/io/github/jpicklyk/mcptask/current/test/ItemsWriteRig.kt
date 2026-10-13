@@ -41,7 +41,9 @@ internal suspend fun ToolExecutionContext.itemsWrite(
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(this).dispatch(spec, effectiveProfile, arguments, reqId, "mcp").envelope.body
+    // An `actor` fixture selects the caller (the server reads no body actor since R14).
+    val (args, access) = liftTestActor(arguments)
+    return buildToolDispatcher(this).dispatch(spec, effectiveProfile, args, reqId, "mcp", access).envelope.body
 }
 
 /** The `items_write` ops the knowledge profile hides. */

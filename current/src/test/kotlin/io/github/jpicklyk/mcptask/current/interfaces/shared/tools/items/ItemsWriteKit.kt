@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.parityAccess
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createCommand
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -65,7 +66,7 @@ internal class IwKit(
     ): Dispatched {
         val profile =
             if (ops.any { (it["op"] as? JsonPrimitive)?.content == "repin" }) ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
-        return buildToolDispatcher(rig.ctx).dispatch(spec, profile, args(ops, atomic, actor), "k7f3q9ab", "mcp")
+        return buildToolDispatcher(rig.ctx).dispatchAsTestActor(spec, profile, args(ops, atomic, actor), "k7f3q9ab", "mcp")
     }
 
     /** A real MCP client/server call under the token's principal, scope and capabilities; returns the envelope body. */

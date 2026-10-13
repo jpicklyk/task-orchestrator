@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -530,18 +531,23 @@ class ParityCoverageGuardTest {
     // ------------------------------------------------------------------ S20 MCP default path
 
     @Test
-    fun `S20 the MCP default path lifts the body actor and runs unscoped, while the seam substitutes principal and scope`(
+    fun `S20 the MCP default path runs as local unscoped, a body actor is refused, the seam substitutes principal and scope`(
         @TempDir dir: Path
     ): Unit =
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val fx = FixtureTools()
-            val body = """{"actor":{"id":"agent-1","kind":"subagent"},"ops":[{"op":"create","title":"S20"}]}"""
+            val body = """{"ops":[{"op":"create","title":"S20"}]}"""
 
-            val byDefault = callMcp(rig.ctx, fx.registry, null, "fx_write", obj(body))
+            val actorBody = """{"actor":{"id":"agent-1","kind":"subagent"},"ops":[{"op":"create","title":"S20"}]}"""
+            val withActor = callMcp(rig.ctx, fx.registry, { CallAccess.LOCAL }, "fx_write", obj(actorBody))
+            assertTrue(withActor.isError, "R14: a body actor is unknown_parameter: ${withActor.text}")
+            assertTrue(fx.seen.isEmpty(), "the refused call never ran")
+
+            val byDefault = callMcp(rig.ctx, fx.registry, { CallAccess.LOCAL }, "fx_write", obj(body))
             assertFalse(byDefault.isError, byDefault.text)
             val defaultCtx = fx.seen.single()
-            assertEquals("agent-1", defaultCtx.principal?.claim?.id, "the default path lifts the actor from the arguments")
+            assertEquals("local", defaultCtx.principal.claim.id, "the default MCP access is the local principal")
             assertEquals("mcp", defaultCtx.surface)
             assertTrue(defaultCtx.scope.isUnrestricted, "the default path is unscoped")
 

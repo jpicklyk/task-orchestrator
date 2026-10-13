@@ -19,10 +19,8 @@ import java.time.Instant
  * class did) would let a replay through in a >=1ms window at exactly that boundary.
  *
  * Not persisted or shared across instances/restarts (see the item's task-scope "Non-goals") — a
- * restart or a second server instance reopens the replay window. Callers that need the memoized,
- * per-MCP-call behavior described in the class KDoc for [JwksActorVerifier] should install
- * `io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope` around the call
- * so the *same* verified proof is not re-recorded (and rejected as a "replay") within one call.
+ * restart or a second server instance reopens the replay window. A caller that verifies the *same* proof more than
+ * once within one call must memoize the first result itself, or the second verification is rejected as a "replay".
  *
  * Thread-safe: all mutating access is synchronized on this instance.
  *

@@ -471,7 +471,7 @@ class SurfaceConformanceTest {
                             JsonObject(mapOf("describe" to JsonPrimitive(true))),
                             "conf-desc",
                             CallLogRecord.SURFACE_MCP,
-                            CallAccess.UNRESTRICTED
+                            CallAccess.LOCAL
                         )
                     EnvelopeConformance.assertConforms(describe.envelope.body, "${spec.name}/${profile.wire} describe")
                     assertEquals(200, describe.envelope.httpStatus, "${spec.name}/${profile.wire} describe")
@@ -483,7 +483,7 @@ class SurfaceConformanceTest {
                             JsonObject(mapOf("bogusParameter" to JsonPrimitive(1))),
                             "conf-unknown",
                             CallLogRecord.SURFACE_MCP,
-                            CallAccess.UNRESTRICTED
+                            CallAccess.LOCAL
                         )
                     EnvelopeConformance.assertConforms(unknown.envelope.body, "${spec.name}/${profile.wire} unknown parameter")
                     assertFalse(

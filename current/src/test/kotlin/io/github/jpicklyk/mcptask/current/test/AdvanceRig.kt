@@ -35,7 +35,7 @@ internal suspend fun ToolExecutionContext.advanceTool(
     atomic: Boolean = false,
     actor: JsonObject? = null,
     reqId: String = "a7r1g0aa",
-    access: CallAccess = CallAccess.UNRESTRICTED
+    access: CallAccess = CallAccess.LOCAL
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())["advance"]) { "advance is not registered" }
     val arguments =
@@ -44,8 +44,10 @@ internal suspend fun ToolExecutionContext.advanceTool(
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
+    // An `actor` fixture selects the caller (the server reads no body actor since R14), unless [access] was given.
+    val (args, effective) = if (access === CallAccess.LOCAL) liftTestActor(arguments) else arguments to access
     return buildToolDispatcher(this)
-        .dispatch(spec, ToolProfile.ORCHESTRATION, arguments, reqId, CallLogRecord.SURFACE_MCP, access)
+        .dispatch(spec, ToolProfile.ORCHESTRATION, args, reqId, CallLogRecord.SURFACE_MCP, effective)
         .envelope.body
 }
 

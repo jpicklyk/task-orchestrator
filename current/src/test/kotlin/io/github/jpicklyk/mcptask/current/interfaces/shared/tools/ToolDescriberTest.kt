@@ -3,11 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.coroutines.runBlocking
@@ -22,7 +18,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.sql.DriverManager
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,7 +35,7 @@ import kotlin.test.assertTrue
  * unavailable, internal; plus invalid_cursor for a Paged select; plus partial_failure and idempotency_mismatch for ops;
  * `detail` = member name to non-blank type text, member set = the envelope section 4 detail column, config_invalid -> {errors},
  * gate_blocked with `violations`, absent for codes with no detail) and decision D7 (`describe` must be a boolean; `true`
- * allows only `actor` and the selector to narrow, any other key is `invalid_request` at its pointer with reason "not allowed
+ * allows only the selector to narrow (R14: `actor` is no longer accepted), any other key is `invalid_request` at its pointer with reason "not allowed
  * with describe"; `false` is a normal call; call_log operation `describe`) and D2 (describe comes before the selector).
  * The wire name and kind of each error are recomputed from the declared `ErrorCode` entries, not from the describer.
  */
@@ -52,22 +47,12 @@ class ToolDescriberTest {
 
     private val fx = FixtureTools()
 
-    private val verified = CopyOnWriteArrayList<ActorClaim>()
-
-    private val verifier =
-        object : ActorVerifier {
-            override suspend fun verify(actor: ActorClaim): VerificationResult {
-                verified += actor
-                return VerificationResult(VerificationStatus.VERIFIED, verifier = "test-verifier")
-            }
-        }
-
     private val env: ToolExecutionContext by lazy {
         ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())
     }
 
     private val dispatcher: ToolDispatcher by lazy {
-        ToolDispatcher(RequestDecoder(), verifier, BatchRunner(env.unitOfWork, env.idempotency), env)
+        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env)
     }
 
     private fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
@@ -405,11 +390,16 @@ class ToolDescriberTest {
         }
 
     @Test
-    fun `S11 an actor is allowed with describe and is verified`(): Unit =
+    fun `S11 an actor with describe is not allowed with describe (R14)`(): Unit =
         runBlocking {
             val result = call(fx.readTool, """{"describe":true,"actor":{"id":"agent-1","kind":"user"}}""")
-            assertEquals("describe", result.operation)
-            assertEquals(listOf("agent-1"), verified.map { it.id })
+            val error =
+                result.envelope.body
+                    .getValue("error")
+                    .jsonObject
+            assertEquals("invalid_request", error.str("code"))
+            assertTrue("/actor" in error.toString(), "$error")
+            assertTrue("not allowed with describe" in error.toString(), "$error")
         }
 
     @Test

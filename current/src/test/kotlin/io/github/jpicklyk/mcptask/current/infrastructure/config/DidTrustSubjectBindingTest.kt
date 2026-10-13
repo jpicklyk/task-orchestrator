@@ -11,35 +11,25 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.IssuerNotTrustedException
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
-import io.github.jpicklyk.mcptask.current.test.actorJson
-import io.github.jpicklyk.mcptask.current.test.advanceTool
-import io.github.jpicklyk.mcptask.current.test.claimOp
-import io.github.jpicklyk.mcptask.current.test.errorCode
-import io.github.jpicklyk.mcptask.current.test.onlyResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.jsonPrimitive
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
@@ -206,40 +196,6 @@ class DidTrustSubjectBindingTest {
             assertEquals(A_DID, (cachedResolution as PolicyResolution.Trusted).trustedId)
         }
 
-    // S3: advance claim, REJECT, real JwksActorVerifier as S2 -> the item is claimed by A. D2
-    @Test
-    fun `S3 an advance claim trusts the verified DID subject over the self-reported actor id under REJECT policy`(): Unit =
-        runBlocking {
-            val jwt = sign(claims(subject = A_DID, issuer = A_DID), aKey)
-            val provider = mockProvider(A_DID to aJwks())
-            val verifier =
-                JwksActorVerifier(
-                    config = didConfig(requireSubMatch = false),
-                    keySetProvider = provider
-                )
-            val item = db.repositoryProvider().workItemRepository().create(WorkItem(title = "S3 item", role = Role.QUEUE))
-            val context =
-                ToolExecutionContext(
-                    repositoryProvider = db.repositoryProvider(),
-                    actorVerifier = verifier,
-                    degradedModePolicy = DegradedModePolicy.REJECT,
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val result = context.advanceTool(claimOp(item.id), actor = actorJson("planner", proof = jwt)).onlyResult()
-
-            assertEquals(true, result["ok"]?.jsonPrimitive?.content?.toBoolean(), "$result")
-            assertEquals(
-                A_DID,
-                db
-                    .repositoryProvider()
-                    .workItemRepository()
-                    .getById(item.id)!!
-                    .claimedBy,
-                "the claim holder is the DID subject"
-            )
-        }
-
     // -------------------------------------------------------------------------
     // Failure
     // -------------------------------------------------------------------------
@@ -335,40 +291,6 @@ class DidTrustSubjectBindingTest {
             assertTrue(
                 result.reason?.startsWith("sub/iss mismatch under DID trust") == true,
                 "reason: ${result.reason}"
-            )
-        }
-
-    // S9: advance claim REJECT, S6 proof -> the element fails unauthenticated and the item is never claimed. D1, fleet-deployment.md:345
-    @Test
-    fun `S9 an advance claim never claims when a sub-iss mismatch is rejected under REJECT policy`(): Unit =
-        runBlocking {
-            val jwt = sign(claims(subject = V_DID, issuer = A_DID), aKey)
-            val provider = mockProvider(A_DID to aJwks())
-            val verifier =
-                JwksActorVerifier(
-                    config = didConfig(requireSubMatch = true),
-                    keySetProvider = provider
-                )
-            val item = db.repositoryProvider().workItemRepository().create(WorkItem(title = "S9 item", role = Role.QUEUE))
-            val context =
-                ToolExecutionContext(
-                    repositoryProvider = db.repositoryProvider(),
-                    actorVerifier = verifier,
-                    degradedModePolicy = DegradedModePolicy.REJECT,
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val result = context.advanceTool(claimOp(item.id), actor = actorJson(V_DID, proof = jwt)).onlyResult()
-
-            assertEquals(false, result["ok"]?.jsonPrimitive?.content?.toBoolean(), "$result")
-            assertEquals("unauthenticated", result.errorCode(), "$result")
-            assertNull(
-                db
-                    .repositoryProvider()
-                    .workItemRepository()
-                    .getById(item.id)!!
-                    .claimedBy,
-                "the claim never happened"
             )
         }
 

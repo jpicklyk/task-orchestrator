@@ -29,6 +29,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditVerification
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.DocsParityScenarios
@@ -271,7 +273,8 @@ class CapabilitySplitAndProfileGuardTest {
             val principal = Principal("audit-$proof", PrincipalKind.AGENT, proof, AccessScope.unrestricted(), setOf(ApiCapability.READ))
             assertEquals(status, principal.auditVerification().status, "proof $proof")
             assertEquals(status, principal.toCallPrincipal().verification.status, "proof $proof via toCallPrincipal")
-            assertEquals("api:audit-$proof", principal.toCallPrincipal().claim.id)
+            val auditId = if (proof == ProofStatus.NONE) "audit-$proof" else "api:audit-$proof"
+            assertEquals(auditId, principal.toCallPrincipal().claim.id, "NONE audits as the bare id")
         }
     }
 
@@ -604,8 +607,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
     }
 
-    private fun noteBody(itemId: UUID): String =
-        """{"actor":{"id":"spoofed-user","kind":"user"},"ops":[{"op":"upsert","itemId":"$itemId","key":"k1","role":"work","body":"hello"}]}"""
+    private fun noteBody(itemId: UUID): String = """{"ops":[{"op":"upsert","itemId":"$itemId","key":"k1","role":"work","body":"hello"}]}"""
 
     private suspend fun assertStoredAs(
         rig: EventLogRig,
@@ -617,14 +619,14 @@ class CapabilitySplitAndProfileGuardTest {
         val note = assertNotNull(rig.raw.noteRepository().findByItemIdAndKey(itemId, "k1"), "$label: the note was stored")
         val claim = assertNotNull(note.actorClaim, "$label: the stored note carries an actor")
         assertEquals(expectedActorId, claim.id, "$label: actor id")
-        assertEquals(ActorKind.EXTERNAL, claim.kind, "$label: every REST principal is external")
+        assertEquals(ActorKind.EXTERNAL, claim.kind, "$label: every transport principal is external")
         assertNull(claim.parent, "$label: no parent")
         assertNull(claim.proof, "$label: no proof is echoed")
         assertEquals(expectedVerification, assertNotNull(note.verification, "$label: verification").status, "$label: verification status")
     }
 
     @Test
-    fun `S12 an issued human token stores the note as api colon id, external, unchecked, ignoring the body actor`() {
+    fun `S12 an issued human token stores the note as api colon id, external, unchecked`() {
         val auth = loadYaml(yamlEntry("note-human", "raw-note-human", "[write-notes]", "kind: human"))
         withApp(auth) { rig ->
             val item = rig.seed("owner")
@@ -663,7 +665,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S12 the unauthenticated mode stores the note as api colon local-unauth, external, unchecked`() =
+    fun `S12 the unauthenticated mode stores the note as local, external, unchecked`() =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             application { ownApp(rig, ApiAuthConfig.Unauthenticated) }
@@ -671,7 +673,7 @@ class CapabilitySplitAndProfileGuardTest {
 
             val response = client.send("/api/v1/ops/notes_write", noteBody(item.id), token = null)
             assertEquals(200, response.status.value, response.bodyAsText())
-            assertStoredAs(rig, item.id, "api:local-unauth", VerificationStatus.UNCHECKED, "none")
+            assertStoredAs(rig, item.id, "local", VerificationStatus.UNCHECKED, "none")
         }
 
     // ------------------------------------------------------------------ S6 route level

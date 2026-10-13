@@ -37,7 +37,8 @@ import kotlinx.serialization.json.JsonObject
  * is the tool's MCP arguments; the answer is the envelope, byte-equal to what MCP returns for the same
  * arguments and access, with the HTTP status derived from the error code.
  *
- * The principal comes from the bearer credential (`api:<tokenId>`, never a body `actor`, which is ignored),
+ * The principal comes from the bearer credential (`api:<tokenId>`, or `local` in unauthenticated mode; a body
+ * `actor` is an unknown parameter),
  * so idempotency is namespaced per token. Capability is checked per select/op by the dispatcher with the
  * shared `grants` predicate, so this route installs no capability wrapper; scope reaches handlers through
  * `CallContext.scope`. Every fault answers an envelope: no authenticated principal is `unauthenticated`

@@ -13,7 +13,9 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -301,7 +303,7 @@ class FileBodySourceTest {
             DocHandlers.upsert(
                 this,
                 context,
-                CallContext(reqId = "test", surface = CallLogRecord.SURFACE_MCP, principal = null),
+                CallContext(reqId = "test", surface = CallLogRecord.SURFACE_MCP, principal = LOCAL_PRINCIPAL.toCallPrincipal()),
                 DocUpsertRequest(rootId = IdRef(rootId), kind = DocKind.PLAN, slug = slug, bodyFromFile = file)
             )
         }

@@ -23,8 +23,8 @@ import kotlinx.serialization.json.JsonObject
  * - a tool or select with no select/op;
  * - a tool name not matching `^[a-z][a-z0-9_]{0,63}$` (the Messages API tool-name charset, F15), or a
  *   select/op name not matching `^[a-z][a-z_]{0,63}$` (the `call_log` operation pattern);
- * - a request class that is not a class or object, or that declares a reserved field: `actor`,
- *   `describe`, `select` for a select; `actor`, `op`, `idempotencyKey` for an op element;
+ * - a request class that is not a class or object, or that declares a reserved field: `describe`,
+ *   `select` for a select; `op`, `idempotencyKey` for an op element;
  * - a polymorphic or sealed member anywhere in a request (and any other type the schema generator
  *   rejects, such as a recursive class);
  * - the same field name in two selects/ops of one tool with a different generated schema (the tool's

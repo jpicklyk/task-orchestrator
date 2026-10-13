@@ -9,8 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFac
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditClaim
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditVerification
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditClaim
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditVerification
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent

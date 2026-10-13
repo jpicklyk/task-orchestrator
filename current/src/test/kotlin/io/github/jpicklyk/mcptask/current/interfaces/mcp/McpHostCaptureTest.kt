@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -152,7 +151,7 @@ class McpHostCaptureTest {
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
-            ToolDispatcher(RequestDecoder(), NoOpActorVerifier, BatchRunner(env.unitOfWork, env.idempotency), env),
+            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env),
             callLog = sink
         )
 

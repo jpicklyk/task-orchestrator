@@ -116,7 +116,7 @@ class NotesReadToolTest {
         select: String,
         itemId: String,
         vararg fields: Pair<String, JsonElement>,
-        access: CallAccess = CallAccess.UNRESTRICTED
+        access: CallAccess = CallAccess.LOCAL
     ): JsonObject =
         rig.ctx.callTool(
             "notes_read",
@@ -162,8 +162,8 @@ class NotesReadToolTest {
             assertEquals("hello body", note.str("body"))
             assertTrue(note.str("modifiedAt").isNotBlank(), "modifiedAt is present: $note")
             assertNoNulls(answer)
-            assertFalse("actor" in note, "a note written without a principal carries no actor: $note")
-            assertFalse("verification" in note, "and no verification: $note")
+            assertEquals("local", note.obj("actor").str("id"), "a note written without a fixture actor carries the local principal: $note")
+            assertEquals("local", note.obj("verification").str("verifier"), "verified by the local principal: $note")
         }
 
     @Test

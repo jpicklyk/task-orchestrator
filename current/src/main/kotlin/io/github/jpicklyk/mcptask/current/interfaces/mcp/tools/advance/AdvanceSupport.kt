@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import java.util.UUID
 
 /**
@@ -25,21 +24,18 @@ import java.util.UUID
  * catalog errors the claim ops map their store results to.
  *
  * Field pointers an op reports are relative to its `ops[]` element (`/ttlSeconds`); the dispatcher re-roots them
- * under `/ops/<index>`. `/actor` is the call's top-level actor and keeps its pointer.
+ * under `/ops/<index>`.
  */
 internal object AdvanceSupport {
-    /** The `invalid_request` of a claim, release or heartbeat made without an actor (the holder identity is required). */
-    fun actorRequired(): DomainError = invalidField("/actor", "is required")
-
     /**
-     * The holder id of a claim, release or heartbeat: the trusted id under the degraded-mode policy. No actor is
-     * `invalid_request` `/actor`; a policy rejection is `unauthenticated`.
+     * The holder id of a claim, release or heartbeat: the trusted id of the call's principal under the degraded-mode
+     * policy; a policy rejection is `unauthenticated`.
      */
     fun holderId(
         env: ToolExecutionContext,
         ctx: CallContext
     ): Outcome<String> {
-        val principal = ctx.principal ?: return Outcome.Err(actorRequired())
+        val principal = ctx.principal
         return when (
             val resolved =
                 ActorTrustPolicy.resolveTrustedActorId(

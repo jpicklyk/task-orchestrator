@@ -38,7 +38,7 @@ class SelectToolSpec(
 ) : ToolSpec
 
 /**
- * One select of a [SelectToolSpec]: its [request] class (decoded strictly; `actor`, `describe` and
+ * One select of a [SelectToolSpec]: its [request] class (decoded strictly; `describe` and
  * `select` are lifted first), the [profiles] it is visible in (an empty set is REST-only), the [capability] a caller needs (READ
  * unless declared otherwise; ADMIN grants all), and the [errors] its handler may return beyond the common ones.
  */
@@ -142,8 +142,8 @@ sealed class SelectSpec<R : Any, T>(
     }
 
     companion object {
-        /** Top-level keys a select request never decodes: the transport lifts them first. */
-        val SELECT_RESERVED: Set<String> = setOf("actor", "describe", "select")
+        /** Top-level keys a select request never decodes: the dispatcher reads them itself. */
+        val SELECT_RESERVED: Set<String> = setOf("describe", "select")
     }
 }
 
@@ -196,7 +196,7 @@ class OpSpec<E : Any, R>(
         val OP_RESERVED: Set<String> = setOf("op", "idempotencyKey")
 
         /** Field names an op request class must not declare. */
-        val OP_FORBIDDEN_FIELDS: Set<String> = setOf("actor", "op", "idempotencyKey")
+        val OP_FORBIDDEN_FIELDS: Set<String> = setOf("op", "idempotencyKey")
     }
 }
 

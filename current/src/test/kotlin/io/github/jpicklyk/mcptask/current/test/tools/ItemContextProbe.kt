@@ -32,7 +32,7 @@ class ItemContextProbe(
     suspend fun envelope(
         context: ToolExecutionContext,
         args: JsonObject,
-        access: CallAccess = CallAccess.UNRESTRICTED
+        access: CallAccess = CallAccess.LOCAL
     ): JsonObject {
         val spec = checkNotNull(registry[ItemsReadTool.NAME]) { "items_read is not registered" }
         val arguments = JsonObject(args + ("select" to JsonPrimitive(select)))

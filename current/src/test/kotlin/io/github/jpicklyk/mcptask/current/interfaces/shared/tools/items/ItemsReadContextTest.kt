@@ -920,7 +920,7 @@ class ItemsReadContextTest {
 
             suspend fun knowledge(args: JsonObject) =
                 dispatcher
-                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.UNRESTRICTED)
+                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.LOCAL)
                     .envelope.body
 
             for (hidden in listOf("context", "next", "blocked")) {

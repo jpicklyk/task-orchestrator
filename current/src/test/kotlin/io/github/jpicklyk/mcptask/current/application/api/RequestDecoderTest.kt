@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item f1b003a6) for [RequestDecoder] and [IdRef], scenarios S12 to S14.
  *
  * Oracles: plan section 3.2 Q1a and the frozen task-scope decisions D3 and D10 (input must be an object, else
- * `invalid_request` on field `$`; reserved top-level keys such as `actor` are removed and never reported; every unknown key
+ * `invalid_request` on field `$`; reserved top-level keys (none by default; a select call reserves `describe` and `select`) are removed and never reported; every unknown key
  * at every depth, including objects inside arrays, is collected as a JSON-pointer path with `~0`/`~1` escaping, sorted, and
  * reported as `unknown_parameter`; otherwise every type mismatch, bad enum, bad instant, bad id, missing required field and
  * null for a non-nullable field is collected into `invalid_request.fields[]` sorted by pointer; unknown wins over invalid;
@@ -126,21 +126,19 @@ class RequestDecoderTest {
     }
 
     @Test
-    fun `S12 the reserved actor key is removed and never reported`() {
-        val value = okValue(decode("""{"name":"n","actor":{"id":"agent-1","kind":"subagent","extra":"ignored"}}"""))
-        assertEquals(Req(name = "n"), value)
-        // a non-object actor is also lifted away
-        assertEquals(Req(name = "n"), okValue(decode("""{"name":"n","actor":"just-a-string"}""")))
+    fun `S12 the default reserved set is empty - a top-level actor is an unknown parameter (R14)`() {
+        assertEquals(listOf("/actor"), unknownParameters(decode("""{"name":"n","actor":{"id":"agent-1","kind":"subagent"}}""")))
+        assertEquals(listOf("/actor"), unknownParameters(decode("""{"name":"n","actor":"just-a-string"}""")))
     }
 
     @Test
-    fun `S12 actor is stripped only at the top level - a nested actor key is an unknown parameter`() {
+    fun `S12 a nested actor key is an unknown parameter`() {
         assertEquals(listOf("/filter/actor"), unknownParameters(decode("""{"name":"n","filter":{"actor":"x"}}""")))
         assertEquals(listOf("/ops/0/actor"), unknownParameters(decode("""{"name":"n","ops":[{"id":"abcdef12","actor":"x"}]}""")))
     }
 
     @Test
-    fun `S12 a custom reserved set replaces the default - actor becomes unknown, the named key is stripped`() {
+    fun `S12 a custom reserved set strips only the named key - actor stays unknown`() {
         assertEquals(Req(name = "n"), okValue(decode("""{"name":"n","requestId":"r1"}""", reserved = setOf("requestId"))))
         assertEquals(listOf("/actor"), unknownParameters(decode("""{"name":"n","actor":{}}""", reserved = setOf("requestId"))))
         assertEquals(listOf("/actor"), unknownParameters(decode("""{"name":"n","actor":{}}""", reserved = emptySet())))
@@ -149,9 +147,9 @@ class RequestDecoderTest {
     @Test
     fun `S12 a reserved key is stripped before validation - it can hide neither a fault nor create one`() {
         // the reserved key carries a value that would fail every type rule if it were validated
-        assertEquals(Req(name = "n"), okValue(decode("""{"name":"n","actor":[1,2,3]}""")))
+        assertEquals(Req(name = "n"), okValue(decode("""{"name":"n","select":[1,2,3]}""", reserved = setOf("select"))))
         // the real fault is still reported next to a reserved key
-        assertEquals(listOf("/name"), violations(decode("""{"actor":{"id":"a"}}""")).map { it.field })
+        assertEquals(listOf("/name"), violations(decode("""{"select":{"id":"a"}}""", reserved = setOf("select"))).map { it.field })
     }
 
     @Test

@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  *
  * Oracles: task-scope Contract for `ToolRegistry` (`init` throws `IllegalArgumentException` naming tool/op/field for a duplicate
  * tool name, a duplicate select/op name within a tool, a tool name outside `^[a-z][a-z0-9_]{0,63}$`, an op name outside
- * `^[a-z][a-z_]{0,63}$`, a request class using a reserved field name (`actor`, `describe`, `select` for select tools; `actor`,
+ * `^[a-z][a-z_]{0,63}$`, a request class using a reserved field name (`describe`, `select` for select tools;
  * `op`, `idempotencyKey` for op elements), a polymorphic or sealed member anywhere, and the same field name in two selects/ops of
  * one tool with a different generated schema) and the declared reserved-name sets. Name boundaries are the regex quantifiers
  * (1 + 63 = 64 characters accepted, 65 rejected).
@@ -165,22 +165,26 @@ class ToolRegistryTest {
 
     @Test
     fun `S3 the declared reserved-name sets are exactly the frozen ones`() {
-        assertEquals(setOf("actor", "describe", "select"), SelectSpec.SELECT_RESERVED)
-        assertEquals(setOf("actor", "describe", "select"), ToolRegistry.SELECT_FORBIDDEN_FIELDS)
-        assertEquals(setOf("actor", "op", "idempotencyKey"), OpSpec.OP_FORBIDDEN_FIELDS)
+        // R14: `actor` is no longer reserved anywhere; a body actor is an ordinary unknown key.
+        assertEquals(setOf("describe", "select"), SelectSpec.SELECT_RESERVED)
+        assertEquals(setOf("describe", "select"), ToolRegistry.SELECT_FORBIDDEN_FIELDS)
+        assertEquals(setOf("op", "idempotencyKey"), OpSpec.OP_FORBIDDEN_FIELDS)
         assertEquals(setOf("op", "idempotencyKey"), OpSpec.OP_RESERVED)
     }
 
     @Test
     fun `S3 control - a select and an op with ordinary fields are accepted`() {
         ToolRegistry(listOf(selectTool("sel_tool", select("pick", fine)), opsTool("ops_tool", op("do_it", fine))))
+        // R14: `actor` is an ordinary field name now, on both kinds of tool.
+        ToolRegistry(
+            listOf(selectTool("sel_tool", select("pick", serializer<BadActor>())), opsTool("ops_tool", op("do_it", serializer<BadActor>())))
+        )
     }
 
     @Test
-    fun `S3 a select request with actor, describe or select is rejected naming tool, select and field`() {
+    fun `S3 a select request with describe or select is rejected naming tool, select and field`() {
         val cases =
             mapOf(
-                "actor" to serializer<BadActor>(),
                 "describe" to serializer<BadDescribe>(),
                 "select" to serializer<BadSelect>()
             )
@@ -193,10 +197,9 @@ class ToolRegistryTest {
     }
 
     @Test
-    fun `S3 an op request with actor, op or idempotencyKey is rejected naming tool, op and field`() {
+    fun `S3 an op request with op or idempotencyKey is rejected naming tool, op and field`() {
         val cases =
             mapOf(
-                "actor" to serializer<BadActor>(),
                 "op" to serializer<BadOp>(),
                 "idempotencyKey" to serializer<BadKey>()
             )

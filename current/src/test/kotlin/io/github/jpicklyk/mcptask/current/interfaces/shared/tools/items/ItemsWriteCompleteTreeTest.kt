@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -379,7 +380,7 @@ class ItemsWriteCompleteTreeTest {
                 }
             val transitionError =
                 buildToolDispatcher(k.rig.ctx)
-                    .dispatch(advanceSpec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp")
+                    .dispatchAsTestActor(advanceSpec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp")
                     .envelope.body
                     .errorAt()
             assertEquals(transitionError.str("code"), entryError.str("code"))
@@ -715,7 +716,7 @@ class ItemsWriteCompleteTreeTest {
             assertEquals(setOf(a.id, b.id), transitions.map { it.entityId }.toSet())
             for (row in transitions) {
                 assertEquals("agent-1", row.principalId)
-                assertEquals("subagent", row.principalKind)
+                assertEquals("external", row.principalKind)
             }
         }
 

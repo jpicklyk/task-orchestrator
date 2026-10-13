@@ -130,7 +130,7 @@
             },
             "idempotencyKey": {
               "type": "string",
-              "description": "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
             }
           },
           "required": [

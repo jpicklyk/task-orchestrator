@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
+import io.github.jpicklyk.mcptask.current.test.liftTestActor
 import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -230,7 +231,10 @@ internal suspend fun callMcp(
     profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): McpResult {
     val dispatcher = buildToolDispatcher(toolContext)
-    val adapter = if (access == null) McpOperationAdapter(dispatcher) else McpOperationAdapter(dispatcher, access = access)
+    // No access given: the MCP default path, where a top-level `actor` fixture selects the caller (liftTestActor) and
+    // the call otherwise runs as the local principal. The server itself never reads a body `actor` since R14.
+    val (callArgs, lifted) = if (access == null) liftTestActor(args) else args to null
+    val adapter = McpOperationAdapter(dispatcher, access = access ?: { _ -> checkNotNull(lifted) })
     val server = Server(serverInfo = Implementation(name = "parity-server", version = "1.0.0"), options = inMemoryTestServerOptions())
     adapter.register(server, registry, profile)
     val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
@@ -246,7 +250,7 @@ internal suspend fun callMcp(
             client.callTool(
                 buildCallToolRequest {
                     name = tool
-                    arguments(args)
+                    arguments(callArgs)
                 }
             )
         result.structuredContent?.let { assertParityBodyConforms(it.toString(), "MCP $tool body", args.toString()) }
