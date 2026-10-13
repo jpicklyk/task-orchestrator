@@ -42,8 +42,8 @@ data class EventPage(
  *
  * [append] is a write: it runs inside the caller's unit of work (production policy rejects outside-unit
  * writes), so the rows commit or roll back with the change they describe, and seq order is commit order
- * because one writer transaction runs at a time. There is no update or delete path. A database failure is
- * thrown, like every other store.
+ * because one writer transaction runs at a time. There is no update path; the only delete path is [prune], used by
+ * the retention pruner. A database failure is thrown, like every other store.
  */
 interface EventStore {
     /** Appends [records] in order and returns them with their assigned [EventRecord.seq]. */
@@ -104,6 +104,19 @@ interface EventStore {
         scope: AccessScope,
         page: PageRequest
     ): EventPage
+
+    /**
+     * Retention: deletes at most [batch] rows of [type] with `occurred_at < cutoff` and `seq < protectFrom`, oldest
+     * first, and returns how many it deleted. For `claim.expired` the newest row of each entity is never deleted (the
+     * claim-expiry sweep deduplicates against it). A write: it runs inside the caller's unit and records no event.
+     * The default throws; a store that serves retention overrides it.
+     */
+    suspend fun prune(
+        type: String,
+        cutoff: Instant,
+        protectFrom: Long,
+        batch: Int
+    ): Int = throw UnsupportedOperationException("This EventStore does not support retention pruning")
 
     companion object {
         /**

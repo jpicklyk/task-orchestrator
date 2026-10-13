@@ -24,12 +24,14 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import java.time.Instant
@@ -504,6 +506,32 @@ class SQLiteResourceLeaseRepository(
                 .limit(limit)
                 .map { toInterval(it) }
         }
+
+    /**
+     * Selects the oldest [batch] CLOSED intervals released before [cutoff] through the `released_at` index, then deletes
+     * them by id. `released_at IS NOT NULL` is explicit: an open interval is never a candidate, however old.
+     */
+    override suspend fun pruneClosed(
+        cutoff: Instant,
+        batch: Int
+    ): Int {
+        if (batch <= 0) return 0
+        return databaseManager.writeTx("LeaseStore.pruneClosed") {
+            val ids =
+                ResourceLeaseHistoryTable
+                    .select(ResourceLeaseHistoryTable.id)
+                    .where { ResourceLeaseHistoryTable.releasedAt.isNotNull() and (ResourceLeaseHistoryTable.releasedAt less cutoff) }
+                    .orderBy(ResourceLeaseHistoryTable.releasedAt to SortOrder.ASC)
+                    .limit(batch)
+                    .map { it[ResourceLeaseHistoryTable.id] }
+            ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                ResourceLeaseHistoryTable.deleteWhere {
+                    ResourceLeaseHistoryTable.id inList
+                        chunk
+                }
+            }
+        }
+    }
 
     private fun toResourceLease(row: ResultRow): ResourceLease =
         ResourceLease(

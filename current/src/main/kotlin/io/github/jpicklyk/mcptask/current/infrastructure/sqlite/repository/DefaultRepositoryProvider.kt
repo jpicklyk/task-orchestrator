@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -42,6 +43,7 @@ class DefaultRepositoryProvider(
     private val idempotencyStoreInstance by lazy { SqliteIdempotencyStore(databaseManager) }
     private val eventStoreInstance by lazy { SqliteEventStore(databaseManager) }
     private val searchEngine by lazy { SqliteSearchEngine(databaseManager) }
+    private val callLogStoreInstance by lazy { SqliteCallLogStore(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 
@@ -64,4 +66,6 @@ class DefaultRepositoryProvider(
     override fun idempotencyStore(): IdempotencyStore = idempotencyStoreInstance
 
     override fun eventStore(): EventStore = eventStoreInstance
+
+    override fun callLogStore(): CallLogStore = callLogStoreInstance
 }

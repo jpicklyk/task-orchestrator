@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
+import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -222,6 +223,14 @@ class CurrentMcpServer(
             idempotencyPruner.start()
             shutdownCoordinator.addCleanupAction("Stop Idempotency Pruner") {
                 runBlocking { idempotencyPruner.stop() }
+            }
+
+            // Rows older than the RETENTION_* windows are pruned in the background: the first pass starts now without
+            // delaying readiness, then hourly. Registered AFTER Close Database so the LIFO drain stops it first.
+            val retentionPruner = RetentionPruner(composition.unitOfWork, appConfig.retention, appConfig.apiSseBufferSize)
+            retentionPruner.launch()
+            shutdownCoordinator.addCleanupAction("Stop Retention Pruner") {
+                runBlocking { retentionPruner.stop() }
             }
 
             // Expired claims are reported and lapsed leases removed once now and then hourly. Registered after the

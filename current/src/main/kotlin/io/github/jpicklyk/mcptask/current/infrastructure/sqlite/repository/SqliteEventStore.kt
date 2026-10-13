@@ -5,13 +5,18 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.EventPage
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.EventsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.IColumnType
+import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
@@ -19,6 +24,7 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.max
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -34,6 +40,9 @@ import java.util.UUID
  *
  * Backfilled rows (seq 1..N, below [EventStore.SEQ_FLOOR]) are history: [readAfter] and [maxSeq] are floored so the
  * stream never sees them, while [findByEntity] and [findByTypes] read them.
+ *
+ * [prune] is the retention delete path: it selects candidate seqs through `idx_events_type_occurred` (a range scan
+ * that never walks kept rows) and deletes them by primary key.
  */
 class SqliteEventStore(
     private val databaseManager: DatabaseManager
@@ -194,6 +203,38 @@ class SqliteEventStore(
         }
     }
 
+    override suspend fun prune(
+        type: String,
+        cutoff: Instant,
+        protectFrom: Long,
+        batch: Int
+    ): Int {
+        if (batch <= 0) return 0
+        return databaseManager.writeTx("EventStore.prune") {
+            val guarded = type == DomainEvent.CLAIM_EXPIRED
+            val sql =
+                "SELECT seq FROM events INDEXED BY idx_events_type_occurred " +
+                    "WHERE type = ? AND occurred_at < ? AND seq < ?" +
+                    (if (guarded) LATEST_PER_ENTITY_GUARD else "") +
+                    " ORDER BY occurred_at LIMIT ?"
+            val args =
+                buildList<Pair<IColumnType<*>, Any?>> {
+                    add(TextColumnType() to type)
+                    add(EventsTable.occurredAt.columnType to cutoff)
+                    add(LongColumnType() to protectFrom)
+                    if (guarded) add(TextColumnType() to type)
+                    add(IntegerColumnType() to batch)
+                }
+            val seqs =
+                exec(sql, args) { rs ->
+                    val found = ArrayList<Long>()
+                    while (rs.next()) found.add(rs.getLong(1))
+                    found
+                } ?: emptyList()
+            seqs.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk -> EventsTable.deleteWhere { EventsTable.seq inList chunk } }
+        }
+    }
+
     private fun toRecord(row: ResultRow): EventRecord =
         EventRecord(
             seq = row[EventsTable.seq],
@@ -213,4 +254,10 @@ class SqliteEventStore(
             seat = row[EventsTable.seat],
             data = row[EventsTable.data]
         )
+
+    private companion object {
+        /** Keeps each entity's newest row of the pruned type (applied to `claim.expired` only). */
+        const val LATEST_PER_ENTITY_GUARD =
+            " AND seq < (SELECT MAX(l.seq) FROM events l WHERE l.type = ? AND l.entity_id = events.entity_id)"
+    }
 }
