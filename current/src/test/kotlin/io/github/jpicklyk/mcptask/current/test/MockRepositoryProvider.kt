@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
@@ -33,6 +34,7 @@ class MockRepositoryProvider {
     val resourceLeaseRepo: LeaseStore = mockk()
     val idempotencyRepo = InMemoryIdempotencyStore()
     val eventStore = InMemoryEventStore()
+    val callLogStore: CallLogStore = mockk()
     val provider: RepositoryProvider = mockk()
 
     /** Full-text search is its own port since 4.0 (no longer part of the work-item composite). */
@@ -54,6 +56,7 @@ class MockRepositoryProvider {
         every { provider.hierarchyStore() } returns workItemRepo
         every { provider.claimStore() } returns workItemRepo
         every { provider.searchIndex() } returns searchIndex
+        every { provider.callLogStore() } returns callLogStore
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()

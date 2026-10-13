@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.EventsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestampColumnType
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
@@ -220,7 +221,9 @@ class SqliteEventStore(
             val args =
                 buildList<Pair<IColumnType<*>, Any?>> {
                     add(TextColumnType() to type)
-                    add(EventsTable.occurredAt.columnType to cutoff)
+                    // A FRESH column type, never EventsTable.occurredAt.columnType: exec(sql, args) sets nullable=true
+                    // on each arg's column type, which would mutate the shared table definition (SchemaParityTest P-col).
+                    add(UtcTimestampColumnType("TEXT") to cutoff)
                     add(LongColumnType() to protectFrom)
                     if (guarded) add(TextColumnType() to type)
                     add(IntegerColumnType() to batch)
