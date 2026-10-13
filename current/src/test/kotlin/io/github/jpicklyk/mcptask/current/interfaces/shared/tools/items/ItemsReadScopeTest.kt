@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -229,27 +230,28 @@ class ItemsReadScopeTest {
     private fun JsonObject.ancestorTitles(): List<String> = arr("ancestors").map { it.jsonObject.str("title") }
 
     @Test
-    fun `S12 a root scope drops the ancestors above the first listed root`() =
+    fun `S12 under a root scope the ancestor chain is complete from the listed depth-0 root down`() =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
-            val top = rig.make("Above-scope-top")
-            val scopeRoot = rig.make("Scope-root", top, id = r1)
-            val leaf = rig.make("Leaf", scopeRoot)
+            // Roots only (item 754ae3dc): a listed root has no ancestor, so there is nothing above the scope to drop. The root is
+            // stamped with its own id (the one-writer invariant); the chain below it is judged on the stamped root_id.
+            val scopeRoot = rig.raw.workItemRepository().create(WorkItem(id = r1, title = "Scope-root", depth = 0, rootId = r1))
+            val mid = rig.make("Mid", scopeRoot)
+            val leaf = rig.make("Leaf", mid)
             val args = getArgs(leaf.id, ""","fields":["ancestors"]""")
 
             val scoped = select(args, TEST_TOKEN)
             assertEquals(200, scoped.status, scoped.raw)
-            assertEquals(listOf("Scope-root"), scoped.data.ancestorTitles())
-            assertFalse("Above-scope-top" in scoped.raw, "the ancestor above the scope is not titled: ${scoped.raw}")
+            assertEquals(listOf("Scope-root", "Mid"), scoped.data.ancestorTitles())
             assertEquals(
-                listOf(short(scopeRoot.id)),
+                listOf(short(scopeRoot.id), short(mid.id)),
                 scoped.data.arr("ancestors").map {
                     it.jsonObject.str("id")
                 },
-                "the ancestors array names only admitted items"
+                "the ancestors array names the admitted chain, root first"
             )
 
             val unrestricted = select(args)
-            assertEquals(listOf("Above-scope-top", "Scope-root"), unrestricted.data.ancestorTitles(), "control: the full chain")
+            assertEquals(listOf("Scope-root", "Mid"), unrestricted.data.ancestorTitles(), "control: the unrestricted chain is the same")
 
             val viaList = select(list(""","parentId":"${scopeRoot.id}","fields":["ancestors"]"""), TEST_TOKEN)
             assertEquals(listOf("Scope-root"), viaList.items.single().ancestorTitles())

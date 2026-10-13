@@ -46,9 +46,9 @@ import kotlin.test.assertTrue
  *    `AccessScope`/`allowsItemTags` ("membership is exact (no prefix/substring matching)"), so `%` and `_` are plain
  *    characters, `Alpha` is not `alpha` and a principal tag containing a comma is one element, not two.
  *  - Request tag filter (D4): keeps the 3.x case-insensitive semantics, any-of.
- *  - Principal root ids (AC3/D3, `api-rest.md` section 3): an item is in scope when it or any ancestor is a listed
- *    id, so a NON-depth-0 listed id scopes exactly that subtree, including itself; an item outside every listed
- *    subtree (here an unstamped depth-0 orphan) is never returned for a restricted scope.
+ *  - Principal root ids (AC3/D3, `api-rest.md` section 3, amended by item 754ae3dc, scope on root_id, roots only): an item is
+ *    in scope when its stamped `root_id` is a listed id, so a listed id that is NOT a root admits nothing; an item outside
+ *    every listed root's tree (here an unstamped depth-0 orphan) is never returned for a restricted scope.
  *  - `field` (AC1/D5): the column that actually contains a match, title when both do; `snippet` comes from that
  *    column and carries `<mark>` delimiters.
  *
@@ -510,10 +510,12 @@ class SqliteSearchIndexContractTest {
             ): Set<UUID> = owners(Corpus.ITEM, term, analyzer, ScopeFilter(rootIds = roots.map { it.id }.toSet()))
 
             Analyzer.entries.forEach { a ->
-                assertEquals(ids(t.f, t.f1, t.f2), scoped(a, t.f), "$a: a non-depth-0 root id scopes exactly its subtree, itself included")
+                assertEquals(emptySet(), scoped(a, t.f), "$a: a non-depth-0 listed id admits nothing, itself and its subtree included")
                 assertEquals(ids(t.r, t.f, t.g, t.f1, t.f2, t.g1), scoped(a, t.r), "$a: a depth-0 root id scopes the whole tree")
-                assertEquals(ids(t.f, t.f1, t.f2, t.r2, t.r2c), scoped(a, t.f, t.r2), "$a: several ids are a union")
-                assertEquals(ids(t.g, t.g1), scoped(a, t.g), "$a")
+                assertEquals(ids(t.r2, t.r2c), scoped(a, t.f, t.r2), "$a: a non-root adds nothing to the union of the real roots")
+                assertEquals(ids(t.r, t.f, t.g, t.f1, t.f2, t.g1, t.r2, t.r2c), scoped(a, t.r, t.r2), "$a: several roots are a union")
+                assertEquals(emptySet(), scoped(a, t.g), "$a")
+                assertEquals(emptySet(), scoped(a, t.o), "$a: an unstamped depth-0 row listed as a root admits nothing")
             }
             assertEquals(
                 t.everything,
@@ -527,16 +529,22 @@ class SqliteSearchIndexContractTest {
         runBlocking {
             val t = forest()
             val term = listOf("scopeprobeqx")
+            val inR = setOf(t.r.id)
+            val inR2 = setOf(t.r2.id)
             val inF = setOf(t.f.id)
 
             assertEquals(
                 emptySet(),
-                owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, ancestorId = t.g.id)),
-                "G's subtree lies outside F's scope"
+                owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inR2, ancestorId = t.g.id)),
+                "G's subtree lies outside R2's tree"
             )
-            assertEquals(ids(t.f1, t.f2), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, ancestorId = t.f1.id)))
-            assertEquals(ids(t.f1), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, itemId = t.f1.id)))
-            assertEquals(emptySet(), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, itemId = t.g1.id)))
+            assertEquals(ids(t.g, t.g1), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inR, ancestorId = t.g.id)))
+            assertEquals(ids(t.f1, t.f2), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inR, ancestorId = t.f1.id)))
+            assertEquals(ids(t.f1), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inR, itemId = t.f1.id)))
+            assertEquals(emptySet(), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inR2, itemId = t.g1.id)))
+            // a non-root anchor admits nothing, whatever the ancestor or item filter says
+            assertEquals(emptySet(), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, ancestorId = t.f1.id)))
+            assertEquals(emptySet(), owners(Corpus.ITEM, term, Analyzer.SUBSTRING, ScopeFilter(rootIds = inF, itemId = t.f1.id)))
         }
 
     // -- window ------------------------------------------------------------------------------------------------------

@@ -33,8 +33,9 @@ import kotlin.test.assertNull
  *
  * Oracles: task-scope AC5 and decision D2 (the 3.x REST rules): a write whose target item (update, delete) or parent (create under
  * a parent; a reparent, judged on the NEW parent) is outside the scope is an element `forbidden{scope, required}`; a root create
- * under a root scope is `forbidden{root}` (the new id can never be listed); a root create under a tag scope needs a listed tag in
- * `tags`, else `forbidden{tag}`; moving an item to root under a root scope is allowed only when the item's own id is listed.
+ * under a root scope is `forbidden{root}` (the new id can never be listed). AMENDED by item 754ae3dc (scope on root_id, roots only):
+ * a root create under a tag scope is `forbidden{root, required: ""}` whatever tags it carries, and moving a non-root item to root
+ * (`clear: ["parentId"]`) is `forbidden{root}` under any restricted non-ADMIN scope, even when the item's own id is listed.
  * `required` is the sorted listed root ids or tags joined by a comma (ScopeGuardTest); tags match case-sensitively on the item's own
  * tags; an unknown item under a restricted scope is `forbidden`, never `not_found` (no existence oracle). Every scope rejection
  * precedes any write: the database snapshot is unchanged. Each forbidden assertion is paired with an in-scope control through the
@@ -162,7 +163,7 @@ class ItemsWriteScopeTest {
         }
 
     @Test
-    fun `S12 root scope - clear parentId makes the item its own root, allowed only when its id is listed`(): Unit =
+    fun `S12 root scope - clear parentId is forbidden root even when the item's id is listed`(): Unit =
         runBlocking {
             val k = seeded()
             val before = k.snapshot()
@@ -171,9 +172,17 @@ class ItemsWriteScopeTest {
             assertEquals(before, k.snapshot())
             assertEquals(r1, assertNotNull(k.item(c1)).parentId, "C1 stays under R1")
 
-            k.callScoped(rootScopedWithC1, updateOp(c1, "clear" to strings("parentId"))).okResult()
+            val listed = k.callScoped(rootScopedWithC1, updateOp(c1, "clear" to strings("parentId"))).errorAt()
+            assertForbidden(listed, "root", "$r1,$c1")
+            assertEquals(before, k.snapshot(), "listing C1 does not make the move to root allowed")
+            assertEquals(r1, assertNotNull(k.item(c1)).parentId)
+
+            k
+                .call(updateOp(c1, "clear" to strings("parentId")))
+                .envelope.body
+                .okResult()
             val moved = assertNotNull(k.item(c1))
-            assertNull(moved.parentId, "control: with C1 listed the move to root is allowed")
+            assertNull(moved.parentId, "control: the unrestricted caller moves the same item to root")
             assertEquals(c1, moved.rootId)
         }
 
@@ -234,25 +243,29 @@ class ItemsWriteScopeTest {
         }
 
     @Test
-    fun `S17 tag scope - a root create needs a listed tag in tags`(): Unit =
+    fun `S17 tag scope - a root create is forbidden root whatever tags it carries`(): Unit =
         runBlocking {
             val k = seeded()
             val before = k.snapshot()
             val withoutTags = k.callScoped(tagScoped, createOp("NoTags")).errorAt()
-            assertForbidden(withoutTags, "tag", "alpha")
+            assertForbidden(withoutTags, "root", "")
             val emptyTags = k.callScoped(tagScoped, JsonObject(createOp("EmptyTags") + ("tags" to strings()))).errorAt()
-            assertForbidden(emptyTags, "tag", "alpha")
+            assertForbidden(emptyTags, "root", "")
             val otherTag = k.callScoped(tagScoped, JsonObject(createOp("Beta") + ("tags" to strings("beta")))).errorAt()
-            assertForbidden(otherTag, "tag", "alpha")
-            val upper = k.callScoped(tagScoped, JsonObject(createOp("Upper") + ("tags" to strings("ALPHA")))).errorAt()
-            assertForbidden(upper, "tag", "alpha")
+            assertForbidden(otherTag, "root", "")
+            val listed = k.callScoped(tagScoped, JsonObject(createOp("Listed") + ("tags" to strings("alpha")))).errorAt()
+            assertForbidden(listed, "root", "")
+            val mixed = k.callScoped(tagScoped, JsonObject(createOp("Mixed") + ("tags" to strings("beta", "alpha")))).errorAt()
+            assertForbidden(mixed, "root", "")
             assertEquals(before, k.snapshot(), "no forbidden create wrote a row")
             assertEquals(5, k.all().size)
 
-            val listed = k.callScoped(tagScoped, JsonObject(createOp("Listed") + ("tags" to strings("alpha")))).okId()
-            assertEquals("alpha", assertNotNull(k.item(listed)).tags, "control: tags [alpha] is accepted")
-            val mixed = k.callScoped(tagScoped, JsonObject(createOp("Mixed") + ("tags" to strings("beta", "alpha")))).okId()
-            assertEquals("beta,alpha", assertNotNull(k.item(mixed)).tags, "any listed tag among several admits")
+            val control =
+                k
+                    .call(JsonObject(createOp("Listed") + ("tags" to strings("alpha"))))
+                    .envelope.body
+                    .okId()
+            assertEquals("alpha", assertNotNull(k.item(control)).tags, "control: the unrestricted caller creates the same root")
         }
 
     @Test

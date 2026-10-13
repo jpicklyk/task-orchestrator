@@ -37,8 +37,8 @@ import kotlin.test.assertTrue
  *  - S10: the KDoc of the replaced members -- `priority` sorts by rank (high first on desc), `complexity` sorts NULLs last
  *    regardless of direction, every sort applies a secondary `id ASC` tiebreak for stable pagination. The id order is the
  *    unsigned byte order of the BLOB key = lexicographic order of the canonical lower-case string.
- *  - S13: the base-commit KDoc of `AccessScope` -- an item is visible when its ancestor chain, itself included, contains
- *    one of `rootIds` (ids need not be depth-0); an empty set admits nothing; `task-scope` item 5 -- `filter.ancestorId`
+ *  - S13: amended by item 754ae3dc (scope on root_id, roots only) -- an item is visible when its stamped `root_id` is one of
+ *    `rootIds`; a listed id that is not a root admits nothing; an empty set admits nothing; `task-scope` item 5 -- `filter.ancestorId`
  *    and `scope.rootIds` are AND-ed subtree conditions.
  *  - S14: `task-scope` item 5 -- `scope.tagsInclude` follows the rule of `allowsItemTags`: elements trimmed, case-sensitive,
  *    empty elements never match; the page and the count are computed after the tag condition, so totals are exact.
@@ -146,11 +146,14 @@ class ItemStoreFindContractTest {
                     3 -> now.minus(1, ChronoUnit.DAYS)
                     else -> null
                 }
+            val id = UUID(rnd.nextLong(), rnd.nextLong())
             val item =
                 WorkItem(
-                    id = UUID(rnd.nextLong(), rnd.nextLong()),
+                    id = id,
                     parentId = parent?.id,
                     depth = (parent?.depth ?: -1) + 1,
+                    // roots only (item 754ae3dc): a root is stamped with its own id, a child with its parent's root
+                    rootId = parent?.let { it.rootId ?: it.id } ?: id,
                     title = names[i],
                     role = role,
                     priority = priorities[i % priorities.size],
@@ -584,15 +587,17 @@ class ItemStoreFindContractTest {
         }
 
     @Test
-    fun `S13 a scope id need not be depth 0 - a nested item scopes its own subtree`(): Unit =
+    fun `S13 a scope id that is not a root admits nothing, not even its own subtree`(): Unit =
         runBlocking {
             val fx = buildFixture()
             val nested = fx.childrenOfA[0]
             val scope = AccessScope.principal(setOf(nested.id), emptySet())
-            val expected = fx.subtree(nested.id)
-            assertEquals(3, expected.size)
-            assertEquals(expected, ids(find(scope = scope)).toSet())
-            assertEquals(3, count(scope = scope))
+            assertEquals(3, fx.subtree(nested.id).size, "fixture sanity: the nested item has a subtree to (not) admit")
+            assertEquals(emptyList(), find(scope = scope))
+            assertEquals(0, count(scope = scope))
+            // control: the real root admits the nested item and its subtree
+            val rootScope = AccessScope.principal(setOf(fx.a.id), emptySet())
+            assertTrue(fx.subtree(nested.id).all { it in ids(find(scope = rootScope)) })
         }
 
     @Test
@@ -834,10 +839,15 @@ class ItemStoreFindContractTest {
     @Test
     fun `S14 the tag scope is AND-ed with the root scope and with the tagsAny filter`(): Unit =
         runBlocking {
-            val root = repository.create(WorkItem(id = UUID(5, 0), title = "root", tags = "bug"))
-            val inside = repository.create(WorkItem(id = UUID(5, 1), title = "inside", tags = "bug,alpha", parentId = root.id, depth = 1))
-            repository.create(WorkItem(id = UUID(5, 2), title = "inside-other-tag", tags = "other", parentId = root.id, depth = 1))
-            repository.create(WorkItem(id = UUID(5, 3), title = "elsewhere", tags = "bug,alpha"))
+            val root = repository.create(WorkItem(id = UUID(5, 0), title = "root", tags = "bug", rootId = UUID(5, 0)))
+            val inside =
+                repository.create(
+                    WorkItem(id = UUID(5, 1), title = "inside", tags = "bug,alpha", parentId = root.id, depth = 1, rootId = root.id)
+                )
+            repository.create(
+                WorkItem(id = UUID(5, 2), title = "inside-other-tag", tags = "other", parentId = root.id, depth = 1, rootId = root.id)
+            )
+            repository.create(WorkItem(id = UUID(5, 3), title = "elsewhere", tags = "bug,alpha", rootId = UUID(5, 3)))
 
             val both = AccessScope.principal(setOf(root.id), setOf("bug"))
             assertEquals(setOf(root.id, inside.id), ids(find(scope = both)).toSet())
