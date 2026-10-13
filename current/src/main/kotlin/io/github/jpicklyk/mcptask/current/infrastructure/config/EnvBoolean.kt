@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
 import org.slf4j.LoggerFactory
 
 /**

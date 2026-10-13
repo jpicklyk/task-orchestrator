@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import java.util.UUID
 
 /**

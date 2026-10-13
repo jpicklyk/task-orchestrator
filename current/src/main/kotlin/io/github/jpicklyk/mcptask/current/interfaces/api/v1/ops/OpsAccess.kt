@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 

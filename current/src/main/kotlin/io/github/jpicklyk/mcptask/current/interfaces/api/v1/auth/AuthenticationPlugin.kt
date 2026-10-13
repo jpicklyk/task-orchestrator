@@ -2,6 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin

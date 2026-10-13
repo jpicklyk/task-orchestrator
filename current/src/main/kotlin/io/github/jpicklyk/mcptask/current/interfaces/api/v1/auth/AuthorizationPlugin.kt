@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install

@@ -98,7 +98,8 @@ class P5bWriteUnitGuardsTest {
         /**
          * The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt),
          * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again,
-         * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged).
+         * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged),
+         * and with the six identity files re-keyed to their R1 paths under infrastructure/identity (moved unchanged, counts unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
@@ -109,11 +110,11 @@ class P5bWriteUnitGuardsTest {
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1
-            infrastructure/config/DidDocumentJwksExtractor.kt 1
-            infrastructure/config/DidWebResolver.kt 4
+            infrastructure/identity/did/DidDocumentJwksExtractor.kt 1
+            infrastructure/identity/did/DidWebResolver.kt 4
             infrastructure/config/GlobalConfigFile.kt 3
-            infrastructure/config/JwksActorVerifier.kt 6
-            infrastructure/config/JwksKeySetProvider.kt 5
+            infrastructure/identity/jwt/JwksActorVerifier.kt 6
+            infrastructure/identity/jwt/JwksKeySetProvider.kt 5
             infrastructure/config/YamlActorAuthenticationConfigService.kt 1
             infrastructure/config/YamlConfigDocumentParser.kt 1
             infrastructure/config/YamlStatusLabelService.kt 1
@@ -126,8 +127,8 @@ class P5bWriteUnitGuardsTest {
             infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             infrastructure/shutdown/ShutdownCoordinator.kt 1
-            interfaces/api/v1/auth/BearerTokenStore.kt 2
-            interfaces/api/v1/auth/JwksApiVerifier.kt 6
+            infrastructure/identity/bearer/BearerTokenStore.kt 2
+            infrastructure/identity/jwt/JwksApiVerifier.kt 6
             interfaces/api/v1/mapping/Mappers.kt 1
             interfaces/api/v1/routes/DependencyRoutes.kt 2
             interfaces/api/v1/routes/DependencyWriteRoutes.kt 4

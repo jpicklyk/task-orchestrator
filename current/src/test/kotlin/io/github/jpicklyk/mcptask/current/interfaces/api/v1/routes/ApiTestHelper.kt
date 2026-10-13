@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install

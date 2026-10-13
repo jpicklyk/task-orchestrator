@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText

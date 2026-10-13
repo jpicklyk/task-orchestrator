@@ -12,7 +12,7 @@ import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -21,6 +21,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.IssuerNotTrustedException
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.test.actorJson
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.claimOp
@@ -191,12 +196,12 @@ class DidTrustSubjectBindingTest {
 
             val claim = actor(id = "planner", proof = jwt)
 
-            val rejectResolution = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
+            val rejectResolution = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
             assertTrue(rejectResolution is PolicyResolution.Trusted)
             assertEquals(A_DID, (rejectResolution as PolicyResolution.Trusted).trustedId)
 
             val cachedResolution =
-                ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+                ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
             assertTrue(cachedResolution is PolicyResolution.Trusted)
             assertEquals(A_DID, (cachedResolution as PolicyResolution.Trusted).trustedId)
         }
@@ -262,7 +267,7 @@ class DidTrustSubjectBindingTest {
             assertNull(verification.verifiedSubject)
 
             val resolution =
-                ActorAware.resolveTrustedActorId(
+                ActorTrustPolicy.resolveTrustedActorId(
                     actor(id = V_DID, proof = jwt),
                     verification,
                     DegradedModePolicy.REJECT
@@ -453,7 +458,7 @@ class DidTrustSubjectBindingTest {
             assertNull(verification.verifiedSubject)
 
             val resolution =
-                ActorAware.resolveTrustedActorId(
+                ActorTrustPolicy.resolveTrustedActorId(
                     actor(id = "agent-1", proof = jwtStr),
                     verification,
                     DegradedModePolicy.REJECT

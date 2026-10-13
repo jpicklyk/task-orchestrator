@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir

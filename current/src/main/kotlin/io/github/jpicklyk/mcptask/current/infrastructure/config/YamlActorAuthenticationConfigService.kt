@@ -3,6 +3,10 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.isLiteralLoopbackHost
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.MAX_TOKEN_LIFETIME_SECONDS_CEILING
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.requireHttpsOrLoopbackKeySource
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml

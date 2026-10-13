@@ -7,11 +7,11 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get

@@ -22,7 +22,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   For the remaining non-VERIFIED outcomes (ABSENT, UNCHECKED), falls back silently to the
  *   self-reported `actor.id` (same as pre-v3.3 implicit behavior).
  *
- *   Note: `ActorAware.resolveTrustedActorId` also handles a defensive
+ *   Note: `ActorTrustPolicy.resolveTrustedActorId` also handles a defensive
  *   "UNAVAILABLE + verifiedFromCache=true" branch — this is reserved for future verifier
  *   implementations that might emit UNAVAILABLE for stale-cache success. The current
  *   `JwksActorVerifier` always returns VERIFIED for that case, so the branch is unreachable

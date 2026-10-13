@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
