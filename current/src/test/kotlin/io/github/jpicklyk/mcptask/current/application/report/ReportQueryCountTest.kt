@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -116,7 +117,9 @@ class ReportQueryCountTest {
         val totalGroups: Int,
         val firstPageSize: Int,
         val scopedGroups: Int,
-        val rootGroups: Int
+        val rootGroups: Int,
+        val dailyBasis: String,
+        val dailyGroups: Int
     )
 
     private suspend fun measure(scale: Int): Measured {
@@ -143,6 +146,8 @@ class ReportQueryCountTest {
             }
             cases["retainedSince"] = { d.unitOfWork().read { d.repositoryProvider().reportQueries().retainedSince() } }
             cases["runCost"] = { d.unitOfWork().read { d.repositoryProvider().reportQueries().runCost(run) } }
+            // A window over 31 days is on the daily basis even before any fold exists (raw tail only).
+            cases["daily basis 60 days, no fold yet"] = { fx.service().usage(admin, daily60(limit = 5)) }
 
             for ((name, call) in cases) {
                 call()
@@ -150,9 +155,42 @@ class ReportQueryCountTest {
             }
             val scopedFirst = fx.ok(ReportUsageRequest(limit = 200), scoped)
             val rootFirst = fx.ok(ReportUsageRequest(rootId = IdRef(r1.toString()), limit = 200), admin)
-            Measured(counts, first.page.total, first.page.items.size, scopedFirst.page.total, rootFirst.page.total)
+
+            // R13: fold every completed day (the kit's rows are older than today up to six days), then the same 60 day window is
+            // served from usage_daily plus the raw tail. Run after the control reads above, which would otherwise turn daily.
+            UsageDailyFolder(d.unitOfWork()).foldOnce()
+            val dailyFirst = fx.ok(daily60(limit = 5), admin)
+            val dailyCursor = assertNotNull(dailyFirst.page.next, "scale $scale: the 60 day window holds more groups than one page of five")
+            val dailyCases = linkedMapOf<String, suspend () -> Any?>()
+            dailyCases["daily basis 60 days first page"] = { fx.service().usage(admin, daily60(limit = 5)) }
+            dailyCases["daily basis 60 days second page"] = { fx.service().usage(admin, daily60(limit = 5, cursor = dailyCursor)) }
+            dailyCases["daily basis 60 days rootId"] = { fx.service().usage(admin, daily60(rootId = IdRef(r1.toString()), limit = 5)) }
+            dailyCases["daily basis 60 days root scoped"] = { fx.service().usage(scoped, daily60(limit = 5)) }
+            dailyCases["daily basis 60 days groupBy day"] = { fx.service().usage(admin, daily60(groupBy = ReportGroupBy.DAY, limit = 5)) }
+            dailyCases["daily basis 60 days groupBy host"] = { fx.service().usage(admin, daily60(groupBy = ReportGroupBy.HOST, limit = 5)) }
+            for ((name, call) in dailyCases) {
+                call()
+                counts[name] = countStatements(d, call)
+            }
+            Measured(
+                counts,
+                first.page.total,
+                first.page.items.size,
+                scopedFirst.page.total,
+                rootFirst.page.total,
+                dailyFirst.window.basis,
+                dailyFirst.page.total
+            )
         }
     }
+
+    /** A request over the 60 days before the env clock: longer than the 31 day raw cap, so it is served on the daily basis. */
+    private fun daily60(
+        rootId: IdRef? = null,
+        groupBy: ReportGroupBy? = null,
+        limit: Int? = null,
+        cursor: String? = null
+    ) = ReportUsageRequest(rootId, ReportKit.NOW.minus(Duration.ofDays(60)).toString(), null, groupBy, limit, cursor)
 
     @Test
     fun `S15 every report call issues the same number of statements at scale 1 and 40`(): Unit =
@@ -182,6 +220,10 @@ class ReportQueryCountTest {
             assertTrue(large.scopedGroups < large.totalGroups, "a root scope hides the groups of R2 and of no root")
             assertEquals(80, large.scopedGroups, "R1 holds two of the six groups of every kit")
             assertEquals(80, large.rootGroups, "the rootId call keeps the same two groups of every kit")
+            assertEquals("daily", small.dailyBasis, "the 60 day window is on the daily basis at scale 1")
+            assertEquals("daily", large.dailyBasis, "and at scale 40")
+            assertEquals(small.totalGroups, small.dailyGroups, "folding changes no group: the daily window sees the same 6 groups")
+            assertEquals(large.totalGroups, large.dailyGroups, "and the same 240 groups at scale 40")
         }
 
     @Test
