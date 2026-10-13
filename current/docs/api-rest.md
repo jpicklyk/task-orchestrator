@@ -738,7 +738,7 @@ A lease is active while its expiry is strictly after "now": an expiry equal to n
 
 **Response `200 OK`:** a list page; each item is `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,
 releasedAt?, releaseReason?, releasedByActorId?}` (`releaseReason` is `released`, `expired` or `force_released`; the
-last three are absent while the interval is open), `page.total` is the count of ALL matching intervals on every page, `page.truncated` is true while intervals remain after this page, and `page.next` is then the cursor for the next page (absent on the last page); walking `next` visits every interval exactly once. `acquiredByActorId` / `releasedByActorId`
+last three are absent while the interval is open), `page.total` is the count of ALL matching intervals on every page, `page.truncated` is true while intervals remain after this page, and `page.next` is then the cursor for the next page (absent on the last page); walking `next` visits every interval exactly once only while no lease starts or ends during the walk (history is newest-first, so a walk during lease activity can repeat or skip rows). `acquiredByActorId` / `releasedByActorId`
 are present only for `ADMIN` callers.
 
 No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality

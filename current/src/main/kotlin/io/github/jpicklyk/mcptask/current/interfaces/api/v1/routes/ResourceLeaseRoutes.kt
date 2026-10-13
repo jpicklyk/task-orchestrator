@@ -57,7 +57,8 @@ private const val HISTORY_MAX_LIMIT = 200
  * - `GET    /resources/leases/history?key&at&limit&cursor`: the append-only lease-interval log, newest-first
  *   `(acquiredAt DESC, id ASC)`, as a list page ([ApiCapability.READ]). `page.total` is the count of ALL matching
  *   intervals on every page; `truncated`/`next` follow the list-page rule, and `cursor` (the previous `next`, an
- *   offset only, not bound to key/at) walks every interval exactly once. Field faults (`invalid_request`) are
+ *   offset only, not bound to key/at) walks every interval exactly once only while no lease starts or ends during the
+ *   walk (newest-first, so activity during a walk can repeat or skip rows). Field faults (`invalid_request`) are
  *   answered before a malformed or empty `cursor` (`invalid_cursor`). `key` is validated like the DELETE key (`invalid_request` field `key`), `at` is
  *   an ISO-8601 instant (field `at`) answering "who held this at that time", `limit` is 1..200 (default 50;
  *   field `limit`). Items are `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,

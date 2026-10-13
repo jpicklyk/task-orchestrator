@@ -163,7 +163,8 @@ interface LeaseStore {
      * Returns one page of the [ResourceLeaseInterval] rows (open or closed) that were held at instant [at] --
      * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` -- optionally restricted to [resourceKey].
      * Ordered newest-first `(acquiredAt DESC, id ASC)`; the id tiebreak makes the order total, so [page] walks every
-     * row exactly once. [LeaseIntervalPage.total] is the count of ALL matching rows, counted in the same read as the
+     * row exactly once on an unchanged table (a lease starting or ending mid-walk shifts later offsets and can repeat
+     * or skip rows). [LeaseIntervalPage.total] is the count of ALL matching rows, counted in the same read as the
      * page. Answers "who held resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
      */
     suspend fun findHoldersAt(
