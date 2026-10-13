@@ -1928,6 +1928,9 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `note_owned_by_other` | permanent | 403 | `itemId`: string (UUID); `key`: string; `ownerSeat`: string, optional |
 | `note_too_long` | permanent | 413 | `key`: string; `max`: integer; `actual`: integer |
 | `resource_unavailable` | transient | 409 | `itemId`: string (UUID); `resources`: array of {name: string, mode: string}; `retryAfterMs`: integer, optional |
+| `run_closed` | permanent | 409 | `runId`: string (UUID); `terminalReason`: string |
+| `run_paused` | permanent | 409 | `runId`: string (UUID); `pauseReason`: string: budget \| attempts \| manual; `pauseDecisionId`: string (UUID), optional |
+| `invalid_run_state` | permanent | 409 | `runId`: string (UUID); `status`: string: open \| paused \| closed; `allowed`: array of string |
 | `schema_violation` | permanent | 422 | `type`: string, optional; `reason`: string; `availableTypes`: array of string, optional; `availableTraits`: array of string, optional |
 | `schema_pinned_conflict` | permanent | 409 | `itemId`: string (UUID); `pinnedVersion`: string; `currentVersion`: string |
 | `config_invalid` | permanent | 422 | `errors`: array of {path: string, reason: string} |

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
@@ -237,7 +238,9 @@ class SqliteRunStore(
             marks =
                 decodeObject(row[RunsTable.marks])
                     .mapNotNull { (k, v) ->
-                        (v as? JsonPrimitive)?.contentOrNull?.let { text -> runCatching { k to Instant.parse(text) }.getOrNull() }
+                        (v as? JsonPrimitive)?.contentOrNull?.let { text ->
+                            runCatchingNonCancellation { k to Instant.parse(text) }.getOrNull()
+                        }
                     }.toMap(),
             version = row[RunsTable.version]
         )
@@ -267,7 +270,7 @@ class SqliteRunStore(
 
         fun decodeObject(text: String?): JsonObject {
             if (text.isNullOrBlank()) return JsonObject(emptyMap())
-            return runCatching { json.parseToJsonElement(text).jsonObject }.getOrElse { JsonObject(emptyMap()) }
+            return runCatchingNonCancellation { json.parseToJsonElement(text).jsonObject }.getOrElse { JsonObject(emptyMap()) }
         }
     }
 }
