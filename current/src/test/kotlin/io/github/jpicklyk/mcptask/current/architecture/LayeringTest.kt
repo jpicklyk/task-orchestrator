@@ -76,15 +76,12 @@ class LayeringTest {
     }
 
     @Test
-    fun `the baseline holds exactly the two ApiAuthConfigLoader lines`() {
+    fun `the baseline is empty`() {
         val baseline = LayeringRules.parseBaseline(baselineFile.readLines())
         kotlin.test.assertEquals(
-            setOf(
-                "infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig",
-                "infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore",
-            ),
+            emptySet<String>(),
             baseline,
-            "Q32 left only the AR-94 lines (W4 owns them); the ratchet only shrinks",
+            "R1 moved the identity code into infrastructure/identity, clearing the last AR-94 lines; the ratchet only shrinks",
         )
     }
 }

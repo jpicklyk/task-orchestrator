@@ -28,9 +28,8 @@ import java.sql.Connection
  *
  * @param customDatabase Optional pre-configured database connection (useful for testing). When set,
  *   [writer] and [reader] are both this database and no pools are created.
- * @param appConfig Typed env snapshot supplying the busy_timeout value, FLYWAY_REPAIR and the raw env resolver. Defaults to
- *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
- *   env-driven behavior unchanged.
+ * @param appConfig Typed env snapshot supplying the busy_timeout value, FLYWAY_REPAIR and the raw env resolver. Required; the
+ *   composition root passes the single snapshot built from the process environment.
  * @param outsideUnitPolicy what a store write outside any unit of work does (always counted first).
  *   Production uses the default, [OutsideUnitPolicy.FAIL]: every write site runs inside a unit, so an
  *   outside-unit write is a bug and throws. Only the test fixture opts into IMPLICIT (store-level seeding).

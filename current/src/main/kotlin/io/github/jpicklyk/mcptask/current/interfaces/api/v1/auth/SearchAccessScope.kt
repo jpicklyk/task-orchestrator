@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 
 /**
  * The [AccessScope] of this principal: its `root_ids` and `tags_include` as an engine-side filter, or
