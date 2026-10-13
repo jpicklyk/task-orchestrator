@@ -39,6 +39,13 @@ sealed class ApiAuthConfig {
         // than 60s in the future or exp - iat > this + 60s is also rejected. Defaulted so existing
         // constructor call sites keep compiling; ApiAuthConfigLoader enforces > 0 at parse time.
         val maxTokenLifetimeSeconds: Long = 86400,
+        // env API_JWKS_MAX_STALE_SECONDS: the oldest a cached key set may be (from its real fetch
+        // time) and still be served after a failed refresh; past it the key set is unavailable and
+        // every JWT fails closed. ApiAuthConfigLoader enforces > 0 and >= cacheTtlSeconds.
+        val maxStaleSeconds: Long = 3600,
+        // env API_JWKS_ALLOW_INSECURE_URL: besides admitting a plaintext-http loopback url (checked
+        // by ApiAuthConfigLoader), admits the loopback address class in the key fetch's egress guard.
+        val allowInsecureUrl: Boolean = false,
     ) : ApiAuthConfig()
 
     // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).

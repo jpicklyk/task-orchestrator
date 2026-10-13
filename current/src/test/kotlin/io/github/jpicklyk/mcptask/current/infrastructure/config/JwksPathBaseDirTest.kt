@@ -4,6 +4,7 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -46,7 +47,7 @@ class JwksPathBaseDirTest {
         baseDir: Path,
         jwksPath: String
     ): List<String?> {
-        val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(jwksPath = jwksPath), baseDir)
+        val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(jwksPath = jwksPath).toKeySource(), baseDir)
         try {
             return runBlocking { provider.getKeySet() }.keys.keys.map { it.keyID }
         } finally {

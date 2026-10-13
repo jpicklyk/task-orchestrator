@@ -133,6 +133,11 @@ sealed class VerifierConfig {
      *   the caller (default true).
      * @param staleOnError When true (default), a stale cached key set is served if the JWKS
      *   endpoint is unreachable during a refresh. When false, the fetch exception propagates.
+     * @param maxStaleSeconds Config key `max_stale_seconds` (default 3600; the YAML loader defaults
+     *   it to `max(3600, cache_ttl_seconds)` and requires it to be positive and at least
+     *   [cacheTtlSeconds]). With [staleOnError], the oldest a cached key set may be -- measured from
+     *   its real fetch time -- and still be served after a failed refresh; past it the key set is
+     *   unavailable and verification reports UNAVAILABLE.
      * @param didAllowlist Explicit list of DID strings trusted as actor identities in DID-trust mode.
      *   Non-empty activates DID-trust mode; must be combined with a null [oidcDiscovery]/[jwksUri]/[jwksPath].
      * @param didPattern Glob or regex pattern for trusted DIDs in DID-trust mode. Non-null activates
@@ -183,6 +188,7 @@ sealed class VerifierConfig {
         val didLooseKidMatch: Boolean = true,
         val allowInsecureUrl: Boolean = false,
         val maxTokenLifetimeSeconds: Long = 86400,
-        val jtiReplayProtection: Boolean = false
+        val jtiReplayProtection: Boolean = false,
+        val maxStaleSeconds: Long = 3600
     ) : VerifierConfig()
 }
