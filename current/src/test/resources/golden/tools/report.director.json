@@ -6,7 +6,8 @@
         "type": "string",
         "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
         "enum": [
-          "usage"
+          "usage",
+          "waste"
         ]
       },
       "rootId": {
@@ -19,11 +20,11 @@
       },
       "until": {
         "type": "string",
-        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since."
+        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since (waste: 7)."
       },
       "groupBy": {
         "type": "string",
-        "description": "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only).",
+        "description": "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only). [select: usage]",
         "enum": [
           "tool",
           "operation",
@@ -41,11 +42,11 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Page size, 1 to 200 (default 50)."
+        "description": "Page size, 1 to 200 (default 50). [select: usage]"
       },
       "cursor": {
         "type": "string",
-        "description": "The page.next value of the previous page."
+        "description": "The page.next value of the previous page. [select: usage]"
       },
       "describe": {
         "type": "boolean",
@@ -54,7 +55,7 @@
     },
     "type": "object"
   },
-  "description": "Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group). Call with describe:true for each operation's parameters and errors.",
+  "description": "Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group); waste (ratios: redundant reads, over-fetch, reads with no later write, empty next, related follow-through, lifecycle-free rejections). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

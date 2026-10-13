@@ -59,7 +59,7 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window); director profile only on MCP |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios); director profile only on MCP |
 
 ---
 
@@ -1822,12 +1822,13 @@ envelope request (`select` plus the select's fields) and every answer is the res
 **director-profile** tool only (`/mcp/director`); REST serves it at `POST /api/v1/ops/report`. Each field is documented
 once in the tool's own schema (`describe: true`).
 
-**Selects.** `usage` (the `call_log` usage aggregate). The rollup, gate, contention and waste reports are planned
-selects of this tool and are not served yet.
+**Selects.** `usage` (the `call_log` usage aggregate) and `waste` (call-pattern waste signals). The rollup, gate and
+contention reports are planned selects of this tool and are not served yet.
 
 | Select | Answer (`data`) |
 |---|---|
 | `usage` | `{items: [{key: {<groupBy>?: value}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}], page: {total, truncated, next?}, window: {since, until, retainedSince?, basis, truncatedByRetention?}}` |
+| `waste` | `{window: {...as usage}, signals: {redundantReads, overFetch, readsWithoutLaterWrite, emptyNext, relatedFollowThrough: {edges, links, tags, text}, lifecycleFreeRejections}}`, each signal `{value?, numerator, denominator, basis?}` |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
@@ -1846,18 +1847,51 @@ selects of this tool and are not served yet.
   A root-scoped credential sees only calls recorded against one of its roots (calls with no root are never visible to
   it). Grouping by `principal` needs the `admin` capability (else `forbidden`, scope `capability`); the MCP profiles run
   unrestricted. `rootId` must be a project root (depth 0, else `invalid_request`) and narrows the rows further; it
-  resolves by the shared scope-aware id rule (a root outside the caller's scope is `forbidden`).
+  resolves by the shared scope-aware id rule (a root outside the caller's scope is `forbidden`). `waste` applies the
+  same visibility to both sides of every session join: a row outside the window or the root filter is never seen,
+  not even as the later row.
+
+**`waste` signals.** One object, no grouping and no page (`groupBy`, `limit` and `cursor` are `unknown_parameter`).
+The window rules are those of `usage`, but the window is at most **7 days** (the session-join bound), else
+`invalid_request` on `/since`; joins never look past `until`. Every signal is always present, and
+`relatedFollowThrough` always holds `edges`, `links`, `tags` and `text`. `value` is `numerator / denominator` rounded
+half up to 4 decimals, a JSON number, omitted when the denominator is 0. Rows are classed by tool: READ is
+`items_read`, `notes_read`, `docs_read`, `deps_read`; WRITE is `items_write`, `notes_write`, `deps_write`,
+`docs_write`, `advance`; `report` and `config` are in neither. A non-ops REST row records its route template as the
+tool, so it never matches a class. A `docs_read` `get` answered `{unchanged, version}` for a current `ifVersion` is
+an ok read like any other.
+
+- **Session signals** (`basis: "mcp_sessions"`) use only MCP rows with a `session_id`, on both sides of the join;
+  REST rows never count, even when they carry a session id.
+  - `redundantReads`: the observations are the (row, id, version) pairs in `target_versions` of ok READ session
+    rows other than `related` and `search`. Denominator: the observations; numerator: the observations minus the
+    distinct (session, id, version) triples.
+  - `readsWithoutLaterWrite`: denominator the ok READ session rows; numerator those with no WRITE row (any outcome)
+    of the same session strictly later in the window.
+  - `relatedFollowThrough`: a unit is (an ok `items_read` `related` session row, one of its hits, one signal that
+    found it). Denominator per signal: its units; numerator: the units for which a strictly later row of the same
+    session, of any tool or outcome but not a `related` or `search` row, names the hit id in `target_ids` or as a
+    `target_versions` key (exact match).
+- **Both surfaces.**
+  - `overFetch`: denominator the ok `items_read` `get`, `list`, `schema`, `context`, `next` and `blocked` calls;
+    numerator those that asked for extra `fields`.
+  - `emptyNext`: denominator the ok `items_read` `next` calls; numerator those that returned nothing although some
+    item was eligible (`result_count = 0` and `eligible_count > 0`).
+  - `lifecycleFreeRejections`: denominator the WRITE calls that are not idempotent replays; numerator the sum of
+    their `lifecycle_free_rejections`. A replay repeats a stored response and is not a new rejection, so replayed
+    rows are left out of both. It is a per-call rate, so a batch can push it above 1.
 
 ```json
 { "select": "usage" }
 { "select": "usage", "groupBy": "day", "since": "2026-10-01T00:00:00Z", "until": "2026-10-08T00:00:00Z" }
 { "select": "usage", "rootId": "550e8400", "groupBy": "host", "limit": 20 }
+{ "select": "waste", "since": "2026-10-06T00:00:00Z", "until": "2026-10-13T00:00:00Z" }
 ```
 
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool report -->
-Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group).
+Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group); waste (ratios: redundant reads, over-fetch, reads with no later write, empty next, related follow-through, lifecycle-free rejections).
 
 **`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
@@ -1865,12 +1899,22 @@ Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since (waste: 7). |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only). |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`report` select `waste`** (director profile only; capability `read`): Waste signals over [since, until), at most 7 days, each {value?, numerator, denominator, basis?}: value is numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only (basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since (waste: 7). |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool report -->
 
 ---

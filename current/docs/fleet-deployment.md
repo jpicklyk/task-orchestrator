@@ -236,7 +236,8 @@ Two columns added by migration V30 serve follow-through and rejection reports:
   `invalid_transition` with `detail.fromRole` `"none"` (an advance trigger, claim, heartbeat or flip refused for a
   lifecycle-free item) or the `invalid_request` refusing a BLOCKS dependency with a lifecycle-free endpoint. NULL
   when there were none, never 0. Both surfaces fill it (REST from `POST /api/v1/ops/{tool}` bodies; the other REST
-  routes are reads).
+  routes are reads). An idempotent replay row (`replayed = 1`) repeats the stored response and so carries the same
+  count, but it is not a new rejection: `report` `waste` leaves replayed rows out of `lifecycleFreeRejections`.
 
 Rows written before V30 read NULL in both columns.
 

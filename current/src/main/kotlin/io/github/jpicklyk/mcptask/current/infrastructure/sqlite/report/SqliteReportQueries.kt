@@ -6,11 +6,16 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
 import io.github.jpicklyk.mcptask.current.application.port.UsagePage
 import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
+import io.github.jpicklyk.mcptask.current.application.port.WasteCount
+import io.github.jpicklyk.mcptask.current.application.port.WasteCounts
+import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.WorkViewSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.selectSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
@@ -73,6 +78,93 @@ class SqliteReportQueries(
             }
         }
 
+    /**
+     * ONE statement. `w` materializes the visible window once (only the needed columns, plus the class flags computed from
+     * the bound row classes), and every signal is a set-based aggregate over it: no correlated per-row subquery, so the
+     * cost is one window range scan plus `json_each` expansion and hash/auto-index joins, never O(n^2).
+     *
+     * - `obs`: (session, key, version) observations of ok non-hit-list session reads; redundant = all - distinct.
+     * - `lw`: the last write per session; a read is "without later write" when there is none strictly after it.
+     * - `units` x `tmax`: a related hit (per signal) is followed through when some later non-hit-list session row of the
+     *   same session names the hit id in `target_ids` or as a `target_versions` key (exact text match).
+     *
+     * Every `?` is in `w`, so the argument order is the order they appear there.
+     */
+    override suspend fun waste(query: WasteQuery): WasteCounts =
+        databaseManager.readTx {
+            val (where, filterArgs) = filter(query.since, query.until, query.scopeRootIds, query.rootId)
+            val args =
+                listOf<Pair<IColumnType<*>, Any?>>(
+                    TextColumnType() to jsonArray(query.readTools),
+                    TextColumnType() to jsonArray(query.writeTools),
+                    TextColumnType() to query.sessionSurface,
+                    TextColumnType() to query.itemsReadTool,
+                    TextColumnType() to jsonArray(query.hitListOperations),
+                    TextColumnType() to jsonArray(query.fetchOperations),
+                    TextColumnType() to query.nextOperation,
+                    TextColumnType() to query.relatedOperation
+                ) + filterArgs
+            val counts = HashMap<String, WasteCount>()
+            selectSql(
+                "WITH w AS MATERIALIZED (SELECT at, session_id, outcome, target_ids, target_versions, request_shape, " +
+                    "result_count, eligible_count, replayed, lifecycle_free_rejections, hit_signals, " +
+                    "(tool IN (SELECT value FROM json_each(?))) AS is_read, " +
+                    "(tool IN (SELECT value FROM json_each(?))) AS is_write, " +
+                    "(surface = ? AND session_id IS NOT NULL) AS is_session, " +
+                    "(tool = ?) AS is_items_read, " +
+                    "(COALESCE(operation, '') IN (SELECT value FROM json_each(?))) AS is_hit_list, " +
+                    "(COALESCE(operation, '') IN (SELECT value FROM json_each(?))) AS is_fetch, " +
+                    "(COALESCE(operation, '') = ?) AS is_next, " +
+                    "(COALESCE(operation, '') = ?) AS is_related " +
+                    "FROM call_log WHERE $where), " +
+                    "obs AS MATERIALIZED (SELECT w.session_id AS s, j.key AS k, j.value AS v " +
+                    "FROM w, json_each(w.target_versions) j " +
+                    "WHERE w.is_read AND w.is_session AND w.outcome = 'ok' AND NOT w.is_hit_list " +
+                    "AND w.target_versions IS NOT NULL), " +
+                    "lw AS (SELECT session_id AS s, MAX(at) AS last_write FROM w WHERE w.is_write AND w.is_session " +
+                    "GROUP BY session_id), " +
+                    "units AS (SELECT r.session_id AS s, r.at AS at, json_extract(h.value, '$.id') AS id, sg.value AS sig " +
+                    "FROM w r, json_each(r.hit_signals) h, json_each(h.value, '$.signals') sg " +
+                    "WHERE r.is_items_read AND r.is_related AND r.is_session AND r.outcome = 'ok' AND r.hit_signals IS NOT NULL), " +
+                    "named AS (SELECT c.session_id AS s, t.value AS id, c.at AS at FROM w c, json_each(c.target_ids) t " +
+                    "WHERE c.is_session AND NOT c.is_hit_list AND c.target_ids IS NOT NULL " +
+                    "UNION ALL SELECT c.session_id, t.key, c.at FROM w c, json_each(c.target_versions) t " +
+                    "WHERE c.is_session AND NOT c.is_hit_list AND c.target_versions IS NOT NULL), " +
+                    "tmax AS (SELECT s, id, MAX(at) AS last_at FROM named GROUP BY s, id) " +
+                    "SELECT 'redundantReads' AS m, " +
+                    "(SELECT COUNT(*) FROM obs) - (SELECT COUNT(*) FROM (SELECT DISTINCT s, k, v FROM obs)) AS num, " +
+                    "(SELECT COUNT(*) FROM obs) AS den " +
+                    "UNION ALL SELECT 'overFetch', " +
+                    "COALESCE(SUM(CASE WHEN json_extract(request_shape, '$.fields') IS NOT NULL THEN 1 ELSE 0 END), 0), COUNT(*) " +
+                    "FROM w WHERE is_items_read AND is_fetch AND outcome = 'ok' " +
+                    "UNION ALL SELECT 'readsWithoutLaterWrite', " +
+                    "COALESCE(SUM(CASE WHEN lw.last_write IS NULL OR lw.last_write <= r.at THEN 1 ELSE 0 END), 0), COUNT(*) " +
+                    "FROM w r LEFT JOIN lw ON lw.s = r.session_id WHERE r.is_read AND r.is_session AND r.outcome = 'ok' " +
+                    "UNION ALL SELECT 'emptyNext', " +
+                    "COALESCE(SUM(CASE WHEN result_count = 0 AND eligible_count > 0 THEN 1 ELSE 0 END), 0), COUNT(*) " +
+                    "FROM w WHERE is_items_read AND is_next AND outcome = 'ok' " +
+                    "UNION ALL SELECT 'lifecycleFreeRejections', COALESCE(SUM(COALESCE(lifecycle_free_rejections, 0)), 0), COUNT(*) " +
+                    "FROM w WHERE is_write AND replayed = 0 " +
+                    "UNION ALL SELECT '$FOLLOW_THROUGH_PREFIX' || u.sig, " +
+                    "COALESCE(SUM(CASE WHEN t.last_at > u.at THEN 1 ELSE 0 END), 0), COUNT(*) " +
+                    "FROM units u LEFT JOIN tmax t ON t.s = u.s AND t.id = u.id GROUP BY u.sig",
+                args
+            ) { rs ->
+                while (rs.next()) counts[rs.getString("m")] = WasteCount(rs.getLong("num"), rs.getLong("den"))
+            }
+            WasteCounts(
+                redundantReads = counts["redundantReads"] ?: WasteCount.ZERO,
+                overFetch = counts["overFetch"] ?: WasteCount.ZERO,
+                readsWithoutLaterWrite = counts["readsWithoutLaterWrite"] ?: WasteCount.ZERO,
+                emptyNext = counts["emptyNext"] ?: WasteCount.ZERO,
+                relatedFollowThrough =
+                    counts
+                        .filterKeys { it.startsWith(FOLLOW_THROUGH_PREFIX) }
+                        .mapKeys { it.key.removePrefix(FOLLOW_THROUGH_PREFIX) },
+                lifecycleFreeRejections = counts["lifecycleFreeRejections"] ?: WasteCount.ZERO
+            )
+        }
+
     override suspend fun retainedSince(): Instant? =
         databaseManager.readTx {
             selectSql("SELECT MIN(at) FROM call_log", emptyList()) { rs ->
@@ -92,24 +184,35 @@ class SqliteReportQueries(
             }
         }
 
-    /** The WHERE clause of [query] (window, scope roots, rootId) and its bound arguments, in placeholder order. */
-    private fun filter(query: UsageQuery): Pair<String, List<Pair<IColumnType<*>, Any?>>> {
+    private fun filter(query: UsageQuery): Pair<String, List<Pair<IColumnType<*>, Any?>>> =
+        filter(query.since, query.until, query.scopeRootIds, query.rootId)
+
+    /** The WHERE clause of a window (window, scope roots, rootId) and its bound arguments, in placeholder order. */
+    private fun filter(
+        since: Instant,
+        until: Instant,
+        scopeRootIds: Set<UUID>?,
+        rootId: UUID?
+    ): Pair<String, List<Pair<IColumnType<*>, Any?>>> {
         val clauses = mutableListOf("at >= ?", "at < ?")
         val args =
             mutableListOf<Pair<IColumnType<*>, Any?>>(
-                TextColumnType() to UtcTimestamp.format(query.since),
-                TextColumnType() to UtcTimestamp.format(query.until)
+                TextColumnType() to UtcTimestamp.format(since),
+                TextColumnType() to UtcTimestamp.format(until)
             )
-        query.scopeRootIds?.let { roots ->
+        scopeRootIds?.let { roots ->
             clauses += "root_id IN (${WorkViewSql.ID_SET_SELECT})"
             args += WorkViewSql.idSetArgument(roots)
         }
-        query.rootId?.let { root ->
+        rootId?.let { root ->
             clauses += "root_id IN (${WorkViewSql.ID_SET_SELECT})"
             args += WorkViewSql.idSetArgument(listOf(root))
         }
         return clauses.joinToString(" AND ") to args
     }
+
+    /** A JSON array of [values], bound to one `json_each(?)` parameter. */
+    private fun jsonArray(values: Collection<String>): String = JsonArray(values.map { JsonPrimitive(it) }).toString()
 
     private fun groupExpression(dimension: UsageDimension): String =
         when (dimension) {
@@ -122,4 +225,9 @@ class SqliteReportQueries(
             UsageDimension.DAY -> "substr(at, 1, 10)"
             UsageDimension.PRINCIPAL -> "principal_id"
         }
+
+    private companion object {
+        /** The result-row label prefix of a `relatedFollowThrough` signal (a fixed literal, never caller input). */
+        const val FOLLOW_THROUGH_PREFIX = "followThrough:"
+    }
 }

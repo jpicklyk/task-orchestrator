@@ -53,14 +53,26 @@ enum class ReportGroupBy(
     RESOURCE("resource", null)
 }
 
+/**
+ * The `@Doc` text of the fields every windowed select shares. The tool's input schema is one union of fields, so a field
+ * must carry the same schema (and therefore the same description) in every select that declares it (`ToolRegistry`).
+ */
+internal object ReportFieldDocs {
+    const val ROOT_ID =
+        "Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see."
+    const val SINCE = "Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days."
+    const val UNTIL =
+        "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since (waste: 7)."
+}
+
 /** `report usage`: call_log aggregates over a half-open window, grouped by one column. */
 @Serializable
 data class ReportUsageRequest(
-    @Doc("Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see.")
+    @Doc(ReportFieldDocs.ROOT_ID)
     val rootId: IdRef? = null,
-    @Doc("Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days.")
+    @Doc(ReportFieldDocs.SINCE)
     val since: String? = null,
-    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since.")
+    @Doc(ReportFieldDocs.UNTIL)
     val until: String? = null,
     @Doc(
         "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), " +
@@ -69,4 +81,15 @@ data class ReportUsageRequest(
     val groupBy: ReportGroupBy? = null,
     @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
     @Doc("The page.next value of the previous page.") val cursor: String? = null
+)
+
+/** `report waste`: waste signals over a half-open window of at most 7 days; one object, no grouping and no page. */
+@Serializable
+data class ReportWasteRequest(
+    @Doc(ReportFieldDocs.ROOT_ID)
+    val rootId: IdRef? = null,
+    @Doc(ReportFieldDocs.SINCE)
+    val since: String? = null,
+    @Doc(ReportFieldDocs.UNTIL)
+    val until: String? = null
 )
