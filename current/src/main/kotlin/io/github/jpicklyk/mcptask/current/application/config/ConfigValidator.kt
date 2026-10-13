@@ -42,7 +42,8 @@ fun interface ConfigStructuralValidator {
  * `work_item_schemas` and the legacy `note_schemas` cannot be combined; every `default_traits` entry must name a
  * trait defined in the document or in the server layer; every trait `resources[].key` must be declared in the server
  * resource registry; a `lifecycle: none` schema declares no `seats` of its own and no `required: true` note (a
- * lifecycle-free item has no phase, so no gate could ever enforce either). For a [ConfigScope.SERVER] document the
+ * lifecycle-free item has no phase, so no gate could ever enforce either); the `runs:` block (allowed in either scope)
+ * follows [runsValueViolations]. For a [ConfigScope.SERVER] document the
  * document is the server layer, so it is checked against
  * itself. [serverLayer] is the server-wide config (today the global file); with none, a per-root document sees no
  * server traits and an empty registry.
@@ -158,6 +159,8 @@ class ConfigValidator(
             }
         }
 
+        if (root.containsKey("runs")) out.addAll(runsValueViolations(root["runs"]))
+
         val traits = root["traits"] as? Map<*, *>
         traits?.forEach { (traitName, traitValue) ->
             val resources = (traitValue as? Map<*, *>)?.get("resources") as? List<*> ?: return@forEach
@@ -219,6 +222,80 @@ class ConfigValidator(
 
     companion object {
         private val SERVER_ONLY_KEYS = listOf("resources", "actor_authentication")
+
+        /** The integer-valued `runs.budgets` ceilings; `cost_usd` is the one decimal ceiling. */
+        private val RUN_INTEGER_CEILINGS = listOf("tokens", "attempts_per_seat", "max_active_seats")
+        private const val RUN_COST_CEILING = "cost_usd"
+
+        /**
+         * The value rules of the top-level `runs:` block [raw]: it is a mapping; `stall_after` is an integer greater
+         * than 0; `budgets` is a mapping whose ceilings are each greater than 0 (`tokens`, `attempts_per_seat` and
+         * `max_active_seats` integers, `cost_usd` a number in US dollars). Unknown keys are not reported here (the
+         * parser and the structural schema report them). The parser reports the same findings with the same paths and
+         * reasons, so a strict validation lists each once.
+         */
+        fun runsValueViolations(raw: Any?): List<ConfigViolation> {
+            val runs = raw as? Map<*, *> ?: return listOf(ConfigViolation(pointer("runs"), "runs must be a mapping"))
+            val out = mutableListOf<ConfigViolation>()
+            if (runs.containsKey("stall_after") && !isPositiveInteger(runs["stall_after"], Int.MAX_VALUE.toLong())) {
+                out.add(ConfigViolation(pointer("runs", "stall_after"), "stall_after must be an integer greater than 0 (seconds)"))
+            }
+            if (runs.containsKey("budgets")) {
+                val budgets = runs["budgets"] as? Map<*, *>
+                if (budgets == null) {
+                    out.add(ConfigViolation(pointer("runs", "budgets"), "budgets must be a mapping"))
+                } else {
+                    for (key in RUN_INTEGER_CEILINGS) {
+                        if (!budgets.containsKey(key)) continue
+                        val max = if (key == "tokens") Long.MAX_VALUE else Int.MAX_VALUE.toLong()
+                        if (!isPositiveInteger(budgets[key], max)) {
+                            out.add(ConfigViolation(pointer("runs", "budgets", key), "$key must be an integer greater than 0"))
+                        }
+                    }
+                    if (budgets.containsKey(RUN_COST_CEILING) && !isPositiveCost(budgets[RUN_COST_CEILING])) {
+                        out.add(
+                            ConfigViolation(
+                                pointer("runs", "budgets", RUN_COST_CEILING),
+                                "$RUN_COST_CEILING must be a number greater than 0 (US dollars)"
+                            )
+                        )
+                    }
+                }
+            }
+            return out
+        }
+
+        /** True when [value] is a whole number in `1..max` (a YAML integer: Int, Long or BigInteger). */
+        fun isPositiveInteger(
+            value: Any?,
+            max: Long
+        ): Boolean =
+            when (value) {
+                is Int, is Long, is Short, is Byte -> (value as Number).toLong() in 1..max
+                is java.math.BigInteger -> value.signum() > 0 && value.bitLength() < 64 && value.toLong() <= max
+                else -> false
+            }
+
+        /** True when [value] is a finite number of US dollars greater than 0 that converts to at least one micro-USD. */
+        fun isPositiveCost(value: Any?): Boolean = costMicroUsd(value)?.let { it > 0 } == true
+
+        /** [value] (US dollars) in micro-USD, rounded half-up, or null when it is not a finite number in the Long range. */
+        fun costMicroUsd(value: Any?): Long? {
+            if (value !is Number || value is Byte) return null
+            if (value is Double && !value.isFinite()) return null
+            if (value is Float && !value.isFinite()) return null
+            return try {
+                java.math
+                    .BigDecimal(value.toString())
+                    .movePointRight(6)
+                    .setScale(0, java.math.RoundingMode.HALF_UP)
+                    .longValueExact()
+            } catch (e: ArithmeticException) {
+                null
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
 
         /** Builds an RFC 6901 JSON Pointer from unescaped path [segments]. */
         fun pointer(vararg segments: String): String = segments.joinToString("") { "/" + escape(it) }

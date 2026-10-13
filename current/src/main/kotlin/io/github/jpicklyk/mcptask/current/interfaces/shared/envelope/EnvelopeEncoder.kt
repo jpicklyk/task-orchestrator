@@ -276,6 +276,20 @@ object EnvelopeEncoder {
                     )
                     detail.retryAfterMs?.let { put("retryAfterMs", it) }
                 }
+                is ErrorDetail.RunClosed -> {
+                    put("runId", detail.runId.toString())
+                    put("terminalReason", detail.terminalReason)
+                }
+                is ErrorDetail.RunPaused -> {
+                    put("runId", detail.runId.toString())
+                    put("pauseReason", detail.pauseReason)
+                    detail.pauseDecisionId?.let { put("pauseDecisionId", it.toString()) }
+                }
+                is ErrorDetail.InvalidRunState -> {
+                    put("runId", detail.runId.toString())
+                    put("status", detail.status)
+                    put("allowed", strings(detail.allowed))
+                }
                 is ErrorDetail.SchemaViolation -> {
                     detail.type?.let { put("type", it) }
                     put("reason", detail.reason)

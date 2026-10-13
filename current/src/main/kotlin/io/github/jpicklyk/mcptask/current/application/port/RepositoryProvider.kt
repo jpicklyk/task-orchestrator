@@ -56,4 +56,10 @@ interface RepositoryProvider {
      * The default throws, so a provider that serves retention must override it.
      */
     fun callLogStore(): CallLogStore = throw UnsupportedOperationException("This RepositoryProvider has no call log store")
+
+    /**
+     * Runs and their membership. Writes belong to `RunService`. The default throws, so a provider that serves runs
+     * must override it.
+     */
+    fun runStore(): RunStore = throw UnsupportedOperationException("This RepositoryProvider has no run store")
 }

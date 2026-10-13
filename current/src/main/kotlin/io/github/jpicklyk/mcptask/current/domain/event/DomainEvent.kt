@@ -6,6 +6,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
+import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
+import io.github.jpicklyk.mcptask.current.domain.model.RunInFlight
+import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
+import io.github.jpicklyk.mcptask.current.domain.model.RunReleased
+import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
@@ -446,12 +451,103 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("slug" to slug, "adoptedByItemId" to adoptedByItemId)
     }
 
+    // ---- runs (entity = the run; root = the run's root item) ----
+
+    /** A run was opened over [itemIds] (after de-duplication), with its pinned [budget] (null = unlimited). */
+    data class RunOpened(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val itemIds: List<UUID>,
+        val budget: RunBudget? = null
+    ) : DomainEvent() {
+        override val type: String get() = RUN_OPENED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> = mapOf("itemIds" to itemIds, "budget" to budgetPayload(budget))
+    }
+
+    /** A run's membership, budget or hints changed: [added] / [removed] are the members that actually changed. */
+    data class RunUpdated(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val added: List<UUID>,
+        val removed: List<UUID>,
+        val budgetChanged: Boolean
+    ) : DomainEvent() {
+        override val type: String get() = RUN_UPDATED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> = mapOf("added" to added, "removed" to removed, "budgetChanged" to budgetChanged)
+    }
+
+    data class RunPaused(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val reason: RunPauseReason,
+        val decisionId: UUID? = null
+    ) : DomainEvent() {
+        override val type: String get() = RUN_PAUSED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> = mapOf("reason" to reason.wire, "decisionId" to decisionId)
+    }
+
+    data class RunResumed(
+        override val entityId: UUID,
+        override val rootId: UUID
+    ) : DomainEvent() {
+        override val type: String get() = RUN_RESUMED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> = emptyMap()
+    }
+
+    /**
+     * A run closed with [reason]. [countsByRole] counts the members at close by role (`none` for a lifecycle-free
+     * one); [inFlight] lists the members whose seat was still active; [released] is what the close cascade released;
+     * [openDecisions] counts decisions left open (0 until decisions exist).
+     */
+    data class RunEnded(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val reason: RunTerminalReason,
+        val countsByRole: Map<String, Int>,
+        val inFlight: List<RunInFlight>,
+        val released: RunReleased,
+        val openDecisions: Int = 0
+    ) : DomainEvent() {
+        override val type: String get() = RUN_ENDED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> =
+            mapOf(
+                "reason" to reason.wire,
+                "countsByRole" to countsByRole,
+                "inFlight" to inFlight.map { mapOf("itemId" to it.itemId, "role" to it.role, "seat" to it.seat) },
+                "released" to mapOf("claims" to released.claims, "leases" to released.leases, "seats" to released.seats),
+                "openDecisions" to openDecisions
+            )
+    }
+
+    /** Named marks were set on a run. Defined here; produced by a later item. */
+    data class RunMarked(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val keys: List<String>
+    ) : DomainEvent() {
+        override val type: String get() = RUN_MARKED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> = mapOf("keys" to keys)
+    }
+
     companion object {
         const val KIND_ITEM = "item"
         const val KIND_NOTE = "note"
         const val KIND_DEPENDENCY = "dependency"
         const val KIND_CONFIG = "config"
         const val KIND_DOCUMENT = "document"
+        const val KIND_RUN = "run"
 
         const val ITEM_CREATED = "item.created"
         const val ITEM_UPDATED = "item.updated"
@@ -478,6 +574,15 @@ sealed class DomainEvent {
         const val DOCUMENT_ARCHIVED = "document.archived"
         const val DOCUMENT_DELETED = "document.deleted"
         const val DOCUMENT_ADOPTED = "document.adopted"
+        const val RUN_OPENED = "run.opened"
+        const val RUN_UPDATED = "run.updated"
+        const val RUN_PAUSED = "run.paused"
+        const val RUN_RESUMED = "run.resumed"
+        const val RUN_ENDED = "run.ended"
+        const val RUN_MARKED = "run.marked"
+
+        /** The run event types, in lifecycle order (all of them stream on the SSE projection). */
+        val RUN_TYPES: List<String> = listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED)
 
         /** `transition.rejected` codes (the error-catalog wire codes they mirror). */
         const val REJECTED_GATE_BLOCKED = "gate_blocked"
@@ -503,6 +608,17 @@ sealed class DomainEvent {
             slug: String,
             version: Int
         ): Map<String, Any?> = mapOf("kind" to kind.toDbValue(), "slug" to slug, "version" to version)
+
+        /** A budget as `{tokens, costMicroUsd, attemptsPerSeat, maxActiveSeats}` (unset fields null), or null. */
+        private fun budgetPayload(budget: RunBudget?): Map<String, Any?>? =
+            budget?.let {
+                mapOf(
+                    "tokens" to it.tokens,
+                    "costMicroUsd" to it.costMicroUsd,
+                    "attemptsPerSeat" to it.attemptsPerSeat,
+                    "maxActiveSeats" to it.maxActiveSeats
+                )
+            }
     }
 }
 
@@ -558,5 +674,8 @@ enum class ClaimReleaseReason(
 ) {
     RELEASED("released"),
     CLEARED("cleared"),
-    SUPERSEDED("superseded")
+    SUPERSEDED("superseded"),
+
+    /** Cleared by a run close's cascade (a member claim held by one of the run's seat assignees). */
+    RUN_CLOSED("run_closed")
 }
