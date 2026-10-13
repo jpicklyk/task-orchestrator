@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.report.ReportGroupBy
+import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.application.report.ReportUsageRequest
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.PageWith
@@ -31,7 +32,7 @@ internal val reportUsageSelect =
         request = serializer<ReportUsageRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req ->
-            env.reportService.usage(ctx, req).map { report ->
+            ReportService(env.unitOfWork, env.clock).usage(ctx, req).map { report ->
                 val page = report.page
                 PageWith(
                     ListPage(page.items.map { usageItem(report.groupBy, it) }, page.total, page.truncated, page.capped, page.next),
