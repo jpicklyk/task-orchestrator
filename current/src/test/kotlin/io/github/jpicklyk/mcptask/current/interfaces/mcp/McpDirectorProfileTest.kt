@@ -117,7 +117,8 @@ class McpDirectorProfileTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
             """"clientInfo":{"name":"director-profile-test","version":"1.0"}}}"""
 
-    private val directorTools = setOf("items_read", "deps_read")
+    /** R5 AC3's two director tools plus R9's `report`. */
+    private val directorTools = setOf("items_read", "deps_read", "report")
 
     private val knowledgeTools =
         setOf("items_read", "items_write", "notes_read", "notes_write", "deps_read", "deps_write", "docs_read", "docs_write")
@@ -285,9 +286,10 @@ class McpDirectorProfileTest {
             val listing = client.listTools("/mcp/director", session)
             val names = assertNotNull(listing.toolNames, "tools/list must return a tools result: ${listing.body}")
 
-            assertEquals(directorTools, names, "R5 AC3: exactly the two director tools")
+            assertEquals(directorTools, names, "R5 AC3 and R9: exactly the director tools")
             assertEquals(directorSelects, listing.tool("items_read").enumOf("select"), "items_read director selects")
             assertEquals(setOf("list", "graph"), listing.tool("deps_read").enumOf("select"), "deps_read director selects")
+            assertEquals(setOf("usage"), listing.tool("report").enumOf("select"), "report director selects")
         }
     }
 

@@ -246,7 +246,10 @@ class PlannedSurfaceGuardTest {
     @Test
     fun `S8 the guard measures the planned files, so the production directory is not vacuous`() {
         val totals = PlannedSurfaceChecks.totals(production)
-        assertTrue(totals.getValue(ToolProfile.DIRECTOR).planned > 0, "director has planned files (runs_read, runs_write, report)")
+        assertTrue(
+            totals.getValue(ToolProfile.DIRECTOR).planned > 0,
+            "director has planned files (runs_read, runs_write, the report delta)"
+        )
         assertTrue(totals.getValue(ToolProfile.ORCHESTRATION).planned > 0, "orchestration has planned files")
         assertTrue(totals.getValue(ToolProfile.KNOWLEDGE).planned > 0, "knowledge has the notes_write takeover delta")
     }
@@ -482,14 +485,15 @@ class PlannedSurfaceGuardTest {
     private fun JsonObject.opNames(): Set<String> = enumAt("inputSchema", "properties", "ops", "items", "properties", "op", "enum")
 
     @Test
-    fun `S17 the planned directory holds exactly the eight files of decision D5`() {
+    fun `S17 the planned directory holds exactly the eight files of decision D5, report now a rollup delta (R9)`() {
+        // R9 made report visible in director, so its full planned entry became stale; the rollup inputs stay reserved as a delta.
         assertEquals(
             setOf(
                 "runs_read.orchestration.json",
                 "runs_read.director.json",
                 "runs_write.orchestration.json",
                 "runs_write.director.json",
-                "report.director.json",
+                "report.director.delta.json",
                 "advance.orchestration.delta.json",
                 "notes_write.knowledge.delta.json",
                 "notes_write.orchestration.delta.json"
@@ -522,8 +526,7 @@ class PlannedSurfaceGuardTest {
             "runs_read.orchestration.json" to "runs_read",
             "runs_read.director.json" to "runs_read",
             "runs_write.orchestration.json" to "runs_write",
-            "runs_write.director.json" to "runs_write",
-            "report.director.json" to "report"
+            "runs_write.director.json" to "runs_write"
         )) {
             assertEquals(
                 tool,
@@ -537,9 +540,10 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S17 the three deltas add exactly the properties decision D5 gives`() {
+    fun `S17 the four deltas add exactly the properties decision D5 and R9 give`() {
         val files = planned()
         assertEquals(setOf("usage", "reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
+        assertEquals(setOf("runId", "anchorId"), files.getValue("report.director.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.knowledge.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.orchestration.delta.json").keys)
     }

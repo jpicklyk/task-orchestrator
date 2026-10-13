@@ -14,6 +14,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
  * with the `API_REDACT_NOTE_ATTRIBUTION` rule (visible unless redaction is on and the caller lacks ADMIN). Proof evidence
  * (the proof hash and verified claims) is never visible on any surface, whatever this says.
  *
+ * [principalsVisible] says whether the caller may see other principals' ids in an aggregate (the `report` `principal`
+ * grouping, W6 decision 10). It follows ADMIN in [capabilities] unless a transport passes it explicitly.
+ *
  * REST builds one from the authenticated bearer principal. MCP stays [UNRESTRICTED] until W4; the parity
  * harness passes the same access to both transports.
  */
@@ -21,7 +24,8 @@ data class CallAccess(
     val principal: CallPrincipal?,
     val scope: AccessScope,
     val capabilities: Set<ApiCapability>,
-    val attributionVisible: Boolean = false
+    val attributionVisible: Boolean = false,
+    val principalsVisible: Boolean = ApiCapability.ADMIN in capabilities
 ) {
     companion object {
         val UNRESTRICTED = CallAccess(null, AccessScope.unrestricted(), setOf(ApiCapability.ADMIN), attributionVisible = true)

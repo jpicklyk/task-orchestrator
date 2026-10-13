@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -177,6 +178,12 @@ class ToolExecutionContext(
      * [RepositoryProvider.searchIndex] on first use, like [searchService].
      */
     val relatedService: RelatedService by lazy { RelatedService(repositoryProvider.searchIndex(), unitOfWork) }
+
+    /**
+     * The `report` selects over [RepositoryProvider.reportQueries] (reached inside each call's read unit, so a provider
+     * without report queries fails only when a report actually runs), with [clock] as the window's default `until`.
+     */
+    val reportService: ReportService by lazy { ReportService(unitOfWork, clock) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

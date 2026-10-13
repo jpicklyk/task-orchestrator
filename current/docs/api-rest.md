@@ -182,7 +182,7 @@ Each token grants a set of additive capabilities:
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance`, and `items_write` `complete_tree` (orchestration profile) through `POST /ops/items_write` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
-| `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
+| `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields. The transition trail (`items_read` `history`, section 10) follows the same rule for its `actor`/`verification`.
 
@@ -218,6 +218,11 @@ collection checks cannot drift apart.
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 10) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
+- `POST /ops/report` - `usage` reads `call_log`, whose rows carry no tags: a `tags_include` token is
+  `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
+  recorded against one of its roots (calls with no root are never visible to it), filtered before grouping so
+  `page.total` counts only visible groups; `groupBy: principal` needs the `admin` capability (`403 forbidden`,
+  `detail.scope` `capability`)
 - `GET /api/v1/events` (SSE) - a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see section 21)
 
@@ -232,7 +237,8 @@ to root) under `root_ids` is allowed only when the item itself is a listed root.
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
 `ancestors`, an `items_read` `history` page) gets `200 OK` with an empty or partially filtered result; `403` is
-reserved for a single item named directly.
+reserved for a single item named directly. The one exception is `report` `usage`, an aggregate over call rows that
+carry no tags at all: a tag-scoped caller is refused outright rather than shown a silently empty report.
 
 **Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
 caller gets full pages and an exact `page.total` of visible items; the 3.x bounded candidate window for
@@ -874,7 +880,15 @@ carry one of the listed tags (exact, case-sensitive match on the trimmed comma-s
 and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
 existence oracle; the one exception is an id that is itself one of the token's listed roots, which is admitted
 under a root restriction (as in 3.x) and then answers the tool's own `not_found`, revealing nothing beyond
-the token's own scope. List reads filter out-of-scope entities instead of failing.
+the token's own scope. List reads filter out-of-scope entities instead of failing, except `report` `usage`, which
+refuses a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call rows carry no tags) and aggregates only
+a `root_ids` token's own roots (§3).
+
+**Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its `usage` select
+aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
+31): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
+page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. Grouping by `principal` needs `admin`. The
+field reference is in [`api-reference.md`](api-reference.md#report).
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 

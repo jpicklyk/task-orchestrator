@@ -50,16 +50,20 @@ suspend fun ToolExecutionContext.putNote(
         is Outcome.Err -> throw AssertionError("putNote($key) rejected: ${written.error.code.wire} ${written.error.message}")
     }
 
-/** One 4.0 tool call through the real [buildToolDispatcher] at MCP surface; returns the envelope body. */
+/**
+ * One 4.0 tool call through the real [buildToolDispatcher] at MCP surface, in [profile] (orchestration by default; a
+ * director-only tool such as `report` needs DIRECTOR); returns the envelope body.
+ */
 suspend fun ToolExecutionContext.callTool(
     tool: String,
     arguments: JsonObject,
-    access: CallAccess = CallAccess.UNRESTRICTED
+    access: CallAccess = CallAccess.UNRESTRICTED,
+    profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())[tool]) { "no 4.0 tool named $tool" }
     val dispatched =
         withContext(ActorVerificationScope()) {
-            buildToolDispatcher(this@callTool).dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "testreq0", "mcp", access)
+            buildToolDispatcher(this@callTool).dispatch(spec, profile, arguments, "testreq0", "mcp", access)
         }
     return dispatched.envelope.body
 }
