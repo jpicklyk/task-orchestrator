@@ -3,9 +3,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseIntervalPage
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
+import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -27,7 +29,6 @@ import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -470,10 +471,10 @@ class SQLiteResourceLeaseRepository(
     override suspend fun findHoldersAt(
         resourceKey: String?,
         at: Instant,
-        limit: Int
-    ): List<ResourceLeaseInterval> =
+        page: PageRequest
+    ): LeaseIntervalPage =
         databaseManager.readTx {
-            // Held at `at` iff acquiredAt <= at < coalesce(releasedAt, expiresAt) — expressed as an
+            // Held at `at` iff acquiredAt <= at < coalesce(releasedAt, expiresAt) -- expressed as an
             // OR over the open/closed shapes since Exposed has no direct coalesce() comparison here.
             val heldAt =
                 (ResourceLeaseHistoryTable.acquiredAt lessEq at) and
@@ -483,27 +484,41 @@ class SQLiteResourceLeaseRepository(
                     )
             val conditions = mutableListOf(heldAt)
             if (resourceKey != null) conditions.add(ResourceLeaseHistoryTable.resourceKey eq resourceKey)
-
-            ResourceLeaseHistoryTable
-                .selectAll()
-                .where { conditions.reduce { acc, op -> acc and op } }
-                .orderBy(ResourceLeaseHistoryTable.acquiredAt, SortOrder.DESC)
-                .limit(limit)
-                .map { toInterval(it) }
+            val condition: Op<Boolean> = conditions.reduce { acc, op -> acc and op }
+            historyPage(condition, page)
         }
 
     override suspend fun findRecentIntervals(
         resourceKey: String?,
-        limit: Int
-    ): List<ResourceLeaseInterval> =
+        page: PageRequest
+    ): LeaseIntervalPage =
         databaseManager.readTx {
-            var query = ResourceLeaseHistoryTable.selectAll()
-            if (resourceKey != null) query = query.andWhere { ResourceLeaseHistoryTable.resourceKey eq resourceKey }
-            query
-                .orderBy(ResourceLeaseHistoryTable.acquiredAt, SortOrder.DESC)
-                .limit(limit)
-                .map { toInterval(it) }
+            val condition: Op<Boolean> =
+                if (resourceKey != null) ResourceLeaseHistoryTable.resourceKey eq resourceKey else Op.TRUE
+            historyPage(condition, page)
         }
+
+    /** Count + one page over the SAME [condition], newest-first with the id tiebreak (call inside a read unit). */
+    private fun historyPage(
+        condition: Op<Boolean>,
+        page: PageRequest
+    ): LeaseIntervalPage {
+        val total =
+            ResourceLeaseHistoryTable
+                .selectAll()
+                .where { condition }
+                .count()
+                .toInt()
+        val items =
+            ResourceLeaseHistoryTable
+                .selectAll()
+                .where { condition }
+                .orderBy(ResourceLeaseHistoryTable.acquiredAt to SortOrder.DESC, ResourceLeaseHistoryTable.id to SortOrder.ASC)
+                .limit(page.limit)
+                .offset(page.offset.toLong())
+                .map { toInterval(it) }
+        return LeaseIntervalPage(items, total)
+    }
 
     private fun toResourceLease(row: ResultRow): ResourceLease =
         ResourceLease(
