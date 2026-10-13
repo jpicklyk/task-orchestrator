@@ -1,0 +1,10 @@
+{
+  "runId": {
+    "type": "string",
+    "description": "Run to roll up. Exactly one of runId and anchorId. [select: rollup]"
+  },
+  "anchorId": {
+    "type": "string",
+    "description": "Subtree root to roll up. Exactly one of runId and anchorId. [select: rollup]"
+  }
+}

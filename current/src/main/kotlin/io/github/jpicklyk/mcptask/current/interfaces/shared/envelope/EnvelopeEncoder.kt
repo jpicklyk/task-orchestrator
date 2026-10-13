@@ -57,7 +57,16 @@ object EnvelopeEncoder {
         page: ListPage<T>,
         reqId: String,
         item: (T) -> JsonElement
+    ): EncodedEnvelope = pageWith(page, reqId, extra = null, item = item)
+
+    /** List data whose [extra] members (never `items` or `page`) follow `page`, in their own order. */
+    fun <T> pageWith(
+        page: ListPage<T>,
+        reqId: String,
+        extra: JsonObject?,
+        item: (T) -> JsonElement
     ): EncodedEnvelope {
+        if (extra != null) require("items" !in extra && "page" !in extra) { "extra list data must not emit items or page" }
         val data =
             buildJsonObject {
                 put("items", JsonArray(page.items.map(item)))
@@ -70,6 +79,7 @@ object EnvelopeEncoder {
                         page.next?.let { put("next", it) }
                     }
                 )
+                extra?.let { putAll(it) }
             }
         return success(data, reqId, replayed = false)
     }
@@ -275,6 +285,20 @@ object EnvelopeEncoder {
                         )
                     )
                     detail.retryAfterMs?.let { put("retryAfterMs", it) }
+                }
+                is ErrorDetail.RunClosed -> {
+                    put("runId", detail.runId.toString())
+                    put("terminalReason", detail.terminalReason)
+                }
+                is ErrorDetail.RunPaused -> {
+                    put("runId", detail.runId.toString())
+                    put("pauseReason", detail.pauseReason)
+                    detail.pauseDecisionId?.let { put("pauseDecisionId", it.toString()) }
+                }
+                is ErrorDetail.InvalidRunState -> {
+                    put("runId", detail.runId.toString())
+                    put("status", detail.status)
+                    put("allowed", strings(detail.allowed))
                 }
                 is ErrorDetail.SchemaViolation -> {
                     detail.type?.let { put("type", it) }

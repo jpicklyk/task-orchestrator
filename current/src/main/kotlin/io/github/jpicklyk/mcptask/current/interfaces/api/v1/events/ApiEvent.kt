@@ -30,6 +30,8 @@ import kotlinx.serialization.Serializable
  * @param rootId The depth-0 ancestor of the affected item (for `scope.left` the OLD root, for
  *   `scope.entered` the NEW one): the row's `root_id`, always present on a data event since P8 (a
  *   root item uses its own id). Absent only on control events. Never redacted.
+ * @param runId The run a `run.*` event is about (`run.opened`, `run.updated`, `run.paused`, `run.resumed`,
+ *   `run.ended`, `run.marked`); those events carry no [itemId]. Null (absent) for every other event type.
  */
 @Serializable
 data class ApiEvent(
@@ -41,6 +43,7 @@ data class ApiEvent(
     val reason: String? = null,
     val actor: ActorClaimDto? = null,
     val rootId: String? = null,
+    val runId: String? = null,
 )
 
 /**
@@ -72,6 +75,8 @@ object SyncLostReason {
  * - `ITEM_ADVANCED` -- role transition (the `item.transitioned` row); payload carries [ApiEvent.newRole].
  * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
  * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).
+ * - `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked` -- run lifecycle, streamed
+ *   under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
  * - `SYNC_LOST` — the client has an unrecoverable gap: its per-connection queue overflowed, or it
  *   resumed with a `Last-Event-ID` outside the replay window or not issued by this database. The
  *   cause is carried in [ApiEvent.reason] ([SyncLostReason]). Client should re-fetch full state.

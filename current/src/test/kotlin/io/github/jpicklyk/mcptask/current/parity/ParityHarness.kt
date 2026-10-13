@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -124,6 +125,15 @@ class ParitySeeder(
             Dependency(id = id, fromItemId = from, toItemId = to, type = type, unblockAt = unblockAt, createdAt = PARITY_NOW)
         )
     }
+
+    /**
+     * Appends [records] to `call_log` through the undecorated store (no event rows, the same on both legs), so a `report`
+     * scenario reads identical rows on both legs. Returns how many rows were inserted (a duplicate `req_id` is ignored).
+     */
+    suspend fun callLog(vararg records: CallLogRecord): Int =
+        checkNotNull(provider) { "this seeder was built without a repository provider" }
+            .callLogStore()
+            .append(records.toList())
 
     /** Creates an item; a child's depth and root are derived from its parent so the domain invariants hold by construction. */
     suspend fun item(

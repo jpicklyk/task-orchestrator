@@ -105,7 +105,16 @@ class ToolDispatcher(
                         is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
                         is Outcome.Ok -> lifted.value
                     }
-            val ctx = CallContext(reqId, surface, principal, access.scope, access.attributionVisible, profile = profile.wire)
+            val ctx =
+                CallContext(
+                    reqId,
+                    surface,
+                    principal,
+                    access.scope,
+                    access.attributionVisible,
+                    access.principalsVisible,
+                    profile = profile.wire
+                )
 
             when (val describe = describeFlag(arguments)) {
                 is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(describe.error, reqId), null, batchSize)

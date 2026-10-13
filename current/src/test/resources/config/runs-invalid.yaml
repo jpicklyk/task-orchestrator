@@ -1,0 +1,17 @@
+# A document whose runs: block carries one defect per key (item 8a71510c, R17); every value breaks the rule stated in the
+# task-scope: stall_after and the four ceilings must be greater than 0 (tokens, attempts_per_seat, max_active_seats integers),
+# and runs: admits no other key. Its repaired twin is runs-valid.yaml.
+work_item_schemas:
+  feature-task:
+    notes:
+      - key: spec
+        role: queue
+        required: true
+runs:
+  stall_after: 0
+  foo: 1
+  budgets:
+    tokens: -5
+    cost_usd: 0
+    attempts_per_seat: 0
+    max_active_seats: 1.5

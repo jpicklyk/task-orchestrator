@@ -503,8 +503,9 @@ object ProductionParity {
     val scenarios: List<ParityScenario> =
         ItemsWriteParity.scenarios + ItemsWriteTreeParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios +
             AdvanceParityScenarios.all +
-            ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios + ConfigParityScenarios.scenarios
+            ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios + ConfigParityScenarios.scenarios +
+            ReportParityScenarios.scenarios
     val exemptions: List<ScopeExempt> =
         NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
-            DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions
+            DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions + ReportParityScenarios.exemptions
 }

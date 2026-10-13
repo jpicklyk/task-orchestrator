@@ -26,7 +26,9 @@ data class CallPrincipal(
  * correlation id, [surface] the transport (`mcp` or `rest`) and [scope] what the caller may see: handlers check
  * every item they touch with [ScopeGuard]. [attributionVisible] says whether the caller may see note attribution (a
  * note view's `actor` and `verification`); the transport decides it, so application code never inspects capabilities.
- * It defaults to false (hidden). Proof evidence is never emitted, whatever its value. [profile] is the wire name of
+ * It defaults to false (hidden). Proof evidence is never emitted, whatever its value. [principalsVisible] says whether the
+ * caller may see other principals' ids in an aggregate (the `report` `principal` grouping); the transport decides it too
+ * (ADMIN only), and it defaults to false. [profile] is the wire name of
  * the tool view that served the call (set by the dispatcher); [sessionId] is the caller's session, null until
  * sessions exist.
  */
@@ -36,6 +38,7 @@ data class CallContext(
     val principal: CallPrincipal?,
     val scope: AccessScope = AccessScope.unrestricted(),
     val attributionVisible: Boolean = false,
+    val principalsVisible: Boolean = false,
     val profile: String? = null,
     val sessionId: String? = null
 ) {

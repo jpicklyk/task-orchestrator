@@ -31,6 +31,9 @@ object ErrorFixTemplates {
                 "Note {key} on item {itemId} is owned by another seat; use a different note key.",
             ErrorCode.NOTE_TOO_LONG to "Shorten note {key} to at most {max} characters.",
             ErrorCode.RESOURCE_UNAVAILABLE to "Retry advancing item {itemId} after the contended resources are released.",
+            ErrorCode.RUN_CLOSED to "Run {runId} is closed ({terminalReason}); open a new run to continue.",
+            ErrorCode.RUN_PAUSED to "Run {runId} is paused ({pauseReason}); resume or close it before changing it.",
+            ErrorCode.INVALID_RUN_STATE to "Run {runId} is {status}; use one of the operations listed in detail.allowed.",
             ErrorCode.SCHEMA_VIOLATION to "Use a type and notes that satisfy the configured schema.",
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 "Item {itemId} is pinned to schema {pinnedVersion} but the current schema is {currentVersion}; refresh and retry.",

@@ -47,6 +47,9 @@ interface GlobalConfigLookup {
     /** The effective top-level `independence:` policy (A2); [IndependencePolicy.DEFAULT] when not configured. */
     fun independencePolicy(): IndependencePolicy
 
+    /** The server document's own `runs:` block, or null when it has none (no defaults applied here). */
+    fun runsConfig(): RunsConfig? = null
+
     /** Fingerprint of the server config, or null when none is loaded. */
     fun fingerprint(): String?
 

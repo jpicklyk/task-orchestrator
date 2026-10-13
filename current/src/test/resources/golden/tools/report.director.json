@@ -1,0 +1,64 @@
+{
+  "name": "report",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "usage"
+        ]
+      },
+      "rootId": {
+        "type": "string",
+        "description": "Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see."
+      },
+      "since": {
+        "type": "string",
+        "description": "Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days."
+      },
+      "until": {
+        "type": "string",
+        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since."
+      },
+      "groupBy": {
+        "type": "string",
+        "description": "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only).",
+        "enum": [
+          "tool",
+          "operation",
+          "host",
+          "surface",
+          "principalKind",
+          "errorCode",
+          "day",
+          "principal",
+          "noteKey",
+          "type",
+          "trait",
+          "resource"
+        ]
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50)."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The page.next value of the previous page."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group). Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

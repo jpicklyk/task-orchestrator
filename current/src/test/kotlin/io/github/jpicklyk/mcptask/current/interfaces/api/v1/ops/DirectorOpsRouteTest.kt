@@ -63,8 +63,9 @@ import kotlin.test.assertTrue
  * Oracles (never read from a run): the R10 plan paragraph and task-scope item 7 and AC4 (the director path serves the director
  * profile through the same dispatcher; a registered tool outside the set is `forbidden{scope: capability, required: "director"}`,
  * not the `/ops/{tool}` `invalid_request`; a hidden select inside a visible tool keeps the dispatcher's `invalid_request`; the
- * envelopes of served members are byte-equal to `/ops/{tool}`; decision D5, the refusal is tool-level only), R5 AC3 (the director
- * set is exactly `items_read` get, list, overview and blocked, and `deps_read` list and graph, nothing else), the frozen REST
+ * envelopes of served members are byte-equal to `/ops/{tool}`; decision D5, the refusal is tool-level only), R5 AC3 as amended by
+ * the R9 merge ruling (the director set is exactly `items_read` get, list, overview and blocked, `deps_read` list and graph, and
+ * `report` usage, nothing else), the frozen REST
  * fault table of `api-rest.md` (401 unauthenticated; 400 for a non-JSON `Content-Type`, an `Idempotency-Key` header, a body that
  * is not a JSON object, an unknown tool, in that order), test-plan S13 and task-scope item 9 (the provenance of a REST call is
  * `(api:<id>, kind, proofStatus, host, sessionId null, runId, seat, served profile)`; the served profile's wire name is
@@ -389,6 +390,28 @@ class DirectorOpsRouteTest {
         }
 
     @Test
+    fun `S10 report usage answers on the director path with the same envelope as ops`() =
+        withApp(ToolRegistry(buildToolSpecs())) { _ ->
+            // A fixed past window keeps `until` deterministic and the aggregate empty for any call-log state.
+            val body = """{"select":"usage","since":"2020-01-01T00:00:00Z","until":"2020-01-02T00:00:00Z"}"""
+            val viaDirector = client.send("/api/v1/ops/director/report", body)
+            assertEquals(200, viaDirector.status.value, viaDirector.bodyAsText())
+            val viaOps = client.send("/api/v1/ops/report", body)
+            assertEquals(200, viaOps.status.value, viaOps.bodyAsText())
+            val directorData = viaDirector.envelope().getValue("data").jsonObject
+            val opsData = viaOps.envelope().getValue("data").jsonObject
+            assertEquals(0, directorData.getValue("items").jsonArray.size, "no call falls in the 2020 window")
+            assertEquals(opsData.getValue("items"), directorData.getValue("items"))
+            assertEquals(opsData.getValue("page"), directorData.getValue("page"))
+            val window = directorData.getValue("window").jsonObject
+            assertTrue("2020-01-01T00:00:00" in window.getValue("since").jsonPrimitive.content, "since echoed: $window")
+            assertTrue("2020-01-02T00:00:00" in window.getValue("until").jsonPrimitive.content, "until echoed: $window")
+            assertEquals("raw", window.getValue("basis").jsonPrimitive.content)
+            assertEquals(opsData.getValue("window").jsonObject.getValue("since"), window.getValue("since"))
+            assertEquals(opsData.getValue("window").jsonObject.getValue("until"), window.getValue("until"))
+        }
+
+    @Test
     fun `S10 the other selects of items_read are invalid_request on the director path and served on ops`() =
         withApp(ToolRegistry(buildToolSpecs())) { rig ->
             val (root, _) = seedTree(rig)
@@ -411,9 +434,9 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 every registered tool other than items_read and deps_read is forbidden director on the director path`() {
+    fun `S10 every registered tool other than items_read, deps_read and report is forbidden director on the director path`() {
         val registry = ToolRegistry(buildToolSpecs())
-        val outside = registry.tools.map { it.name }.filter { it != "items_read" && it != "deps_read" }
+        val outside = registry.tools.map { it.name }.filter { it != "items_read" && it != "deps_read" && it != "report" }
         assertTrue(outside.isNotEmpty(), "fixture: the production registry has tools outside the director set")
         assertTrue(
             "notes_read" in outside && "docs_write" in outside && "config" in outside,
@@ -430,6 +453,10 @@ class DirectorOpsRouteTest {
 
             // control: a director-set tool on the same path, same credential, is served
             assertEquals(200, client.send("/api/v1/ops/director/items_read", """{"select":"overview"}""", token = "raw-admin").status.value)
+            // the report tool is in the director set now: an empty body reaches the tool, which refuses the missing select
+            val report = client.send("/api/v1/ops/director/report", "{}", token = "raw-admin")
+            assertEquals(400, report.status.value, report.bodyAsText())
+            assertEquals("invalid_request", report.envelope().code())
         }
     }
 }

@@ -90,6 +90,34 @@ sealed class SelectSpec<R : Any, T>(
             }
     }
 
+    /**
+     * A paged select whose `data` also carries sibling members next to `items` and `page` (for example `report`'s
+     * `window`): [handler] returns a [PageWith], whose [PageWith.extra] members are emitted after `page`.
+     */
+    class PagedWith<R : Any, T>(
+        name: String,
+        doc: String,
+        profiles: Set<ToolProfile>,
+        request: KSerializer<R>,
+        errors: Set<ErrorCode> = emptySet(),
+        capability: ApiCapability = ApiCapability.READ,
+        val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<PageWith<T>>,
+        val item: (T) -> JsonElement
+    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
+        override suspend fun respond(
+            env: ToolExecutionContext,
+            ctx: CallContext,
+            value: R
+        ): EncodedEnvelope =
+            when (val outcome = handler(env, ctx, value)) {
+                is Outcome.Err -> EnvelopeEncoder.error(outcome.error, ctx.reqId)
+                is Outcome.Ok -> EnvelopeEncoder.pageWith(outcome.value.page, ctx.reqId, outcome.value.extra, item)
+            }
+    }
+
+    /** True for a select answering a list page ([Paged] or [PagedWith]), so it may also return `invalid_cursor`. */
+    val paged: Boolean get() = this is Paged<*, *> || this is PagedWith<*, *>
+
     /** Runs the handler on a decoded request and encodes its result. */
     protected abstract suspend fun respond(
         env: ToolExecutionContext,
@@ -118,6 +146,12 @@ sealed class SelectSpec<R : Any, T>(
         val SELECT_RESERVED: Set<String> = setOf("actor", "describe", "select")
     }
 }
+
+/** One page of a [SelectSpec.PagedWith] select and the [extra] `data` members emitted after `page` (never `items` or `page`). */
+class PageWith<out T>(
+    val page: ListPage<T>,
+    val extra: JsonObject
+)
 
 /**
  * A write tool: one `ops[]` array of flat objects, each naming its op in `op` (plan section 3.2: one flat
