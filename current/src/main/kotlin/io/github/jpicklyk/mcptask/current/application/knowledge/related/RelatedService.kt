@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallHitSignals
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRelatedSignals
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
@@ -122,6 +123,8 @@ class RelatedService(
             }
             RefKind.NOTE -> return EMPTY
         }
+        // The reference's own root, already resolved above; the hits' roots are not looked up.
+        recordCallRoot(root)
         val self = Key(ref.kind, ref.id)
         val bound = if (request.acrossRoots) null else root
         val filter =

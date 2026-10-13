@@ -24,7 +24,25 @@ import java.util.UUID
  */
 object CallLogFields {
     /** Param keys whose UUID values name the items a call touched. */
-    private val TARGET_KEYS = setOf("itemId", "id", "ids", "parentId", "fromItemId", "toItemId", "noteId")
+    private val TARGET_KEYS =
+        setOf(
+            "itemId",
+            "id",
+            "ids",
+            "parentId",
+            "fromItemId",
+            "toItemId",
+            "noteId",
+            "from",
+            "to",
+            "item",
+            "itemIds",
+            "rootId",
+            "anchorId",
+            "ancestorId",
+            "fromIds",
+            "toIds"
+        )
 
     /** Top-level arrays whose length is the call's batch size, in precedence order. */
     private val BATCH_KEYS = listOf("items", "notes", "transitions", "claims", "releases", "dependencies", "ids")
@@ -62,6 +80,12 @@ object CallLogFields {
 
     /** The `request_shape` key naming the MCP tool profile a call was served under (server-derived). */
     const val PROFILE_KEY = "profile"
+
+    /** The `request_shape` key of an `items_read` call's accepted `fields` names (server-derived). */
+    const val FIELDS_KEY = "fields"
+
+    /** The `request_shape` key set to true when a call touched more than one root (server-derived). */
+    const val MULTI_ROOT_KEY = "multiRoot"
 
     /** The `request_shape` key of a `related` call's per-signal page contribution counts. */
     const val RELATED_SIGNALS_KEY = "relatedSignals"
@@ -142,17 +166,23 @@ object CallLogFields {
      * [requestShapeJson] plus the server-derived [searchShape] of a search call (`queryHash`, `termCount`,
      * `matchMode`, and `hitsByKind` once the search ran) and the [relatedSignals] of a `related` call
      * (`relatedSignals`: per signal, the returned-page hits it contributed to) and the MCP tool [profile] wire value
-     * (`profile`), which always survive the
+     * (`profile`), the accepted `fields` names (`fields`) and `multiRoot: true`, which always survive the
      * [MAX_SHAPE_KEYS] limit and replace a client flag of the same name. The query text is never part of it.
      */
     fun requestShapeJson(
         arguments: JsonObject?,
         searchShape: CallTelemetry.SearchShape?,
         relatedSignals: Map<String, Int>? = null,
-        profile: String? = null
+        profile: String? = null,
+        fields: List<String>? = null,
+        multiRoot: Boolean = false
     ): String? {
         val extras = (searchShape?.let { searchShapeFields(it) } ?: emptyMap()).toMutableMap()
         profile?.let { extras[PROFILE_KEY] = JsonPrimitive(it) }
+        fields?.takeIf { it.isNotEmpty() }?.let { names ->
+            extras[FIELDS_KEY] = JsonArray(names.toSortedSet().map { JsonPrimitive(it) })
+        }
+        if (multiRoot) extras[MULTI_ROOT_KEY] = JsonPrimitive(true)
         relatedSignals?.let { signals ->
             extras[RELATED_SIGNALS_KEY] = JsonObject(signals.toSortedMap().mapValues { JsonPrimitive(it.value) })
         }
@@ -306,6 +336,8 @@ object CallLogFields {
             proofStatus = principal?.proofStatus,
             host = telemetry.host,
             sessionId = telemetry.sessionId,
+            runId = telemetry.runId,
+            seat = telemetry.seat,
             surface = telemetry.surface,
             tool = tool,
             operation = operation,
@@ -326,6 +358,7 @@ object CallLogFields {
             resultCount = telemetry.resultCount ?: resultCount,
             eligibleCount = telemetry.eligibleCount ?: eligibleCount,
             hitSignals = hitSignalsJson(telemetry.hitSignals),
+            rootId = telemetry.rootId,
             lifecycleFreeRejections = lifecycleFreeRejections
         )
     }

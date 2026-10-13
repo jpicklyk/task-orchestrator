@@ -70,8 +70,8 @@ import kotlin.time.Duration.Companion.hours
  * [McpOperationAdapter] over the in-memory client/server pair, the real production tool registry and the real composition
  * (events included). Q32 port: the removed 3.x adapter's probe tools are the 4.0 [FixtureTools] (its `get` select throws
  * or cancels on magic ids), and the 3.x advance_item/claim_item calls are the production `advance` tool. The 3.x
- * adapter's per-call MDC log line has no 4.0 counterpart (McpOperationAdapter logs none, a Q23 decision), so S2 asserts
- * the reqId on `_meta` and on the row only. Scenario ids follow the frozen test-plan (S2, S3, S5, S6, S7, S9, S13, S14,
+ * adapter's per-call MDC log line is covered by McpCallLogLineTest (the 4.0 adapter logs one INFO line per call since #521),
+ * so S2 here asserts the reqId on `_meta` and on the row only. Scenario ids follow the frozen test-plan (S2, S3, S5, S6, S7, S9, S13, S14,
  * S17 plus probes).
  *
  * Oracles: plan section 3.8 and the task-scope "Column sources" table and acceptance A1-A3 (frozen at queue phase).

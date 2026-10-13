@@ -36,7 +36,7 @@ import kotlin.coroutines.coroutineContext
  * one unit carries the same time), and the principal: the entity's own actor claim when the event carries one
  * (a note, a transition), else the ambient [currentEventActor], else none. `proof_status` is the entity's
  * verification status when it has one. The actor's `parent`, when present, goes into the JSON `data` as
- * `actorParent`. `req_id`, `host` and `session_id` come from the ambient [CallTelemetry] (null outside a transport call); `run_id` and `seat` stay null until W4/W5 capture them.
+ * `actorParent`. `req_id`, `host` and `session_id` come from the ambient [CallTelemetry] (null outside a transport call); `run_id` and `seat` come from the call's recorded run (null until one is stamped), and every event's root is noted on the call.
  *
  * Appends join the ambient unit of work, so they commit or roll back with the change. Once the unit commits,
  * [listener] is told about the rows (the SSE projection's wake-up); an append made outside any unit (tests over
@@ -81,6 +81,7 @@ class EventRecorder(
         call: CallTelemetry?
     ): EventRecord {
         val actor = event.entityActor ?: ambientActor
+        call?.setRoot(event.rootId)
         val data = LinkedHashMap<String, JsonElement>()
         for ((key, value) in event.payload()) data[key] = toJson(value)
         if (actor?.parent != null) data["actorParent"] = JsonPrimitive(actor.parent)
@@ -97,6 +98,8 @@ class EventRecorder(
             reqId = call?.reqId,
             host = call?.host,
             sessionId = call?.sessionId,
+            runId = call?.runId,
+            seat = call?.seat,
             data = JsonObject(data).toString()
         )
     }

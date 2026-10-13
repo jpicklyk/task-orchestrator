@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -45,7 +46,7 @@ object ItemsReadGet {
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = { env, ctx, req ->
-                val fieldsError = unknownFields(req.fields, FIELDS)
+                val fieldsError = acceptFields(req.fields, FIELDS)
                 if (fieldsError != null) {
                     Outcome.Err(fieldsError)
                 } else {
@@ -58,6 +59,7 @@ object ItemsReadGet {
                                 Outcome.Err(itemNotFound(target.value))
                             } else {
                                 recordCallTargetVersion(item.id, item.version)
+                                recordCallRoot(item.rootId ?: item.id.takeIf { item.parentId == null })
                                 if (req.ifVersion != null && req.ifVersion == item.version) {
                                     Outcome.Ok(
                                         buildJsonObject {

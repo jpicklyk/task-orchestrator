@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -69,6 +70,7 @@ object DocHandlers {
                     is Outcome.Err -> return@read admitted
                     is Outcome.Ok -> admitted.value
                 }
+            recordCallRoot(rootId)
             val doc = stores.documentStore().get(rootId, req.kind.domain, req.slug) ?: return@read Outcome.Err(documentNotFound(req.slug))
             if (version != null) {
                 val stored =
@@ -117,6 +119,7 @@ object DocHandlers {
                     is Outcome.Err -> return@read admitted
                     is Outcome.Ok -> admitted.value
                 }
+            recordCallRoot(rootId)
             val rows =
                 stores
                     .documentStore()

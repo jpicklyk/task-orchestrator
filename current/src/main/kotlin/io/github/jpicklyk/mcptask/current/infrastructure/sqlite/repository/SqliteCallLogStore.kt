@@ -64,6 +64,7 @@ class SqliteCallLogStore(
                         it[eligibleCount] = record.eligibleCount
                         it[hitSignals] = record.hitSignals
                         it[lifecycleFreeRejections] = record.lifecycleFreeRejections
+                        it[rootId] = record.rootId
                     }
                 val count = stmt.insertedCount
                 inserted += count
