@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
@@ -68,22 +69,24 @@ class SseActorRedactionTest {
         private val FIXED_TIME: Instant = Instant.parse("2026-10-06T12:00:00Z")
 
         private fun entries(
-            readScope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            readScope: AccessScope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             readExpiresAt: Instant? = null,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val read =
-                ApiPrincipal(
-                    tokenId = "sse-actor-read",
+                Principal(
+                    id = "sse-actor-read",
                     scope = readScope,
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             val admin =
-                ApiPrincipal(
-                    tokenId = "sse-actor-admin",
-                    scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                Principal(
+                    id = "sse-actor-admin",
+                    scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                     capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(
                 HashBytes(sha256(READ_TOKEN)) to BearerTokenStore.TokenEntry(read, readExpiresAt),
@@ -128,7 +131,7 @@ class SseActorRedactionTest {
         admin: Boolean,
         redact: Boolean,
         live: Boolean,
-        readScope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+        readScope: AccessScope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
         publish: suspend (ApiEventBus) -> Unit,
     ): Pair<JsonObject, String> {
         var out: Pair<JsonObject, String>? = null
@@ -308,7 +311,7 @@ class SseActorRedactionTest {
     fun `S8g a root-scoped read-only principal gets rootId but not the actor when redaction is on`() {
         val itemId = UUID.randomUUID()
         val rootId = UUID.randomUUID()
-        val scope = ApiScope(rootIds = setOf(rootId), tagsInclude = emptySet())
+        val scope = AccessScope.principal(rootIds = setOf(rootId), tagsInclude = emptySet())
         val publish = publisher(itemId, rootId, claim)
         listOf(false, true).forEach { live ->
             val (frame, raw) = fetchFrame(admin = false, redact = true, live = live, readScope = scope, publish = publish)

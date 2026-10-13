@@ -1,13 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.VerifiedApiToken
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
@@ -40,6 +42,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -68,13 +71,19 @@ class BearerSchemeParsingTest {
 
     private fun bearerConfig(): ApiAuthConfig.Bearer {
         val principal =
-            ApiPrincipal(
-                tokenId = "bearer-scheme-principal",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "bearer-scheme-principal",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
-        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(VALID_TOKEN)) to principal))
+        return ApiAuthConfig.Bearer(
+            tokens =
+                mapOf(
+                    HashBytes(sha256(VALID_TOKEN)) to BearerTokenStore.TokenEntry(principal, expiresAt = null)
+                )
+        )
     }
 
     private fun jwksAuthConfig(): ApiAuthConfig.Jwks =
@@ -86,12 +95,13 @@ class BearerSchemeParsingTest {
             cacheTtlSeconds = 300,
         )
 
-    private fun jwksPrincipal(): ApiPrincipal =
-        ApiPrincipal(
-            tokenId = "jwks-caller",
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+    private fun jwksPrincipal(): Principal =
+        Principal(
+            id = "jwks-caller",
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = setOf(ApiCapability.READ),
-            authMode = ApiAuthMode.JWKS,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.VERIFIED,
         )
 
     /** Installs [ApiBearerAuth] in bearer mode with a single probe route -- isolated from the full
@@ -101,7 +111,7 @@ class BearerSchemeParsingTest {
         install(ContentNegotiation) { json(McpJson) }
         install(ApiBearerAuth) {
             authConfig = config
-            tokenEntries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+            tokenEntries = config.tokens
         }
         routing {
             get("/api/v1/items") { call.respondText("ok") }
@@ -164,13 +174,14 @@ class BearerSchemeParsingTest {
     fun `S2 - jwks mode hands verify exactly the credential after a single scheme strip`() =
         testApplication {
             val verifier = mockk<JwksApiVerifier>()
-            coEvery { verifier.verify("valid.jwt.token") } returns jwksPrincipal()
+            coEvery { verifier.verifyWithExpiry("valid.jwt.token") } returns
+                VerifiedApiToken(jwksPrincipal(), Instant.now().plusSeconds(300))
             application { wireJwksProbe(verifier) }
 
             val response = client.get("/api/v1/items") { header(HttpHeaders.Authorization, "BEARER valid.jwt.token") }
 
             assertEquals(HttpStatusCode.OK, response.status, "S2: a mixed-case scheme in jwks mode must still authorize")
-            coVerify(exactly = 1) { verifier.verify("valid.jwt.token") }
+            coVerify(exactly = 1) { verifier.verifyWithExpiry("valid.jwt.token") }
         }
 
     // -------------------------------------------------------------------------------------------
@@ -182,7 +193,7 @@ class BearerSchemeParsingTest {
         testApplication {
             val bus = ApiEventBus(source = InMemoryEventStore())
             val config = bearerConfig()
-            val entries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+            val entries = config.tokens
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
@@ -216,7 +227,7 @@ class BearerSchemeParsingTest {
         testApplication {
             val bus = ApiEventBus(source = InMemoryEventStore())
             val config = bearerConfig()
-            val entries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+            val entries = config.tokens
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
@@ -334,7 +345,7 @@ class BearerSchemeParsingTest {
     fun `S8 - Bearer bearer T strips only once and 401s invalid_token, never authenticating as T`() =
         testApplication {
             val verifier = mockk<JwksApiVerifier>()
-            coEvery { verifier.verify(any()) } returns null
+            coEvery { verifier.verifyWithExpiry(any()) } returns null
             application { wireJwksProbe(verifier) }
 
             val response =
@@ -354,6 +365,6 @@ class BearerSchemeParsingTest {
             )
             // Proves the exact string that reached the verifier: only ONE "bearer " prefix was
             // stripped, so the credential handed downstream still carries the inner "bearer " token.
-            coVerify(exactly = 1) { verifier.verify("bearer $VALID_TOKEN") }
+            coVerify(exactly = 1) { verifier.verifyWithExpiry("bearer $VALID_TOKEN") }
         }
 }

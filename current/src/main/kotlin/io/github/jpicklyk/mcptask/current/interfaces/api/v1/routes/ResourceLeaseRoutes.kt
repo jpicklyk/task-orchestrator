@@ -1,7 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
@@ -14,11 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.grants
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -94,7 +94,7 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
                 return@delete
             }
             val released =
-                when (val outcome = claimService.forceReleaseLease(key, principal.tokenId)) {
+                when (val outcome = claimService.forceReleaseLease(key, principal.id)) {
                     is Outcome.Err -> {
                         resourceLeaseLogger.warn("DELETE /resources/leases/{} failed: {}", key, outcome.error.message)
                         call.respondEnvelope(EnvelopeEncoder.error(outcome.error, reqId))
@@ -107,10 +107,10 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
                 return@delete
             }
             resourceLeaseLogger.warn(
-                "Operator force-release: {} lease row(s) released for resourceKey='{}' by principal tokenId='{}'",
+                "Operator force-release: {} lease row(s) released for resourceKey='{}' by principal id='{}'",
                 released,
                 key,
-                principal.tokenId
+                principal.id
             )
             call.respondEnvelope(
                 EnvelopeEncoder.outcome(Outcome.Ok(released), reqId) {
@@ -187,7 +187,7 @@ private suspend fun authorize(
     call: ApplicationCall,
     reqId: String,
     required: ApiCapability
-): ApiPrincipal? {
+): Principal? {
     val principal = call.attributes.getOrNull(ApiPrincipalKey)
     val error =
         when {

@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -51,24 +52,26 @@ fun makeTestAuthConfig(
     tagsInclude: Set<String> = emptySet(),
 ): ApiAuthConfig.Bearer {
     val readPrincipal =
-        ApiPrincipal(
-            tokenId = TEST_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = tagsInclude),
+        Principal(
+            id = TEST_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = scopeRootIds, tagsInclude = tagsInclude),
             capabilities = setOf(ApiCapability.READ),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     val adminPrincipal =
-        ApiPrincipal(
-            tokenId = ADMIN_TOKEN_ID,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+        Principal(
+            id = ADMIN_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     return ApiAuthConfig.Bearer(
         tokens =
             mapOf(
-                HashBytes(sha256(TEST_TOKEN)) to readPrincipal,
-                HashBytes(sha256(ADMIN_TOKEN)) to adminPrincipal,
+                HashBytes(sha256(TEST_TOKEN)) to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),
+                HashBytes(sha256(ADMIN_TOKEN)) to BearerTokenStore.TokenEntry(adminPrincipal, expiresAt = null),
             ),
     )
 }
@@ -86,9 +89,9 @@ fun makeTestAuthConfig(
 fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
     val base = makeTestAuthConfig(scopeRootIds)
     val writePrincipal =
-        ApiPrincipal(
-            tokenId = WRITE_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
+        Principal(
+            id = WRITE_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = scopeRootIds, tagsInclude = emptySet()),
             capabilities =
                 setOf(
                     ApiCapability.READ,
@@ -98,10 +101,11 @@ fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
                     ApiCapability.MANAGE_DEPENDENCIES,
                     ApiCapability.WRITE_CONFIG,
                 ),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     return ApiAuthConfig.Bearer(
-        tokens = base.tokens + (HashBytes(sha256(WRITE_TOKEN)) to writePrincipal),
+        tokens = base.tokens + (HashBytes(sha256(WRITE_TOKEN)) to BearerTokenStore.TokenEntry(writePrincipal, expiresAt = null)),
     )
 }
 
@@ -126,9 +130,7 @@ fun Application.configureTestApp(
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
                 tokenEntries =
-                    (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, p) ->
-                        BearerTokenStore.TokenEntry(p, expiresAt = null)
-                    } ?: emptyMap()
+                    (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
             }
             routeBlock()
         }

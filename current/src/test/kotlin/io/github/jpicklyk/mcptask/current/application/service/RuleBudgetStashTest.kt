@@ -78,9 +78,7 @@ class RuleBudgetStashTest {
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig,
     ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
-        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
-            BearerTokenStore.TokenEntry(principal, expiresAt = null)
-        } ?: emptyMap()
+        (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     private fun Application.configureProductionApp(
         composition: CompositionResult,
