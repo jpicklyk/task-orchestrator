@@ -21,7 +21,7 @@
       },
       "until": {
         "type": "string",
-        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since."
+        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects."
       },
       "groupBy": {
         "type": "string",

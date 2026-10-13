@@ -1872,7 +1872,7 @@ Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
@@ -1885,7 +1885,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
@@ -1898,7 +1898,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
