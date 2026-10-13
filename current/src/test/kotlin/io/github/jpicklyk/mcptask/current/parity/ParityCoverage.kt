@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec

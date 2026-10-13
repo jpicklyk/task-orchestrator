@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.assertForbidden
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str

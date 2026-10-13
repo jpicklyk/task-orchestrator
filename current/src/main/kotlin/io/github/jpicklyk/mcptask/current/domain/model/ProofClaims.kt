@@ -5,7 +5,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * [VerificationStatus.VERIFIED] outcome only.
  *
  * This is forensic evidence about the proof — never the proof itself. It is populated by
- * [io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier] from the
+ * [io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier] from the
  * signed JWT's header (`kid`, `alg`) and claims set (`iss`, `sub`, `aud`, `jti`, `iat`, `exp`)
  * ONLY when the signature and standard claims validated — REJECTED/UNAVAILABLE outcomes carry
  * unverified, attacker-controlled claims and must not surface them here.

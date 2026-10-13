@@ -8,13 +8,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.actorJson
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.claimOp

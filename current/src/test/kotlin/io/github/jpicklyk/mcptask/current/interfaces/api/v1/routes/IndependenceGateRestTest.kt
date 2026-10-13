@@ -8,8 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe

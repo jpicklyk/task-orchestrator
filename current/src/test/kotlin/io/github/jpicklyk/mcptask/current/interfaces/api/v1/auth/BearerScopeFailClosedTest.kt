@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue

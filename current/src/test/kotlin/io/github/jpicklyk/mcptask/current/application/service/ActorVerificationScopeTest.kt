@@ -8,7 +8,6 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -16,10 +15,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
@@ -66,7 +65,7 @@ import kotlin.test.assertTrue
 /**
  * Independent test-author coverage for item 3dcfcbab, Part 2's per-call verification memo:
  * [ActorVerificationScope] (application/service, entirely new in 8534e8da) and its effect through
- * [io.github.jpicklyk.mcptask.current.application.service.ActorAware.parseActorClaim] when the SAME
+ * [io.github.jpicklyk.mcptask.current.application.api.ActorAware.parseActorClaim] when the SAME
  * proof is presented more than once inside a single MCP call.
  *
  * Oracle (task-scope Part 2, frozen at queue phase): "Per-call memo so one MCP call counts once:

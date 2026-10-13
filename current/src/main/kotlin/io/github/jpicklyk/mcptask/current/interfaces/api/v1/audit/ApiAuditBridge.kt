@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit
 
-import io.github.jpicklyk.mcptask.current.application.service.ActorAware
+import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
 import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 
 /**
  * Bridges the REST API authentication layer to the existing MCP actor-audit pipeline.
@@ -29,7 +29,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
  *
  * For JWKS auth, authentication has already happened in [ApiBearerAuth] — if the JWT was invalid,
  * the request never reaches the route. However the [DegradedModePolicy] governs what happens to
- * the verification result when we call [ActorAware.resolveTrustedActorId]:
+ * the verification result when we call [ActorTrustPolicy.resolveTrustedActorId]:
  *
  * - `reject` policy: a non-VERIFIED status would yield [PolicyResolution.Rejected], but that arm
  *   is unreachable for REST — a bad JWT is already a 401 `invalid_token` at [ApiBearerAuth], and a
@@ -39,7 +39,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
  *
  * Bearer mode: verification is not applicable (principal IS the trusted identity); we always produce
  * a [VerificationResult] with status [VerificationStatus.UNCHECKED] so the call to
- * [ActorAware.resolveTrustedActorId] always returns [PolicyResolution.Trusted].
+ * [ActorTrustPolicy.resolveTrustedActorId] always returns [PolicyResolution.Trusted].
  */
 object ApiAuditBridge {
     /**
@@ -62,7 +62,7 @@ object ApiAuditBridge {
      * - Bearer mode: verification is implicit (token was authenticated upstream) → UNCHECKED
      * - JWKS mode: treat as VERIFIED (JWT was validated by [ApiBearerAuth] before the route ran)
      *
-     * The verification result is passed to [ActorAware.resolveTrustedActorId] together with the
+     * The verification result is passed to [ActorTrustPolicy.resolveTrustedActorId] together with the
      * [DegradedModePolicy]. Only REJECT policy with a non-VERIFIED status would be rejected, which REST
      * never reaches (see the class doc).
      */
@@ -97,7 +97,7 @@ object ApiAuditBridge {
      * any route handler runs; if a route handler sees a principal, the bearer token was valid.
      *
      * **Unauthenticated mode is likewise always trusted** — like bearer, there is no JWKS
-     * verification chain to run; the synthetic [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL]
+     * verification chain to run; the synthetic [io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL]
      * is attached unconditionally by the auth plugin.
      *
      * **JWKS mode never actually rejects here in practice**: [toVerificationResult] always
@@ -120,7 +120,7 @@ object ApiAuditBridge {
         // JWKS mode: run through the standard policy resolution
         val claim = toActorClaim(principal)
         val verification = toVerificationResult(principal)
-        return when (val r = ActorAware.resolveTrustedActorId(claim, verification, degradedModePolicy)) {
+        return when (val r = ActorTrustPolicy.resolveTrustedActorId(claim, verification, degradedModePolicy)) {
             is PolicyResolution.Trusted -> r.trustedId
             is PolicyResolution.Rejected ->
                 error(

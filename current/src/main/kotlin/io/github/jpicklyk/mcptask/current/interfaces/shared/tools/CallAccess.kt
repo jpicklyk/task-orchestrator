@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 
 /**
  * What a transport established about a call before the dispatcher runs: who made it ([principal], null
