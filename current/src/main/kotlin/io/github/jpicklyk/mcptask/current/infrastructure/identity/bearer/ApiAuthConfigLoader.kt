@@ -13,6 +13,12 @@ private const val ALLOW_INSECURE_JWKS_URL_ENV = "API_JWKS_ALLOW_INSECURE_URL"
 /** Default for `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` when unset: 24 hours. */
 private const val DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 86400L
 
+/** Max-stale bound for a cached JWKS after a failed refresh. */
+private const val MAX_STALE_SECONDS_ENV = "API_JWKS_MAX_STALE_SECONDS"
+
+/** Floor of the `API_JWKS_MAX_STALE_SECONDS` default (`max(this, API_JWKS_CACHE_TTL_SECONDS)`): 1 hour. */
+private const val DEFAULT_MAX_STALE_SECONDS = 3600L
+
 /**
  * Environment-variable-driven loader for [ApiAuthConfig].
  *
@@ -30,6 +36,7 @@ private const val DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 86400L
  * | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim. Required. |
  * | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g. `RS256,EdDSA`). Required. |
  * | `API_JWKS_CACHE_TTL_SECONDS` | jwks mode | `300` | JWKS cache TTL in seconds. |
+ * | `API_JWKS_MAX_STALE_SECONDS` | optional | `max(3600, TTL)` | Oldest a cached JWKS may be and still be served after a failed refresh. Positive and >= the TTL, else startup failure. |
  *
  * **Fail-fast guarantee:** any misconfiguration throws [IllegalArgumentException] or
  * [IllegalStateException] with a descriptive message.  The caller (main entrypoint) must
@@ -152,7 +159,7 @@ class ApiAuthConfigLoader(
                         "Provide a fully-qualified URL, e.g. 'https://auth.example.com/.well-known/jwks.json'.",
                 )
             }
-        validateJwksUrlScheme(parsedUrl, url)
+        val allowInsecureUrl = validateJwksUrlScheme(parsedUrl, url)
 
         val issuer =
             envResolver("API_JWKS_ISSUER")?.trim()?.takeIf { it.isNotBlank() }
@@ -225,15 +232,18 @@ class ApiAuthConfigLoader(
                 parsed
             }
 
+        val maxStaleSeconds = resolveMaxStaleSeconds(cacheTtlSeconds)
+
         logger.info(
             "JWKS auth configured: url={}, issuer={}, audience={}, algorithms={}, cacheTtlSeconds={}, " +
-                "maxTokenLifetimeSeconds={}",
+                "maxTokenLifetimeSeconds={}, maxStaleSeconds={}",
             url,
             issuer,
             audience,
             algorithms,
             cacheTtlSeconds,
             maxTokenLifetimeSeconds,
+            maxStaleSeconds,
         )
 
         return ApiAuthConfig.Jwks(
@@ -243,7 +253,34 @@ class ApiAuthConfigLoader(
             algorithms = algorithms,
             cacheTtlSeconds = cacheTtlSeconds,
             maxTokenLifetimeSeconds = maxTokenLifetimeSeconds,
+            maxStaleSeconds = maxStaleSeconds,
+            allowInsecureUrl = allowInsecureUrl,
         )
+    }
+
+    /**
+     * `API_JWKS_MAX_STALE_SECONDS`: how old a cached key set may be (from its real fetch time) and
+     * still be served after a failed refresh. Unset defaults to `max(3600, cacheTtlSeconds)`. Like
+     * `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`, a bad value fails startup rather than falling back: it
+     * must be a positive integer no smaller than `API_JWKS_CACHE_TTL_SECONDS`.
+     */
+    private fun resolveMaxStaleSeconds(cacheTtlSeconds: Long): Long {
+        val raw = envResolver(MAX_STALE_SECONDS_ENV)?.trim()
+        if (raw.isNullOrBlank()) {
+            return maxOf(DEFAULT_MAX_STALE_SECONDS, cacheTtlSeconds)
+        }
+        val parsed =
+            raw.toLongOrNull()
+                ?: throw IllegalArgumentException("$MAX_STALE_SECONDS_ENV must be a positive integer, got '$raw'.")
+        if (parsed <= 0) {
+            throw IllegalArgumentException("$MAX_STALE_SECONDS_ENV must be a positive integer, got '$parsed'.")
+        }
+        if (parsed < cacheTtlSeconds) {
+            throw IllegalArgumentException(
+                "$MAX_STALE_SECONDS_ENV must be at least API_JWKS_CACHE_TTL_SECONDS ($cacheTtlSeconds), got '$parsed'.",
+            )
+        }
+        return parsed
     }
 
     /**
@@ -254,11 +291,13 @@ class ApiAuthConfigLoader(
      * The insecure-opt-in flag is resolved unconditionally (even for an `https` URL) so that a
      * malformed flag value fails startup fast rather than being silently ignored because it
      * happened not to be needed.
+     *
+     * @return The parsed insecure-opt-in flag, which also admits loopback in the key fetch's egress guard.
      */
     private fun validateJwksUrlScheme(
         url: URL,
         raw: String,
-    ) {
+    ): Boolean {
         val allowInsecure =
             EnvBoolean.require(
                 ALLOW_INSECURE_JWKS_URL_ENV,
@@ -268,7 +307,7 @@ class ApiAuthConfigLoader(
 
         val scheme = url.protocol?.lowercase()
         if (scheme == "https") {
-            return
+            return allowInsecure
         }
 
         if (scheme == "http" && allowInsecure) {
@@ -280,7 +319,7 @@ class ApiAuthConfigLoader(
                     ALLOW_INSECURE_JWKS_URL_ENV,
                     url.host,
                 )
-                return
+                return allowInsecure
             }
             throw IllegalArgumentException(
                 "API_JWKS_URL '$raw' uses scheme 'http' with $ALLOW_INSECURE_JWKS_URL_ENV=true, but host " +

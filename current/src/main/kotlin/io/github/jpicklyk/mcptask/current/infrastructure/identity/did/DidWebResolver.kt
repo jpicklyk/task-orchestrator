@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.did
 
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.EgressGuard
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngine
@@ -11,6 +12,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -33,9 +36,19 @@ import org.slf4j.LoggerFactory
  *
  * After fetching, the resolver verifies that the returned document's `id` field matches
  * the requested DID — a critical security check against document substitution attacks.
+ *
+ * Before fetching, the document URL passes [egressGuard]: a DID host resolving to a loopback,
+ * link-local, private, CGNAT, unique-local or unspecified address is refused
+ * ([io.github.jpicklyk.mcptask.current.infrastructure.identity.EgressRefusedException]) and no
+ * request is made.
+ *
+ * @param engine Optional [HttpClientEngine] for tests; the default is CIO.
+ * @param egressGuard Guard applied to every DID document URL; the default refuses every
+ *   non-public address class, loopback included.
  */
 class DidWebResolver(
-    engine: HttpClientEngine? = null
+    engine: HttpClientEngine? = null,
+    private val egressGuard: EgressGuard = EgressGuard.forConfig(false),
 ) : DidResolver {
     override val method: String = "web"
 
@@ -76,6 +89,10 @@ class DidWebResolver(
 
         val url = buildUrl(identifier)
         logger.debug("Resolving {} → {}", did, url)
+
+        // Egress guard before the fetch (outside the network-error wrap so the refusal keeps its
+        // type); resolution blocks, so it runs on the IO dispatcher.
+        withContext(Dispatchers.IO) { egressGuard.check(url) }
 
         val responseBody: String =
             try {

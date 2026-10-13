@@ -12,6 +12,9 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Path
 
+/** Floor of the `verifier.max_stale_seconds` default (`max(this, cache_ttl_seconds)`): 1 hour. */
+private const val DEFAULT_MAX_STALE_SECONDS = 3600L
+
 /**
  * YAML-backed loader for the `actor_authentication:` section of `.taskorchestrator/config.yaml`.
  *
@@ -43,6 +46,7 @@ import java.nio.file.Path
  *       - RS256
  *       - ES256
  *     cache_ttl_seconds: 300
+ *     max_stale_seconds: 3600   # > 0 and >= cache_ttl_seconds; default max(3600, cache_ttl_seconds)
  *     require_sub_match: true
  * ```
  *
@@ -479,6 +483,29 @@ class YamlActorAuthenticationConfigService private constructor(
 
                 val jtiReplayProtection = verifierMap.optBoolean("jti_replay_protection", default = false)
 
+                // max_stale_seconds: the oldest a cached key set may be (from its real fetch time) and
+                // still be served after a failed refresh. Fail-fast like max_token_lifetime_seconds: a
+                // typo must not silently widen how long a revoked key stays trusted during an outage.
+                val maxStaleSeconds =
+                    when (val raw = verifierMap["max_stale_seconds"]) {
+                        is Int -> raw.toLong()
+                        is Long -> raw
+                        null -> maxOf(DEFAULT_MAX_STALE_SECONDS, cacheTtlSeconds)
+                        else -> throw wrongVerifierFieldType("max_stale_seconds", "a number", raw)
+                    }
+                if (maxStaleSeconds <= 0) {
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier.max_stale_seconds in '$configPath' " +
+                            "must be a positive number; got '$maxStaleSeconds'"
+                    )
+                }
+                if (maxStaleSeconds < cacheTtlSeconds) {
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier.max_stale_seconds in '$configPath' " +
+                            "must be at least cache_ttl_seconds ($cacheTtlSeconds); got '$maxStaleSeconds'"
+                    )
+                }
+
                 VerifierConfig.Jwks(
                     oidcDiscovery = oidcDiscovery,
                     jwksUri = jwksUri,
@@ -495,7 +522,8 @@ class YamlActorAuthenticationConfigService private constructor(
                     didLooseKidMatch = didLooseKidMatch,
                     allowInsecureUrl = allowInsecureUrl,
                     maxTokenLifetimeSeconds = maxTokenLifetimeSeconds,
-                    jtiReplayProtection = jtiReplayProtection
+                    jtiReplayProtection = jtiReplayProtection,
+                    maxStaleSeconds = maxStaleSeconds
                 )
             }
 
