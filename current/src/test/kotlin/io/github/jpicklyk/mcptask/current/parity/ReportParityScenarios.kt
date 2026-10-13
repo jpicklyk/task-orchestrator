@@ -182,7 +182,7 @@ internal object ReportParityScenarios {
     val nullKeys: List<ParityScenario> =
         listOf(
             scenario(
-                "usage by principal for an admin keys by principal id, a missing principal is null",
+                "usage by principal for an admin keys by principal id, a missing principal omits the member",
                 ParityKind.OTHER,
                 admin,
                 """{"select":"usage","groupBy":"principal"}""",
@@ -191,7 +191,7 @@ internal object ReportParityScenarios {
                     listOf(
                         "\"key\":{\"principal\":\"pid-a\"}",
                         "\"key\":{\"principal\":\"pid-b\"}",
-                        "\"key\":{\"principal\":null}"
+                        "\"key\":{}"
                     )
             ),
             scenario(
@@ -200,7 +200,7 @@ internal object ReportParityScenarios {
                 reader,
                 """{"select":"usage","groupBy":"errorCode"}""",
                 200,
-                expectContains = listOf("\"key\":{\"errorCode\":null}", "\"key\":{\"errorCode\":\"gate_blocked\"}")
+                expectContains = listOf("\"key\":{}", "\"key\":{\"errorCode\":\"gate_blocked\"}")
             )
         )
 
