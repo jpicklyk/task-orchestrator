@@ -342,15 +342,17 @@ class ScopeGuardRootIdTest {
         }
 
     @Test
-    fun `S6 a principal scope on a non-root anchor stays closed when the ancestorId filter names that same item`(): Unit =
+    fun `S6 a principal scope on a non-root anchor admits nothing when the ancestorId filter names a different item`(): Unit =
         runBlocking {
             seedTree()
-            val filter = ItemFilter(ancestorId = childA)
-            // the principal root scope and the request subtree filter are AND-ed: roots-only scope {childA} admits nothing
-            assertEquals(emptySet(), findIds(roots(childA), filter), "find: a non-root anchor admits nothing even for its own subtree")
+            // Principal scope {childA} is a non-root: it admits nothing (roots only). The request ancestor filter is AND-ed on top
+            // and the ancestor (grandA) is not itself a listed scope id, so the scope condition is NOT dropped (supp. declarations B).
+            val filter = ItemFilter(ancestorId = grandA)
+            assertEquals(emptySet(), findIds(roots(childA), filter), "find: a non-root anchor admits nothing")
             assertEquals(0, store.count(filter, roots(childA)), "count: the same")
             // control: the same request filter under the real root returns the subtree
-            assertEquals(setOf(childA, grandA), findIds(roots(rootA), filter))
+            assertEquals(setOf(grandA), findIds(roots(rootA), filter))
+            assertEquals(1, store.count(filter, roots(rootA)))
         }
 
     // ------------------------------------------------------------------ S6 ancestorId on the read views

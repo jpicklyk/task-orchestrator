@@ -233,10 +233,9 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
 
     // One test per method on an unstamped tree, so each method's outcome is visible on its own. findInScope and countInScope serve
     // the PRINCIPAL scope: roots only, no row carries a root_id, so a scope naming the depth-0 row admits nothing (task-scope item 2,
-    // test-plan S5). findByRole, findEligible, claimSummary and countInScopeByRole feed the request ancestorId views, which keep the
-    // subtree traversal (task-scope D3, api-reference "Only this item's subtree, itself included"): on the unstamped tree they still
-    // return the whole subtree. ORACLE-DEGRADED: the split of the seven methods into these two groups is taken from the observed
-    // behaviour plus D3's caller list, not from a per-method declaration (see the manifest arbitration record).
+    // test-plan S5). findByRole, findEligible (claim selection), claimSummary and countInScopeByRole take a caller-supplied
+    // request-filter rootIds, which keeps the subtree traversal (task-scope D3, supplementary declarations section B): on the
+    // unstamped tree they still return the whole subtree. The per-method grouping is declared (section B), not inferred.
 
     @Test
     fun `an unstamped legacy tree admits nothing on findInScope`(): Unit =
@@ -418,5 +417,44 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
                 "fast path does no traversal; a cyclic parent_id edge below a stamped root must not error",
             )
             assertEquals(setOf(r.id, a.id, b.id), result.map { it.id }.toSet())
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Principal scope vs request filter (supplementary declarations section B)
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a request filter naming a stamped non-root returns that item's subtree on the request-filter methods`(): Unit =
+        runBlocking {
+            val r = createRoot("PF root")
+            val b = createChild("PF B", r)
+            val bChild = createChild("PF B child", b)
+            createChild("PF sibling", r)
+            val expected = setOf(b.id, bChild.id)
+            val filter = setOf(b.id)
+
+            val byRole = repository.findByRole(role = Role.QUEUE, rootIds = filter)
+            assertNotNull(byRole)
+            assertEquals(expected, byRole.map { it.id }.toSet(), "findByRole keeps the traversal")
+            val eligible = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = filter), limit = 1000).items
+            assertEquals(expected, eligible.map { it.id }.toSet(), "findEligible keeps the traversal")
+            assertEquals(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 2), repository.claimSummary(rootIds = filter))
+            assertEquals(mapOf(Role.QUEUE to 2), repository.countInScopeByRole(rootIds = filter))
+        }
+
+    @Test
+    fun `a principal scope listing a non-root admits nothing through findInScope and countInScope`(): Unit =
+        runBlocking {
+            val r = createRoot("PS root")
+            val b = createChild("PS B", r)
+            createChild("PS B child", b)
+            val unstampedRoot = createRoot("PS unstamped", stamped = false)
+
+            for (anchor in listOf(b.id, unstampedRoot.id)) {
+                val rows = repository.findInScope(rootIds = setOf(anchor))
+                assertNotNull(rows)
+                assertEquals(emptySet(), rows.map { it.id }.toSet(), "anchor $anchor")
+                assertEquals(0, repository.countInScope(rootIds = setOf(anchor)), "count for anchor $anchor")
+            }
         }
 }
