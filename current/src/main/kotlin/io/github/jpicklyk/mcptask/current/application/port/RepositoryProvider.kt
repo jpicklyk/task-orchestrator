@@ -62,4 +62,10 @@ interface RepositoryProvider {
      * must override it.
      */
     fun runStore(): RunStore = throw UnsupportedOperationException("This RepositoryProvider has no run store")
+
+    /**
+     * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
+     * The default throws, so a provider that serves reports must override it.
+     */
+    fun reportQueries(): ReportQueries = throw UnsupportedOperationException("This RepositoryProvider has no report queries")
 }

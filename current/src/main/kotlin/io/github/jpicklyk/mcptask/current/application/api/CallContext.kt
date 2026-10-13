@@ -22,12 +22,15 @@ data class CallPrincipal(
  * correlation id, [surface] the transport (`mcp` or `rest`) and [scope] what the caller may see: handlers check
  * every item they touch with [ScopeGuard]. [attributionVisible] says whether the caller may see note attribution (a
  * note view's `actor` and `verification`); the transport decides it, so application code never inspects capabilities.
- * It defaults to false (hidden). Proof evidence is never emitted, whatever its value.
+ * It defaults to false (hidden). Proof evidence is never emitted, whatever its value. [principalsVisible] says whether the
+ * caller may see other principals' ids in an aggregate (the `report` `principal` grouping); the transport decides it too
+ * (ADMIN only), and it defaults to false.
  */
 data class CallContext(
     val reqId: String,
     val surface: String,
     val principal: CallPrincipal?,
     val scope: AccessScope = AccessScope.unrestricted(),
-    val attributionVisible: Boolean = false
+    val attributionVisible: Boolean = false,
+    val principalsVisible: Boolean = false
 )
