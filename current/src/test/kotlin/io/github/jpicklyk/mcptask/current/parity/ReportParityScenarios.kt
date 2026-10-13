@@ -701,10 +701,12 @@ class ReportParityTest {
         val mine = ReportParityScenarios.scenarios
         assertTrue(mine.any { it.kind == ParityKind.HAPPY })
         assertTrue(mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted })
-        assertTrue(mine.all { it.tool == "report" && it.member == "usage" })
+        assertTrue(mine.all { it.tool == "report" })
+        assertEquals(setOf("usage", "waste"), mine.map { it.member }.toSet(), "the catalog covers exactly the usage and waste selects")
         assertTrue(ProductionParity.scenarios.containsAll(mine), "every report scenario is registered in the production catalog")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "usage"), "the MCP leg runs on the director")
+        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "waste"), "the MCP leg runs on the director")
     }
 
     // ------------------------------------------------------------------ S16 surface
@@ -712,6 +714,7 @@ class ReportParityTest {
     @Test
     fun `S16 report is visible in director only`() {
         assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "usage"))
+        assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "waste"))
         assertTrue("report" in registry.visible(ToolProfile.DIRECTOR).map { it.name })
         assertTrue("report" !in registry.visible(ToolProfile.ORCHESTRATION).map { it.name })
         assertTrue("report" !in registry.visible(ToolProfile.KNOWLEDGE).map { it.name })
@@ -719,7 +722,7 @@ class ReportParityTest {
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.ORCHESTRATION))
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE))
         assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR))
-        assertEquals(listOf("usage"), ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second })
+        assertEquals(listOf("usage", "waste"), ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second })
     }
 
     @Test
@@ -753,18 +756,25 @@ class ReportParityTest {
     }
 
     @Test
-    fun `S16 describe lists the usage select with its inputs and no rollup input`() {
+    fun `S16 describe lists the usage and waste selects with their inputs and no rollup input`() {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
-        assertEquals(listOf("usage"), operations.map { it.getValue("name").jsonPrimitive.content })
-        val properties =
+        assertEquals(listOf("usage", "waste"), operations.map { it.getValue("name").jsonPrimitive.content })
+
+        fun inputsOf(select: String) =
             operations
-                .single()
+                .single { it.getValue("name").jsonPrimitive.content == select }
                 .getValue("parameters")
                 .jsonObject
                 .getValue("properties")
                 .jsonObject.keys
+        val properties = inputsOf("usage")
+        val wasteInputs = inputsOf("waste")
+        assertTrue(wasteInputs.containsAll(setOf("rootId", "since", "until")), "waste inputs: $wasteInputs")
+        for (absent in listOf("groupBy", "limit", "cursor")) {
+            assertTrue(absent !in wasteInputs, "$absent is not an input of waste: $wasteInputs")
+        }
         assertTrue(properties.containsAll(setOf("rootId", "since", "until", "groupBy", "limit", "cursor")), "inputs: $properties")
         for (reserved in listOf("runId", "anchorId", "principalId", "tool", "noteKey", "filters")) {
             assertTrue(reserved !in properties, "$reserved is not an input of usage: $properties")

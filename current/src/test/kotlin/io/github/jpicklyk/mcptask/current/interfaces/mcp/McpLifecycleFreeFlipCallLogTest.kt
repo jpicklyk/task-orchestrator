@@ -3,11 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.report.ReportFixture
 import io.github.jpicklyk.mcptask.current.application.report.ReportWasteRequest
 import io.github.jpicklyk.mcptask.current.application.report.WasteReport
+import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
@@ -28,11 +27,13 @@ import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -46,19 +47,30 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
-/** `test-item` is an ordinary auto type, `page` is lifecycle-free. */
+/** `test-item` and `shifty` are ordinary auto types, `page` is lifecycle-free; `t-one` is a trait without notes. */
 private const val FLIP_YAML =
     "work_item_schemas:\n" +
         "  test-item:\n" +
         "    notes: []\n" +
+        "  shifty:\n" +
+        "    notes: []\n" +
         "  page:\n" +
         "    lifecycle: none\n" +
+        "    notes: []\n" +
+        "traits:\n" +
+        "  t-one:\n" +
         "    notes: []\n"
+
+private const val ROOT_SHIFTY_NONE = "work_item_schemas:\n  shifty:\n    lifecycle: none\n    notes: []\n"
+
+private const val ROOT_SHIFTY_AUTO = "work_item_schemas:\n  shifty:\n    lifecycle: auto\n    notes: []\n"
 
 /**
  * Independent end-to-end tests (test-author seat, item 03f3520d, R12) for scenario S17 of the frozen test-plan and the carry-in
@@ -77,11 +89,11 @@ private const val FLIP_YAML =
  * `lifecycleFreeRejections` is the non-replayed WRITE calls (`items_write` is one) in the window and the numerator is the sum of
  * their counts, NULL as 0.
  *
- * Oracle status (arbitration record). The two `flip` tests assert the frozen S17 / carry-in value 1 for a refused `items_write` flip
- * of a lifecycle-free item. The capture rule above counts only a refusal whose `fromRole` is `none`, and the flip refusals name a
- * role (the closed parent's `terminal`, or the item's own `queue`), so these two are expected to disagree with the capture; they
- * are reported as findings, not adjusted. The `chain` test uses a refusal that does carry `fromRole: none` and checks the whole
- * path capture -> call_log -> waste.
+ * Oracle status (orchestrator ruling). The S17 oracle stands: a refused `items_write` pin crossing of a lifecycle-free item answers
+ * `invalid_transition` with `fromRole` `none` and the call_log row carries 1. The reachable inputs are a trait change (trigger
+ * `trait_change`) or a reparent (trigger `reparent`) on an item that is still role-free but whose resolved schema, after a per-root
+ * push or a move into another root, is role-bearing; only a type change and `repin` may cross. The `chain` test uses an `advance`
+ * refusal that also carries `fromRole: none`.
  *
  * Absence assertions and the condition that fails them: the NULL on the control row would be a number if successes were counted;
  * the NULL on the role-bearing refusal would be 1 if every refused flip were counted; the denominator 2 of the waste answer would
@@ -148,6 +160,47 @@ class McpLifecycleFreeFlipCallLogTest {
             put("type", type)
         }
 
+    private suspend fun push(
+        root: WorkItem,
+        yaml: String
+    ) {
+        assertIs<ConfigPushResult.Success>(checkNotNull(rig.ctx.configService).push(root.id, yaml), "push of '${yaml.take(40)}'")
+    }
+
+    private fun setTraits(
+        id: Any,
+        trait: String
+    ): JsonObject =
+        buildJsonObject {
+            put("op", "update")
+            put("id", id.toString())
+            put("traits", JsonArray(listOf(JsonPrimitive(trait))))
+        }
+
+    private fun move(
+        id: Any,
+        parentId: Any
+    ): JsonObject =
+        buildJsonObject {
+            put("op", "update")
+            put("id", id.toString())
+            put("parentId", parentId.toString())
+        }
+
+    /** The refusal envelope: code invalid_transition, detail fromRole none, the given trigger, nothing allowed. */
+    private fun assertRefusal(
+        result: CallToolResult,
+        id: Any,
+        trigger: String
+    ) {
+        val text = result.content.joinToString("") { (it as? TextContent)?.text.orEmpty() } + result.structuredContent.toString()
+        val compact = text.replace(" ", "")
+        assertTrue("invalid_transition" in text, "code invalid_transition: $text")
+        assertTrue("\"fromRole\":\"none\"" in compact, "fromRole none: $text")
+        assertTrue("\"trigger\":\"$trigger\"" in compact, "trigger $trigger: $text")
+        assertTrue(id.toString() in text, "itemId: $text")
+    }
+
     private suspend fun rowOf(result: CallToolResult): Map<String, Any?> {
         writer.flushNow()
         val reqId =
@@ -171,11 +224,6 @@ class McpLifecycleFreeFlipCallLogTest {
             .create(ItemCreateCommand(parentId = parent.id, title = title, type = "page"))
             .orFail()
 
-    private suspend fun close(item: WorkItem) {
-        val stored = checkNotNull(rig.raw.workItemRepository().getById(item.id)) { "item ${item.id}" }
-        rig.raw.workItemRepository().update(stored.copy(role = Role.TERMINAL, previousRole = null, statusLabel = null))
-    }
-
     /** `report waste` over the rows the writer flushed, in a window of one hour around [around] (the `at` of a recorded row). */
     private suspend fun wasteAround(around: Map<String, Any?>): WasteReport {
         val at = Instant.parse((around["at"] as String).replace(' ', 'T') + "Z")
@@ -190,40 +238,36 @@ class McpLifecycleFreeFlipCallLogTest {
     // ------------------------------------------------------------------ S17
 
     @Test
-    fun `S17 a lifecycle-free item flipped out under a closed parent records one rejection and waste counts it`(): Unit =
+    fun `S17 trait change into a role-bearing schema is refused with fromRole none and waste counts it`(): Unit =
         runBlocking {
             start()
-            val closed = rig.make("Closed parent")
-            val open = rig.make("Open parent")
-            val refusedPage = page("Page under closed", closed)
-            val allowedPage = page("Page under open", open)
-            close(closed)
+            val root = rig.make("Root")
+            push(root, ROOT_SHIFTY_NONE)
+            val frozen =
+                rig.ctx.itemCommandService
+                    .create(
+                        ItemCreateCommand(parentId = root.id, title = "Frozen", type = "shifty")
+                    ).orFail()
+            val control = rig.make("Control", parent = root)
+            push(root, ROOT_SHIFTY_AUTO)
+            assertNull(checkNotNull(rig.raw.workItemRepository().getById(frozen.id)).role, "fixture: the item is still lifecycle-free")
 
-            val refused = write(changeType(refusedPage.id, "test-item"))
-            val control = write(changeType(allowedPage.id, "test-item"))
+            val refused = write(setTraits(frozen.id, "t-one"))
+            val ok = write(setTraits(control.id, "t-one"))
 
-            assertEquals(true, refused.isError, "fixture: a none item under a terminal parent cannot become an auto item")
-            assertNotEquals(true, control.isError, "control: the same flip under an open parent succeeds: ${control.content}")
-            assertNull(
-                checkNotNull(rig.raw.workItemRepository().getById(refusedPage.id)).role,
-                "fixture: the refused item is still role-free"
-            )
-            assertEquals(Role.QUEUE, checkNotNull(rig.raw.workItemRepository().getById(allowedPage.id)).role, "control: it became queue")
+            assertEquals(true, refused.isError, "fixture: the trait change would cross into a role-bearing schema")
+            assertNotEquals(true, ok.isError, "control: a trait change on an ordinary item works: ${ok.content}")
+            assertRefusal(refused, frozen.id, "trait_change")
             val refusedRow = rowOf(refused)
-            val controlRow = rowOf(control)
+            val okRow = rowOf(ok)
             assertEquals("items_write", refusedRow["tool"])
             assertEquals("error", refusedRow["outcome"])
-            assertEquals(
-                1L,
-                lifecycleFree(refusedRow),
-                "one lifecycle-free rejection in the refused flip: error=${refusedRow["error_code"]} body=${refused.structuredContent}"
-            )
-            assertNull(lifecycleFree(controlRow), "an ok call is NULL, never 0")
+            assertEquals(1L, lifecycleFree(refusedRow), "one lifecycle-free rejection: error=${refusedRow["error_code"]}")
+            assertNull(lifecycleFree(okRow), "an ok call is NULL, never 0")
 
-            val waste = wasteAround(refusedRow)
+            val signal = wasteAround(refusedRow).lifecycleFreeRejections
 
             // non-replayed write calls in the window: the refused and the control items_write; one rejection in total
-            val signal = waste.lifecycleFreeRejections
             assertEquals(1L, signal.numerator)
             assertEquals(2L, signal.denominator)
             assertEquals(0, BigDecimal("0.5").compareTo(assertNotNull(signal.value)))
@@ -249,28 +293,28 @@ class McpLifecycleFreeFlipCallLogTest {
         }
 
     @Test
-    fun `S17 a flip into a lifecycle-free type refused for a BLOCKS edge records one rejection and waste counts it`(): Unit =
+    fun `S17 reparent into a role-bearing schema is refused with fromRole none and waste counts it`(): Unit =
         runBlocking {
             start()
-            val blocker = rig.make("Blocker")
-            val blocked = rig.make("Blocked")
-            val free = rig.make("Free")
-            rig.raw.dependencyRepository().create(Dependency(fromItemId = blocker.id, toItemId = blocked.id, type = DependencyType.BLOCKS))
+            val r1 = rig.make("R1")
+            val r2 = rig.make("R2")
+            push(r1, ROOT_SHIFTY_NONE)
+            val frozen =
+                rig.ctx.itemCommandService
+                    .create(ItemCreateCommand(parentId = r1.id, title = "Frozen", type = "shifty"))
+                    .orFail()
+            val control = rig.make("Control", parent = r1)
+            assertNull(checkNotNull(rig.raw.workItemRepository().getById(frozen.id)).role, "fixture: the item is lifecycle-free")
 
-            val refused = write(changeType(blocker.id, "page"))
-            val control = write(changeType(free.id, "page"))
+            val refused = write(move(frozen.id, r2.id))
+            val ok = write(move(control.id, r2.id))
 
-            assertEquals(true, refused.isError, "fixture: an item with a BLOCKS edge cannot become lifecycle-free")
-            assertNotEquals(true, control.isError, "control: an item without an edge can: ${control.content}")
-            assertNull(checkNotNull(rig.raw.workItemRepository().getById(free.id)).role, "control: it became role-free")
+            assertEquals(true, refused.isError, "fixture: the move would cross into a role-bearing schema")
+            assertNotEquals(true, ok.isError, "control: an unaffected item moves: ${ok.content}")
+            assertRefusal(refused, frozen.id, "reparent")
             val refusedRow = rowOf(refused)
-            val controlRow = rowOf(control)
-            assertEquals(
-                1L,
-                lifecycleFree(refusedRow),
-                "one lifecycle-free rejection in the refused flip: error=${refusedRow["error_code"]} body=${refused.structuredContent}"
-            )
-            assertNull(lifecycleFree(controlRow), "an ok call is NULL, never 0")
+            assertNull(lifecycleFree(rowOf(ok)), "an ok call is NULL, never 0")
+            assertEquals(1L, lifecycleFree(refusedRow), "one lifecycle-free rejection: error=${refusedRow["error_code"]}")
 
             val signal = wasteAround(refusedRow).lifecycleFreeRejections
 
