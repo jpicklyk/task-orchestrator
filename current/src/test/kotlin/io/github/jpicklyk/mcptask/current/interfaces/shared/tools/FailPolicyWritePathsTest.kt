@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
@@ -78,9 +77,7 @@ class FailPolicyWritePathsTest {
             eventBus = null,
             effectiveProvider = composition.toolContext.repositoryProvider,
             apiTokenEntries =
-                (authConfig as ApiAuthConfig.Bearer).tokens.mapValues { (_, principal) ->
-                    BearerTokenStore.TokenEntry(principal, expiresAt = null)
-                },
+                (authConfig as ApiAuthConfig.Bearer).tokens,
             allowQueryToken = false,
             serverName = "fail-policy-write-paths",
             serverVersion = "test",

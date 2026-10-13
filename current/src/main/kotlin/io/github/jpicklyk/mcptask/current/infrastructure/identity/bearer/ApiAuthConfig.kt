@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.infrastructure.security.ConstantTimeCompare
 
 // Sealed configuration for the REST API authentication layer.
@@ -12,12 +11,12 @@ sealed class ApiAuthConfig {
     // API is disabled (API_ENABLED=false). Phase 2 skips registering /api/v1/* routes.
     data object Disabled : ApiAuthConfig()
 
-    // Static bearer-token mode. The tokens map is precomputed at startup: every entry's
-    // key is the SHA-256 digest of the plaintext token wrapped in HashBytes for structural
-    // equality, and the value is the resolved ApiPrincipal.
-    // The map is immutable after construction -- token rotation requires a restart.
+    // Static bearer-token mode. The tokens map is loaded once at startup (BearerTokenStore.loadWithEntries):
+    // every entry's key is the SHA-256 digest of the plaintext token wrapped in HashBytes for structural
+    // equality, and the value is the entry (principal, expiry, credential profile) the CredentialResolver
+    // resolves to. The map is immutable after construction -- token rotation requires a restart.
     data class Bearer(
-        val tokens: Map<HashBytes, ApiPrincipal>,
+        val tokens: Map<HashBytes, BearerTokenStore.TokenEntry>,
     ) : ApiAuthConfig()
 
     // JWKS-validated JWT mode. JWTs are verified against the JWKS endpoint at url on
@@ -49,7 +48,7 @@ sealed class ApiAuthConfig {
     ) : ApiAuthConfig()
 
     // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).
-    // Every request is attached the synthetic ApiPrincipal.LOCAL_UNAUTH_PRINCIPAL (ADMIN,
+    // Every request is attached the synthetic LOCAL_UNAUTH_PRINCIPAL (ADMIN,
     // unrestricted scope) with NO credential check at all. Intended only for a loopback-bound
     // single-user local server -- see the SECURITY warn logged at startup in CurrentMcpServer.
     data object Unauthenticated : ApiAuthConfig()
@@ -63,7 +62,7 @@ sealed class ApiAuthConfig {
 // same credential. This wrapper delegates equals to ConstantTimeCompare.equal so that
 // all lookups are timing-safe, and derives hashCode from ByteArray.contentHashCode.
 //
-// Always wrap a digest before inserting into or looking up from ApiAuthConfig.Bearer.tokens.
+// Always wrap a digest before inserting into or looking up from the token entry map.
 class HashBytes(
     val bytes: ByteArray
 ) {

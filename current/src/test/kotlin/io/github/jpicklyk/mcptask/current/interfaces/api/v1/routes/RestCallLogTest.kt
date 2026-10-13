@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -89,7 +88,7 @@ class RestCallLogTest {
             apiConfig = authConfig,
             eventBus = null,
             effectiveProvider = composition.toolContext.repositoryProvider,
-            apiTokenEntries = authConfig.tokens.mapValues { (_, principal) -> BearerTokenStore.TokenEntry(principal, expiresAt = null) },
+            apiTokenEntries = authConfig.tokens,
             allowQueryToken = false,
             serverName = "p10-rest-call-log",
             serverVersion = "test",
@@ -382,7 +381,7 @@ class RestCallLogTest {
                     apiConfig = authConfig,
                     eventBus = null,
                     effectiveProvider = rig.composition.toolContext.repositoryProvider,
-                    apiTokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) },
+                    apiTokenEntries = authConfig.tokens,
                     allowQueryToken = false,
                     serverName = "p10-http",
                     serverVersion = "test",

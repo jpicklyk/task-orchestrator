@@ -1,11 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
@@ -13,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.visibleNames
@@ -50,12 +53,47 @@ fun Route.opsRoutes(
     redactNoteAttribution: Boolean = true
 ) {
     post("/ops/{tool}") {
+        serveOps(call, registry, dispatcher, profile, redactNoteAttribution, refuseHidden = false)
+    }
+}
+
+/**
+ * `POST /api/v1/ops/director/{tool}`: the director tool profile ([ToolProfile.DIRECTOR]) over REST, through the same
+ * dispatcher and with the same envelopes as [opsRoutes]. A registered tool with no member in the director set is
+ * `forbidden {scope: capability, required: director}`; an unregistered name is `invalid_request` listing the director
+ * tools; a select or op hidden inside a visible tool is the dispatcher's `invalid_request`. This is the only path a
+ * credential with the token-file `profile: director` may call (the auth plugins enforce that); any credential with
+ * the capability a member needs may call it.
+ */
+fun Route.directorOpsRoutes(
+    registry: ToolRegistry,
+    dispatcher: ToolDispatcher,
+    redactNoteAttribution: Boolean = true
+) {
+    post("/ops/director/{tool}") {
+        serveOps(call, registry, dispatcher, ToolProfile.DIRECTOR, redactNoteAttribution, refuseHidden = true)
+    }
+}
+
+/**
+ * One ops call served under [profile]. With [refuseHidden], a registered tool [profile] does not show is `forbidden`
+ * (the director path) rather than the `invalid_request` an unknown tool answers.
+ */
+private suspend fun serveOps(
+    call: ApplicationCall,
+    registry: ToolRegistry,
+    dispatcher: ToolDispatcher,
+    profile: ToolView,
+    redactNoteAttribution: Boolean,
+    refuseHidden: Boolean
+) {
+    run {
         val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
 
         val principal = call.attributes.getOrNull(ApiPrincipalKey)
         if (principal == null) {
             call.respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId))
-            return@post
+            return
         }
 
         // CSRF guard: a cross-site form post cannot set a JSON Content-Type without a preflight.
@@ -66,13 +104,13 @@ fun Route.opsRoutes(
                     reqId
                 )
             )
-            return@post
+            return
         }
         if (call.request.header(IDEMPOTENCY_KEY_HEADER) != null) {
             call.respondEnvelope(
                 EnvelopeEncoder.error(invalid(IDEMPOTENCY_KEY_HEADER, "is not supported here; use ops[].idempotencyKey"), reqId)
             )
-            return@post
+            return
         }
 
         val text =
@@ -86,7 +124,7 @@ fun Route.opsRoutes(
                             fixArgs = mapOf("max" to MAX_JSON_WRITE_BODY_BYTES.toString())
                         )
                     call.respondEnvelope(EnvelopeEncoder.error(error, reqId))
-                    return@post
+                    return
                 }
                 is Read.Body -> read.text
             }
@@ -98,17 +136,24 @@ fun Route.opsRoutes(
             }
         if (arguments == null) {
             call.respondEnvelope(EnvelopeEncoder.error(invalid("$", "must be a JSON object"), reqId))
-            return@post
+            return
         }
 
         val toolName = call.parameters["tool"].orEmpty()
-        val spec = registry[toolName]?.takeIf { visibleNames(it, profile).isNotEmpty() }
+        val registered = registry[toolName]
+        val spec = registered?.takeIf { visibleNames(it, profile).isNotEmpty() }
         if (spec == null) {
+            if (registered != null && refuseHidden) {
+                call.respondEnvelope(
+                    EnvelopeEncoder.error(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, ToolProfile.DIRECTOR.wire), reqId)
+                )
+                return
+            }
             val visible = registry.visible(profile).map { it.name }
             call.respondEnvelope(
                 EnvelopeEncoder.error(invalid("tool", "must be one of: ${visible.joinToString(", ")}", toolName.take(MAX_RECEIVED)), reqId)
             )
-            return@post
+            return
         }
 
         val access = principal.toCallAccess(redactNoteAttribution)

@@ -1,17 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -56,14 +57,15 @@ class McpRestAuthBypassTest {
 
     private fun bearerConfig(): Pair<ApiAuthConfig.Bearer, Map<HashBytes, BearerTokenStore.TokenEntry>> {
         val principal =
-            ApiPrincipal(
-                tokenId = "test",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "test",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val key = HashBytes(sha256(token))
-        return ApiAuthConfig.Bearer(tokens = mapOf(key to principal)) to
+        return ApiAuthConfig.Bearer(tokens = mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))) to
             mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))
     }
 

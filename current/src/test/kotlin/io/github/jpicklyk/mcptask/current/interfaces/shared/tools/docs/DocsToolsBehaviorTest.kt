@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -7,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
 import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
@@ -157,7 +157,7 @@ class DocsToolsBehaviorTest {
 
         val write = registry["docs_write"] as OpsToolSpec<*>
         assertEquals(listOf("upsert", "archive", "unarchive", "delete", "attach", "detach"), write.ops.map { it.name })
-        assertTrue(write.ops.all { it.capability == ApiCapability.WRITE_CONFIG }, "every write op needs WRITE_CONFIG")
+        assertTrue(write.ops.all { it.capability == ApiCapability.WRITE_DOCS }, "every write op needs WRITE_DOCS")
         assertEquals(listOf("delete", "detach"), write.ops.filter { it.destructive }.map { it.name }, "delete and detach are destructive")
 
         val base = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN)

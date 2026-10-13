@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -29,16 +29,17 @@ data class ParityToken(
 ) {
     val raw: String get() = "raw-parity-token-$id"
 
-    fun principal(): ApiPrincipal =
-        ApiPrincipal(
-            tokenId = id,
-            scope = ApiScope(rootIds = rootIds, tagsInclude = tagsInclude),
+    fun principal(): Principal =
+        Principal(
+            id = id,
+            scope = AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude),
             capabilities = capabilities,
-            authMode = ApiAuthMode.BEARER
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED
         )
 
     /** True when the token's scope restricts anything (a non-null root set, even an empty one, or any tag). */
-    val isScopeRestricted: Boolean get() = !principal().toAccessScope().isUnrestricted
+    val isScopeRestricted: Boolean get() = !principal().scope.isUnrestricted
 }
 
 /**

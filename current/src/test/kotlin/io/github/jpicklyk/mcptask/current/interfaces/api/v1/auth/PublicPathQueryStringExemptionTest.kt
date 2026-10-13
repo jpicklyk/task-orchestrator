@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -56,13 +57,19 @@ class PublicPathQueryStringExemptionTest {
 
     private fun bearerConfig(): ApiAuthConfig.Bearer {
         val principal =
-            ApiPrincipal(
-                tokenId = "public-path-probe-principal",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "public-path-probe-principal",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
-        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(PROBE_TOKEN)) to principal))
+        return ApiAuthConfig.Bearer(
+            tokens =
+                mapOf(
+                    HashBytes(sha256(PROBE_TOKEN)) to BearerTokenStore.TokenEntry(principal, expiresAt = null)
+                )
+        )
     }
 
     /** Installs [ApiBearerAuth] with a caller-chosen `publicPaths` set (default `publicPrefixes`
@@ -76,7 +83,7 @@ class PublicPathQueryStringExemptionTest {
         install(ContentNegotiation) { json(McpJson) }
         install(ApiBearerAuth) {
             authConfig = config
-            tokenEntries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+            tokenEntries = config.tokens
             this.publicPaths = publicPaths
         }
         routing {

@@ -89,7 +89,13 @@ tokens:
 
 - `id` — stable identifier used in audit records (prefixed with `api:`)
 - `token_sha256` — lowercase hex SHA-256 of the plaintext token
-- `capabilities` — list of granted operations (see §2)
+- `capabilities` — list of granted operations (see §2); absent or `[]` grants nothing
+- `kind` — optional: `human`, `agent` or `service` (trimmed, case-insensitive; default `service`). What sort of
+  caller holds the token; carried on the principal (§22), never taken from a request body `actor`. Any other value,
+  or a non-string, fails startup naming the token id.
+- `profile` — optional; the only value is `director` (trimmed, case-insensitive), which confines the token to
+  `POST /api/v1/ops/director/{tool}` (§20a): on any other path, `GET /api/v1/events` included, it answers
+  `403 forbidden` with `detail: {scope: "capability", required: "director"}`. Any other value fails startup.
 - `scope` — optional; when present must be a mapping with only `root_ids` and/or `tags_include`
   keys (any other key, including a typo, fails startup)
   - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access.
@@ -101,7 +107,7 @@ tokens:
     YAML boolean like `yes`/`on`) fails startup with `IllegalArgumentException` naming the token id
     and the key path — never silently falls back to unrestricted
   - A token entry itself only accepts the keys `id`, `description`, `token_sha256`, `expires_at`,
-    `scope`, `capabilities` — an unrecognized entry key (e.g. a `scopes:` typo) also fails startup
+    `scope`, `capabilities`, `kind`, `profile` — an unrecognized entry key (e.g. a `scopes:` typo) also fails startup
 - `expires_at` — optional token expiry; expired tokens are rejected at lookup time
 - Token rotation requires a server restart (tokens are loaded once at startup).
 
@@ -123,8 +129,13 @@ printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
 
 Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`, `iat` (when present). `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`. A token is also rejected once its remaining lifetime exceeds `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (default `86400` = 24h, 60s clock-skew allowance): `exp - now` beyond the cap always rejects, and when `iat` is present a future-dated `iat` or an `exp - iat` spread beyond the cap also rejects. See [fleet-deployment.md § JWT Contract](fleet-deployment.md#jwt-contract) for the full rule.
 
-The principal's `tokenId` is the JWT's `sub` claim. Scope and capabilities are derived from two
+The principal's id is the JWT's `sub` claim. Kind, scope and capabilities are derived from three
 custom claims the issuer sets:
+
+- `to_kind` — optional: `human`, `agent` or `service` (trimmed, case-insensitive). Absent (or `null`), the kind is
+  `service`, except on the actor DID path (`sub` equals `iss` and starts with `did:`), where it is `agent`. A
+  non-string or unknown value fails closed like `to_scope`: the whole JWT is rejected with `401 invalid_token` and a
+  WARN names the claim.
 
 - `to_scope` — optional; when present must be a JSON object with only `root_ids` and/or
   `tags_include` keys, following the same fail-closed rules as the bearer `scope` block above
@@ -140,6 +151,13 @@ custom claims the issuer sets:
 
 Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
 inside `to_scope` are treated as malformed.
+
+**The principal.** Every authenticated REST call carries one principal: `(id, kind, proofStatus, scope,
+capabilities, host)`. `proofStatus` is `issued` for a token-file token, `verified` for a JWT (or `verified_stale`
+when the key set that verified it was served from the stale cache after a failed refresh), and `none` in
+unauthenticated mode. `host` is the `X-Client-Host` header, else the `User-Agent` product (§6a). Every credential,
+the header and the SSE `?token=` alike, is resolved by one pipeline: the token-file lookup first (an expired entry
+resolves to nothing), then JWT verification in JWKS mode.
 
 **Failing requests receive** (bodies are the 4.0 error envelope, §6):
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
@@ -159,7 +177,7 @@ API_ALLOW_UNAUTHENTICATED=true
 
 Setting `API_AUTH_MODE=none` alone still fails startup with an error naming the confirm flag. Setting `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored — it only takes effect combined with `none`.
 
-When both are set, every request — with or without an `Authorization` header — is attached a synthetic principal with `ADMIN` capability (implies all others) and unrestricted scope (`root_ids: null`). No token is required or checked. Audit records attribute writes to the actor `api:local-unauth`.
+When both are set, every request — with or without an `Authorization` header — is attached a synthetic principal with `ADMIN` capability (implies all others) and unrestricted scope (`root_ids: null`), kind `agent` and proof status `none`. No token is required or checked. Audit records attribute writes to the actor `api:local-unauth`.
 
 > **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, identical to the existing `/mcp` exposure. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
 
@@ -181,8 +199,14 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance`, and `items_write` `complete_tree` (orchestration profile) through `POST /ops/items_write` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
-| `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
+| `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset` (checked per op by the dispatcher, section 20a). Grants no `docs_write` op. |
+| `WRITE_DOCS` | `write-docs` | `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
+| `RUNS` | `runs` | Reserved for the run tools; parsed and grantable, no endpoint checks it yet |
+| `DECIDE` | `decide` | Reserved for decision answering; parsed and grantable, no endpoint checks it yet |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
+
+**Breaking change (4.0):** `docs_write` needs `write-docs`. A token that wrote documents with `write-config` alone
+now gets `403 forbidden` (`required: write-docs`) on every `docs_write` op; add `write-docs` to it.
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields. The transition trail (`items_read` `history`, section 10) follows the same rule for its `actor`/`verification`.
 
@@ -344,7 +368,7 @@ request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/`
 `payload_too_large`, ...) as the row's `error_code`; `http_<status>` is the fallback for a body that is not an envelope. The row's `tool` is
 the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
-on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
+on REST rows is the authenticated API principal (`api:<id>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 
@@ -391,7 +415,7 @@ so a client must not assume it is always present.
 }
 ```
 
-For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"external"` (server-synthesized; client-supplied actor fields are silently dropped).
+For REST API writes, `id` is always `"api:<id>"` and `kind` is always `"external"` (server-synthesized; client-supplied actor fields are silently dropped).
 
 ### Config DTOs
 
@@ -637,7 +661,7 @@ error codes live in [api-reference.md](api-reference.md); this table only maps o
 | `GET /config`, `/config/schemas[/{type}]`, `/config/traits`, `/config/types`, `/config/status-graph` | `config` op `effective` without a `rootId` returns the same server-set view. Only `GET /config/schema` stays (section 17) | `read` |
 | none | `config` op `validate` (a dry run of `push`) | `read` |
 | `GET /roots/{rootId}/rules`, `GET /roots/{rootId}/rules/{key}` | `config` op `rules`; `itemId` with `noteKey` follows a note's skill pointer (now also available on REST). An absent rule is `not_found` kind `document`, no longer `rule_not_found` | `read` |
-| `PUT /roots/{rootId}/plans/{slug}` | `docs_write` op `upsert`; a `rule/<key>` slug is `kind` `rule`, slug `<key>`. A write over an adopted plan is `duplicate` (`409`); `bodyFromFile` is not accepted over REST | `write-config` |
+| `PUT /roots/{rootId}/plans/{slug}` | `docs_write` op `upsert`; a `rule/<key>` slug is `kind` `rule`, slug `<key>`. A write over an adopted plan is `duplicate` (`409`); `bodyFromFile` is not accepted over REST | `write-docs` (was `write-config`) |
 | `GET /roots/{rootId}/plans/{slug}`, `GET /roots/{rootId}/plans` | `docs_read` selects `get`, `list`; `kind` is required, the `status` filter and field are gone (an adopted plan reports `adoptedBy`) | `read` |
 
 The config ops check `rootId` scope first, so a root outside the caller's scope is `forbidden`, not `not_found`; status
@@ -852,7 +876,7 @@ from `meta.reqId`. The HTTP status comes from the envelope's error code (`200` f
 batch, otherwise the code's own status, e.g. `404 not_found`, `403 forbidden`); no route picks a status by
 hand. Errors use the envelope, as on every other route (§6).
 
-**Principal.** The caller's principal comes from the bearer token (`api:<tokenId>`, kind `external`). A body
+**Principal.** The caller's principal comes from the bearer token (audited as `api:<id>`, kind `external`). A body
 `actor` is ignored, never decoded, so a token holder cannot spoof attribution (MCP, which has no bearer
 credential, still lifts the body `actor`). Idempotency keys (`ops[].idempotencyKey`) are therefore namespaced
 per token principal: the same key and payload sent from two different tokens is two different calls, not a
@@ -906,8 +930,9 @@ Anything a tool or the dispatcher reports (`not_found`, `idempotency_mismatch`, 
 tool's own envelope with its own status.
 
 **Authentication failures.** A missing or invalid bearer token is rejected by the shared `ApiBearerAuth` plugin
-before this route runs: `401 unauthenticated` with the `WWW-Authenticate` challenge (§6). With the REST API disabled (`API_ENABLED=false`) the route is not
-mounted and answers `404` like every other `/api/v1` route.
+before this route runs: `401 unauthenticated` with the `WWW-Authenticate` challenge (§6). A token with
+`profile: director` (§1) is refused here with `403 forbidden` (`scope: capability`, `required: director`). With the
+REST API disabled (`API_ENABLED=false`) the route is not mounted and answers `404` like every other `/api/v1` route.
 
 **Request correlation.** The `X-Req-Id` response header (§6a) equals `meta.reqId` in the envelope, on success
 and on every fault above.
@@ -924,6 +949,24 @@ on both surfaces, with one deliberate exception: `notes_write` `bodyFromFile` is
 seeded databases and compares the envelope bytes (minus `meta.reqId`), the HTTP status against the error
 code, and the resulting database state; a coverage guard requires every registered select and op to carry a
 happy-path and a scope-forbidden scenario.
+
+### POST /api/v1/ops/director/{tool}
+
+The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
+scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`). For a
+member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
+
+- A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
+  required: "director"}`.
+- A name that is not a registered tool answers `400 invalid_request` (field `tool`, listing the director tools).
+- A select hidden inside a visible tool (e.g. `items_read` `history`) answers the dispatcher's `400 invalid_request`
+  (`/select`, listing the visible selects).
+
+Any credential may call it with the capability the member needs (`read`). It is the only path a token with
+`profile: director` may call (§1); the path is matched exactly (`/api/v1/ops/director/<tool>`, lowercase, no
+trailing slash, no encoding), and anything else is refused for such a token. The machine-readable form is in
+[`api/openapi.yaml`](api/openapi.yaml) (path `/ops/director/{tool}`).
 
 ---
 
@@ -1048,9 +1091,12 @@ recorder's commit listener directly; a fan-out failure is logged and never fails
 Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** - callers cannot override audit attribution.
 
 **Synthesized actor:**
-- `id` = `"api:<tokenId>"` (e.g., `"api:dashboard-editor"`)
-- `kind` = `"external"` (distinguishes API writes from MCP agent writes)
+- `id` = `"api:<id>"`, the principal id (e.g., `"api:dashboard-editor"`)
+- `kind` = `"external"` for every REST principal, whatever its own kind (`human`, `agent`, `service`; §1), which
+  travels with the call instead of the audit actor
 - `parent` = `null`
+- `verification` = `verified` (verifier `api-jwks`) for a JWT, fresh or stale; `unchecked` for a token-file token
+  (`api-bearer`) and for unauthenticated mode (`api-unauthenticated`)
 
 **Attribution redaction (applies to notes and the `items_read` `history` select):**
 - Non-admin callers: `actor` and `verification` fields are omitted from responses

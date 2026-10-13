@@ -43,7 +43,7 @@ import kotlin.test.assertTrue
  *  - Literal terms: the retired `FtsQuerySanitizer` KDoc (base 5bc03359): every special character (`" * : - ( )`) and
  *    every operator word (`AND OR NOT NEAR`) is searched literally, never as FTS5 syntax.
  *  - Principal tag scope (AC3): exact, case-sensitive comma-separated element membership, taken from
- *    `ApiScope`/`allowsItemTags` ("membership is exact (no prefix/substring matching)"), so `%` and `_` are plain
+ *    `AccessScope`/`allowsItemTags` ("membership is exact (no prefix/substring matching)"), so `%` and `_` are plain
  *    characters, `Alpha` is not `alpha` and a principal tag containing a comma is one element, not two.
  *  - Request tag filter (D4): keeps the 3.x case-insensitive semantics, any-of.
  *  - Principal root ids (AC3/D3, `api-rest.md` section 3): an item is in scope when it or any ancestor is a listed

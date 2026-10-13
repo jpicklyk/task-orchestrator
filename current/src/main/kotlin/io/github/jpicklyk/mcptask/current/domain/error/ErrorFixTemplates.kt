@@ -40,7 +40,7 @@ object ErrorFixTemplates {
             ErrorCode.CONFIG_INVALID to "Fix the configuration errors listed in detail.errors and push the config again.",
             ErrorCode.PAYLOAD_TOO_LARGE to "Reduce the payload to at most {max} bytes.",
             ErrorCode.UNAUTHENTICATED to "Authenticate and retry the request.",
-            ErrorCode.FORBIDDEN to "Use a credential that grants {required} for the {scope} scope."
+            ErrorCode.FORBIDDEN to "Use a credential that meets the {required} requirement of the {scope} check."
         )
 
     /** The template for [code], or null when the code has none. */

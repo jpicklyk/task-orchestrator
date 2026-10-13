@@ -1,5 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.envelope
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
@@ -8,10 +13,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -112,11 +113,12 @@ class SurfaceConformanceTest {
         id: String,
         caps: Set<ApiCapability>
     ) = "raw-$id" to
-        ApiPrincipal(
-            tokenId = id,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+        Principal(
+            id = id,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = caps,
-            authMode = ApiAuthMode.BEARER
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED
         )
 
     private val tokens = listOf(admin, reader, notesWriter)
@@ -145,13 +147,26 @@ class SurfaceConformanceTest {
                 lacking = setOf(ApiCapability.WRITE_NOTES),
                 body = """{"select":"list"}"""
             ),
+            Probe(
+                "POST /api/v1/ops/director/{tool}",
+                "/api/v1/ops/director/items_read",
+                lacking = setOf(ApiCapability.WRITE_NOTES),
+                body = """{"select":"list"}"""
+            ),
             // The stream body is exempt and a happy or unknown-parameter call would open it; the pre-flight answers are probed.
             Probe("GET /api/v1/events", "/api/v1/events", lacking = setOf(ApiCapability.WRITE_NOTES), happy = false, unknownQuery = false),
         )
 
     // ------------------------------------------------------------------ wiring
 
-    private fun authConfig() = ApiAuthConfig.Bearer(tokens = tokens.associate { (raw, p) -> HashBytes(sha256(raw)) to p })
+    private fun authConfig() =
+        ApiAuthConfig.Bearer(
+            tokens =
+                tokens.associate { (raw, p) ->
+                    HashBytes(sha256(raw)) to
+                        BearerTokenStore.TokenEntry(p, expiresAt = null)
+                }
+        )
 
     private fun appConfig(): AppConfig = AppConfig.fromEnv(env = mapOf("MCP_ALLOWED_HOSTS" to "secret-allowed.example")::get)
 
@@ -171,7 +186,7 @@ class SurfaceConformanceTest {
                             .eventStore()
                 ),
             effectiveProvider = rig.composition.toolContext.repositoryProvider,
-            apiTokenEntries = auth.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) },
+            apiTokenEntries = auth.tokens,
             allowQueryToken = false,
             serverName = "conformance",
             serverVersion = "test",

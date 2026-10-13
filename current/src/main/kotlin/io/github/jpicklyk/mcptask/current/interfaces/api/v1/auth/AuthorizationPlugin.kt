@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
@@ -36,7 +38,7 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
             if (!allowed) {
                 authzLogger.debug(
                     "Access denied: tokenId='{}' requires {} but has {}",
-                    principal.tokenId,
+                    principal.id,
                     pluginConfig.requiredCapability,
                     principal.capabilities,
                 )
@@ -69,7 +71,7 @@ private class CapabilityRouteSelector(
 // Route-level DSL helper that enforces a required ApiCapability before delegating to build.
 //
 // Wraps build() in a fresh transparent child route carrying a route-scoped plugin that
-// checks the resolved ApiPrincipal has cap (or ADMIN). Answers 403 `forbidden` {scope: capability,
+// checks the resolved Principal has cap (or ADMIN). Answers 403 `forbidden` {scope: capability,
 // required: <cap>} on failure (as the tool dispatcher does), 401 `unauthenticated` when there is no principal.
 //
 // Usage:
@@ -89,12 +91,3 @@ fun Route.requireCapability(
     child.build()
     return child
 }
-
-/**
- * The ONE capability predicate, shared by the REST route wrapper and the tool dispatcher:
- * [ApiCapability.ADMIN] implies every capability, anything else must be listed.
- */
-fun Set<ApiCapability>.grants(required: ApiCapability): Boolean = ApiCapability.ADMIN in this || required in this
-
-/** The kebab-case spelling [ApiCapability.fromConfigString] parses (`write-items`, `read`, ...). */
-fun ApiCapability.configName(): String = name.lowercase().replace('_', '-')

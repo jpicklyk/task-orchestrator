@@ -1691,7 +1691,7 @@ an `idempotencyKey`. Every element commits on its own unless `atomic` is true; t
 `207 partial_failure` over REST when some elements failed). It is served over MCP and `POST /api/v1/ops/docs_write`, and replaces the write half
 of `manage_plan_documents` and `PUT /api/v1/roots/{rootId}/plans/{slug}`.
 
-Every op needs the `WRITE_CONFIG` capability (`write-config`), the capability of the route this tool replaces: a `write-notes` token cannot
+Every op needs the `WRITE_DOCS` capability (`write-docs`; before 4.0 it was `write-config`, which no longer grants any `docs_write` op): a `write-notes` token cannot
 rewrite documents, because rule documents are served to agents as instructions by the `config` tool's `rules` op. Every op also checks the caller's root and tag
 scope on `rootId`; a forbidden element is never executed and records no event.
 
@@ -1740,9 +1740,9 @@ document, and a write over an adopted plan answers `duplicate` instead of the 3.
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool docs_write -->
-Write the versioned documents (plans, rules, pages) of a project root, in batches: upsert, archive, unarchive, delete, attach and detach. Every op needs the write-config capability.
+Write the versioned documents (plans, rules, pages) of a project root, in batches: upsert, archive, unarchive, delete, attach and detach. Every op needs the write-docs capability.
 
-**`docs_write` op `upsert`** (knowledge and orchestration profiles; capability `write-config`): Create the document at (root, kind, slug) or write its next version; CRLF becomes LF. Give exactly one of body and bodyFromFile. A plan or page body is at most 65536 bytes, a rule body 16384. An adopted plan is duplicate and an archived document invalid_request. Result: {id, kind, slug, version, contentHash, created}.
+**`docs_write` op `upsert`** (knowledge and orchestration profiles; capability `write-docs`): Create the document at (root, kind, slug) or write its next version; CRLF becomes LF. Give exactly one of body and bodyFromFile. A plan or page body is at most 65536 bytes, a rule body 16384. An adopted plan is duplicate and an archived document invalid_request. Result: {id, kind, slug, version, contentHash, created}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1756,7 +1756,7 @@ Write the versioned documents (plans, rules, pages) of a project root, in batche
 
 Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `payload_too_large`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`docs_write` op `archive`** (knowledge and orchestration profiles; capability `write-config`): Archive the document; its version does not change. Archiving an archived document does nothing. Result: {id, kind, slug, version, archived}.
+**`docs_write` op `archive`** (knowledge and orchestration profiles; capability `write-docs`): Archive the document; its version does not change. Archiving an archived document does nothing. Result: {id, kind, slug, version, archived}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1767,7 +1767,7 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`docs_write` op `unarchive`** (knowledge and orchestration profiles; capability `write-config`): Unarchive the document. Unarchiving a live document does nothing. Result: {id, kind, slug, version, archived}.
+**`docs_write` op `unarchive`** (knowledge and orchestration profiles; capability `write-docs`): Unarchive the document. Unarchiving a live document does nothing. Result: {id, kind, slug, version, archived}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1778,7 +1778,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`docs_write` op `delete`** (knowledge and orchestration profiles; capability `write-config`; destructive): Delete the document and its versions. Links to it become dangling. An adopted plan cannot be deleted. Result: {id, kind, slug, deleted}.
+**`docs_write` op `delete`** (knowledge and orchestration profiles; capability `write-docs`; destructive): Delete the document and its versions. Links to it become dangling. An adopted plan cannot be deleted. Result: {id, kind, slug, deleted}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1788,7 +1788,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`docs_write` op `attach`** (knowledge and orchestration profiles; capability `write-config`): Attach an item of the same root to the document. Attaching twice returns the same link. Result: {linkId, documentId, itemId}.
+**`docs_write` op `attach`** (knowledge and orchestration profiles; capability `write-docs`): Attach an item of the same root to the document. Attaching twice returns the same link. Result: {linkId, documentId, itemId}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1799,7 +1799,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`docs_write` op `detach`** (knowledge and orchestration profiles; capability `write-config`; destructive): Remove the item's attachment to the document. Result: {detached: n}, 0 when it was not attached.
+**`docs_write` op `detach`** (knowledge and orchestration profiles; capability `write-docs`; destructive): Remove the item's attachment to the document. Result: {detached: n}, 0 when it was not attached.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

@@ -8,8 +8,9 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditClaim
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditVerification
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
@@ -281,11 +282,12 @@ private fun submitRestCall(
 ) {
     try {
         call.attributes.getOrNull(ApiPrincipalKey)?.let { principal ->
+            val claim = principal.auditClaim()
             telemetry.setPrincipal(
                 CallTelemetry.Principal(
-                    ApiAuditBridge.toActorClaim(principal).id,
-                    ApiAuditBridge.toActorClaim(principal).kind.toJsonString(),
-                    ApiAuditBridge.toVerificationResult(principal).status.toJsonString()
+                    claim.id,
+                    claim.kind.toJsonString(),
+                    principal.auditVerification().status.toJsonString()
                 )
             )
         }

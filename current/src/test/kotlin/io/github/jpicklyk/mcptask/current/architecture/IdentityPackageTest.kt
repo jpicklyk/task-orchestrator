@@ -153,7 +153,7 @@ class IdentityPackageTest {
     /** Mapped path (relative to the production root) to the package the file must declare. */
     private val inventory: Map<String, String> =
         buildMap {
-            for (n in listOf("ApiPrincipal", "KeySourceUrlPolicy", "ScopeClaimParser")) {
+            for (n in listOf("CredentialResolver", "KeySourceUrlPolicy", "ScopeClaimParser")) {
                 put("infrastructure/identity/$n.kt", base)
             }
             for (n in listOf("ApiAuthConfig", "ApiAuthConfigLoader", "BearerTokenStore")) {
@@ -206,11 +206,11 @@ class IdentityPackageTest {
         val seeded =
             listOf(
                 synthetic("infrastructure/config/DidWebResolver.kt", "package p"),
-                synthetic("interfaces/api/v1/auth/ApiPrincipal.kt", "package p"),
+                synthetic("interfaces/api/v1/auth/CredentialResolver.kt", "package p"),
                 synthetic("domain/model/DidDocument.kt", "package p")
             )
         assertEquals(
-            setOf("infrastructure/config/DidWebResolver.kt", "interfaces/api/v1/auth/ApiPrincipal.kt", "domain/model/DidDocument.kt"),
+            setOf("infrastructure/config/DidWebResolver.kt", "interfaces/api/v1/auth/CredentialResolver.kt", "domain/model/DidDocument.kt"),
             leftBehind(seeded).toSet()
         )
         assertEquals(emptyList(), leftBehind(listOf(synthetic("infrastructure/config/AppConfig.kt", "package p"))))
@@ -415,7 +415,7 @@ class IdentityPackageTest {
         val iface = "io.github.jpicklyk.mcptask.current.interfaces"
         val seeded =
             listOf(
-                synthetic("infrastructure/identity/A.kt", "import $iface.api.v1.auth.ApiPrincipal"),
+                synthetic("infrastructure/identity/A.kt", "import $iface.api.v1.auth.Principal"),
                 synthetic("infrastructure/identity/jwt/B.kt", "import $iface.api.*"),
                 synthetic("infrastructure/identity/did/C.kt", "val p = $iface.mcp.X()"),
                 synthetic("infrastructure/identity/bearer/D.kt", " * [$iface.api.X]"),

@@ -265,7 +265,7 @@ class JwtVerifierTest {
 
             val principal = JwksApiVerifier(apiConfig(), staticProvider(rsaKey), CLOCK).verify(token)
             assertNotNull(principal)
-            assertEquals("agent-1", principal!!.tokenId)
+            assertEquals("agent-1", principal!!.id)
         }
 
     // -------------------------------------------------------------------------
