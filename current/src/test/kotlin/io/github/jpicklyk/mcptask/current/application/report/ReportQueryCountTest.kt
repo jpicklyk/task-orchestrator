@@ -1,9 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
+import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Events
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Json
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -13,10 +19,12 @@ import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.sql.DriverManager
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -38,6 +46,11 @@ import kotlin.test.assertTrue
  * every request shape (a per-group or per-row read unit would scale), not by a separate unit counter.
  *
  * Forbidden-construct declaration: none.
+ *
+ * R11 (item 82397512, scenario S14 of its frozen test-plan, NEW-SURFACE): the same equal-count property for `gates`,
+ * `contention` and `eventsRetainedSince` at scale 1 and 40 of an events kit, plus an `EXPLAIN QUERY PLAN` check of every
+ * SELECT those calls issue (oracle: task-scope AC10, every scan uses an index, no bare `SCAN events`). The statements are
+ * captured by the Exposed interceptor, so the plan is that of the SQL production really runs.
  */
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
 class ReportQueryCountTest {
@@ -48,19 +61,26 @@ class ReportQueryCountTest {
 
     private class StatementCounter : StatementInterceptor {
         var count = 0
+        val sqls = mutableListOf<String>()
 
         override fun beforeExecution(
             transaction: Transaction,
             context: StatementContext
         ) {
             count++
+            sqls += context.sql(transaction)
         }
     }
 
     private suspend fun countStatements(
         d: SqliteTestDatabase,
         body: suspend () -> Any?
-    ): Int =
+    ): Int = captureStatements(d, body).count
+
+    private suspend fun captureStatements(
+        d: SqliteTestDatabase,
+        body: suspend () -> Any?
+    ): StatementCounter =
         d.unitOfWork().read {
             val tx = TransactionManager.current()
             val counter = StatementCounter()
@@ -70,7 +90,7 @@ class ReportQueryCountTest {
             } finally {
                 tx.unregisterInterceptor(counter)
             }
-            counter.count
+            counter
         }
 
     /** [scale] copies of a kit of six tool groups; every row is inside the default seven day window. */
@@ -239,6 +259,225 @@ class ReportQueryCountTest {
 
                 assertTrue(one >= 1)
                 assertTrue(three >= 3 * one, "three reads count at least three times one: $one vs $three")
+            }
+        }
+
+    // ------------------------------------------------------------------ R11: gates, contention, eventsRetainedSince
+
+    private val gateTypes = setOf(DomainEvent.TRANSITION_REJECTED)
+    private val contentionTypes =
+        setOf(
+            DomainEvent.CLAIM_ACQUIRED,
+            DomainEvent.CLAIM_RELEASED,
+            DomainEvent.CLAIM_REJECTED,
+            DomainEvent.CLAIM_EXPIRED,
+            DomainEvent.LEASE_ACQUIRED,
+            DomainEvent.LEASE_RELEASED,
+            DomainEvent.LEASE_REJECTED,
+            DomainEvent.LEASE_EXPIRED
+        )
+
+    /**
+     * [scale] copies of an events kit. Kit k is one item (child of R1 for even k, of R2 for odd k; tag `api` when k is a
+     * multiple of 3, otherwise `beta`; type `ty-k`; traits `tr-k` and `tr-k-b`) with: three `gate_blocked` rejections (keys
+     * `nk-k-0` and `nk-k-1`; one with no key at all), one `dependency_unmet`, two claim acquisitions, a claim rejection,
+     * expiry and release, and a lease acquired, rejected (keys `lk-k` and `lk-k-b`), expired and force-released under `lk-k`.
+     * Every row is inside the default seven day window. So at scale N: gates have 2N + 1 noteKey groups, N type groups, 2N
+     * trait groups and 2 errorCode groups; contention has N claim rows and 2N lease rows (3N groups).
+     */
+    private suspend fun seedEvents(
+        d: SqliteTestDatabase,
+        scale: Int
+    ) {
+        val ev = R11Events(d)
+        val a = ev.item("Alpha root", id = r1)
+        val b = ev.item("Beta root", id = r2)
+        val records = mutableListOf<EventRecord>()
+        for (k in 0 until scale) {
+            val parent = if (k % 2 == 0) a else b
+            val item =
+                ev.item(
+                    "kit-$k",
+                    parent = parent,
+                    type = "ty-$k",
+                    traits = listOf("tr-$k", "tr-$k-b"),
+                    tags = if (k % 3 == 0) "api" else "beta"
+                )
+            val at = ReportKit.NOW.minus(Duration.ofHours((k % 150).toLong())).minusMillis(1)
+
+            fun add(
+                type: String,
+                data: String
+            ) {
+                records += ev.record(type, at, item.id, parent.id, data)
+            }
+            add(DomainEvent.TRANSITION_REJECTED, R11Json.rejected(missingKeys = listOf("nk-$k-0", "nk-$k-1")))
+            add(DomainEvent.TRANSITION_REJECTED, R11Json.rejected(missingKeys = listOf("nk-$k-0")))
+            add(DomainEvent.TRANSITION_REJECTED, R11Json.rejected(missingKeys = emptyList()))
+            add(DomainEvent.TRANSITION_REJECTED, R11Json.rejected(code = "dependency_unmet"))
+            repeat(2) { add(DomainEvent.CLAIM_ACQUIRED, R11Json.claimAcquired()) }
+            add(DomainEvent.CLAIM_REJECTED, R11Json.claimRejected())
+            add(DomainEvent.CLAIM_EXPIRED, R11Json.claimExpired())
+            add(DomainEvent.CLAIM_RELEASED, R11Json.claimReleased())
+            add(DomainEvent.LEASE_ACQUIRED, R11Json.leaseAcquired("lk-$k"))
+            add(DomainEvent.LEASE_REJECTED, R11Json.leaseRejected(listOf("lk-$k", "lk-$k-b")))
+            add(DomainEvent.LEASE_EXPIRED, R11Json.leaseExpired("lk-$k"))
+            add(DomainEvent.LEASE_RELEASED, R11Json.leaseReleased("lk-$k", forced = true))
+        }
+        ev.append(records)
+    }
+
+    private class Measured11(
+        val counts: Map<String, Int>,
+        val plans: Map<String, List<String>>,
+        val groups: Map<String, Int>
+    )
+
+    private fun explain(
+        d: SqliteTestDatabase,
+        sql: String
+    ): List<String> =
+        DriverManager.getConnection(d.jdbcUrl).use { c ->
+            // Parameters stay unbound (NULL): the planner has no statistics, so the access paths do not depend on the values.
+            c.prepareStatement("EXPLAIN QUERY PLAN $sql").use { st ->
+                st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("detail")) } }
+            }
+        }
+
+    private fun isSelect(sql: String): Boolean =
+        sql.trimStart().let {
+            it.startsWith("SELECT", ignoreCase = true) ||
+                it.startsWith("WITH", ignoreCase = true)
+        }
+
+    private suspend fun gatesGroups(
+        service: ReportService,
+        ctx: CallContext,
+        request: ReportGatesRequest
+    ): Int = assertIs<Outcome.Ok<GatesReport>>(service.gates(ctx, request)).value.page.total
+
+    private suspend fun contentionGroups(
+        service: ReportService,
+        ctx: CallContext,
+        request: ReportContentionRequest
+    ): Int = assertIs<Outcome.Ok<ContentionReport>>(service.contention(ctx, request)).value.page.total
+
+    private suspend fun measure11(scale: Int): Measured11 {
+        val counts = linkedMapOf<String, Int>()
+        val plans = linkedMapOf<String, List<String>>()
+        val groups = linkedMapOf<String, Int>()
+        return SqliteTestDatabase.open(clock = clock).use { d ->
+            val fx = ReportFixture(d, clock)
+            seedEvents(d, scale)
+            val admin = fx.ctx(principalsVisible = true)
+            val scoped = fx.ctx(AccessScope.principal(setOf(r1), emptySet()))
+            val tagged = fx.ctx(AccessScope.principal(null, setOf("api")))
+            val service = fx.service()
+
+            val firstGates = assertIs<Outcome.Ok<GatesReport>>(service.gates(admin, ReportGatesRequest(limit = 2))).value
+            val gatesCursor = assertNotNull(firstGates.page.next, "scale $scale: the kit holds more noteKey groups than one page of two")
+            val firstContention =
+                assertIs<Outcome.Ok<ContentionReport>>(
+                    service.contention(admin, ReportContentionRequest(limit = 2))
+                ).value
+            val contentionCursor = assertNotNull(firstContention.page.next, "scale $scale: more contention rows than one page of two")
+
+            val cases = linkedMapOf<String, suspend () -> Any?>()
+            cases["gates first page"] = { service.gates(admin, ReportGatesRequest(limit = 2)) }
+            cases["gates second page"] = { service.gates(admin, ReportGatesRequest(limit = 2, cursor = gatesCursor)) }
+            for (groupBy in listOf(ReportGroupBy.TYPE, ReportGroupBy.TRAIT, ReportGroupBy.ERROR_CODE)) {
+                cases["gates groupBy ${groupBy.wire}"] = { service.gates(admin, ReportGatesRequest(groupBy = groupBy, limit = 2)) }
+            }
+            cases["gates rootId full id"] = { service.gates(admin, ReportGatesRequest(rootId = IdRef(r1.toString()), limit = 2)) }
+            cases["gates rootId prefix"] = { service.gates(admin, ReportGatesRequest(rootId = IdRef(r2.toString().take(8)), limit = 2)) }
+            cases["gates root scoped"] = { service.gates(scoped, ReportGatesRequest(limit = 2)) }
+            cases["gates root scoped with rootId"] = { service.gates(scoped, ReportGatesRequest(rootId = IdRef(r1.toString()), limit = 2)) }
+            for (groupBy in listOf(ReportGroupBy.NOTE_KEY, ReportGroupBy.TYPE, ReportGroupBy.TRAIT)) {
+                cases["gates tag scoped ${groupBy.wire}"] = { service.gates(tagged, ReportGatesRequest(groupBy = groupBy, limit = 2)) }
+            }
+            cases["contention first page"] = { service.contention(admin, ReportContentionRequest(limit = 2)) }
+            cases["contention second page"] = { service.contention(admin, ReportContentionRequest(limit = 2, cursor = contentionCursor)) }
+            cases["contention rootId full id"] =
+                { service.contention(admin, ReportContentionRequest(rootId = IdRef(r1.toString()), limit = 2)) }
+            cases["contention rootId prefix"] =
+                { service.contention(admin, ReportContentionRequest(rootId = IdRef(r2.toString().take(8)), limit = 2)) }
+            cases["contention root scoped"] = { service.contention(scoped, ReportContentionRequest(limit = 2)) }
+            cases["contention tag scoped"] = { service.contention(tagged, ReportContentionRequest(limit = 2)) }
+            cases["eventsRetainedSince gates"] =
+                { d.unitOfWork().read { d.repositoryProvider().reportQueries().eventsRetainedSince(gateTypes) } }
+            cases["eventsRetainedSince contention"] = {
+                d.unitOfWork().read { d.repositoryProvider().reportQueries().eventsRetainedSince(contentionTypes) }
+            }
+
+            for ((name, call) in cases) {
+                call()
+                val captured = captureStatements(d, call)
+                counts[name] = captured.count
+                plans[name] = captured.sqls.filter(::isSelect).flatMap { sql -> explain(d, sql) }
+            }
+
+            groups["gates noteKey"] = firstGates.page.total
+            groups["contention"] = firstContention.page.total
+            groups["gates type"] = gatesGroups(service, admin, ReportGatesRequest(groupBy = ReportGroupBy.TYPE, limit = 200))
+            groups["gates trait"] = gatesGroups(service, admin, ReportGatesRequest(groupBy = ReportGroupBy.TRAIT, limit = 200))
+            groups["gates errorCode"] = gatesGroups(service, admin, ReportGatesRequest(groupBy = ReportGroupBy.ERROR_CODE))
+            groups["gates root scoped"] = gatesGroups(service, scoped, ReportGatesRequest(limit = 200))
+            groups["gates rootId"] = gatesGroups(service, admin, ReportGatesRequest(rootId = IdRef(r1.toString()), limit = 200))
+            groups["gates tag scoped"] = gatesGroups(service, tagged, ReportGatesRequest(limit = 200))
+            groups["contention tag scoped"] = contentionGroups(service, tagged, ReportContentionRequest(limit = 200))
+            groups["contention root scoped"] = contentionGroups(service, scoped, ReportContentionRequest(limit = 200))
+            Measured11(counts, plans, groups)
+        }
+    }
+
+    @Test
+    fun `R11 S14 gates, contention and eventsRetainedSince issue the same number of statements at scale 1 and 40`(): Unit =
+        runBlocking {
+            val small = measure11(1)
+            val large = measure11(40)
+
+            assertEquals(small.counts.keys, large.counts.keys)
+            val mismatches = small.counts.keys.filter { small.counts.getValue(it) != large.counts.getValue(it) }
+            assertTrue(
+                mismatches.isEmpty(),
+                "statement count must not depend on data volume:\n" +
+                    mismatches.joinToString("\n") { "$it: ${small.counts[it]} vs ${large.counts[it]}" }
+            )
+            for ((name, count) in small.counts) assertTrue(count > 0, "the interceptor saw no statement for '$name'")
+        }
+
+    @Test
+    fun `R11 S14 control - the scale changes the events and the scoped, tag and rootId calls really filter`(): Unit =
+        runBlocking {
+            val small = measure11(1)
+            val large = measure11(40)
+
+            assertEquals(3, small.groups.getValue("gates noteKey"), "two keys and the null group")
+            assertEquals(81, large.groups.getValue("gates noteKey"), "forty kits of two keys, plus the null group")
+            assertEquals(1, small.groups.getValue("gates type"))
+            assertEquals(40, large.groups.getValue("gates type"))
+            assertEquals(80, large.groups.getValue("gates trait"))
+            assertEquals(2, large.groups.getValue("gates errorCode"))
+            assertEquals(120, large.groups.getValue("contention"), "forty claim rows and eighty lease rows")
+            assertEquals(41, large.groups.getValue("gates root scoped"), "R1 holds the twenty even kits")
+            assertEquals(41, large.groups.getValue("gates rootId"))
+            assertEquals(29, large.groups.getValue("gates tag scoped"), "fourteen kits carry the api tag")
+            assertEquals(14 * 3, large.groups.getValue("contention tag scoped"))
+            assertEquals(20 * 3, large.groups.getValue("contention root scoped"))
+        }
+
+    @Test
+    fun `R11 S14 every SELECT of gates, contention and eventsRetainedSince reaches events through an index`(): Unit =
+        runBlocking {
+            val large = measure11(40)
+
+            for ((name, plan) in large.plans) {
+                assertTrue(plan.isNotEmpty(), "no plan was captured for '$name'")
+                // The aggregate names the table `events` or aliases it `e`; a scan of it without USING is a full table scan.
+                val bare = plan.filter { Regex("^SCAN (events|\"events\"|e)( |$)").containsMatchIn(it.trim()) && " USING " !in it }
+                val shown = plan.joinToString("\n")
+                assertTrue(bare.isEmpty(), "'$name' scans events without an index:\n$shown")
+                assertTrue(plan.any { "idx_events_" in it }, "'$name' reaches events through an idx_events_* index:\n$shown")
             }
         }
 }

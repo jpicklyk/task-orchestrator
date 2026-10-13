@@ -1,17 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -83,22 +84,31 @@ class SseAuthFullWiringTest {
      * [GARBAGE_TOKEN] is deliberately absent from both maps for the S5 401 case. */
     private fun bearerConfig(): Pair<ApiAuthConfig.Bearer, Map<HashBytes, BearerTokenStore.TokenEntry>> {
         val readPrincipal =
-            ApiPrincipal(
-                tokenId = "sse-full-wiring-read",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "sse-full-wiring-read",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val noCapPrincipal =
-            ApiPrincipal(
-                tokenId = "sse-full-wiring-nocap",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "sse-full-wiring-nocap",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.WRITE_ITEMS),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val readKey = HashBytes(sha256(VALID_TOKEN))
         val noCapKey = HashBytes(sha256(NO_CAP_TOKEN))
-        val config = ApiAuthConfig.Bearer(tokens = mapOf(readKey to readPrincipal, noCapKey to noCapPrincipal))
+        val config =
+            ApiAuthConfig.Bearer(
+                tokens =
+                    mapOf(
+                        readKey to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),
+                        noCapKey to BearerTokenStore.TokenEntry(noCapPrincipal, expiresAt = null),
+                    ),
+            )
         val entries =
             mapOf(
                 readKey to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),

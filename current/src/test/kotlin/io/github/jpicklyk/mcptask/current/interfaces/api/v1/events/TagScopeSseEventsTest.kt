@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -54,7 +55,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  *
  * - O1/O2 `current/docs/api-rest.md` SS3 (`tags_include` is item-level, exact CSV membership, no
  *   ancestor walk, empty = no constraint) and SS21 (replay applies the same filter as live fan-out).
- * - O3 [ApiScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
+ * - O3 [AccessScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
  * - O4 [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] KDoc (exact
  *   membership, no prefix/substring; empty `tagsInclude` = no constraint).
  * - O5 the item's `diagnosis` note (fail-closed: no repository wired + tag-scoped token -> 403;
@@ -93,11 +94,12 @@ class TagScopeSseEventsTest {
             rootIds: Set<UUID>? = null,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val principal =
-                ApiPrincipal(
-                    tokenId = "tag-scope-test-principal",
-                    scope = ApiScope(rootIds = rootIds, tagsInclude = tagsInclude),
+                Principal(
+                    id = "tag-scope-test-principal",
+                    scope = AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude),
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
         }

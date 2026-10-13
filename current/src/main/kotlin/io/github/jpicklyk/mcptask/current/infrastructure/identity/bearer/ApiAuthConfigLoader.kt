@@ -138,8 +138,8 @@ class ApiAuthConfigLoader(
         logger.info("Loading bearer tokens from '{}'", tokensPath)
 
         val store = BearerTokenStore(filePath = tokensPath)
-        // load() performs full fail-fast validation and throws on any misconfig
-        return store.load()
+        // loadWithEntries() performs full fail-fast validation and throws on any misconfig
+        return ApiAuthConfig.Bearer(tokens = store.loadWithEntries())
     }
 
     private fun loadJwks(): ApiAuthConfig.Jwks {

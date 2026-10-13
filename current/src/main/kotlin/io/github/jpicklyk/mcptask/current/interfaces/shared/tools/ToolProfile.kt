@@ -9,11 +9,16 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
  * `MCP_TOOL_PROFILE` can never select it and no MCP server is ever built over it.
  */
 sealed interface ToolView {
+    /** The view's wire name: a profile's `MCP_TOOL_PROFILE` spelling, or `rest`. Recorded as a call's served profile. */
+    val wire: String
+
     /** True when a select or op declared with [profiles] is visible to this view. */
     fun sees(profiles: Set<ToolProfile>): Boolean
 
     /** The REST view: every registered select and op, whatever its profile set (plan section 8.1). */
     data object Rest : ToolView {
+        override val wire: String = "rest"
+
         override fun sees(profiles: Set<ToolProfile>): Boolean = true
     }
 }
@@ -26,7 +31,7 @@ sealed interface ToolView {
  * visible in no MCP profile.
  */
 enum class ToolProfile(
-    val wire: String
+    override val wire: String
 ) : ToolView {
     KNOWLEDGE("knowledge"),
     ORCHESTRATION("orchestration"),

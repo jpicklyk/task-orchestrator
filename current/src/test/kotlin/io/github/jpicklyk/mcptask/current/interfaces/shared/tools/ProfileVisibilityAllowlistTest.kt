@@ -94,7 +94,7 @@ class ProfileVisibilityAllowlistTest {
             mapOf(
                 "items_read" to setOf("get", "list", "overview", "blocked"),
                 "deps_read" to setOf("list", "graph"),
-                "report" to setOf("usage")
+                "report" to setOf("usage", "gates", "contention")
             )
 
         /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */

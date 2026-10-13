@@ -60,6 +60,116 @@ data class UsagePage(
     val totalGroups: Int
 )
 
+/** The `transition.rejected` dimension a `gates` report groups by. [ERROR_CODE] is the rejection code. */
+enum class GateDimension {
+    NOTE_KEY,
+    TYPE,
+    TRAIT,
+    ERROR_CODE
+}
+
+/**
+ * One `gates` aggregation over the `transition.rejected` events with `since <= occurred_at < until`, grouped by [groupBy].
+ * [GateDimension.NOTE_KEY], [GateDimension.TYPE] and [GateDimension.TRAIT] count only rejections coded `gate_blocked`;
+ * [GateDimension.ERROR_CODE] counts every code. `type` and `trait` are the item's CURRENT type and traits.
+ *
+ * Visibility is applied before grouping: [scopeRootIds] null admits every event, a set admits only events whose `root_id`
+ * is in it; [scopeTags] non-empty admits only events whose item currently carries an allowed tag (a deleted item's events
+ * are invisible); [rootId] further keeps only events of that root. Groups are ordered by blocks descending, then key
+ * ascending (a null key first).
+ */
+data class GatesQuery(
+    val since: Instant,
+    val until: Instant,
+    val groupBy: GateDimension,
+    val scopeRootIds: Set<UUID>?,
+    val scopeTags: Set<String>,
+    val rootId: UUID?,
+    val limit: Int,
+    val offset: Int
+)
+
+/** One `gates` group: [key] (null when the rejection has no value for the dimension), [blocks] (distinct rejection events) and [items] (distinct item ids). */
+data class GateRow(
+    val key: String?,
+    val blocks: Long,
+    val items: Long
+)
+
+/** One page of a `gates` report: [rows] in order and [totalGroups] before paging. */
+data class GatesPage(
+    val rows: List<GateRow>,
+    val totalGroups: Int
+)
+
+/** Which coordination mechanism a `contention` row describes. */
+enum class ContentionKind(
+    val wire: String
+) {
+    CLAIM("claim"),
+    LEASE("lease")
+}
+
+/**
+ * One `contention` aggregation over the claim.* and lease.* events with `since <= occurred_at < until`, grouped by
+ * (kind, resource). Visibility fields work as in [GatesQuery]; the groups are ordered by rejected descending, then
+ * resource ascending (a null first), then kind ascending.
+ */
+data class ContentionQuery(
+    val since: Instant,
+    val until: Instant,
+    val scopeRootIds: Set<UUID>?,
+    val scopeTags: Set<String>,
+    val rootId: UUID?,
+    val limit: Int,
+    val offset: Int
+)
+
+/**
+ * One `contention` group. A lease row's [resource] is the lease key; a claim row's is the claimed item id (lower-case
+ * hyphenated UUID). [forceReleased] is always 0 for claims. The rates are null when their denominator is 0 and are never clamped.
+ */
+data class ContentionRow(
+    val kind: ContentionKind,
+    val resource: String?,
+    val acquired: Long,
+    val rejected: Long,
+    val expired: Long,
+    val released: Long,
+    val forceReleased: Long
+) {
+    /** `acquired + rejected`. */
+    val attempts: Long get() = acquired + rejected
+
+    /** `rejected / (acquired + rejected)`, 4 decimals half up; null when there were no attempts. */
+    val contentionRate: Double? get() = rate(rejected, attempts)
+
+    /** `expired / acquired`, 4 decimals half up; null when nothing was acquired. */
+    val expiryRate: Double? get() = rate(expired, acquired)
+
+    /** `forceReleased / acquired`, 4 decimals half up; null when nothing was acquired. */
+    val forceReleaseRate: Double? get() = rate(forceReleased, acquired)
+
+    private fun rate(
+        numerator: Long,
+        denominator: Long
+    ): Double? =
+        if (denominator <= 0) {
+            null
+        } else {
+            java.math.BigDecimal
+                .valueOf(numerator)
+                .divide(java.math.BigDecimal.valueOf(denominator), 4, java.math.RoundingMode.HALF_UP)
+                .toDouble()
+        }
+}
+
+/** One page of a `contention` report: [rows] in order and [totalGroups] before paging. */
+data class ContentionPage(
+    val rows: List<ContentionRow>,
+    val totalGroups: Int
+)
+
 /** The cost of one run: the sums over every `call_log` row stamped with its id. */
 data class RunCost(
     val calls: Long,
@@ -92,6 +202,15 @@ interface ReportQueries {
         query: UsageQuery,
         rawFrom: Instant?
     ): UsagePage
+
+    /** The page of `gates` groups [query] asks for, with the total group count. */
+    suspend fun gates(query: GatesQuery): GatesPage
+
+    /** The page of `contention` groups [query] asks for, with the total group count. */
+    suspend fun contention(query: ContentionQuery): ContentionPage
+
+    /** The oldest `events.occurred_at` among rows of [types], over the whole table; null when there are none. */
+    suspend fun eventsRetainedSince(types: Set<String>): Instant?
 
     /** The oldest `call_log.at` still held, over the whole table (retention prunes by age, not per root); null when empty. */
     suspend fun retainedSince(): Instant?

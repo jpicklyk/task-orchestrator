@@ -288,7 +288,7 @@ matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v
 
 On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
 `ActorClaim` cap (the same bound as actor ids already stored in notes and in the `events` table's `principal_id`); `proof_status` says
-whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
+whether the id was verified. On REST rows it holds the authenticated API principal (`api:<id>`), never client text.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
@@ -426,7 +426,8 @@ API_ALLOW_UNAUTHENTICATED=true
 
 See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
-- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`
+- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
+- `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
 - `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
   list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
   and `scope.tags_include` fail closed on any malformed shape too — see
@@ -461,7 +462,7 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an A
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
-**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual rule stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). **4.0 note:** that route is removed on a 4.0 server (rules are `docs_write` `upsert` with `kind` `rule`, over `POST /api/v1/ops/docs_write`, which needs the same `write-config` capability); the hook moves to the new tool in the plugin work, and until then rule sync against a 4.0 server reports the failed `PUT` in its one-line note. Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
+**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual rule stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). **4.0 note:** that route is removed on a 4.0 server (rules are `docs_write` `upsert` with `kind` `rule`, over `POST /api/v1/ops/docs_write`, which needs the `write-docs` capability; `write-config` no longer grants it); the hook moves to the new tool in the plugin work, and until then rule sync against a 4.0 server reports the failed `PUT` in its one-line note. Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
 
 **Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
 the happy path — a per-root config read failing with a transient database error is a distinct case
@@ -850,7 +851,7 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 | `iat` | Optional — RFC 7519 §4.1.6 makes it optional, so its absence never fails a token on its own | When present: a token dated more than 60s in the future is rejected (`reason: "iat in the future"`, `failureKind: claims`); an `exp - iat` spread beyond `max_token_lifetime_seconds` (+60s skew) is rejected (`reason: "token lifetime exceeds maximum"`, `failureKind: claims`). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
 | `jti` | Only when `jti_replay_protection: true` (opt-in, default `false`) | Required when the flag is on — a token without one is rejected (`reason: "missing jti claim"`, `failureKind: claims`); the `(iss, jti)` pair may then be presented only once (see "Opt-in `jti` Replay Protection" below). |
 
-TO does not read any other custom claims — those are deployment concerns outside the TO contract.
+TO does not read any other custom claims — those are deployment concerns outside the TO contract. (This table is the MCP actor-proof contract. A REST API JWT under `API_AUTH_MODE=jwks` additionally reads `to_kind`, `to_scope` and `to_capabilities`; a non-string or unknown `to_kind` rejects the JWT — see [api-rest.md §1](api-rest.md#1-authentication).)
 
 ### Token Lifetime Cap
 

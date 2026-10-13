@@ -6,7 +6,9 @@
         "type": "string",
         "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
         "enum": [
-          "usage"
+          "usage",
+          "gates",
+          "contention"
         ]
       },
       "rootId": {
@@ -23,7 +25,7 @@
       },
       "groupBy": {
         "type": "string",
-        "description": "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only).",
+        "description": "Row grouping; each select accepts its own subset and default, see describe.",
         "enum": [
           "tool",
           "operation",
@@ -54,7 +56,7 @@
     },
     "type": "object"
   },
-  "description": "Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group). Call with describe:true for each operation's parameters and errors.",
+  "description": "Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected transitions), contention (claims, leases). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

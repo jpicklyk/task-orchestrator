@@ -1,0 +1,79 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.identity
+
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import org.slf4j.LoggerFactory
+import java.security.MessageDigest
+import java.time.Instant
+
+/**
+ * A resolved credential: the [principal] it establishes, its [expiresAt] (null for a token-file entry without
+ * `expires_at`), and the credential [profile] restriction (`director` confines the credential to the director path;
+ * null is unrestricted).
+ */
+data class Resolved(
+    val principal: Principal,
+    val expiresAt: Instant?,
+    val profile: String? = null
+)
+
+/**
+ * The ONE bearer pipeline: every REST credential (the `Authorization` header and the SSE `?token=`) is resolved
+ * here, and nothing else hashes a presented token or calls the JWT verifier.
+ *
+ * Order: the SHA-256 digest of the raw token is looked up among [tokenEntries] (constant-time key equality via
+ * [HashBytes]; an entry past its `expires_at` per [clock] resolves to nothing, it does not fall through to the JWT
+ * path); on a miss, the token is verified as a JWT by [jwtVerifier] when one is configured; otherwise null.
+ *
+ * @param tokenEntries The token file's entries, loaded once at startup ([BearerTokenStore.loadWithEntries]).
+ * @param jwtVerifier The REST JWT verifier (JWKS mode), or null.
+ * @param clock The time source for entry expiry.
+ */
+class CredentialResolver(
+    private val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
+    private val jwtVerifier: JwksApiVerifier?,
+    private val clock: () -> Instant = { Instant.now() }
+) {
+    private val logger = LoggerFactory.getLogger(CredentialResolver::class.java)
+
+    /** Resolves [raw] (the presented token, already stripped of its scheme), or null when it proves nothing. */
+    suspend fun resolve(raw: String): Resolved? {
+        if (raw.isEmpty()) return null
+        val entry = tokenEntries[HashBytes(sha256(raw))]
+        if (entry != null) {
+            val expiry = entry.expiresAt
+            if (expiry != null && clock().isAfter(expiry)) {
+                logger.debug("Bearer token '{}' is expired (expires_at={})", entry.principal.id, expiry)
+                return null
+            }
+            return Resolved(entry.principal, expiry, entry.profile)
+        }
+        val verified = jwtVerifier?.verifyWithExpiry(raw) ?: return null
+        return Resolved(verified.principal, verified.expiresAt, profile = null)
+    }
+
+    private fun sha256(input: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+}
+
+/** The token-file `profile` value that confines a credential to `/api/v1/ops/director/{tool}`. */
+const val DIRECTOR_CREDENTIAL_PROFILE = "director"
+
+/**
+ * Synthetic principal attached to every request in unauthenticated mode (`API_AUTH_MODE=none` +
+ * `API_ALLOW_UNAUTHENTICATED=true`): [ApiCapability.ADMIN] and an unrestricted scope, so every capability and scope
+ * check passes unchanged. Kind [PrincipalKind.AGENT], proof [ProofStatus.NONE]; audited as `api:local-unauth`.
+ */
+val LOCAL_UNAUTH_PRINCIPAL =
+    Principal(
+        id = "local-unauth",
+        kind = PrincipalKind.AGENT,
+        proofStatus = ProofStatus.NONE,
+        scope = AccessScope.unrestricted(),
+        capabilities = setOf(ApiCapability.ADMIN)
+    )

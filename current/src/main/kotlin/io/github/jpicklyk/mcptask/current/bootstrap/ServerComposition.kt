@@ -296,12 +296,9 @@ class ServerComposition(
         shutdownCoordinator.addCleanupAction("Stop SSE event tail") {
             tailerScope.cancel()
         }
+        // Loaded once, by ApiAuthConfigLoader: the CredentialResolver resolves against this one map.
         val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> =
-            if (apiConfig is ApiAuthConfig.Bearer) {
-                BearerTokenStore(appConfig.apiTokensPath).loadWithEntries()
-            } else {
-                emptyMap()
-            }
+            if (apiConfig is ApiAuthConfig.Bearer) apiConfig.tokens else emptyMap()
 
         // In jwks mode, build the REST JWT verifier from the resolved ApiAuthConfig.Jwks settings.
         // Without this, the ApiBearerAuth plugin's Jwks branch finds a null verifier and 401s every

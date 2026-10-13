@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.directorOpsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
@@ -785,6 +786,8 @@ internal fun Application.installRestApiRoutes(
             // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced
             // by the dispatcher from the bearer principal; mounted last so it never shadows a resource route.
             opsRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
+            // The director tool profile over REST; the only path a `profile: director` credential may call.
+            directorOpsRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
         }
         // Phase 6: real-time SSE event stream — registered in a separate, sibling
         // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does

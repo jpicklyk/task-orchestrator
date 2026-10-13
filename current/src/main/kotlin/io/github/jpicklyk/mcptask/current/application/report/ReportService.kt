@@ -6,6 +6,11 @@ import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
+import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
+import io.github.jpicklyk.mcptask.current.application.port.GateDimension
+import io.github.jpicklyk.mcptask.current.application.port.GateRow
+import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
@@ -19,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -48,13 +54,27 @@ data class UsageReport(
     val window: ReportWindow
 )
 
+/** One `gates` page: the groups of [page] keyed by [groupBy], and the [window] they cover. */
+data class GatesReport(
+    val groupBy: ReportGroupBy,
+    val page: ListPage<GateRow>,
+    val window: ReportWindow
+)
+
+/** One `contention` page: the (kind, resource) groups of [page], and the [window] they cover. */
+data class ContentionReport(
+    val page: ListPage<ContentionRow>,
+    val window: ReportWindow
+)
+
 /**
  * The `report` selects (plan R9, W6 brief section 3.1): window rules, the accepted `groupBy` subset, visibility, and ONE
  * read unit per call over [io.github.jpicklyk.mcptask.current.application.port.ReportQueries].
  *
- * Visibility (W6 decision 10): a tag-scoped caller is `forbidden` (scope tag) before any read, since `call_log` rows carry
- * no tags; a root-scoped caller sees only rows whose `root_id` is one of its roots (rows without a root never); the
- * `principal` grouping needs [CallContext.principalsVisible] (else `forbidden`, scope capability, required `admin`).
+ * Visibility (W6 decision 10): for `usage` a tag-scoped caller is `forbidden` (scope tag) before any read, since
+ * `call_log` rows carry no tags; a root-scoped caller sees only rows whose `root_id` is one of its roots (rows without a
+ * root never); the `principal` grouping needs [CallContext.principalsVisible] (else `forbidden`, scope capability,
+ * required `admin`). `gates` and `contention` read events instead: a tag-scoped caller is filtered, not refused.
  */
 class ReportService(
     private val unitOfWork: UnitOfWork,
@@ -71,7 +91,7 @@ class ReportService(
             groupBy.dimension
                 ?: return Outcome.Err(invalid("/groupBy", "usage accepts: ${USAGE_GROUPS.joinToString(", ") { it.wire }}", groupBy.wire))
         val window =
-            when (val w = window(req.since, req.until)) {
+            when (val w = window(req.since, req.until, MAX_DAILY_WINDOW)) {
                 is Outcome.Err -> return w
                 is Outcome.Ok -> w.value
             }
@@ -175,6 +195,121 @@ class ReportService(
     }
 
     /**
+     * `report gates`: `transition.rejected` events grouped by [ReportGroupBy.NOTE_KEY] (default), [ReportGroupBy.TYPE],
+     * [ReportGroupBy.TRAIT] or [ReportGroupBy.ERROR_CODE]. Events carry the root and item ids but no tags, so a tag-scoped
+     * caller is not forbidden: it sees the events whose item currently carries an allowed tag (decision 10).
+     */
+    suspend fun gates(
+        ctx: CallContext,
+        req: ReportGatesRequest
+    ): Outcome<GatesReport> {
+        val groupBy = req.groupBy ?: ReportGroupBy.NOTE_KEY
+        val dimension =
+            when (groupBy) {
+                ReportGroupBy.NOTE_KEY -> GateDimension.NOTE_KEY
+                ReportGroupBy.TYPE -> GateDimension.TYPE
+                ReportGroupBy.TRAIT -> GateDimension.TRAIT
+                ReportGroupBy.ERROR_CODE -> GateDimension.ERROR_CODE
+                else -> return Outcome.Err(
+                    invalid("/groupBy", "gates accepts: ${GATES_GROUPS.joinToString(", ") { it.wire }}", groupBy.wire)
+                )
+            }
+        val window =
+            when (val w = window(req.since, req.until, MAX_RAW_WINDOW)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+        val page =
+            when (val p = PageRequest.from(req.limit, req.cursor)) {
+                is Outcome.Err -> return p
+                is Outcome.Ok -> p.value
+            }
+        return unitOfWork.read<Outcome<GatesReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val queries = stores.reportQueries()
+            val result =
+                queries.gates(
+                    GatesQuery(
+                        since = window.first,
+                        until = window.second,
+                        groupBy = dimension,
+                        scopeRootIds = ctx.scope.rootIds,
+                        scopeTags = ctx.scope.tagsInclude,
+                        rootId = rootId,
+                        limit = page.limit,
+                        offset = page.offset
+                    )
+                )
+            val retainedSince = queries.eventsRetainedSince(setOf(DomainEvent.TRANSITION_REJECTED))
+            Outcome.Ok(GatesReport(groupBy, ListPage.of(result.rows, result.totalGroups, page), reportWindow(window, retainedSince)))
+        }
+    }
+
+    /**
+     * `report contention`: claim and lease events grouped by (kind, resource). The only accepted `groupBy` is
+     * [ReportGroupBy.RESOURCE]. Visibility is as for [gates].
+     */
+    suspend fun contention(
+        ctx: CallContext,
+        req: ReportContentionRequest
+    ): Outcome<ContentionReport> {
+        val groupBy = req.groupBy ?: ReportGroupBy.RESOURCE
+        if (groupBy != ReportGroupBy.RESOURCE) {
+            return Outcome.Err(invalid("/groupBy", "contention accepts: ${ReportGroupBy.RESOURCE.wire}", groupBy.wire))
+        }
+        val window =
+            when (val w = window(req.since, req.until, MAX_RAW_WINDOW)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+        val page =
+            when (val p = PageRequest.from(req.limit, req.cursor)) {
+                is Outcome.Err -> return p
+                is Outcome.Ok -> p.value
+            }
+        return unitOfWork.read<Outcome<ContentionReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val queries = stores.reportQueries()
+            val result =
+                queries.contention(
+                    ContentionQuery(
+                        since = window.first,
+                        until = window.second,
+                        scopeRootIds = ctx.scope.rootIds,
+                        scopeTags = ctx.scope.tagsInclude,
+                        rootId = rootId,
+                        limit = page.limit,
+                        offset = page.offset
+                    )
+                )
+            val retainedSince = queries.eventsRetainedSince(CONTENTION_EVENT_TYPES)
+            Outcome.Ok(ContentionReport(ListPage.of(result.rows, result.totalGroups, page), reportWindow(window, retainedSince)))
+        }
+    }
+
+    private fun reportWindow(
+        window: Pair<Instant, Instant>,
+        retainedSince: Instant?
+    ): ReportWindow =
+        ReportWindow(
+            since = window.first,
+            until = window.second,
+            retainedSince = retainedSince,
+            basis = BASIS_RAW,
+            truncatedByRetention = retainedSince != null && window.first < retainedSince
+        )
+
+    /**
      * Resolves `rootId` under the call's scope (ScopedIds: a prefix resolves, an id outside the scope is `forbidden`, an
      * unknown one `not_found` when unrestricted) and requires a depth-0 item: `call_log.root_id` is always a project root.
      */
@@ -210,11 +345,14 @@ class ReportService(
     /**
      * The effective half-open window: until defaults to the clock's now, since to until minus 7 days. Both must be
      * ISO 8601 instants with `Z` or an offset (truncated to milliseconds, the precision `call_log.at` keeps), since must
-     * be before until, and the window must span at most 400 days. A window of at most 31 days that the raw table fully holds reads the raw basis; anything else reads the daily basis (D6).
+     * be before until, and the window must span at most [max]: [MAX_DAILY_WINDOW] (400 days) for `usage`, where a window
+     * of at most 31 days that the raw table fully holds reads the raw basis and anything else reads the daily basis (D6);
+     * [MAX_RAW_WINDOW] (31 days, the raw-table cap) for the event selects `gates` and `contention`, which have no daily basis.
      */
     private fun window(
         sinceRaw: String?,
-        untilRaw: String?
+        untilRaw: String?,
+        max: Duration
     ): Outcome<Pair<Instant, Instant>> {
         val faults = ArrayList<FieldViolation>()
         val until = untilRaw?.let { raw -> parseInstant(raw).also { if (it == null) faults += instantFault("/until", raw) } }
@@ -223,8 +361,8 @@ class ReportService(
         val effectiveUntil = until ?: clock.now().truncatedTo(ChronoUnit.MILLIS)
         val effectiveSince = since ?: effectiveUntil.minus(DEFAULT_WINDOW)
         if (!effectiveSince.isBefore(effectiveUntil)) return Outcome.Err(invalid("/since", "must be before until", sinceRaw))
-        if (Duration.between(effectiveSince, effectiveUntil) > MAX_DAILY_WINDOW) {
-            return Outcome.Err(invalid("/since", "the window (until minus since) must be at most 400 days", sinceRaw))
+        if (Duration.between(effectiveSince, effectiveUntil) > max) {
+            return Outcome.Err(invalid("/since", "the window (until minus since) must be at most ${max.toDays()} days", sinceRaw))
         }
         return Outcome.Ok(effectiveSince to effectiveUntil)
     }
@@ -278,6 +416,23 @@ class ReportService(
 
         /** The `groupBy` values `usage` accepts, in wire order. */
         val USAGE_GROUPS: List<ReportGroupBy> = ReportGroupBy.entries.filter { it.dimension != null }
+
+        /** The `groupBy` values `gates` accepts, in wire order. */
+        val GATES_GROUPS: List<ReportGroupBy> =
+            listOf(ReportGroupBy.NOTE_KEY, ReportGroupBy.TYPE, ReportGroupBy.TRAIT, ReportGroupBy.ERROR_CODE)
+
+        /** The claim.* and lease.* event types `contention` reads (and whose oldest row is its `retainedSince`). */
+        val CONTENTION_EVENT_TYPES: Set<String> =
+            setOf(
+                DomainEvent.CLAIM_ACQUIRED,
+                DomainEvent.CLAIM_RELEASED,
+                DomainEvent.CLAIM_REJECTED,
+                DomainEvent.CLAIM_EXPIRED,
+                DomainEvent.LEASE_ACQUIRED,
+                DomainEvent.LEASE_RELEASED,
+                DomainEvent.LEASE_REJECTED,
+                DomainEvent.LEASE_EXPIRED
+            )
 
         /** The `required` of the `forbidden` a `principal` grouping without the capability answers. */
         const val ADMIN = "admin"

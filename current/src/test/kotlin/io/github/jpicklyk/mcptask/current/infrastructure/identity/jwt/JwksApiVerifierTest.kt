@@ -10,8 +10,8 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -113,22 +113,22 @@ class JwksApiVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `valid RSA-signed JWT returns ApiPrincipal`() =
+    fun `valid RSA-signed JWT returns Principal`() =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val principal = verifier.verify(signRsa())
             assertNotNull(principal, "Valid JWT should resolve to a principal")
-            assertEquals("api-caller-1", principal!!.tokenId)
-            assertEquals(ApiAuthMode.JWKS, principal.authMode)
+            assertEquals("api-caller-1", principal!!.id)
+            assertEquals(ProofStatus.VERIFIED, principal.proofStatus)
         }
 
     @Test
-    fun `valid EC-signed JWT returns ApiPrincipal`() =
+    fun `valid EC-signed JWT returns Principal`() =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, ecMockCache())
             val principal = verifier.verify(signEc())
             assertNotNull(principal, "Valid EC JWT should resolve to a principal")
-            assertEquals("api-caller-1", principal!!.tokenId)
+            assertEquals("api-caller-1", principal!!.id)
         }
 
     @Test

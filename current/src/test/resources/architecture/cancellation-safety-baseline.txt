@@ -7,7 +7,7 @@ infrastructure/config/GlobalConfigFile.kt 3
 infrastructure/config/YamlActorAuthenticationConfigService.kt 1
 infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
-infrastructure/identity/bearer/BearerTokenStore.kt 2
+infrastructure/identity/bearer/BearerTokenStore.kt 1
 infrastructure/identity/did/DidDocumentJwksExtractor.kt 1
 infrastructure/identity/did/DidWebResolver.kt 4
 infrastructure/shutdown/ShutdownCoordinator.kt 1
