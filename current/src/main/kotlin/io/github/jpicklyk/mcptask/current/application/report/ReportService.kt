@@ -103,7 +103,8 @@ class ReportService(
                     ?.toInstant()
             val length = Duration.between(window.first, window.second)
             val rawBasis =
-                length <= MAX_RAW_WINDOW && !(folded != null && retainedSince != null && window.first.isBefore(retainedSince))
+                length <= MAX_RAW_WINDOW &&
+                    !(folded != null && (retainedSince == null || window.first.isBefore(retainedSince)))
             if (rawBasis) {
                 val result =
                     queries.usage(

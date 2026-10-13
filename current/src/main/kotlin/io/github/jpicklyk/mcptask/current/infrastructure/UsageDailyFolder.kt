@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import java.time.Duration
 import java.time.Instant
@@ -15,6 +16,13 @@ data class FoldPass(
     val foldedThrough: LocalDate?,
     val capped: Boolean
 )
+
+/** A fold write unit failed on [day]; [days] earlier days of the pass were folded. [cause] is the original failure. */
+class UsageFoldException(
+    val day: LocalDate,
+    val days: Int,
+    cause: Throwable
+) : RuntimeException("usage fold failed on UTC day $day", cause)
 
 /**
  * Folds completed UTC days of `call_log` into `usage_daily` (R13) and answers the fold watermark to the retention pruner.
@@ -59,19 +67,24 @@ class UsageDailyFolder(
         while (!day.isAfter(lastThisPass)) {
             val folding = day
             val result =
-                unitOfWork.write("UsageDailyFolder.fold") {
-                    val store = stores.usageDailyStore()
-                    val watermark = store.watermark()
-                    // Re-checked in the unit: a day at or below the watermark is never folded again.
-                    if (watermark != null && !watermark.foldedThrough.isBefore(folding)) {
-                        Outcome.Ok(-1)
-                    } else {
-                        Outcome.Ok(store.foldDay(folding, now))
+                try {
+                    unitOfWork.write("UsageDailyFolder.fold") {
+                        val store = stores.usageDailyStore()
+                        val watermark = store.watermark()
+                        // Re-checked in the unit: a day at or below the watermark is never folded again.
+                        if (watermark != null && !watermark.foldedThrough.isBefore(folding)) {
+                            Outcome.Ok(-1)
+                        } else {
+                            Outcome.Ok(store.foldDay(folding, now))
+                        }
                     }
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    throw UsageFoldException(folding, days, e)
                 }
             when (result) {
                 is Outcome.Ok -> if (result.value >= 0) groups += result.value
-                is Outcome.Err -> error(result.error.message)
+                is Outcome.Err -> throw UsageFoldException(folding, days, IllegalStateException(result.error.message))
             }
             days++
             day = day.plusDays(1)

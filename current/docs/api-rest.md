@@ -886,7 +886,7 @@ a `root_ids` token's own roots (§3).
 
 **Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
-400; a window of at most 31 days inside the raw horizon reads `call_log` with `basis` `raw`, any other reads the per-day
+400; a window of at most 31 days inside the raw horizon (an empty `call_log` with a fold present counts as before it) reads `call_log` with `basis` `raw`, any other reads the per-day
 summaries `usage_daily` plus the raw tail with `basis` `daily`, `since` floored and a folded `until` ceiled to UTC midnight;
 `groupBy` `principal` is raw-only): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`

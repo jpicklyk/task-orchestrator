@@ -321,8 +321,9 @@ the next pass retries. The pruner writes no `events` rows.
 Each pass first folds the completed UTC days of `call_log` into `usage_daily` (one row per day and dimension group), one
 write unit per day, before it deletes anything: today, and yesterday during the first hour after midnight UTC, are never
 folded, a day below the fold watermark (`usage_fold`) is never folded again, and at most 400 days fold per pass (the first
-pass on a long-lived volume folds the whole backlog, then deletes). A fold failure aborts that pass, so nothing is pruned
-unfolded. `usage_daily` serves the `report` `usage` select past the raw horizon (`window.basis` `daily`); it is not pruned and
+pass on a long-lived volume folds the whole backlog, then deletes). A fold failure pauses only `call_log` pruning for that
+pass (events and lease history are still pruned; `call_log` deletes only folded days, so nothing unfolded goes) and logs a WARN
+naming the failed UTC day and the exception class and message, never row data. `usage_daily` serves the `report` `usage` select past the raw horizon (`window.basis` `daily`); it is not pruned and
 has no setting.
 
 | Variable | Default | Prunes |

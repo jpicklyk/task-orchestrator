@@ -47,7 +47,8 @@ data class RetentionPass(
  *  - only closed lease intervals (`released_at IS NOT NULL`) are deleted;
  *  - `call_log` rows are deleted only before the fold watermark ([folder] when given, else [foldWatermark]; nothing
  *    while it answers null), and a pass folds the completed days into `usage_daily` BEFORE it deletes anything. A fold
- *    failure aborts the pass (nothing is pruned: the safe direction).
+ *    failure (a [UsageFoldException]) pauses only the `call_log` source for that pass (logged at WARN with the UTC day and the
+ *    exception class and message): events and lease history are still pruned, and `call_log` deletes nothing unfolded.
  *
  * The pruner writes no events and runs no VACUUM. Each pass logs one INFO line. A failed pass is logged at WARN and
  * never fatal; the loop runs on its own scope, which [stop] cancels and joins.
@@ -101,8 +102,26 @@ class RetentionPruner(
     /** Runs one pass and returns the rows it deleted. A failed write unit is thrown (rows of earlier units stay deleted). */
     suspend fun pruneOnce(): RetentionPass {
         val started = System.nanoTime()
-        val foldedDays = folder?.foldOnce()?.days ?: 0
-        val sources = sources()
+        var foldedDays = 0
+        var foldFailed = false
+        if (folder != null) {
+            try {
+                foldedDays = folder.foldOnce().days
+            } catch (e: UsageFoldException) {
+                e.rethrowIfCancellation()
+                foldedDays = e.days
+                foldFailed = true
+                val cause = e.cause ?: e
+                logger.warn(
+                    "Retention call_log fold failed on UTC day {} ({}: {}); call_log pruning is paused for this pass",
+                    e.day,
+                    cause.javaClass.name,
+                    cause.message
+                )
+            }
+        }
+        // A failed fold pauses only the call_log source: it deletes below the fold watermark, so nothing unfolded goes.
+        val sources = sources().filterNot { foldFailed && it is Source.CallLog }
         val totals = Counts()
         var next = 0
         var budget = passCap
