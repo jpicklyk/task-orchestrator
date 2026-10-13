@@ -36,7 +36,7 @@ class DirectorVisibilityGuardTest {
         mapOf(
             "items_read" to setOf("get", "list", "overview", "blocked"),
             "deps_read" to setOf("list", "graph"),
-            "report" to setOf("usage")
+            "report" to setOf("usage", "gates", "contention")
         )
 
     @Serializable

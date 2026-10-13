@@ -59,7 +59,7 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window); director profile only on MCP |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `contention` (claim and lease acquire, reject, expire and release counts per resource); director profile only on MCP |
 
 ---
 
@@ -1822,12 +1822,14 @@ envelope request (`select` plus the select's fields) and every answer is the res
 **director-profile** tool only (`/mcp/director`); REST serves it at `POST /api/v1/ops/report`. Each field is documented
 once in the tool's own schema (`describe: true`).
 
-**Selects.** `usage` (the `call_log` usage aggregate). The rollup, gate, contention and waste reports are planned
-selects of this tool and are not served yet.
+**Selects.** `usage` (the `call_log` usage aggregate), `gates` and `contention` (aggregates over the `events` table).
+The rollup and waste reports are planned selects of this tool and are not served yet.
 
 | Select | Answer (`data`) |
 |---|---|
 | `usage` | `{items: [{key: {<groupBy>?: value}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}], page: {total, truncated, next?}, window: {since, until, retainedSince?, basis, truncatedByRetention?}}` |
+| `gates` | `{items: [{key: {<groupBy>?: value}, blocks, items}], page, window}` |
+| `contention` | `{items: [{key: {resource?: value}, kind, acquired, rejected, expired, released, forceReleased, contentionRate?, expiryRate?, forceReleaseRate?}], page, window}` |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
@@ -1840,10 +1842,12 @@ selects of this tool and are not served yet.
   `resource` belong to other selects and are `invalid_request` on `/groupBy`. A missing (NULL) value omits the
   `<groupBy>` member, so `key` is `{}`, never a JSON `null`. Groups are ordered by `calls` descending, then key
   ascending (an empty key first); `page.total` is the number of groups.
-- **Retention.** `window.retainedSince` is the oldest raw `call_log` row still held, over the whole table (absent when it
-  is empty); `window.truncatedByRetention: true` appears only when `since` is before it. `basis` is `raw`.
-- **Visibility.** A tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
-  A root-scoped credential sees only calls recorded against one of its roots (calls with no root are never visible to
+- **Retention.** `window.retainedSince` is the oldest raw row still held of the select's source, over the whole table: the `call_log` row for `usage`, the oldest `transition.rejected` event for `gates`, the oldest claim or lease event for `contention` (absent when there is none); `window.truncatedByRetention: true` appears only when `since` is before it. `basis` is `raw`.
+- **`gates`.** Counts `transition.rejected` events in the window. `groupBy` defaults to `noteKey`; `noteKey`, `type` and `trait` count only `gate_blocked` rejections, `errorCode` counts every rejection code (`gate_blocked`, `dependency_unmet`). `blocks` is the number of distinct rejections in the group and `items` the number of distinct item ids. A rejection counts once for each distinct key of its missing notes under `noteKey`; one that names no missing note (an independence violation) falls in the `{}` group. `type` and `trait` are joined **as of now** (the item's current type and traits, not those at the time of the rejection): a rejection counts once per current trait, and a deleted item, an item without a type, or an item without traits falls in the `{}` group. Groups are ordered by `blocks` descending, then key ascending (an empty key first).
+- **`contention`.** Counts claim and lease events per resource; `groupBy` accepts only `resource`. A lease's resource is its key and a claim's resource is the claimed item id; `kind` (`claim` or `lease`) separates rows whose resource strings are equal. `acquired` counts `claim.acquired` (heartbeat re-claims included) or `lease.acquired`; `rejected` counts `claim.rejected`, or `lease.rejected` once per distinct contended key; `expired` counts `claim.expired` or `lease.expired`; `released` counts `claim.released` (any reason) or `lease.released` that was not forced; `forceReleased` counts forced lease releases and is always 0 for claims. The rates are computed by the server: `contentionRate` = `rejected / (acquired + rejected)`, `expiryRate` = `expired / acquired`, `forceReleaseRate` = `forceReleased / acquired`, each rounded half up to 4 decimals, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). Groups are ordered by `rejected` descending, then resource ascending, then kind ascending.
+- **Per root.** There is no `root` grouping: pass `rootId` to report one project root.
+- **Visibility.** For `usage`, a tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
+  `gates` and `contention` read events, which name their item: a tag-scoped credential sees only the events whose item currently carries an allowed tag (a deleted item's events are invisible) and is not refused; a root-scoped one sees the events of its roots (a lease row is rooted at its holder item's root). For `usage`, a root-scoped credential sees only calls recorded against one of its roots (calls with no root are never visible to
   it). Grouping by `principal` needs the `admin` capability (else `forbidden`, scope `capability`); the MCP profiles run
   unrestricted. `rootId` must be a project root (depth 0, else `invalid_request`) and narrows the rows further; it
   resolves by the shared scope-aware id rule (a root outside the caller's scope is `forbidden`).
@@ -1852,21 +1856,49 @@ selects of this tool and are not served yet.
 { "select": "usage" }
 { "select": "usage", "groupBy": "day", "since": "2026-10-01T00:00:00Z", "until": "2026-10-08T00:00:00Z" }
 { "select": "usage", "rootId": "550e8400", "groupBy": "host", "limit": 20 }
+{ "select": "gates", "groupBy": "trait" }
+{ "select": "contention", "since": "2026-10-01T00:00:00Z" }
 ```
 
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool report -->
-Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group).
+Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected transitions), contention (claims, leases).
 
-**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until). groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
 | `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only). |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`report` select `gates`** (director profile only; capability `read`): Rejected transitions per group over [since, until): blocks (distinct rejections) and items (distinct item ids). groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince (the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`report` select `contention`** (director profile only; capability `read`): Claim and lease contention per resource over [since, until): kind (claim or lease), acquired, rejected, expired, released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate (expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key (a lease.rejected counts once per contended key); a claim's resource is the claimed item id. Only leases report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw and truncatedByRetention. Visibility as for gates.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
 

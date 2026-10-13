@@ -6,6 +6,11 @@ import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
+import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
+import io.github.jpicklyk.mcptask.current.application.port.GateDimension
+import io.github.jpicklyk.mcptask.current.application.port.GateRow
+import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
@@ -19,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -45,6 +51,19 @@ data class ReportWindow(
 data class UsageReport(
     val groupBy: ReportGroupBy,
     val page: ListPage<UsageRow>,
+    val window: ReportWindow
+)
+
+/** One `gates` page: the groups of [page] keyed by [groupBy], and the [window] they cover. */
+data class GatesReport(
+    val groupBy: ReportGroupBy,
+    val page: ListPage<GateRow>,
+    val window: ReportWindow
+)
+
+/** One `contention` page: the (kind, resource) groups of [page], and the [window] they cover. */
+data class ContentionReport(
+    val page: ListPage<ContentionRow>,
     val window: ReportWindow
 )
 
@@ -109,18 +128,126 @@ class ReportService(
                 UsageReport(
                     groupBy = groupBy,
                     page = ListPage.of(result.rows, result.totalGroups, page),
-                    window =
-                        ReportWindow(
-                            since = window.first,
-                            until = window.second,
-                            retainedSince = retainedSince,
-                            basis = BASIS_RAW,
-                            truncatedByRetention = retainedSince != null && window.first < retainedSince
-                        )
+                    window = reportWindow(window, retainedSince)
                 )
             )
         }
     }
+
+    /**
+     * `report gates`: `transition.rejected` events grouped by [ReportGroupBy.NOTE_KEY] (default), [ReportGroupBy.TYPE],
+     * [ReportGroupBy.TRAIT] or [ReportGroupBy.ERROR_CODE]. Events carry the root and item ids but no tags, so a tag-scoped
+     * caller is not forbidden: it sees the events whose item currently carries an allowed tag (decision 10).
+     */
+    suspend fun gates(
+        ctx: CallContext,
+        req: ReportGatesRequest
+    ): Outcome<GatesReport> {
+        val groupBy = req.groupBy ?: ReportGroupBy.NOTE_KEY
+        val dimension =
+            when (groupBy) {
+                ReportGroupBy.NOTE_KEY -> GateDimension.NOTE_KEY
+                ReportGroupBy.TYPE -> GateDimension.TYPE
+                ReportGroupBy.TRAIT -> GateDimension.TRAIT
+                ReportGroupBy.ERROR_CODE -> GateDimension.ERROR_CODE
+                else -> return Outcome.Err(
+                    invalid("/groupBy", "gates accepts: ${GATES_GROUPS.joinToString(", ") { it.wire }}", groupBy.wire)
+                )
+            }
+        val window =
+            when (val w = window(req.since, req.until)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+        val page =
+            when (val p = PageRequest.from(req.limit, req.cursor)) {
+                is Outcome.Err -> return p
+                is Outcome.Ok -> p.value
+            }
+        return unitOfWork.read<Outcome<GatesReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val queries = stores.reportQueries()
+            val result =
+                queries.gates(
+                    GatesQuery(
+                        since = window.first,
+                        until = window.second,
+                        groupBy = dimension,
+                        scopeRootIds = ctx.scope.rootIds,
+                        scopeTags = ctx.scope.tagsInclude,
+                        rootId = rootId,
+                        limit = page.limit,
+                        offset = page.offset
+                    )
+                )
+            val retainedSince = queries.eventsRetainedSince(setOf(DomainEvent.TRANSITION_REJECTED))
+            Outcome.Ok(GatesReport(groupBy, ListPage.of(result.rows, result.totalGroups, page), reportWindow(window, retainedSince)))
+        }
+    }
+
+    /**
+     * `report contention`: claim and lease events grouped by (kind, resource). The only accepted `groupBy` is
+     * [ReportGroupBy.RESOURCE]. Visibility is as for [gates].
+     */
+    suspend fun contention(
+        ctx: CallContext,
+        req: ReportContentionRequest
+    ): Outcome<ContentionReport> {
+        val groupBy = req.groupBy ?: ReportGroupBy.RESOURCE
+        if (groupBy != ReportGroupBy.RESOURCE) {
+            return Outcome.Err(invalid("/groupBy", "contention accepts: ${ReportGroupBy.RESOURCE.wire}", groupBy.wire))
+        }
+        val window =
+            when (val w = window(req.since, req.until)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+        val page =
+            when (val p = PageRequest.from(req.limit, req.cursor)) {
+                is Outcome.Err -> return p
+                is Outcome.Ok -> p.value
+            }
+        return unitOfWork.read<Outcome<ContentionReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val queries = stores.reportQueries()
+            val result =
+                queries.contention(
+                    ContentionQuery(
+                        since = window.first,
+                        until = window.second,
+                        scopeRootIds = ctx.scope.rootIds,
+                        scopeTags = ctx.scope.tagsInclude,
+                        rootId = rootId,
+                        limit = page.limit,
+                        offset = page.offset
+                    )
+                )
+            val retainedSince = queries.eventsRetainedSince(CONTENTION_EVENT_TYPES)
+            Outcome.Ok(ContentionReport(ListPage.of(result.rows, result.totalGroups, page), reportWindow(window, retainedSince)))
+        }
+    }
+
+    private fun reportWindow(
+        window: Pair<Instant, Instant>,
+        retainedSince: Instant?
+    ): ReportWindow =
+        ReportWindow(
+            since = window.first,
+            until = window.second,
+            retainedSince = retainedSince,
+            basis = BASIS_RAW,
+            truncatedByRetention = retainedSince != null && window.first < retainedSince
+        )
 
     /**
      * Resolves `rootId` under the call's scope (ScopedIds: a prefix resolves, an id outside the scope is `forbidden`, an
@@ -220,6 +347,23 @@ class ReportService(
 
         /** The `groupBy` values `usage` accepts, in wire order. */
         val USAGE_GROUPS: List<ReportGroupBy> = ReportGroupBy.entries.filter { it.dimension != null }
+
+        /** The `groupBy` values `gates` accepts, in wire order. */
+        val GATES_GROUPS: List<ReportGroupBy> =
+            listOf(ReportGroupBy.NOTE_KEY, ReportGroupBy.TYPE, ReportGroupBy.TRAIT, ReportGroupBy.ERROR_CODE)
+
+        /** The claim.* and lease.* event types `contention` reads (and whose oldest row is its `retainedSince`). */
+        val CONTENTION_EVENT_TYPES: Set<String> =
+            setOf(
+                DomainEvent.CLAIM_ACQUIRED,
+                DomainEvent.CLAIM_RELEASED,
+                DomainEvent.CLAIM_REJECTED,
+                DomainEvent.CLAIM_EXPIRED,
+                DomainEvent.LEASE_ACQUIRED,
+                DomainEvent.LEASE_RELEASED,
+                DomainEvent.LEASE_REJECTED,
+                DomainEvent.LEASE_EXPIRED
+            )
 
         /** The `required` of the `forbidden` a `principal` grouping without the capability answers. */
         const val ADMIN = "admin"

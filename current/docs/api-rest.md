@@ -242,7 +242,9 @@ collection checks cannot drift apart.
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 10) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
-- `POST /ops/report` - `usage` reads `call_log`, whose rows carry no tags: a `tags_include` token is
+- `POST /ops/report` - `gates` and `contention` read events: a `tags_include` token sees only the events whose item
+  currently carries an allowed tag (no `403`), a `root_ids` token only the events of its roots. `usage` reads `call_log`,
+  whose rows carry no tags: a `tags_include` token is
   `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
   recorded against one of its roots (calls with no root are never visible to it), filtered before grouping so
   `page.total` counts only visible groups; `groupBy: principal` needs the `admin` capability (`403 forbidden`,
@@ -913,7 +915,7 @@ aggregates `call_log` per `groupBy` group over a half-open `[since, until)` wind
 31): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
-field reference is in [`api-reference.md`](api-reference.md#report).
+field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it.
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 
