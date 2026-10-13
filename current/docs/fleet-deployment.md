@@ -240,6 +240,23 @@ Two columns added by migration V30 serve follow-through and rejection reports:
 
 Rows written before V30 read NULL in both columns.
 
+Migration V31 adds one more column, `root_id`, plus indexes for the run and root reports:
+
+- `root_id` (BLOB, 16-byte UUID, same encoding as `run_id`): the single root the call read or wrote. Reads record the
+  root of the item an `items_read` select loads (`get`, `context`, `list`, `next`, `blocked`, `schema`), of a `related`
+  reference, or of a document hit (its owner item); writes record the root of every `events` row the call appends.
+  NULL when the call touched no root, or touched more than one: the latter also sets `request_shape.multiRoot` to
+  `true` (the key is absent otherwise). Hits' roots are not looked up. No foreign key: a row outlives the items it
+  names.
+- `request_shape.fields`: a sorted JSON array of the `fields` names an `items_read` select accepted; absent when none
+  were given. Like `multiRoot` it survives the 16-key cap on `request_shape`.
+- `events.run_id` and `events.seat` (existing columns) are now stamped with the call's recorded run id and seat, NULL
+  until a run is recorded; `call_log.run_id` and `seat` report the same pair.
+- Indexes: `idx_call_log_root_at` on `(root_id, at)`, and the partial `idx_call_log_run_at` on `call_log(run_id, at)`
+  and `idx_events_run_seq` on `events(run_id, seq)` (both `WHERE run_id IS NOT NULL`, empty until a run is stamped).
+
+Rows written before V31 read NULL in `root_id`. Both surfaces fill these.
+
 Each MCP tool call that was not cancelled also logs one INFO line from `McpOperationAdapter`, inside the call's MDC
 (so it carries `reqId`, `sessionId`, `tool`, `transport` and `actorId`):
 `tool call: name=<tool>, operation=<select or op, or ->, outcome=ok|error, errorCode=<code, or - on ok>,

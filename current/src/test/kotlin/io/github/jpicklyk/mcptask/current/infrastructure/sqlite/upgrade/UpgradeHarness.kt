@@ -184,7 +184,8 @@ object UpgradeHarness {
                             val v = rs.getObject(i)
                             row[meta.getColumnName(i)] = if (v is ByteArray) v.joinToString("") { "%02x".format(it) } else v
                         }
-                        val id = if (key.isEmpty()) null else key.joinToString("|") { row[it].toString() }
+                        // A NULL key column would collide on the string "null": key the whole row instead.
+                        val id = if (key.isEmpty() || key.any { row[it] == null }) null else key.joinToString("|") { row[it].toString() }
                         rows[id ?: row.toString()] = row
                     }
                 }

@@ -25,7 +25,17 @@ class PlacementWriteConfinementTest {
                 Regex("""(?i)^\s*,?\s*(parent_id|root_id|depth)\s*=\s*\?""")
             )
 
+        /** Placement columns belong to work_items; a file that never references that table cannot write them. */
+        fun touchesWorkItems(text: String): Boolean = text.contains("WorkItemsTable") || text.contains("work_items")
+
         fun violations(text: String): Int =
+            if (!touchesWorkItems(text)) {
+                0
+            } else {
+                lineViolations(text)
+            }
+
+        fun lineViolations(text: String): Int =
             text
                 .lines()
                 .filter { GuardSupport.isCodeLine(it) }
@@ -53,14 +63,22 @@ class PlacementWriteConfinementTest {
                 "            it[WorkItemsTable.parentId] = id",
                 "            insert[io.x.WorkItemsTable.rootId] = id"
             )
-        flagged.forEach { assertTrue(violations(it) == 1, "not flagged: $it") }
+        flagged.forEach { assertTrue(lineViolations(it) == 1, "not flagged: $it") }
         listOf(
             "val p = row[WorkItemsTable.parentId]",
             "WorkItemsTable.rootId inList ids",
             "// it[parentId] = x",
             "if (row[WorkItemsTable.depth] == 1) x()"
         ).forEach {
-            assertEquals(0, violations(it), "wrongly flagged: $it")
+            assertEquals(0, lineViolations(it), "wrongly flagged: $it")
         }
+    }
+
+    @Test
+    fun `a file that never references work_items is not counted but one that does is`() {
+        val foreign = "            it[rootId] = record.rootId"
+        assertEquals(0, violations(foreign), "non-work_items table write wrongly flagged")
+        assertEquals(1, violations("import x.WorkItemsTable" + System.lineSeparator() + foreign), "work_items write not counted")
+        assertEquals(1, violations("UPDATE work_items SET root_id = ? WHERE id = ?"), "raw SQL write not counted")
     }
 }

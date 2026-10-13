@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallFields
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -263,6 +264,19 @@ internal fun pageRequest(
             }
         }
     return Outcome.Ok(PageRequest(effective, offset))
+}
+
+/**
+ * [unknownFields], and, when the names are all accepted, notes them on the call's telemetry (`request_shape.fields`).
+ * A select calls this once, in place of [unknownFields].
+ */
+internal suspend fun acceptFields(
+    fields: List<String>?,
+    allowed: List<String>
+): DomainError? {
+    val error = unknownFields(fields, allowed)
+    if (error == null && !fields.isNullOrEmpty()) recordCallFields(fields)
+    return error
 }
 
 /** `invalid_request` on `/fields` for any name of [fields] outside [allowed]; null when all are allowed. */

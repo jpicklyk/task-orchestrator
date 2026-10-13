@@ -70,7 +70,7 @@ object ItemsReadList {
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->
-                unknownFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
+                acceptFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
                 val page =
                     when (val p = pageRequest(req.limit, req.cursor, PageRequest.DEFAULT_LIMIT, PageRequest.MAX_LIMIT)) {
                         is Outcome.Err -> return@handler p
