@@ -727,15 +727,18 @@ only) cannot. Requires `READ`.
 - `key` — restrict to one resource key. Same validation as `{key}` on the DELETE route above (`invalid_request`, field `key`).
 - `at` — an ISO-8601 instant. When present, returns every interval held at that instant (per
   `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed; an unparsable value is `invalid_request`
-  on field `at`. When absent, returns the most recent intervals (open or closed), newest-first by `acquiredAt`.
+  on field `at`. When absent, returns the most recent intervals (open or closed). Either way the order is
+  newest-first `(acquiredAt DESC, id ASC)`; the id tiebreak makes it total, so paging is stable.
 - `limit` — max rows, an integer from `1` to `200`, default `50` (any other value is `invalid_request` on field `limit`).
   Applied in SQL after the newest-first ordering, so a large history is never loaded to be truncated.
+- `cursor` — the previous page's `page.next` (an opaque offset, not bound to `key`/`at`). Absent is the first page;
+  a malformed or empty value is `invalid_cursor` (400). Field faults (`key`, `at`, `limit`) are answered first.
 
 A lease is active while its expiry is strictly after "now": an expiry equal to now is expired, so a release at exactly the expiry instant records `expired`. All lease timestamps are canonical UTC text from the server's one bound clock.
 
 **Response `200 OK`:** a list page; each item is `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,
 releasedAt?, releaseReason?, releasedByActorId?}` (`releaseReason` is `released`, `expired` or `force_released`; the
-last three are absent while the interval is open), `page.total == items.length`. `acquiredByActorId` / `releasedByActorId`
+last three are absent while the interval is open), `page.total` is the count of ALL matching intervals on every page, `page.truncated` is true while intervals remain after this page, and `page.next` is then the cursor for the next page (absent on the last page); walking `next` visits every interval exactly once only while no lease starts or ends during the walk (history is newest-first, so a walk during lease activity can repeat or skip rows). `acquiredByActorId` / `releasedByActorId`
 are present only for `ADMIN` callers.
 
 No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
