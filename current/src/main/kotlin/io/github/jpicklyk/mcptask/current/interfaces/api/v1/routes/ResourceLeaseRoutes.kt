@@ -54,8 +54,11 @@ private const val HISTORY_MAX_LIMIT = 200
  *   (`resourceKey`, `holderItemId`) with `page.total == items.size` ([ApiCapability.READ]). Items are
  *   `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, originalAcquiredAt}`;
  *   `acquiredByActorId` (holder identity) is present only for [ApiCapability.ADMIN].
- * - `GET    /resources/leases/history?key&at&limit`: the append-only lease-interval log, newest-first, as a list
- *   page ([ApiCapability.READ]). `key` is validated like the DELETE key (`invalid_request` field `key`), `at` is
+ * - `GET    /resources/leases/history?key&at&limit&cursor`: the append-only lease-interval log, newest-first
+ *   `(acquiredAt DESC, id ASC)`, as a list page ([ApiCapability.READ]). `page.total` is the count of ALL matching
+ *   intervals on every page; `truncated`/`next` follow the list-page rule, and `cursor` (the previous `next`, an
+ *   offset only, not bound to key/at) walks every interval exactly once. Field faults (`invalid_request`) are
+ *   answered before a malformed or empty `cursor` (`invalid_cursor`). `key` is validated like the DELETE key (`invalid_request` field `key`), `at` is
  *   an ISO-8601 instant (field `at`) answering "who held this at that time", `limit` is 1..200 (default 50;
  *   field `limit`). Items are `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,
  *   releasedAt?, releaseReason?, releasedByActorId?}`; the two actor ids are ADMIN-only.
@@ -128,6 +131,7 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
             val key = query["key"]
             val atRaw = query["at"]
             val limitRaw = query["limit"]
+            val cursorRaw = query["cursor"]
             val faults = ArrayList<FieldViolation>()
             if (key != null && !validKey(key)) faults.add(FieldViolation("key", keyReason(), key.take(MAX_RECEIVED)))
             val at =
@@ -155,8 +159,16 @@ fun Route.resourceLeaseRoutes(claimService: ClaimService) {
                 return@get
             }
 
-            val intervals = claimService.leaseHistory(key, at, limit)
-            val page = ListPage.of(intervals, total = intervals.size, page = PageRequest(limit = limit))
+            val pageRequest =
+                when (val decoded = PageRequest.from(limit, cursorRaw)) {
+                    is Outcome.Err -> {
+                        call.respondEnvelope(EnvelopeEncoder.error(decoded.error, reqId))
+                        return@get
+                    }
+                    is Outcome.Ok -> decoded.value
+                }
+            val result = claimService.leaseHistory(key, at, pageRequest)
+            val page = ListPage.of(result.items, total = result.total, page = pageRequest)
             call.respondEnvelope(EnvelopeEncoder.page(page, reqId) { intervalJson(it, isAdmin) })
         }
     }

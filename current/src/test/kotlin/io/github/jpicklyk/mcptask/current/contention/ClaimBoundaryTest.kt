@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.contention
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.service.ok
@@ -131,7 +132,11 @@ class ClaimBoundaryTest {
             val at = d.advance(contender, "start")
             assertEquals(true, at.flag("ok"), "an expired lease no longer gates: $at")
             assertEquals(Role.WORK, d.role(contender))
-            val intervals = d.raw.resourceLeaseRepository().findRecentIntervals(P11_LEASE_KEY, 10)
+            val intervals =
+                d.raw
+                    .resourceLeaseRepository()
+                    .findRecentIntervals(P11_LEASE_KEY, PageRequest(10))
+                    .items
             val closed = intervals.single { it.holderItemId == holder.id }
             assertEquals("expired", closed.releaseReason)
             assertEquals(leaseExpiry, closed.releasedAt, "the holder interval closes at its own expiry")

@@ -2,10 +2,12 @@
 
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseIntervalPage
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -15,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -263,16 +264,17 @@ class ClaimService(
             .sortedWith(compareBy<ResourceLease>({ it.resourceKey }, { it.holderItemId }))
 
     /**
-     * The lease hold intervals, newest-first, at most [limit]: those held at [at] when given, else the most recent
-     * ones, optionally restricted to [key]. Open and closed intervals alike.
+     * One page of the lease hold intervals, newest-first `(acquiredAt DESC, id ASC)`: those held at [at] when given,
+     * else the most recent ones, optionally restricted to [key]. Open and closed intervals alike; the page's total is
+     * the count of all matching rows.
      */
     suspend fun leaseHistory(
         key: String?,
         at: Instant?,
-        limit: Int
-    ): List<ResourceLeaseInterval> {
+        page: PageRequest
+    ): LeaseIntervalPage {
         val leases = repositoryProvider.resourceLeaseRepository()
-        return if (at != null) leases.findHoldersAt(key, at, limit) else leases.findRecentIntervals(key, limit)
+        return if (at != null) leases.findHoldersAt(key, at, page) else leases.findRecentIntervals(key, page)
     }
 
     // -------------------------------------------------------------------------
