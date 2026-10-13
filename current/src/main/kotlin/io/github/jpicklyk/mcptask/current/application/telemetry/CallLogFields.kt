@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.TokenEstimate
+import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -209,10 +212,73 @@ object CallLogFields {
     /** `returned` (an int) of a result payload, else null. */
     fun returnedCount(data: JsonObject?): Int? = (data?.get("returned") as? JsonPrimitive)?.takeIf { it !is JsonNull }?.intOrNull
 
+    /**
+     * JSON array text of a `related` call's returned page, hit by hit:
+     * `[{"id":"<uuid>","kind":"item"|"document","signals":[...]}]`, in page order. Null when [hits] is null or empty
+     * (never `[]`). Ids and signal names only, never a title or any text.
+     */
+    fun hitSignalsJson(hits: List<CallTelemetry.HitSignals>?): String? {
+        if (hits.isNullOrEmpty()) return null
+        return buildJsonArray {
+            for (hit in hits) {
+                add(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(hit.id.toString()))
+                        put("kind", JsonPrimitive(hit.kind))
+                        put("signals", JsonArray(hit.signals.map { JsonPrimitive(it) }))
+                    }
+                )
+            }
+        }.toString()
+    }
+
+    /**
+     * How many rejections in the encoded response [body] were caused by a lifecycle-free item; null when none (never
+     * 0). When `data.results` is an array its `ok:false` elements are judged, else the top-level `error` (never both, so
+     * a non-atomic batch's `partial_failure` is not counted on top of its elements). An error counts when it is an
+     * `invalid_transition` with `detail.fromRole` "none" (a transition, claim, heartbeat or flip refused for a
+     * lifecycle-free item), or an `invalid_request` whose `detail.fields[].reason` is
+     * [DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON] (a BLOCKS edge with a lifecycle-free endpoint).
+     */
+    fun lifecycleFreeRejections(body: JsonObject?): Int? {
+        if (body == null) return null
+        val results = (body["data"] as? JsonObject)?.get("results") as? JsonArray
+        val count =
+            if (results != null) {
+                results.count { element ->
+                    val entry = element as? JsonObject ?: return@count false
+                    (entry["ok"] as? JsonPrimitive)?.contentOrNull == "false" && isLifecycleFree(entry["error"] as? JsonObject)
+                }
+            } else {
+                if (isLifecycleFree(body["error"] as? JsonObject)) 1 else 0
+            }
+        return count.takeIf { it > 0 }
+    }
+
+    private fun isLifecycleFree(error: JsonObject?): Boolean {
+        if (error == null) return false
+        val code = (error["code"] as? JsonPrimitive)?.contentOrNull
+        val detail = error["detail"] as? JsonObject ?: return false
+        return when (code) {
+            ErrorCode.INVALID_TRANSITION.wire ->
+                (detail["fromRole"] as? JsonPrimitive)?.contentOrNull == NONE_ROLE_WIRE
+            ErrorCode.INVALID_REQUEST.wire ->
+                (detail["fields"] as? JsonArray).orEmpty().any { field ->
+                    ((field as? JsonObject)?.get("reason") as? JsonPrimitive)?.contentOrNull ==
+                        DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+                }
+            else -> false
+        }
+    }
+
     /** `error.code` of an error payload, else null. */
     fun errorCode(payload: JsonObject?): String? = ((payload?.get("error") as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
 
-    /** Assembles the record. [responseBytes] / [requestBytes] null means unknown (the token estimate is then null too). */
+    /**
+     * Assembles the record. [responseBytes] / [requestBytes] null means unknown (the token estimate is then null too).
+     * `hit_signals` comes from [telemetry]; [lifecycleFreeRejections] is the transport's [lifecycleFreeRejections] of
+     * the response body.
+     */
     fun record(
         telemetry: CallTelemetry,
         at: Instant,
@@ -228,7 +294,8 @@ object CallLogFields {
         batchSize: Int?,
         failedCount: Int?,
         resultCount: Int?,
-        eligibleCount: Int?
+        eligibleCount: Int?,
+        lifecycleFreeRejections: Int? = null
     ): CallLogRecord {
         val principal = telemetry.principal
         return CallLogRecord(
@@ -257,7 +324,9 @@ object CallLogFields {
             batchSize = batchSize,
             failedCount = failedCount,
             resultCount = telemetry.resultCount ?: resultCount,
-            eligibleCount = telemetry.eligibleCount ?: eligibleCount
+            eligibleCount = telemetry.eligibleCount ?: eligibleCount,
+            hitSignals = hitSignalsJson(telemetry.hitSignals),
+            lifecycleFreeRejections = lifecycleFreeRejections
         )
     }
 }

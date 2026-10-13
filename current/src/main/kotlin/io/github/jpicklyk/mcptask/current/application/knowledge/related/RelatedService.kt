@@ -14,6 +14,8 @@ import io.github.jpicklyk.mcptask.current.application.port.TextOp
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallHitSignals
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRelatedSignals
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
@@ -53,7 +55,8 @@ import java.util.UUID
  * never returned by id. A ref the caller may not see, or that does not exist, yields an empty result.
  *
  * Everything runs in ONE [UnitOfWork.read]. Telemetry: `request_shape.relatedSignals` counts, per signal, the hits of
- * the returned page it contributed to; each page hit records its id and version as a target version; the result count
+ * the returned page it contributed to; `hit_signals` lists each page hit (id, kind) with the signals that found it; each
+ * page hit records its id and version as a target version; the result count
  * is `total`.
  */
 class RelatedService(
@@ -85,6 +88,15 @@ class RelatedService(
         val counts = LinkedHashMap<String, Int>()
         for (signal in RelatedSignal.entries) counts[signal.wire] = result.hits.count { signal in it.ranks }
         recordCallRelatedSignals(counts)
+        recordCallHitSignals(
+            result.hits.map { hit ->
+                CallTelemetry.HitSignals(
+                    id = hit.ref.id,
+                    kind = hit.ref.kind.toDbValue(),
+                    signals = RelatedSignal.entries.filter { it in hit.ranks }.map { it.wire },
+                )
+            },
+        )
         recordCallResultCounts(result.total, null)
         for (hit in result.hits) hit.version?.let { recordCallTargetVersion(hit.ref.id, it) }
         return result

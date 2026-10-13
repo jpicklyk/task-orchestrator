@@ -152,9 +152,29 @@ object UpgradeHarness {
             .flatMap { fts -> listOf(fts) + listOf("_data", "_idx", "_content", "_docsize", "_config").map { fts + it } }
             .toSet()
 
+    /**
+     * The row key of [table]: `id` when present, else its declared primary-key columns, else none (the whole row is the
+     * key). Keying a table such as `call_log` (`req_id`) by its primary key keeps a row identified across a later
+     * `ADD COLUMN`.
+     */
+    private fun keyColumns(
+        conn: Connection,
+        table: String
+    ): List<String> {
+        val columns = mutableListOf<Pair<String, Int>>()
+        conn.createStatement().use { st ->
+            st.executeQuery("PRAGMA table_info($table)").use { rs ->
+                while (rs.next()) columns += rs.getString("name") to rs.getInt("pk")
+            }
+        }
+        if (columns.any { it.first == "id" }) return listOf("id")
+        return columns.filter { it.second > 0 }.sortedBy { it.second }.map { it.first }
+    }
+
     fun dump(conn: Connection): Dump =
         userTables(conn).associateWith { table ->
             val rows = linkedMapOf<String, Map<String, Any?>>()
+            val key = keyColumns(conn, table)
             conn.createStatement().use { st ->
                 st.executeQuery("SELECT * FROM $table").use { rs ->
                     val meta = rs.metaData
@@ -164,8 +184,8 @@ object UpgradeHarness {
                             val v = rs.getObject(i)
                             row[meta.getColumnName(i)] = if (v is ByteArray) v.joinToString("") { "%02x".format(it) } else v
                         }
-                        val id = row["id"]
-                        rows[id?.toString() ?: row.toString()] = row
+                        val id = if (key.isEmpty()) null else key.joinToString("|") { row[it].toString() }
+                        rows[id ?: row.toString()] = row
                     }
                 }
             }

@@ -45,7 +45,9 @@ import kotlin.time.TimeSource
  * (`transport`, `tool`, `sessionId`, `reqId`, a length-capped `actorId`), an [ActorVerificationScope] and
  * a [CallTelemetry] for the MCP surface. The result carries the envelope body as `structuredContent`,
  * `isError = !ok`, one text content (`ok`, or `<code>: <message>`) and `_meta.reqId`. One `call_log`
- * record is submitted per call that was not cancelled. No `notifications/message` is sent.
+ * record is submitted, and one INFO `tool call:` line is logged inside the call's MDC, per call that was not
+ * cancelled; the line carries the tool name, operation, outcome, error code, latency and response bytes, never an
+ * argument value or body text. No `notifications/message` is sent.
  */
 class McpOperationAdapter(
     private val dispatcher: ToolDispatcher,
@@ -91,11 +93,11 @@ class McpOperationAdapter(
                 put("reqId", reqId)
                 actorIdFrom(arguments)?.let { put("actorId", MdcValues.bounded(it, max = ACTOR_ID_MDC_MAX_LENGTH)) }
             }
-        // A cancellation propagates out of withContext and writes no record.
-        val dispatched =
-            withContext(
-                MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope() + telemetry
-            ) {
+        // A cancellation propagates out of withContext and writes no record and no log line.
+        return withContext(
+            MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope() + telemetry
+        ) {
+            val dispatched =
                 try {
                     dispatcher.dispatch(spec, profile, arguments, reqId, CallLogRecord.SURFACE_MCP, access(sessionId))
                 } catch (e: Exception) {
@@ -104,17 +106,44 @@ class McpOperationAdapter(
                     logger.error("Tool '{}' (reqId {}) failed outside dispatch: {}", spec.name, reqId, e.message, e)
                     Dispatched(EnvelopeEncoder.internal(reqId), null, null)
                 }
-            }
-        val body = dispatched.envelope.body
-        val result =
-            CallToolResult(
-                content = listOf(TextContent(text = summary(body))),
-                isError = !ok(body),
-                structuredContent = body,
-                meta = buildJsonObject { put("reqId", reqId) }
+            val body = dispatched.envelope.body
+            val result =
+                CallToolResult(
+                    content = listOf(TextContent(text = summary(body))),
+                    isError = !ok(body),
+                    structuredContent = body,
+                    meta = buildJsonObject { put("reqId", reqId) }
+                )
+            val latencyMs = started.elapsedNow().inWholeMilliseconds
+            val responseBytes = responseBytes(result, body)
+            logCall(spec, dispatched, body, latencyMs, responseBytes)
+            submitCallLog(spec, profile, arguments, dispatched, telemetry, startedAt, latencyMs, responseBytes)
+            result
+        }
+    }
+
+    /** The one INFO `tool call:` line of a call, logged inside its MDC; never argument values or body text. */
+    private fun logCall(
+        spec: ToolSpec,
+        dispatched: Dispatched,
+        body: JsonObject,
+        latencyMs: Long,
+        responseBytes: Long
+    ) {
+        try {
+            val isOk = ok(body)
+            logger.info(
+                "tool call: name={}, operation={}, outcome={}, errorCode={}, latencyMs={}, responseBytes={}",
+                spec.name,
+                dispatched.operation ?: "-",
+                if (isOk) CallLogRecord.OUTCOME_OK else CallLogRecord.OUTCOME_ERROR,
+                if (isOk) "-" else (CallLogFields.errorCode(body) ?: "-"),
+                latencyMs,
+                responseBytes
             )
-        submitCallLog(spec, profile, arguments, result, dispatched, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds)
-        return result
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+        }
     }
 
     /** Builds and submits the `call_log` record; any failure is logged at DEBUG and swallowed. */
@@ -122,18 +151,15 @@ class McpOperationAdapter(
         spec: ToolSpec,
         profile: ToolProfile,
         arguments: JsonObject,
-        result: CallToolResult,
         dispatched: Dispatched,
         telemetry: CallTelemetry,
         startedAt: Instant,
-        latencyMs: Long
+        latencyMs: Long,
+        responseBytes: Long
     ) {
         try {
             val body = dispatched.envelope.body
             val data = body["data"] as? JsonObject
-            val responseBytes =
-                result.content.sumOf { (it as? TextContent)?.text?.let(CallLogFields::utf8Length) ?: 0L } +
-                    CallLogFields.utf8Length(body.toString())
             callLog.submit(
                 CallLogFields.record(
                     telemetry = telemetry,
@@ -150,7 +176,8 @@ class McpOperationAdapter(
                     batchSize = dispatched.batchSize,
                     failedCount = CallLogFields.failedCount(data),
                     resultCount = (data?.get("items") as? JsonArray)?.size,
-                    eligibleCount = null
+                    eligibleCount = null,
+                    lifecycleFreeRejections = CallLogFields.lifecycleFreeRejections(body)
                 )
             )
         } catch (e: Exception) {
@@ -179,6 +206,14 @@ class McpOperationAdapter(
                 annotations = ToolSchemaRenderer.annotations(spec, profile)
             )
         }
+
+        /** UTF-8 bytes of the text content plus the structured body. */
+        private fun responseBytes(
+            result: CallToolResult,
+            body: JsonObject
+        ): Long =
+            result.content.sumOf { (it as? TextContent)?.text?.let(CallLogFields::utf8Length) ?: 0L } +
+                CallLogFields.utf8Length(body.toString())
 
         private fun ok(body: JsonObject): Boolean = (body["ok"] as? JsonPrimitive)?.contentOrNull == "true"
 
