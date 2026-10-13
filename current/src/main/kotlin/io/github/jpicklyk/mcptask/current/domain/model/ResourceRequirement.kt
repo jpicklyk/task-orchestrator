@@ -10,15 +10,18 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *
  * This type carries only the *declaration*; it enforces nothing itself. Enforcement of
  * [ResourceMode.EXCLUSIVE] requirements (a server-side TTL lease acquired at work-phase entry) is in the
- * transition policy's lease gate (`TransitionPolicy.LEASE`, which decides `acquireLeases` for a transition into
+ * transition policy's lease gate (`GateId.LEASE`, evaluated by `TransitionPolicy`, which decides `acquireLeases` for a transition into
  * `work`) and the lease writes of `ClaimService.acquireLeases`, driven by `AdvanceService`; the requirements it
  * enforces come from
  * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveResourceRequirements].
  *
  * @property key Resource identifier. Matched against the optional top-level `resources:` registry
  *   ([ResourceDefinition]) to resolve a default TTL and description; also the lease/lock namespace
- *   key the lease gate enforces. Referencing a key absent from the registry is not an error - it
- *   is enforced with built-in defaults (see the "undeclared resource" warning emitted by the parser).
+ *   key the lease gate enforces. At admission, a key absent from the registry is rejected by
+ *   `ConfigValidator` ("resource '<key>' is not declared in the server resource registry"), which both
+ *   `ConfigService.push`/`validate` and the boot import `ConfigService.importDocument` run. A version
+ *   already stored (parsed in `ParseMode.MIGRATION`, which never rejects) still loads and is enforced
+ *   with built-in defaults, plus the parser's deferred "undeclared resource" finding.
  * @property mode [ResourceMode.EXCLUSIVE] (default) is a server-enforced TTL lease
  *   acquired at work-phase entry (see the class description for where it is enforced);
  *   [ResourceMode.ADVISORY] is audit-only and is never enforced, only recorded.

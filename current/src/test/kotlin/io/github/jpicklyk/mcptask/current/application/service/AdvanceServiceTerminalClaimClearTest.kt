@@ -31,12 +31,13 @@ import kotlin.test.assertTrue
 
 /**
  * Bug `3785f37a`: claims are never cleared when a transition reaches TERMINAL, and `reopen`
- * resurrects a stale claim. Fix: [RoleTransitionHandler.applyTransition]'s existing item-copy
- * block now clears all four claim fields (`claimedBy`, `claimedAt`, `claimExpiresAt`,
+ * resurrects a stale claim. Fix: the transition-apply step (now the private
+ * `AdvanceService.applyDecision`, clearing claim columns via `ClaimService.clearClaim`)
+ * clears all four claim fields (`claimedBy`, `claimedAt`, `claimExpiresAt`,
  * `originalClaimedAt`) whenever `targetRole == TERMINAL` or `previousRole == TERMINAL`.
  *
  * Exercised entirely through [AdvanceService.advance] — the single pipeline shared by the MCP
- * `advance_item` tool (enforceOwnership = true), `complete_tree`, and cascades. All scenarios are
+ * `advance` tool (`transition` op) (enforceOwnership = true), `complete_tree`, and cascades. All scenarios are
  * EXISTING-SURFACE per the frozen test-plan: no new production signature is introduced by the fix,
  * so a narrowest-revert of the copy-block change alone must turn every clearing assertion below red.
  *

@@ -471,7 +471,7 @@ class AdvanceServiceTest {
     fun `block preserves the item's existing statusLabel when the configured block label is explicitly null`(): Unit =
         runBlocking {
             // Exercises the "targetRole == BLOCKED -> preserve current.statusLabel" branch in
-            // RoleTransitionHandler.applyTransition, which only fires when the resolved config
+            // `AdvanceService.applyDecision`, which only fires when the resolved config
             // label for "block" is null (NoOpStatusLabelService's default "blocked" would NOT
             // preserve — this pins the null-config-label preserve path specifically).
             val nullBlockLabelService =
