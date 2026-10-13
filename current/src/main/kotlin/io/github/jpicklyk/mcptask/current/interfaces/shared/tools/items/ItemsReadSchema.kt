@@ -43,7 +43,7 @@ object ItemsReadSchema {
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = handler@{ env, ctx, req ->
-                unknownFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
+                acceptFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
                 val faults = ArrayList<FieldViolation>()
                 if ((req.type == null) == (req.itemId == null)) {
                     faults.add(FieldViolation(pointer("type"), "exactly one of type and itemId is required"))

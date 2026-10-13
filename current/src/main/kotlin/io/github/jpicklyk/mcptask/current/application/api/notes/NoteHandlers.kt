@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -57,7 +58,7 @@ object NoteHandlers {
             return Outcome.Err(invalid("/ifVersion", "must be at least 1", ifVersion.toString()))
         }
         val itemId =
-            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw)) {
+            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw, recordRoot = true)) {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
@@ -89,7 +90,7 @@ object NoteHandlers {
                 is Outcome.Ok -> p.value
             }
         val itemId =
-            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw)) {
+            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw, recordRoot = true)) {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
@@ -211,7 +212,8 @@ object NoteHandlers {
     private suspend fun admit(
         stores: RepositoryProvider,
         ctx: CallContext,
-        rawItemId: String
+        rawItemId: String,
+        recordRoot: Boolean = false
     ): Outcome<UUID> {
         val workItems = stores.workItemRepository()
         val itemId =
@@ -219,7 +221,8 @@ object NoteHandlers {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
-        if (workItems.getById(itemId) == null) {
+        val item = workItems.getById(itemId)
+        if (item == null) {
             return Outcome.Err(
                 DomainError(
                     code = ErrorCode.NOT_FOUND,
@@ -229,6 +232,8 @@ object NoteHandlers {
                 )
             )
         }
+        // The item is already loaded, so a read's root costs no query.
+        if (recordRoot) recordCallRoot(item.rootId ?: item.id.takeIf { item.parentId == null })
         return Outcome.Ok(itemId)
     }
 

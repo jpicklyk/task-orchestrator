@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema
 
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.isNotNull
 
 /**
- * The call log. Mirrors `V21__Call_Log.sql` + `V30__Call_Log_Hit_Signals_And_Lifecycle_Free.sql`.
+ * The call log. Mirrors `V21__Call_Log.sql` + `V30__Call_Log_Hit_Signals_And_Lifecycle_Free.sql` + `V31__Call_Log_Root_And_Run_Indexes.sql`.
  *
  * [reqId] is the 8-character text primary key. [at] is persisted through [UtcTimestampColumnType] as the canonical
  * 23-character UTC text. [replayed] is stored as INTEGER 0/1. The table has no foreign key.
@@ -39,11 +40,14 @@ object CallLogTable : Table("call_log") {
     val eligibleCount = integer("eligible_count").nullable()
     val hitSignals = text("hit_signals").nullable()
     val lifecycleFreeRejections = integer("lifecycle_free_rejections").nullable()
+    val rootId = javaUuidSqlite("root_id").nullable()
 
     override val primaryKey = PrimaryKey(reqId)
 
     init {
         index("idx_call_log_at", false, at)
         index("idx_call_log_tool_at", false, tool, at)
+        index("idx_call_log_root_at", false, rootId, at)
+        index("idx_call_log_run_at", false, runId, at, filterCondition = { runId.isNotNull() })
     }
 }
