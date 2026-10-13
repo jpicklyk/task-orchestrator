@@ -1,15 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -493,14 +494,15 @@ class McpProfileHttpTest {
 
     private fun bearer(): Pair<ApiAuthConfig.Bearer, Map<HashBytes, BearerTokenStore.TokenEntry>> {
         val principal =
-            ApiPrincipal(
-                tokenId = "profile-test",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "profile-test",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED
             )
         val key = HashBytes(sha256(bearerToken))
-        return ApiAuthConfig.Bearer(tokens = mapOf(key to principal)) to
+        return ApiAuthConfig.Bearer(tokens = mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))) to
             mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))
     }
 

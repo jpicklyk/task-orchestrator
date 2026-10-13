@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
@@ -36,6 +37,7 @@ class MockRepositoryProvider {
     val idempotencyRepo = InMemoryIdempotencyStore()
     val eventStore = InMemoryEventStore()
     val callLogStore: CallLogStore = mockk()
+    val runStore: RunStore = mockk()
     val reportQueries: ReportQueries = mockk()
     val provider: RepositoryProvider = mockk()
 
@@ -59,6 +61,7 @@ class MockRepositoryProvider {
         every { provider.claimStore() } returns workItemRepo
         every { provider.searchIndex() } returns searchIndex
         every { provider.callLogStore() } returns callLogStore
+        every { provider.runStore() } returns runStore
         every { provider.reportQueries() } returns reportQueries
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()

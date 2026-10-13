@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs

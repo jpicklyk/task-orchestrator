@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -175,7 +174,7 @@ class SearchRequestShapeTest {
             apiConfig = authConfig,
             eventBus = null,
             effectiveProvider = rig.rig.composition.toolContext.repositoryProvider,
-            apiTokenEntries = authConfig.tokens.mapValues { (_, principal) -> BearerTokenStore.TokenEntry(principal, expiresAt = null) },
+            apiTokenEntries = authConfig.tokens,
             allowQueryToken = false,
             serverName = "s13-rest-call-log",
             serverVersion = "test",

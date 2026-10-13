@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -34,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap
  * | Resource registry | server only (a per-root `resources:` section is ignored) |
  * | note_limits.mode | per-root explicit value, else server |
  * | independence (A2) | per-root block wins WHOLESALE (both `mode` and `require_verified` together), else server |
+ * | runs | per FIELD (`stall_after` and each budget ceiling): per-root value, else server, else default (600 / unlimited) |
  * | Status labels | per-root map wins per trigger by key presence (an explicit null included), else server |
  * | Trait names | per-root keys first, then server, distinct |
  * | Type keys | union of both layers' schema keys, sorted |
@@ -115,6 +118,29 @@ class LayeredConfig(
      * and `require_verified` together), else the server policy.
      */
     fun independencePolicy(): IndependencePolicy = perRootDocument?.independence ?: global.independencePolicy()
+
+    /**
+     * The effective `runs:` settings, resolved per FIELD: the per-root value, else the server value, else the default
+     * ([Run.DEFAULT_STALL_AFTER_SECONDS] for `stall_after`; unlimited for every budget ceiling). The result always
+     * carries a non-null `stallAfterSeconds`; `budgets` is null when no layer sets any ceiling.
+     */
+    fun runsConfig(): RunsConfig {
+        val local = perRootDocument?.runs
+        val server = global.runsConfig()
+        val localBudgets = local?.budgets
+        val serverBudgets = server?.budgets
+        val budgets =
+            RunBudget(
+                tokens = localBudgets?.tokens ?: serverBudgets?.tokens,
+                costMicroUsd = localBudgets?.costMicroUsd ?: serverBudgets?.costMicroUsd,
+                attemptsPerSeat = localBudgets?.attemptsPerSeat ?: serverBudgets?.attemptsPerSeat,
+                maxActiveSeats = localBudgets?.maxActiveSeats ?: serverBudgets?.maxActiveSeats,
+            )
+        return RunsConfig(
+            stallAfterSeconds = local?.stallAfterSeconds ?: server?.stallAfterSeconds ?: Run.DEFAULT_STALL_AFTER_SECONDS,
+            budgets = budgets.takeUnless { it.isUnlimited },
+        )
+    }
 
     /**
      * Status label for [trigger]: the per-root `status_labels` map wins only when it contains

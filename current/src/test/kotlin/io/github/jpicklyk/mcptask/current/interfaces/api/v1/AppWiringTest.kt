@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -54,13 +55,14 @@ class AppWiringTest {
         tokenId: String = "test-token"
     ): ApiAuthConfig.Bearer {
         val principal =
-            ApiPrincipal(
-                tokenId = tokenId,
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = tokenId,
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
-        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token)) to principal))
+        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null)))
     }
 
     // -------------------------------------------------------------------------
@@ -80,9 +82,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -109,9 +109,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -141,9 +139,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -174,9 +170,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -200,9 +194,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(
                             repositoryProvider = null,
@@ -237,9 +229,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -258,15 +248,16 @@ class AppWiringTest {
         testApplication {
             val plainToken = "admin-token"
             val principal =
-                ApiPrincipal(
-                    tokenId = "admin-principal",
-                    scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                Principal(
+                    id = "admin-principal",
+                    scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                     capabilities = setOf(ApiCapability.READ, ApiCapability.WRITE_ITEMS),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             val apiConfig =
                 ApiAuthConfig.Bearer(
-                    tokens = mapOf(HashBytes(sha256(plainToken)) to principal)
+                    tokens = mapOf(HashBytes(sha256(plainToken)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
                 )
             application {
                 install(ContentNegotiation) { json(McpJson) }
@@ -276,9 +267,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -331,9 +320,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(
                             repositoryProvider = null,
@@ -376,9 +363,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }

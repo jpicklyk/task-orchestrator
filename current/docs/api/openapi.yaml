@@ -64,7 +64,7 @@ components:
       properties:
         id:
           type: string
-          description: "Server-synthesized: api:<tokenId>"
+          description: "Server-synthesized: api:<id> (the credential principal's id)"
         kind:
           type: string
           enum: [orchestrator, subagent, user, external]
@@ -495,7 +495,9 @@ components:
       description: >-
         The forbidden error envelope; error.detail.scope is capability (the token lacks the route's
         capability), root or tag (the item is outside the token's scope) or host (the Host header is
-        not allowed; required is a fixed literal, never the allowlist).
+        not allowed; required is a fixed literal, never the allowlist). A token-file credential with
+        profile director gets scope capability and required director on every path except
+        POST /api/v1/ops/director/{tool}.
       content:
         application/json:
           schema:
@@ -560,7 +562,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -632,7 +634,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability; or a prefix that matches no item the caller may see)
+          description: forbidden envelope (capability; or a prefix that matches no item the caller may see, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -700,7 +702,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -760,7 +762,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope)
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -801,6 +803,8 @@ paths:
           description: Not modified
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /ops/{tool}:
     post:
@@ -814,7 +818,7 @@ paths:
         access, apart from `meta.reqId` (also the `X-Req-Id` header). The HTTP status comes from the
         envelope error code (200 for ok, 207 for a partial batch); no route picks one by hand.
 
-        Identity is the bearer credential (`api:<tokenId>`); a body `actor` is ignored, so idempotency
+        Identity is the bearer credential (`api:<id>`); a body `actor` is ignored, so idempotency
         keys (`ops[].idempotencyKey`) are namespaced per token. Capability is checked per select/op
         (ADMIN grants all): a read select lacking it fails the whole call with `forbidden`
         (`scope: capability`), an op element lacking it fails alone and is never executed. The
@@ -845,7 +849,8 @@ paths:
         The `docs_read` and `docs_write` tools replace the 3.x `manage_plan_documents` tool and the removed
         `/roots/{rootId}/plans[/{slug}]` routes. `docs_read` selects are `get`, `list`, `history` and `links`
         (`READ`); `docs_write` ops are `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach`, all needing
-        `write-config`. A document is addressed by `(rootId, kind, slug)`. `bodyFromFile` is refused on this route
+        `write-docs` (`write-config` grants none of them). A document is addressed by `(rootId, kind, slug)`.
+        `bodyFromFile` is refused on this route
         (`invalid_request`, no file read).
 
         The `config` tool (`/ops/config`) replaces the 3.x `manage_project_config` and `query_rules` tools and the
@@ -910,7 +915,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (capability, root or tag scope) or another 403 catalog code
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director)) or another 403 catalog code
           content:
             application/json:
               schema:
@@ -919,6 +924,76 @@ paths:
           description: >-
             Envelope whose top-level error is a 409 catalog code: version_conflict, schema_pinned_conflict
             (a notes_write upsert against a stale pin), resource_unavailable and the other conflict codes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "413":
+          description: payload_too_large envelope (body over 1 MiB)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "500":
+          description: internal envelope (fixed message; detail only in the server log)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+
+  /ops/director/{tool}:
+    post:
+      summary: Call a director-profile tool (RPC)
+      operationId: callDirectorOp
+      tags: [ops]
+      description: |
+        The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
+        envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`). For a member of that set the envelope is
+        byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
+
+        A registered tool with no member in the director set is 403 `forbidden` (`scope: capability`,
+        `required: director`); an unregistered name is 400 `invalid_request` (field `tool`); a select hidden
+        inside a visible tool is the dispatcher's 400 `invalid_request` (`/select`). This is the only path a
+        token-file credential with `profile: director` may call; every other path answers that credential 403
+        `forbidden` (`required: director`).
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          description: Registry tool name (lowercase).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: The tool's arguments, exactly as in an MCP tools/call.
+              additionalProperties: true
+      responses:
+        "200":
+          description: Envelope with ok=true
+          headers:
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: forbidden envelope (a tool outside the director set, capability, root or tag scope)
           content:
             application/json:
               schema:
@@ -959,7 +1034,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `read`)
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1000,7 +1075,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `admin`)
+          description: forbidden envelope (the token lacks `admin`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1079,7 +1154,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: forbidden envelope (the token lacks `read`)
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
@@ -1104,6 +1179,8 @@ paths:
                         $ref: "#/components/schemas/ServiceInfoDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           description: config_invalid envelope (the stored server config head cannot be loaded)
           content:

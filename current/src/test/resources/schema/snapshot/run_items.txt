@@ -1,0 +1,2 @@
+index|idx_run_items_item|run_items|CREATE INDEX idx_run_items_item ON run_items(item_id)
+table|run_items|run_items|CREATE TABLE run_items ( run_id BLOB NOT NULL REFERENCES runs(id) ON DELETE CASCADE, item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, added_at TEXT NOT NULL CHECK (length(added_at) = 23), PRIMARY KEY (run_id, item_id) )

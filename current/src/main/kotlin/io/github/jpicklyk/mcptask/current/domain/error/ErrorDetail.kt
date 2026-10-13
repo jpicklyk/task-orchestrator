@@ -7,7 +7,7 @@ import java.util.UUID
 enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG }
 
 /** Scope that a `forbidden` error says the caller lacks. */
-enum class ForbiddenScope { ROOT, TAG, CAPABILITY, HOST }
+enum class ForbiddenScope { ROOT, TAG, CAPABILITY, HOST, PRINCIPAL_KIND }
 
 /** One offending request field. */
 data class FieldViolation(
@@ -183,6 +183,26 @@ sealed interface ErrorDetail {
             require(resources.isNotEmpty()) { "resources must not be empty" }
         }
     }
+
+    /** The run is closed; [terminalReason] is its wire terminal reason. */
+    data class RunClosed(
+        val runId: UUID,
+        val terminalReason: String
+    ) : ErrorDetail
+
+    /** The run is paused and the operation needs an open run; [pauseReason] is the wire pause reason. */
+    data class RunPaused(
+        val runId: UUID,
+        val pauseReason: String,
+        val pauseDecisionId: UUID? = null
+    ) : ErrorDetail
+
+    /** The run's [status] does not allow the operation; [allowed] lists what it accepts now (`close:<reason>` for closes). */
+    data class InvalidRunState(
+        val runId: UUID,
+        val status: String,
+        val allowed: List<String>
+    ) : ErrorDetail
 
     data class SchemaViolation(
         val type: String? = null,

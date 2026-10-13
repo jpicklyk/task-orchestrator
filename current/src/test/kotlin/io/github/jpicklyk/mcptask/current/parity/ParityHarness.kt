@@ -173,7 +173,7 @@ internal fun Application.installParityRestApp(
         apiConfig = authConfig,
         eventBus = null,
         effectiveProvider = rig.composition.toolContext.repositoryProvider,
-        apiTokenEntries = authConfig.tokens.mapValues { (_, principal) -> BearerTokenStore.TokenEntry(principal, expiresAt = null) },
+        apiTokenEntries = authConfig.tokens,
         allowQueryToken = false,
         serverName = "parity-harness",
         serverVersion = "test",
@@ -190,7 +190,7 @@ internal fun Application.installParityRestApp(
 
 /** An [ApiAuthConfig.Bearer] holding exactly [token]. */
 internal fun parityAuthConfig(token: ParityToken): ApiAuthConfig.Bearer =
-    ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token.raw)) to token.principal()))
+    ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token.raw)) to BearerTokenStore.TokenEntry(token.principal(), expiresAt = null)))
 
 /** The [CallAccess] an MCP leg runs under so it carries the REST leg's identity (principal, scope, capabilities). */
 internal fun parityAccess(token: ParityToken): CallAccess =

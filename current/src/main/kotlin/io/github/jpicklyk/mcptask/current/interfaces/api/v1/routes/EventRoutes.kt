@@ -1,19 +1,24 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.credentialResolverFor
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.directorOnlyForbidden
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.isDirectorOnly
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.withHostOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
@@ -38,7 +43,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -53,7 +57,7 @@ private val sseJson =
     }
 
 /** The resolved SSE principal, stashed by the pre-flight auth plugin for the SSE handler to read. */
-private val SsePrincipalKey: AttributeKey<ApiPrincipal> = AttributeKey("SseResolvedPrincipal")
+private val SsePrincipalKey: AttributeKey<Principal> = AttributeKey("SseResolvedPrincipal")
 
 /** The connection's token expiry (nullable), stashed by the pre-flight auth plugin. */
 private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExpiry")
@@ -122,7 +126,7 @@ private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
  */
 private suspend fun respondIfRootQueryRejected(
     call: ApplicationCall,
-    principal: ApiPrincipal,
+    principal: Principal,
 ): Boolean {
     val rootQuery = parseRootQueryParams(call.request.queryParameters.getAll("root"))
     if (rootQuery.malformed) {
@@ -136,7 +140,7 @@ private suspend fun respondIfRootQueryRejected(
     ) {
         sseLogger.debug(
             "SSE connection rejected for principal {}: requested roots {} outside scope",
-            principal.tokenId,
+            principal.id,
             rootQuery.roots,
         )
         call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.ROOT, principalRoots.map { it.toString() }))
@@ -185,7 +189,10 @@ private class SseInlineAuthConfig {
  * committed. An auth check inside `sse { }` could therefore no longer send a 401. By running here
  * (an `onCall` handler), the 401/403 is sent before the SSE response is ever constructed.
  *
- * On success it stashes the resolved [ApiPrincipal] (and token expiry) into `call.attributes` for
+ * The credential is resolved through the one bearer pipeline (`CredentialResolver`), like [ApiBearerAuth]; a
+ * director-profile credential is refused here (the stream is not the director path).
+ *
+ * On success it stashes the resolved [Principal] (and token expiry) into `call.attributes` for
  * the SSE handler to read.
  */
 private val sseInlineAuthPlugin =
@@ -193,11 +200,11 @@ private val sseInlineAuthPlugin =
         name = "SseInlineAuth",
         createConfiguration = ::SseInlineAuthConfig,
     ) {
-        val tokenEntries = pluginConfig.tokenEntries
         val allowQueryToken = pluginConfig.allowQueryToken
-        val jwksVerifier = pluginConfig.jwksVerifier
         val authConfig = pluginConfig.authConfig
         val workItemRepository = pluginConfig.workItemRepository
+        val resolver =
+            credentialResolverFor(authConfig, pluginConfig.tokenEntries, pluginConfig.jwksVerifier) { Instant.now() }
 
         onCall { call ->
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
@@ -206,7 +213,7 @@ private val sseInlineAuthPlugin =
             // resolution below, or a credential-less SSE connection is 401'd in this mode too.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
                 if (respondIfRootQueryRejected(call, LOCAL_UNAUTH_PRINCIPAL)) return@onCall
-                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
+                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 
@@ -236,45 +243,23 @@ private val sseInlineAuthPlugin =
                 return@onCall
             }
 
-            // Resolve the principal. Bearer mode: SHA-256 lookup against pre-loaded token entries
-            // (carries an explicit expiry → drives the periodic expiry watchdog). JWKS mode:
-            // tokenEntries is empty, so the lookup misses and we fall through to the JWT verifier,
-            // which also yields an expiry (`exp` is mandatory there) → same watchdog.
-            val digest = sha256Bytes(rawToken)
-            val entry = tokenEntries[HashBytes(digest)]
-
-            val principal: ApiPrincipal?
-            val expiry: Instant?
-            if (entry != null) {
-                principal = entry.principal
-                expiry = entry.expiresAt
-                if (expiry != null && Instant.now().isAfter(expiry)) {
-                    call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                    call.respondEnvelopeError(unauthenticated("Token has expired."))
-                    return@onCall
-                }
-            } else if (jwksVerifier != null) {
-                // JWKS mode — validate the token as a JWT. verifyWithExpiry() enforces
-                // exp/nbf/iss/aud and returns null on any failure. That check happens ONCE, at
-                // connect; an SSE stream outlives it, so carry the token's `exp` through to the
-                // periodic watchdog below rather than dropping it.
-                val verified = jwksVerifier.verifyWithExpiry(rawToken)
-                principal = verified?.principal
-                expiry = verified?.expiresAt
-            } else {
-                principal = null
-                expiry = null
-            }
-
-            if (principal == null) {
+            // Resolve through the one bearer pipeline. A token-file entry carries its own expiry (null: none); a
+            // JWT always carries its `exp`. The check happens ONCE, at connect; an SSE stream outlives it, so the
+            // expiry is carried through to the periodic watchdog below.
+            val resolved = resolver?.resolve(rawToken)
+            if (resolved == null) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
                 call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
                 return@onCall
             }
+            if (resolved.isDirectorOnly()) {
+                call.respondEnvelopeError(directorOnlyForbidden())
+                return@onCall
+            }
+            val principal = resolved.principal.withHostOf(call)
+            val expiry = resolved.expiresAt
 
-            if (!principal.capabilities.contains(ApiCapability.READ) &&
-                !principal.capabilities.contains(ApiCapability.ADMIN)
-            ) {
+            if (!principal.capabilities.grants(ApiCapability.READ)) {
                 call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, ApiCapability.READ.configName()))
                 return@onCall
             }
@@ -426,7 +411,7 @@ fun Route.eventRoutes(
             if (principalRoots != null && effectiveRoots.isEmpty()) {
                 sseLogger.warn(
                     "SSE connection refused for principal {}: empty effective root scope (principalRoots={}, queriedRoots={})",
-                    principal.tokenId,
+                    principal.id,
                     principalRoots,
                     queriedRoots,
                 )
@@ -465,7 +450,7 @@ fun Route.eventRoutes(
             sseLogger.debug(
                 "SSE connection {} opened (principal={}, roots={}, types={})",
                 subscriberId,
-                principal.tokenId,
+                principal.id,
                 effectiveRoots,
                 typeFilter,
             )
@@ -579,7 +564,7 @@ fun Route.eventRoutes(
  */
 private suspend fun isEventVisibleToTagScope(
     event: ApiEvent,
-    principal: ApiPrincipal,
+    principal: Principal,
     repository: WorkItemRepository?,
     cache: MutableMap<UUID, Boolean>,
 ): Boolean {
@@ -616,9 +601,3 @@ private fun ApiEvent.toServerSentEvent(): ServerSentEvent =
         event = this.event,
         id = this.id.toString(),
     )
-
-/** Computes SHA-256 of the UTF-8 encoding of [input]. */
-private fun sha256Bytes(input: String): ByteArray {
-    val md = MessageDigest.getInstance("SHA-256")
-    return md.digest(input.toByteArray(Charsets.UTF_8))
-}

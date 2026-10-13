@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -118,11 +118,11 @@ class DocsAdoptedByDeletedAdopterTest {
     private fun readerOf(vararg roots: UUID) = ParityToken("adopt-root-reader", setOf(ApiCapability.READ), rootIds = roots.toSet())
 
     private fun writerOf(vararg roots: UUID) =
-        ParityToken("adopt-root-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_CONFIG), rootIds = roots.toSet())
+        ParityToken("adopt-root-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_DOCS), rootIds = roots.toSet())
 
     private val tagReader = ParityToken("adopt-tag-reader", setOf(ApiCapability.READ), tagsInclude = setOf("alpha"))
     private val tagWriter =
-        ParityToken("adopt-tag-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_CONFIG), tagsInclude = setOf("alpha"))
+        ParityToken("adopt-tag-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_DOCS), tagsInclude = setOf("alpha"))
 
     private class World(
         val root: WorkItem,

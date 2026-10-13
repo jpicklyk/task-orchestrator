@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -128,6 +129,14 @@ class ToolExecutionContext(
 
     /** The single owner of claim and resource-lease writes and their events. Lazy for the same reason as [advanceServiceFactoryLazy]. */
     val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
+
+    /**
+     * The single owner of run writes and run events. No tool serves it yet. Lazy for the same reason as
+     * [advanceServiceFactoryLazy], and because a provider that serves no runs throws from `runStore()`.
+     */
+    val runService: RunService by lazy {
+        RunService(repositoryProvider, unitOfWork, claimService, runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) })
+    }
 
     /**
      * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].

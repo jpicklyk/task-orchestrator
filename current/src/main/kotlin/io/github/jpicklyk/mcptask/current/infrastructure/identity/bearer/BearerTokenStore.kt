@@ -1,50 +1,49 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimParser
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
-import java.security.MessageDigest
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
 /**
- * Loads API bearer tokens from a YAML secret file and builds an in-memory
- * [ApiAuthConfig.Bearer] ready for the authentication plugin.
+ * Loads API bearer tokens from a YAML secret file into the entry map the
+ * [CredentialResolver][io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver] resolves against.
  *
- * The secret file is expected at the path provided by [filePath] (typically from
- * the `API_TOKENS_PATH` environment variable, defaulting to `/run/secrets/api-tokens.yaml`).
+ * The secret file is expected at the path provided by [filePath] (typically from the `API_TOKENS_PATH` environment
+ * variable, defaulting to `/run/secrets/api-tokens.yaml`).
  *
- * **Fail-fast validation** — every detected misconfig throws [IllegalArgumentException]
- * with a descriptive message.  The server must not start with an invalid token file.
+ * **Fail-fast validation**: every detected misconfig throws [IllegalArgumentException] with a descriptive message.
+ * The server must not start with an invalid token file.
  *
- * Token hashes are stored as [HashBytes] wrapping raw SHA-256 digests.  The plaintext token
- * is never stored or logged.
+ * Token hashes are stored as [HashBytes] wrapping raw SHA-256 digests. The plaintext token is never stored or logged.
+ * Expired tokens are loaded; the resolver checks expiry on each request so clock changes take effect without restart.
  *
- * **Expired tokens** are filtered out at lookup time via [lookupPrincipal] — they are loaded
- * into the map but the expiry is checked on each request so clock changes take effect without
- * restart.
+ * Every entry resolves to a [Principal] with [ProofStatus.ISSUED]; its `kind` (default `service`) and its optional
+ * `profile` (only `director`) are read from the entry.
  */
 class BearerTokenStore(
     private val filePath: String,
-    private val clock: () -> Instant = { Instant.now() },
 ) {
     private val logger = LoggerFactory.getLogger(BearerTokenStore::class.java)
 
     /**
-     * Loads and validates the token file, returning an [ApiAuthConfig.Bearer] instance.
+     * Loads and validates the token file, returning the entry map keyed by token digest.
      *
-     * @throws IllegalArgumentException on any validation failure (missing file, malformed
-     *   YAML, bad hash, duplicate IDs, unknown capability, unsupported version, etc.).
+     * @throws IllegalArgumentException on any validation failure (missing file, malformed YAML, bad hash, duplicate
+     *   ids, unknown key, capability, kind or profile, unsupported version, etc.).
      */
     @Suppress("UNCHECKED_CAST")
-    fun load(): ApiAuthConfig.Bearer {
+    fun loadWithEntries(): Map<HashBytes, TokenEntry> {
         val file = java.io.File(filePath)
         if (!file.exists()) {
             throw IllegalArgumentException(
@@ -62,7 +61,6 @@ class BearerTokenStore(
         val yaml = Yaml(SafeConstructor(LoaderOptions()))
         val root: Map<String, Any> =
             try {
-                @Suppress("UNCHECKED_CAST")
                 (
                     FileReader(file).use { reader -> yaml.load<Any?>(reader) }
                         ?: throw IllegalArgumentException("API token file '$filePath' parsed to null — check YAML structure.")
@@ -76,7 +74,6 @@ class BearerTokenStore(
                 )
             }
 
-        // Version check
         val version = root["version"]
         if (version == null || version !is Int || version != 1) {
             throw IllegalArgumentException(
@@ -138,149 +135,26 @@ class BearerTokenStore(
                     ?: throw IllegalArgumentException(
                         "API token file: token '$tokenId' is missing required field 'token_sha256'.",
                     )
-
             validateHashHex(tokenId, hashHex)
             val hashBytes = hexToBytes(hashHex)
 
-            val expiresAt = parseExpiresAt(tokenId, tokenMap)
-
-            val scope = parseScope(tokenId, tokenMap["scope"])
-
-            val rawCapabilities = tokenMap["capabilities"]
-            val capabilities = parseCapabilities(tokenId, rawCapabilities)
-
             val principal =
-                ApiPrincipal(
-                    tokenId = tokenId,
-                    scope = scope,
-                    capabilities = capabilities,
-                    authMode = ApiAuthMode.BEARER,
+                Principal(
+                    id = tokenId,
+                    kind = parseKind(tokenId, tokenMap["kind"]),
+                    proofStatus = ProofStatus.ISSUED,
+                    scope = parseScope(tokenId, tokenMap["scope"]),
+                    capabilities = parseCapabilities(tokenId, tokenMap["capabilities"]),
                 )
-            result[HashBytes(hashBytes)] = TokenEntry(principal, expiresAt)
+            result[HashBytes(hashBytes)] =
+                TokenEntry(
+                    principal = principal,
+                    expiresAt = parseExpiresAt(tokenId, tokenMap),
+                    profile = parseProfile(tokenId, tokenMap["profile"]),
+                )
         }
 
         logger.info("Loaded {} bearer token(s) from '{}'", result.size, filePath)
-
-        // Return a config where each map entry is the digest → principal (no expiry attached).
-        // Expiry is checked at lookup time via lookupPrincipal below.
-        val tokenMap = result.mapValues { it.value.principal }
-        return ApiAuthConfig.Bearer(tokens = tokenMap)
-    }
-
-    /**
-     * Looks up a presented raw token, applying expiry validation.
-     *
-     * @param rawToken The plaintext token from the `Authorization: Bearer` header.
-     * @param bearer The loaded [ApiAuthConfig.Bearer] config (from [load]).
-     * @param entries The internal entry map that includes expiry metadata.  For the
-     *   production path, call [loadWithEntries] instead of [load].
-     * @return The matching [ApiPrincipal], or null if no match or the token is expired.
-     */
-    internal fun lookupInEntries(
-        rawToken: String,
-        entries: Map<HashBytes, TokenEntry>,
-    ): ApiPrincipal? {
-        val digest = sha256(rawToken)
-        val entry = entries[HashBytes(digest)] ?: return null
-        val expiry = entry.expiresAt
-        if (expiry != null && clock().isAfter(expiry)) {
-            logger.debug("Bearer token '{}' is expired (expires_at={})", entry.principal.tokenId, expiry)
-            return null
-        }
-        return entry.principal
-    }
-
-    /**
-     * Loads the token file returning the internal [TokenEntry] map that includes expiry metadata.
-     * Use this when you need expiry-aware lookups via [lookupInEntries].
-     */
-    @Suppress("UNCHECKED_CAST")
-    fun loadWithEntries(): Map<HashBytes, TokenEntry> {
-        val file = java.io.File(filePath)
-        if (!file.exists()) {
-            throw IllegalArgumentException(
-                "API token file not found: '$filePath'. " +
-                    "Set API_TOKENS_PATH to the correct path or mount the secret file.",
-            )
-        }
-        if (file.length() == 0L) {
-            throw IllegalArgumentException(
-                "API token file is empty: '$filePath'.",
-            )
-        }
-
-        val yaml = Yaml(SafeConstructor(LoaderOptions()))
-        val root: Map<String, Any> =
-            try {
-                @Suppress("UNCHECKED_CAST")
-                (
-                    FileReader(file).use { reader -> yaml.load<Any?>(reader) }
-                        ?: throw IllegalArgumentException("API token file '$filePath' parsed to null.")
-                )
-                    as Map<String, Any>
-            } catch (e: IllegalArgumentException) {
-                throw e
-            } catch (e: Exception) {
-                throw IllegalArgumentException(
-                    "Failed to parse API token file '$filePath': ${e.message}",
-                )
-            }
-
-        val version = root["version"]
-        if (version == null || version !is Int || version != 1) {
-            throw IllegalArgumentException(
-                "API token file '$filePath' has unsupported version '${version ?: "missing"}'.",
-            )
-        }
-
-        val rawTokens =
-            (root["tokens"] as? List<*>)
-                ?: throw IllegalArgumentException("API token file '$filePath' missing 'tokens' list.")
-
-        if (rawTokens.isEmpty()) {
-            throw IllegalArgumentException("API token file '$filePath' has empty 'tokens' list.")
-        }
-
-        val seenIds = mutableSetOf<String>()
-        val result = mutableMapOf<HashBytes, TokenEntry>()
-
-        rawTokens.forEachIndexed { index, rawToken ->
-            val tokenMap =
-                rawToken as? Map<*, *>
-                    ?: throw IllegalArgumentException("Token at index $index is not a mapping.")
-
-            val tokenId =
-                (tokenMap["id"] as? String)?.trim()
-                    ?: throw IllegalArgumentException("Token at index $index missing 'id'.")
-            if (tokenId.isBlank()) throw IllegalArgumentException("Token at index $index has blank 'id'.")
-            if (!seenIds.add(tokenId)) throw IllegalArgumentException("Duplicate token id '$tokenId'.")
-            validateEntryKeys(tokenId, tokenMap)
-
-            val description = tokenMap["description"] as? String
-            if (description != null && description.length > 1024) {
-                throw IllegalArgumentException("Token '$tokenId' description exceeds 1024 chars.")
-            }
-
-            val hashHex =
-                (tokenMap["token_sha256"] as? String)
-                    ?: throw IllegalArgumentException("Token '$tokenId' missing 'token_sha256'.")
-            validateHashHex(tokenId, hashHex)
-            val hashBytes = hexToBytes(hashHex)
-
-            val expiresAt = parseExpiresAt(tokenId, tokenMap)
-            val scope = parseScope(tokenId, tokenMap["scope"])
-            val capabilities = parseCapabilities(tokenId, tokenMap["capabilities"])
-
-            val principal =
-                ApiPrincipal(
-                    tokenId = tokenId,
-                    scope = scope,
-                    capabilities = capabilities,
-                    authMode = ApiAuthMode.BEARER,
-                )
-            result[HashBytes(hashBytes)] = TokenEntry(principal, expiresAt)
-        }
-
         return result
     }
 
@@ -353,12 +227,52 @@ class BearerTokenStore(
     private fun parseScope(
         tokenId: String,
         rawScope: Any?,
-    ): ApiScope =
+    ): AccessScope =
         try {
             ScopeClaimParser.parse(rawScope)
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("API token file: token '$tokenId' ${e.message}")
         }
+
+    /**
+     * Parses the entry's `kind`: absent (or null) is [PrincipalKind.SERVICE]; a string is parsed by
+     * [PrincipalKind.parse] (trimmed, case-insensitive); anything else fails startup, like an unknown capability.
+     */
+    private fun parseKind(
+        tokenId: String,
+        rawKind: Any?,
+    ): PrincipalKind {
+        if (rawKind == null) return PrincipalKind.SERVICE
+        val text =
+            rawKind as? String
+                ?: throw IllegalArgumentException(
+                    "API token file: token '$tokenId' kind must be a string, got: ${rawKind::class.simpleName}.",
+                )
+        return PrincipalKind.parse(text)
+            ?: throw IllegalArgumentException(
+                "API token file: token '$tokenId' has unknown kind '$text'. " +
+                    "Valid values: ${PrincipalKind.entries.joinToString(", ") { it.wire }}.",
+            )
+    }
+
+    /**
+     * Parses the entry's `profile`: absent (or null) is no restriction; the only valid value is `director`
+     * (trimmed, case-insensitive), which confines the credential to the director path. Anything else fails startup.
+     */
+    private fun parseProfile(
+        tokenId: String,
+        rawProfile: Any?,
+    ): String? {
+        if (rawProfile == null) return null
+        val text = (rawProfile as? String)?.trim()
+        if (text == null || !text.equals(DIRECTOR_CREDENTIAL_PROFILE, ignoreCase = true)) {
+            throw IllegalArgumentException(
+                "API token file: token '$tokenId' has unknown profile '$rawProfile'. " +
+                    "Valid values: $DIRECTOR_CREDENTIAL_PROFILE.",
+            )
+        }
+        return DIRECTOR_CREDENTIAL_PROFILE
+    }
 
     /** Parses the [capabilities] list from the raw YAML value. */
     private fun parseCapabilities(
@@ -382,30 +296,25 @@ class BearerTokenStore(
                 } catch (e: IllegalArgumentException) {
                     throw IllegalArgumentException(
                         "API token file: token '$tokenId' has unknown capability '$capStr'. " +
-                            "Valid values: read, write-notes, write-items, advance, manage-dependencies, admin.",
+                            "Valid values: ${ApiCapability.validValues()}.",
                     )
                 }
             }.toSet()
     }
 
-    /** Computes SHA-256 of the UTF-8 encoding of [input]. */
-    private fun sha256(input: String): ByteArray {
-        val md = MessageDigest.getInstance("SHA-256")
-        return md.digest(input.toByteArray(Charsets.UTF_8))
-    }
-
     /**
-     * Internal holder that attaches [expiresAt] metadata to the resolved [principal].
-     * Used only within this class; [ApiAuthConfig.Bearer.tokens] stores principal-only values.
+     * One loaded token-file entry: the [principal] it resolves to, its [expiresAt] (null: never expires), and its
+     * credential [profile] (`director`, or null for no restriction).
      */
     data class TokenEntry(
-        val principal: ApiPrincipal,
+        val principal: Principal,
         val expiresAt: Instant?,
+        val profile: String? = null,
     )
 
     companion object {
         /** Recognized keys for a single token entry; anything else fails startup (see D6). */
         private val ALLOWED_ENTRY_KEYS =
-            setOf("id", "description", "token_sha256", "expires_at", "scope", "capabilities")
+            setOf("id", "description", "token_sha256", "expires_at", "scope", "capabilities", "kind", "profile")
     }
 }

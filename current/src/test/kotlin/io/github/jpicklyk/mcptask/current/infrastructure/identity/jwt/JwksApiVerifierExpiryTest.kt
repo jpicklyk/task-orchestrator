@@ -158,7 +158,7 @@ class JwksApiVerifierExpiryTest {
         runTest {
             val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().plusSeconds(300))))
             assertNotNull(result, "A JWT with a future exp must still be accepted")
-            assertEquals("api-caller-1", result!!.tokenId)
+            assertEquals("api-caller-1", result!!.id)
         }
 
     @Test
@@ -210,7 +210,7 @@ class JwksApiVerifierExpiryTest {
             val mintedExpiry = Instant.now().plusSeconds(300)
             val result = verifier().verifyWithExpiry(signRsa(buildClaims(expiry = mintedExpiry)))
             assertNotNull(result, "Valid JWT must verify")
-            assertEquals("api-caller-1", result!!.principal.tokenId)
+            assertEquals("api-caller-1", result!!.principal.id)
             assertEquals(
                 Instant.ofEpochSecond(mintedExpiry.epochSecond),
                 result.expiresAt,

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.BatchElement
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
@@ -7,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
@@ -23,10 +26,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.grants
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import kotlinx.serialization.SerialName
@@ -105,7 +105,16 @@ class ToolDispatcher(
                         is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
                         is Outcome.Ok -> lifted.value
                     }
-            val ctx = CallContext(reqId, surface, principal, access.scope, access.attributionVisible, access.principalsVisible)
+            val ctx =
+                CallContext(
+                    reqId,
+                    surface,
+                    principal,
+                    access.scope,
+                    access.attributionVisible,
+                    access.principalsVisible,
+                    profile = profile.wire
+                )
 
             when (val describe = describeFlag(arguments)) {
                 is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(describe.error, reqId), null, batchSize)

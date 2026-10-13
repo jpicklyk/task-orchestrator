@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -85,9 +86,21 @@ data class ConfigDocument(
     val warningViolations: List<ConfigViolation> = emptyList(),
     val traitSeats: Map<String, List<SeatDefinition>> = emptyMap(),
     val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
+    val runs: RunsConfig? = null,
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
         val EMPTY: ConfigDocument = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
     }
 }
+
+/**
+ * The top-level `runs:` block. In one document a null field means "this document does not set it" (a layering caller
+ * falls through to the next layer); [LayeredConfig.runsConfig] resolves each field separately and applies the
+ * defaults only when no layer sets it: [stallAfterSeconds] 600, every budget ceiling unlimited. Budgets are opt-in:
+ * a null [budgets] (or a null field inside it) never caps anything. `cost_usd` is held in micro-USD.
+ */
+data class RunsConfig(
+    val stallAfterSeconds: Int? = null,
+    val budgets: RunBudget? = null,
+)

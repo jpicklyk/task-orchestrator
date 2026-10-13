@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.client.request.get
@@ -120,11 +121,12 @@ class ContentNegotiationOrderSpikeTest {
                     get("/api/v1/info") {
                         call.attributes.put(
                             ApiPrincipalKey,
-                            ApiPrincipal(
-                                tokenId = "test-token",
-                                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                            Principal(
+                                id = "test-token",
+                                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                                 capabilities = setOf(ApiCapability.READ),
-                                authMode = ApiAuthMode.BEARER,
+                                kind = PrincipalKind.SERVICE,
+                                proofStatus = ProofStatus.ISSUED,
                             ),
                         )
                         // Re-dispatch to the real route handler
