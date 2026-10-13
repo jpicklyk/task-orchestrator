@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import java.time.Instant
@@ -159,27 +160,28 @@ interface LeaseStore {
     suspend fun findAllActive(): List<ResourceLease>
 
     /**
-     * Returns every [ResourceLeaseInterval] (open or closed) that was held at instant [at] —
-     * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` — optionally restricted to
-     * [resourceKey]. Ordered newest-first by [ResourceLeaseInterval.acquiredAt]. Answers "who held
-     * resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
-     * [limit] caps the rows in SQL (after the newest-first ordering), not in the caller.
+     * Returns one page of the [ResourceLeaseInterval] rows (open or closed) that were held at instant [at] --
+     * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` -- optionally restricted to [resourceKey].
+     * Ordered newest-first `(acquiredAt DESC, id ASC)`; the id tiebreak makes the order total, so [page] walks every
+     * row exactly once on an unchanged table (a lease starting or ending mid-walk shifts later offsets and can repeat
+     * or skip rows). [LeaseIntervalPage.total] is the count of ALL matching rows, counted in the same read as the
+     * page. Answers "who held resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
      */
     suspend fun findHoldersAt(
         resourceKey: String?,
         at: Instant,
-        limit: Int = Int.MAX_VALUE
-    ): List<ResourceLeaseInterval>
+        page: PageRequest = PageRequest()
+    ): LeaseIntervalPage
 
     /**
-     * Returns the most recent [ResourceLeaseInterval] rows (open or closed), newest-first by
-     * [ResourceLeaseInterval.acquiredAt], optionally restricted to [resourceKey] and capped at
-     * [limit] rows. Backs the no-`at` "recent activity" view.
+     * Returns one page of the most recent [ResourceLeaseInterval] rows (open or closed), newest-first
+     * `(acquiredAt DESC, id ASC)`, optionally restricted to [resourceKey]. [LeaseIntervalPage.total] is the count of
+     * ALL matching rows, counted in the same read as the page. Backs the no-`at` "recent activity" view.
      */
     suspend fun findRecentIntervals(
         resourceKey: String?,
-        limit: Int
-    ): List<ResourceLeaseInterval>
+        page: PageRequest = PageRequest()
+    ): LeaseIntervalPage
 
     /**
      * Retention: deletes at most [batch] CLOSED history intervals (`released_at IS NOT NULL`) with
@@ -192,3 +194,9 @@ interface LeaseStore {
         batch: Int
     ): Int = throw UnsupportedOperationException("This LeaseStore does not support retention pruning")
 }
+
+/** One page of lease history: [items] plus the [total] of all rows matching the read (mirrors [EventPage]). */
+data class LeaseIntervalPage(
+    val items: List<ResourceLeaseInterval>,
+    val total: Int
+)

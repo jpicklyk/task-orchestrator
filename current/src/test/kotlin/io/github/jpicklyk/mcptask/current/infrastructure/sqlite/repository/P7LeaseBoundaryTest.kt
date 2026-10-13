@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
@@ -93,7 +94,7 @@ class P7LeaseBoundaryTest {
             val success = assertIs<LeaseAcquireResult.Success>(taken)
             assertEquals(h2, success.leases.single().holderItemId)
 
-            val intervals = leases.findRecentIntervals("k", 10)
+            val intervals = leases.findRecentIntervals("k", PageRequest(10)).items
             assertEquals(2, intervals.size)
             val closed = intervals.single { it.holderItemId == h1 }
             assertEquals("expired", closed.releaseReason)
@@ -124,7 +125,7 @@ class P7LeaseBoundaryTest {
 
             assertIs<LeaseReleaseResult.Success>(leases.releaseAllForItem(h))
 
-            val interval = leases.findRecentIntervals("k", 10).single()
+            val interval = leases.findRecentIntervals("k", PageRequest(10)).items.single()
             assertEquals("expired", interval.releaseReason)
             assertEquals(e, interval.releasedAt)
             assertEquals(P7Raw.canon(e), P7Raw.text(jdbc, "SELECT released_at FROM resource_lease_history WHERE resource_key = ?", "k"))
@@ -140,7 +141,7 @@ class P7LeaseBoundaryTest {
 
             assertIs<LeaseReleaseResult.Success>(leases.releaseAllForItem(h))
 
-            val interval = leases.findRecentIntervals("k", 10).single()
+            val interval = leases.findRecentIntervals("k", PageRequest(10)).items.single()
             assertEquals("released", interval.releaseReason)
             assertEquals(before, interval.releasedAt)
         }
@@ -154,7 +155,7 @@ class P7LeaseBoundaryTest {
 
             assertIs<LeaseReleaseResult.Success>(leases.releaseAllForItem(h))
 
-            val interval = leases.findRecentIntervals("k", 10).single()
+            val interval = leases.findRecentIntervals("k", PageRequest(10)).items.single()
             assertEquals("expired", interval.releaseReason)
             assertEquals(t.plusSeconds(30), interval.releasedAt)
         }
@@ -189,11 +190,13 @@ class P7LeaseBoundaryTest {
             }
             val at = t.plusSeconds(10)
 
-            assertEquals(listOf(holders[3], holders[2]), leases.findHoldersAt("k", at, 2).map { it.holderItemId })
-            assertEquals(listOf(holders[3]), leases.findHoldersAt("k", at, 1).map { it.holderItemId })
-            assertEquals(holders.reversed(), leases.findHoldersAt("k", at, 4).map { it.holderItemId })
-            assertEquals(4, leases.findHoldersAt("k", at, 100).size)
-            assertEquals(4, leases.findHoldersAt("k", at).size, "the default limit must not truncate")
+            assertEquals(listOf(holders[3], holders[2]), leases.findHoldersAt("k", at, PageRequest(2)).items.map { it.holderItemId })
+            assertEquals(listOf(holders[3]), leases.findHoldersAt("k", at, PageRequest(1)).items.map { it.holderItemId })
+            assertEquals(holders.reversed(), leases.findHoldersAt("k", at, PageRequest(4)).items.map { it.holderItemId })
+            assertEquals(4, leases.findHoldersAt("k", at, PageRequest(100)).items.size)
+            val defaultPage = leases.findHoldersAt("k", at)
+            assertEquals(4, defaultPage.items.size, "the default page must not truncate")
+            assertEquals(4, defaultPage.total)
         }
 
     @Test
@@ -204,7 +207,7 @@ class P7LeaseBoundaryTest {
             val onOther = UUID.randomUUID()
             insertOpenInterval("other", onOther, t.plusSeconds(5), t.plusSeconds(3_600))
 
-            val newestTwo = leases.findHoldersAt(null, t.plusSeconds(10), 2).map { it.holderItemId }
+            val newestTwo = leases.findHoldersAt(null, t.plusSeconds(10), PageRequest(2)).items.map { it.holderItemId }
 
             assertEquals(listOf(onOther, onK[2]), newestTwo)
         }
