@@ -104,11 +104,13 @@ internal object ReportParityScenarios {
         expectStatus: Int,
         expectCode: String? = null,
         expectContains: List<String> = emptyList(),
-        expectAbsent: List<String> = emptyList()
+        expectAbsent: List<String> = emptyList(),
+        member: String = "usage",
+        rows: suspend ParitySeeder.() -> Unit = seed
     ) = ParityScenario(
         name = "report $name",
         tool = "report",
-        member = "usage",
+        member = member,
         kind = kind,
         token = token,
         arguments = arguments,
@@ -117,10 +119,250 @@ internal object ReportParityScenarios {
         expectContains = expectContains,
         expectAbsent = expectAbsent,
         expectDbChanged = false,
-        seed = seed
+        seed = rows
     )
 
-    val happy: List<ParityScenario> =
+    // ------------------------------------------------------------------ waste (item 03f3520d, R12; scenario S16 of its test-plan)
+
+    private const val X1 = "a0000000-0000-4000-8000-000000000001"
+
+    private fun wasteRow(
+        n: Int,
+        time: String,
+        op: String,
+        tool: String = "items_read",
+        session: String? = null,
+        surface: String = "mcp",
+        error: String? = null,
+        versions: String? = null,
+        shape: String? = null,
+        result: Int? = null,
+        eligible: Int? = null,
+        lf: Int? = null,
+        root: UUID? = r1
+    ) = ReportKit
+        .rec(n, at(time), tool, op, surface = surface, error = error, rootId = root)
+        .copy(
+            sessionId = session,
+            targetVersions = versions,
+            requestShape = shape,
+            resultCount = result,
+            eligibleCount = eligible,
+            lifecycleFreeRejections = lf
+        )
+
+    /**
+     * The fixture of the waste scenarios (clock at [PARITY_NOW], 2026-10-10T12:00Z, so the default window is
+     * [2026-10-03T12:00Z, 2026-10-10T12:00Z)): the roots of [seed] and five call_log rows. Session `sess-a` (MCP, root R1): at 10:00
+     * and 10:01 on 2026-10-09 two ok items_read gets of the same key at version 1 (the first opted into `fields`), at 10:02 a failed
+     * items_write that counted one lifecycle-free rejection, at 10:03 a next that returned nothing although two items were
+     * eligible. At 10:04 a REST next (root R2, no session) that returned nothing although five items were eligible.
+     *
+     * Hand counts for an unrestricted reader: redundantReads 1 of 2 observations (value 0.5); overFetch 1 of the 4 fetch rows
+     * (the two gets and the two nexts), value 0.25; readsWithoutLaterWrite 1 of the 3 ok session reads (only the next at 10:03 has no
+     * later write), value 0.3333; emptyNext 2 of 2, value 1; relatedFollowThrough 0 of 0 for each of the four signals;
+     * lifecycleFreeRejections 1 of 1 non-replayed write call, value 1.
+     */
+    private val wasteSeed: suspend ParitySeeder.() -> Unit = {
+        item(r1, "Alpha root", tags = "alpha")
+        item(r2, "Beta root", tags = "beta")
+        item(c1, "Alpha child", parent = r1, tags = "alpha")
+        callLog(
+            wasteRow(
+                11,
+                "2026-10-09T10:00:00Z",
+                "get",
+                session = "sess-a",
+                versions = "{\"$X1\":1}",
+                shape = "{\"fields\":[\"ancestors\"]}"
+            ),
+            wasteRow(12, "2026-10-09T10:01:00Z", "get", session = "sess-a", versions = "{\"$X1\":1}"),
+            wasteRow(13, "2026-10-09T10:02:00Z", "update", tool = "items_write", session = "sess-a", error = "invalid_transition", lf = 1),
+            wasteRow(14, "2026-10-09T10:03:00Z", "next", session = "sess-a", result = 0, eligible = 2),
+            wasteRow(15, "2026-10-09T10:04:00Z", "next", surface = "rest", result = 0, eligible = 5, root = r2)
+        )
+    }
+
+    private fun wasteScenario(
+        name: String,
+        kind: ParityKind,
+        token: ParityToken,
+        arguments: String,
+        expectStatus: Int,
+        expectCode: String? = null,
+        expectContains: List<String> = emptyList(),
+        expectAbsent: List<String> = emptyList()
+    ) = scenario(
+        name,
+        kind,
+        token,
+        arguments,
+        expectStatus,
+        expectCode,
+        expectContains,
+        expectAbsent,
+        member = "waste",
+        rows = wasteSeed
+    )
+
+    private val wasteHappy: List<ParityScenario> =
+        listOf(
+            wasteScenario(
+                "waste happy",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"waste"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "\"signals\"",
+                        "\"redundantReads\"",
+                        "\"overFetch\"",
+                        "\"readsWithoutLaterWrite\"",
+                        "\"emptyNext\"",
+                        "\"relatedFollowThrough\"",
+                        "\"lifecycleFreeRejections\"",
+                        "\"edges\"",
+                        "\"links\"",
+                        "\"tags\"",
+                        "\"text\"",
+                        "\"basis\":\"mcp_sessions\"",
+                        "\"value\":0.5",
+                        "\"value\":0.25",
+                        "\"value\":0.3333",
+                        "\"numerator\":1",
+                        "\"denominator\":3",
+                        "\"denominator\":0",
+                        "\"basis\":\"raw\"",
+                        "\"retainedSince\":"
+                    )
+            )
+        )
+
+    private val wasteScopeForbidden: List<ParityScenario> =
+        listOf(
+            wasteScenario(
+                "waste scope tag",
+                ParityKind.SCOPE_FORBIDDEN,
+                tagScoped,
+                """{"select":"waste"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"tag\""),
+                expectAbsent = listOf("\"signals\"", "\"redundantReads\"")
+            ),
+            wasteScenario(
+                "waste scope root",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"waste","rootId":"$r2"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
+                expectAbsent = listOf("\"signals\"")
+            )
+        )
+
+    private val wasteOther: List<ParityScenario> =
+        listOf(
+            wasteScenario(
+                "waste filtered by root scope",
+                ParityKind.OTHER,
+                rootScoped,
+                """{"select":"waste"}""",
+                200,
+                expectContains = listOf("\"signals\"", "\"basis\":\"mcp_sessions\"")
+            ),
+            wasteScenario(
+                "waste rootId narrows",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","rootId":"$r1"}""",
+                200,
+                expectContains = listOf("\"signals\"", "\"value\":0.3333")
+            ),
+            wasteScenario(
+                "waste groupBy is not an input",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","groupBy":"tool"}""",
+                400,
+                "unknown_parameter",
+                listOf("/groupBy")
+            ),
+            wasteScenario(
+                "waste limit is not an input",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","limit":5}""",
+                400,
+                "unknown_parameter",
+                listOf("/limit")
+            ),
+            wasteScenario(
+                "waste cursor is not an input",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","cursor":"abc"}""",
+                400,
+                "unknown_parameter",
+                listOf("/cursor")
+            ),
+            wasteScenario(
+                "waste window over 7 days",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","since":"2026-10-03T11:59:59.999Z"}""",
+                400,
+                "invalid_request",
+                listOf("/since")
+            ),
+            wasteScenario(
+                "waste window of exactly 7 days",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","since":"2026-10-03T12:00:00Z"}""",
+                200,
+                expectContains = listOf("\"signals\"", "\"basis\":\"raw\"")
+            ),
+            wasteScenario(
+                "waste since not before until",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","since":"2026-10-09T00:00:00Z","until":"2026-10-09T00:00:00Z"}""",
+                400,
+                "invalid_request"
+            ),
+            wasteScenario(
+                "waste unknown rootId",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","rootId":"99999999-9999-4999-8999-999999999999"}""",
+                404,
+                "not_found"
+            ),
+            wasteScenario(
+                "waste rootId of a child",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"waste","rootId":"$c1"}""",
+                400,
+                "invalid_request",
+                listOf("/rootId")
+            ),
+            wasteScenario(
+                "waste without the read capability",
+                ParityKind.OTHER,
+                noRead,
+                """{"select":"waste"}""",
+                403,
+                "forbidden",
+                listOf("\"scope\":\"capability\"", "\"required\":\"read\""),
+                listOf("\"signals\"")
+            )
+        )
+
+    private val usageHappy: List<ParityScenario> =
         listOf(
             scenario(
                 "usage happy",
@@ -204,7 +446,7 @@ internal object ReportParityScenarios {
             )
         )
 
-    val scopeForbidden: List<ParityScenario> =
+    private val usageScopeForbidden: List<ParityScenario> =
         listOf(
             scenario(
                 "usage scope tag",
@@ -228,7 +470,7 @@ internal object ReportParityScenarios {
             )
         )
 
-    val other: List<ParityScenario> =
+    private val usageOther: List<ParityScenario> =
         listOf(
             scenario(
                 "usage scope tag with a rootId",
@@ -417,6 +659,12 @@ internal object ReportParityScenarios {
                 "invalid_cursor"
             )
         )
+
+    val happy: List<ParityScenario> = usageHappy + wasteHappy
+
+    val scopeForbidden: List<ParityScenario> = usageScopeForbidden + wasteScopeForbidden
+
+    val other: List<ParityScenario> = usageOther + wasteOther
 
     val scenarios: List<ParityScenario> = happy + scopeForbidden + other + nullKeys
 
