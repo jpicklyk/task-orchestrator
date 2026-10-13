@@ -192,7 +192,7 @@ class DependencyCommandService(
                     lifecycleFree(dep.toItemId) -> FIELD_TO to dep.toItemId
                     else -> continue
                 }
-            val reason = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
+            val reason = LIFECYCLE_FREE_ENDPOINT_REASON
             return DomainError(
                 code = ErrorCode.INVALID_REQUEST,
                 message = "Item $id is lifecycle-free and cannot be an endpoint of a BLOCKS dependency",
@@ -254,8 +254,14 @@ class DependencyCommandService(
         path: List<UUID>
     ): DomainError = DomainError(code = ErrorCode.CYCLE_DETECTED, message = message, detail = ErrorDetail.CycleDetected(path))
 
-    private companion object {
-        const val FIELD_FROM = "fromItemId"
-        const val FIELD_TO = "toItemId"
+    companion object {
+        private const val FIELD_FROM = "fromItemId"
+        private const val FIELD_TO = "toItemId"
+
+        /**
+         * The `invalid_request` field reason of a BLOCKS edge with a lifecycle-free endpoint. Telemetry matches it to
+         * count lifecycle-free rejections (`call_log.lifecycle_free_rejections`), so the text is a contract.
+         */
+        const val LIFECYCLE_FREE_ENDPOINT_REASON = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
     }
 }

@@ -60,7 +60,10 @@ object SeedV21 : MigrationSeed(21) {
                 "batch_size",
                 "failed_count",
                 "result_count",
-                "eligible_count"
+                "eligible_count",
+                // V30 appends these two (this verify runs against the latest schema).
+                "hit_signals",
+                "lifecycle_free_rejections"
             ),
             columns,
             "call_log columns, in order"

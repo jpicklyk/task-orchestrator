@@ -323,7 +323,8 @@ private fun submitRestCall(
                 batchSize = ops?.dispatched?.batchSize,
                 failedCount = ops?.let { CallLogFields.failedCount(opsData) },
                 resultCount = (opsData?.get("items") as? JsonArray)?.size,
-                eligibleCount = null
+                eligibleCount = null,
+                lifecycleFreeRejections = CallLogFields.lifecycleFreeRejections(ops?.dispatched?.envelope?.body)
             )
         )
     } catch (e: Exception) {

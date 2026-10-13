@@ -10,6 +10,8 @@ import java.util.UUID
  * [runId] and [seat] stay null until W4/W5 capture them. [targetIds],
  * [targetVersions] and [requestShape] are JSON text. Byte counts are UTF-8 bytes of the bodies the caller sent
  * and received; [responseTokensEst] is [TokenEstimate] of [responseBytes] and [tokenMethod] names the method.
+ * [hitSignals] (JSON text) is, for a `related` call, the signals that found each returned hit, in page order;
+ * [lifecycleFreeRejections] counts the rejections caused by a lifecycle-free item (null when none, never 0).
  */
 data class CallLogRecord(
     val reqId: String,
@@ -39,7 +41,9 @@ data class CallLogRecord(
     val batchSize: Int? = null,
     val failedCount: Int? = null,
     val resultCount: Int? = null,
-    val eligibleCount: Int? = null
+    val eligibleCount: Int? = null,
+    val hitSignals: String? = null,
+    val lifecycleFreeRejections: Int? = null
 ) {
     companion object {
         const val SURFACE_MCP = "mcp"

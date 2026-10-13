@@ -546,7 +546,11 @@ document hit. `reasons` lists every signal that found the hit, in the order edge
 `explain` (default off) adds `{ranks: {edges?, links?, tags?, text?}, weights, rrfK}`. `page.total` is the
 size of the capped list (at most 50); `page.capped` is true when more relatives existed. The call log's
 `request_shape` carries `relatedSignals`, per signal the number of hits on the returned page it found
-(zeros kept), and each returned hit records its id and version as a target version.
+(zeros kept), and each returned hit records its id and version as a target version. The row's `hit_signals`
+column lists the returned page hit by hit, in page order, as `[{id, kind, signals}]` (`kind` is `item` or
+`document`, `signals` the signals that found it in the order edges, links, tags, text; never a title or any
+text), so a later call in the same session that targets one of those ids can be attributed to the signals that
+found it. It is NULL for an empty page and for every other call.
 
 **Orchestration selects.** `context`, `next`, `blocked` and `history` replace `get_context`, `get_next_status`,
 `get_next_item` and `get_blocked_items`. They share the compact view, the id rules, the `fields` rule and the page

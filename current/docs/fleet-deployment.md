@@ -217,6 +217,29 @@ target ids and versions, boolean/`limit` request shape), the
 outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
 and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
 
+Two columns added by migration V30 serve follow-through and rejection reports:
+
+- `hit_signals` (JSON text): for an `items_read` `related` call, the returned page hit by hit, in page order, as
+  `[{"id":"<uuid>","kind":"item"|"document","signals":[...]}]`, `signals` being the signals that found the hit
+  (`edges`, `links`, `tags`, `text`, in that order). A later call in the same `session_id` whose `target_ids` or
+  `target_versions` names one of those ids is a follow-through for those signals. Ids and signal names only, never a
+  title or any text. NULL for every other call and for an empty page. At most 50 entries (about 4.5 KB) per row.
+- `lifecycle_free_rejections` (integer): how many rejections in the response a lifecycle-free item caused. Judged
+  from the response envelope: each failed batch element when the body has `data.results`, else the top-level
+  `error` (never both, so a non-atomic batch's `partial_failure` is not counted twice). A rejection counts when it is
+  `invalid_transition` with `detail.fromRole` `"none"` (an advance trigger, claim, heartbeat or flip refused for a
+  lifecycle-free item) or the `invalid_request` refusing a BLOCKS dependency with a lifecycle-free endpoint. NULL
+  when there were none, never 0. Both surfaces fill it (REST from `POST /api/v1/ops/{tool}` bodies; the other REST
+  routes are reads).
+
+Rows written before V30 read NULL in both columns.
+
+Each MCP tool call that was not cancelled also logs one INFO line from `McpOperationAdapter`, inside the call's MDC
+(so it carries `reqId`, `sessionId`, `tool`, `transport` and `actorId`):
+`tool call: name=<tool>, operation=<select or op, or ->, outcome=ok|error, errorCode=<code, or - on ok>,
+latencyMs=<n>, responseBytes=<n>`. It is logged whatever happens to the call-log row, and never carries an
+argument value or body text. REST requests log no per-request line.
+
 Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
 rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
 graceful shutdown (drain timeout 5 s; on timeout the write loop is cancelled and joined, and unwritten rows

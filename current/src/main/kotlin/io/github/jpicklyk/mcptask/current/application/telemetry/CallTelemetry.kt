@@ -35,6 +35,28 @@ class CallTelemetry(
     private val eligibleCountRef = AtomicReference<Int?>(null)
     private val searchShapeRef = AtomicReference<SearchShape?>(null)
     private val relatedSignalsRef = AtomicReference<Map<String, Int>?>(null)
+    private val hitSignalsRef = AtomicReference<List<HitSignals>?>(null)
+
+    /**
+     * One returned hit of a `related` call and the signals that found it.
+     *
+     * @property id The hit's id.
+     * @property kind `item` or `document`.
+     * @property signals The signal wire names whose ranked list holds the hit, in signal order (edges, links, tags, text).
+     */
+    data class HitSignals(
+        val id: UUID,
+        val kind: String,
+        val signals: List<String>
+    )
+
+    /** The returned page of a `related` call, hit by hit, with the signals that found each; null when none was recorded. */
+    val hitSignals: List<HitSignals>? get() = hitSignalsRef.get()
+
+    /** First recorded hit signals win. */
+    fun setHitSignals(hits: List<HitSignals>) {
+        hitSignalsRef.compareAndSet(null, hits.toList())
+    }
 
     /**
      * Per signal (`edges`, `links`, `tags`, `text`), the number of hits on the returned page of a `related` call that
@@ -176,6 +198,11 @@ suspend fun recordCallSearchShape(
 /** Records, per related signal, how many returned-page hits it contributed to; a no-op outside a call. */
 suspend fun recordCallRelatedSignals(counts: Map<String, Int>) {
     currentCallTelemetry()?.setRelatedSignals(counts)
+}
+
+/** Records the signals that found each returned hit of a `related` call, in page order; a no-op outside a call. */
+suspend fun recordCallHitSignals(hits: List<CallTelemetry.HitSignals>) {
+    currentCallTelemetry()?.setHitSignals(hits)
 }
 
 /** Records how many hits of each searched kind the search returned (page-invariant); a no-op outside a call. */
