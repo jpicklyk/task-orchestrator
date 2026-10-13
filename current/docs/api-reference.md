@@ -1833,7 +1833,8 @@ The rollup and waste reports are planned selects of this tool and are not served
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
-  at most 31 days (the raw-table cap), else `invalid_request` on `/since`.
+  at most 400 days for `usage` (its daily basis) and 31 days (the raw-table cap) for `gates` and `contention`, else
+  `invalid_request` on `/since`.
 - **Metrics.** Every metric is always present. `errors` counts calls whose outcome was an error; `responseBytes` and
   `responseTokensEst` are sums (a call that recorded none counts 0); `avgLatencyMs` is the mean rounded half up;
   `retries` is the sum of `attempts - 1`; `replays` counts idempotent replays.
@@ -1865,13 +1866,13 @@ The rollup and waste reports are planned selects of this tool and are not served
 <!-- generated:tool report -->
 Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected transitions), contention (claims, leases).
 
-**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until). groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until). groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
@@ -1884,7 +1885,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
@@ -1897,7 +1898,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | --- | --- | --- | --- |
 | `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
 | `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |

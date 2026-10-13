@@ -367,12 +367,21 @@ internal object ReportParityScenarios {
                 "invalid_request"
             ),
             scenario(
-                "usage window over 31 days",
+                "usage window over 400 days",
                 ParityKind.OTHER,
                 reader,
-                """{"select":"usage","since":"2026-09-09T11:59:59.999Z"}""",
+                """{"select":"usage","since":"2025-09-05T11:59:59.999Z"}""",
                 400,
-                "invalid_request"
+                "invalid_request",
+                expectContains = listOf("/since")
+            ),
+            scenario(
+                "usage window over 31 days reads the daily basis",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"usage","since":"2026-08-01T00:00:00Z","until":"2026-10-10T12:00:00Z"}""",
+                200,
+                expectContains = listOf("\"key\":{\"tool\":\"x_tool\"}", "\"calls\":3", "\"total\":2", "\"basis\":\"daily\"")
             ),
             scenario(
                 "usage window of exactly 31 days",

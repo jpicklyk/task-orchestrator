@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
+import io.github.jpicklyk.mcptask.current.application.port.UsageDailyStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document.SqliteDocumentStore
@@ -49,6 +50,7 @@ class DefaultRepositoryProvider(
     private val callLogStoreInstance by lazy { SqliteCallLogStore(databaseManager) }
     private val runStoreInstance by lazy { SqliteRunStore(databaseManager) }
     private val reportQueriesInstance by lazy { SqliteReportQueries(databaseManager) }
+    private val usageDailyStoreInstance by lazy { SqliteUsageDailyStore(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 
@@ -77,4 +79,6 @@ class DefaultRepositoryProvider(
     override fun runStore(): RunStore = runStoreInstance
 
     override fun reportQueries(): ReportQueries = reportQueriesInstance
+
+    override fun usageDailyStore(): UsageDailyStore = usageDailyStoreInstance
 }

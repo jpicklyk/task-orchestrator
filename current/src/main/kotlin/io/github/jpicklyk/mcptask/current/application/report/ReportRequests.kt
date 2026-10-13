@@ -60,7 +60,7 @@ data class ReportUsageRequest(
     val rootId: IdRef? = null,
     @Doc("Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days.")
     val since: String? = null,
-    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since.")
+    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects.")
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
@@ -75,7 +75,7 @@ data class ReportGatesRequest(
     val rootId: IdRef? = null,
     @Doc("Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days.")
     val since: String? = null,
-    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since.")
+    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects.")
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
@@ -90,7 +90,7 @@ data class ReportContentionRequest(
     val rootId: IdRef? = null,
     @Doc("Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days.")
     val since: String? = null,
-    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since.")
+    @Doc("Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 31 for other selects.")
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,

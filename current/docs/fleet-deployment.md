@@ -299,7 +299,7 @@ never used for authorization, scoping or identity. See
 overrides that variable must add the header itself for browser clients to send it.
 
 `call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
-(`RETENTION_CALL_LOG_DAYS`) takes effect once call-log days are folded into `usage_daily`; see
+(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V33); see
 [Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
@@ -315,15 +315,23 @@ A background retention pruner deletes old rows from `events`, `resource_lease_hi
 pass right after startup (in the background, so it never delays readiness) and then hourly. Each pass deletes in
 write units of at most 5,000 rows and stops after 200,000 rows (a larger backlog drains over the following passes),
 so the writer lock is released between units and concurrent writes are delayed by one unit at most. Each pass logs
-one INFO line (`Retention pass: events=... lease_history=... call_log=... capped=...`); a failed pass logs a WARN and
+one INFO line (`Retention pass: events=... lease_history=... call_log=... folded_days=... capped=...`); a failed pass logs a WARN and
 the next pass retries. The pruner writes no `events` rows.
+
+Each pass first folds the completed UTC days of `call_log` into `usage_daily` (one row per day and dimension group), one
+write unit per day, before it deletes anything: today, and yesterday during the first hour after midnight UTC, are never
+folded, a day below the fold watermark (`usage_fold`) is never folded again, and at most 400 days fold per pass (the first
+pass on a long-lived volume folds the whole backlog, then deletes). A fold failure pauses only `call_log` pruning for that
+pass (events and lease history are still pruned; `call_log` deletes only folded days, so nothing unfolded goes) and logs a WARN
+naming the failed UTC day and the exception class and message, never row data. `usage_daily` serves the `report` `usage` select past the raw horizon (`window.basis` `daily`); it is not pruned and
+has no setting.
 
 | Variable | Default | Prunes |
 |----------|---------|--------|
 | `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `item.updated`, `transition.rejected`). |
 | `RETENTION_AUDIT_EVENTS_DAYS` | `0` | Audit-class `events` rows: `item.transitioned`, `item.created`, `item.deleted`, `item.reparented`, `item.pinned`, `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`, and the 3.x transition trail backfilled by V29. `0` keeps them forever. |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | Closed `resource_lease_history` intervals, by `released_at`. Open intervals are never pruned. |
-| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily`. Until that fold ships, no `call_log` row is pruned. |
+| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily` (the pruner folds first; nothing is pruned while no day is folded). |
 
 Each value is a whole number of days; `0` keeps that data forever. Values are read once at startup (restart to
 change); a blank, negative or non-integer value fails startup with an error naming the variable.
