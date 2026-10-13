@@ -182,6 +182,17 @@ interface LeaseStore {
         resourceKey: String?,
         page: PageRequest = PageRequest()
     ): LeaseIntervalPage
+
+    /**
+     * Retention: deletes at most [batch] CLOSED history intervals (`released_at IS NOT NULL`) with
+     * `released_at < cutoff`, oldest first, and returns how many it deleted. Open intervals and live lease rows are
+     * never touched. A write: it runs inside the caller's unit. The default throws; a store that serves retention
+     * overrides it.
+     */
+    suspend fun pruneClosed(
+        cutoff: Instant,
+        batch: Int
+    ): Int = throw UnsupportedOperationException("This LeaseStore does not support retention pruning")
 }
 
 /** One page of lease history: [items] plus the [total] of all rows matching the read (mirrors [EventPage]). */

@@ -95,6 +95,8 @@ data class AppConfig(
     val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP,
     /** `RESOURCE_LEASES_ENFORCED` -- the lease kill switch, read ONCE at startup (restart to change). Default true; false skips the lease gate and acquisition on every advance. */
     val resourceLeasesEnforced: Boolean = true,
+    /** `RETENTION_CALL_LOG_DAYS` / `RETENTION_EVENTS_DAYS` / `RETENTION_AUDIT_EVENTS_DAYS` / `RETENTION_LEASE_HISTORY_DAYS` ([RetentionSettings.parse]); an invalid value fails startup. */
+    val retention: RetentionSettings = RetentionSettings.DEFAULT,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -156,6 +158,8 @@ data class AppConfig(
                 mcpToolProfileRaw = env("MCP_TOOL_PROFILE"),
                 ftsIntegrity = FtsIntegrityMode.parse(env("FTS_INTEGRITY")),
                 resourceLeasesEnforced = EnvBoolean.parse("RESOURCE_LEASES_ENFORCED", env("RESOURCE_LEASES_ENFORCED"), true),
+                // Retention windows -- an invalid value throws IllegalArgumentException and fails startup.
+                retention = RetentionSettings.parse(env),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),

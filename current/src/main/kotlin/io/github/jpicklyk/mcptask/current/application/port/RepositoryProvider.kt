@@ -50,4 +50,10 @@ interface RepositoryProvider {
      * [WriteScope.events] sink, never directly.
      */
     fun eventStore(): EventStore
+
+    /**
+     * The call log, for the retention pruner (appends go through the batched call-log writer, not a unit's stores).
+     * The default throws, so a provider that serves retention must override it.
+     */
+    fun callLogStore(): CallLogStore = throw UnsupportedOperationException("This RepositoryProvider has no call log store")
 }

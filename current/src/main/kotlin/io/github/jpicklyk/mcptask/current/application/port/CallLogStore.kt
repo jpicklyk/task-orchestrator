@@ -77,6 +77,16 @@ interface CallLogStore {
      * Defaults to [append] with no rejections.
      */
     suspend fun appendCounted(records: List<CallLogRecord>): CallLogAppendResult = CallLogAppendResult(append(records))
+
+    /**
+     * Retention: deletes at most [batch] rows with `at < cutoff`, oldest first, and returns how many it deleted. A
+     * write: it runs inside the caller's unit. The caller bounds [cutoff] by the `usage_daily` fold watermark. The
+     * default throws; a store that serves retention overrides it.
+     */
+    suspend fun prune(
+        cutoff: Instant,
+        batch: Int
+    ): Int = throw UnsupportedOperationException("This CallLogStore does not support retention pruning")
 }
 
 /**

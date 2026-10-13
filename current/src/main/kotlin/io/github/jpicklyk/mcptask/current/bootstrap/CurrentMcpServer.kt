@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
+import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -224,6 +225,15 @@ class CurrentMcpServer(
                 runBlocking { idempotencyPruner.stop() }
             }
 
+            // Rows older than the RETENTION_* windows are pruned in the background, first pass after readiness, then
+            // hourly. Built and registered here (AFTER Close Database, so the LIFO drain stops it first) but launched
+            // only by the transport runner once the readiness marker is written: a start that fails before that
+            // (unknown transport, bind failure, marker write) never has a pass in flight while run() closes the pools.
+            val retentionPruner = RetentionPruner(composition.unitOfWork, appConfig.retention, appConfig.apiSseBufferSize)
+            shutdownCoordinator.addCleanupAction("Stop Retention Pruner") {
+                runBlocking { retentionPruner.stop() }
+            }
+
             // Expired claims are reported and lapsed leases removed once now and then hourly. Registered after the
             // pruner (and so after Close Database): the LIFO drain stops it before the database closes.
             val expirySweeper = ExpirySweeper(toolContext.claimService)
@@ -275,7 +285,7 @@ class CurrentMcpServer(
                         }
                         val server = serverFor(toolProfile)
                         mcpSdkServers = listOf(server)
-                        runStdioTransport(server, serverName, readinessMarker)
+                        runStdioTransport(server, serverName, readinessMarker, onReady = retentionPruner::launch)
                     }
                     "http" -> {
                         val server = serverFor(ToolProfile.ORCHESTRATION)
@@ -295,7 +305,8 @@ class CurrentMcpServer(
                             readinessMarker,
                             callLogWriter,
                             registry,
-                            toolDispatcher
+                            toolDispatcher,
+                            onReady = retentionPruner::launch
                         )
                     }
                     else -> {
@@ -328,7 +339,8 @@ class CurrentMcpServer(
     private suspend fun runStdioTransport(
         server: Server,
         serverName: String,
-        readinessMarker: ReadinessMarker
+        readinessMarker: ReadinessMarker,
+        onReady: () -> Unit = {}
     ): StartupOutcome {
         logger.info("Starting MCP server with stdio transport...")
 
@@ -370,6 +382,8 @@ class CurrentMcpServer(
             logger.error("Failed to write readiness marker at ${readinessMarker.path}: ${e.message}", e)
             return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
         }
+        // Serving: only now start background work a failed start must not leave running (the retention pruner).
+        onReady()
 
         logger.info("Current (v3) MCP server running as '$serverName' v$version over stdio")
         try {
@@ -403,6 +417,7 @@ class CurrentMcpServer(
         callLog: CallLogSink = CallLogSink.NONE,
         toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
         toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
+        onReady: () -> Unit = {},
     ): StartupOutcome {
         val host = appConfig.mcpHttpHost
         val port = appConfig.mcpHttpPort
@@ -522,6 +537,8 @@ class CurrentMcpServer(
             logger.error("Failed to write readiness marker at ${readinessMarker.path}: ${e.message}", e)
             return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
         }
+        // Serving: only now start background work a failed start must not leave running (the retention pruner).
+        onReady()
 
         logger.info(
             "Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge, /mcp/director)"

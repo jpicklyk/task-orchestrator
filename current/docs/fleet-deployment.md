@@ -298,13 +298,47 @@ never used for authorization, scoping or identity. See
 [api-rest.md](api-rest.md) section 6a. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
 overrides that variable must add the header itself for browser clients to send it.
 
-`call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
-20 000 calls a day), like `events`. Pruning arrives with W6.
+`call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
+(`RETENTION_CALL_LOG_DAYS`) takes effect once call-log days are folded into `usage_daily`; see
+[Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`
 volume in Docker); the file uses the same JSON encoding, rolls at 10MB/day (`.gz`, 30-day/100MB
 retention), and its parent directories are created automatically.
+
+---
+
+## Data Retention
+
+A background retention pruner deletes old rows from `events`, `resource_lease_history` and `call_log`. It runs one
+pass right after startup (in the background, so it never delays readiness) and then hourly. Each pass deletes in
+write units of at most 5,000 rows and stops after 200,000 rows (a larger backlog drains over the following passes),
+so the writer lock is released between units and concurrent writes are delayed by one unit at most. Each pass logs
+one INFO line (`Retention pass: events=... lease_history=... call_log=... capped=...`); a failed pass logs a WARN and
+the next pass retries. The pruner writes no `events` rows.
+
+| Variable | Default | Prunes |
+|----------|---------|--------|
+| `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `item.updated`, `transition.rejected`). |
+| `RETENTION_AUDIT_EVENTS_DAYS` | `0` | Audit-class `events` rows: `item.transitioned`, `item.created`, `item.deleted`, `item.reparented`, `item.pinned`, `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`, and the 3.x transition trail backfilled by V29. `0` keeps them forever. |
+| `RETENTION_LEASE_HISTORY_DAYS` | `365` | Closed `resource_lease_history` intervals, by `released_at`. Open intervals are never pruned. |
+| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily`. Until that fold ships, no `call_log` row is pruned. |
+
+Each value is a whole number of days; `0` keeps that data forever. Values are read once at startup (restart to
+change); a blank, negative or non-integer value fails startup with an error naming the variable.
+
+Guarantees:
+
+- **The SSE replay window is never pruned.** An `events` row whose seq is within `API_SSE_BUFFER_SIZE` of the newest
+  seq is kept however old, so a client resuming with `Last-Event-ID` inside the window never sees a gap.
+- **The latest `claim.expired` row per item is kept**, because the expiry sweep deduplicates against it.
+- **An event type the server does not classify is never pruned.**
+- **Runs, seats, decisions and `usage_daily` are not pruned.** There is no per-root retention.
+
+The pruner runs no `VACUUM`: freed pages are reused by new rows, so the database file stops growing but does not
+shrink. To reclaim disk space after a large first prune (for example on a volume upgraded from 3.x), stop the server
+and run `VACUUM` offline.
 
 ---
 

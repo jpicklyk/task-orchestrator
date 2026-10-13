@@ -6,7 +6,9 @@ import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import java.util.UUID
 
 /**
- * Append-only audit history of resource-lease hold intervals — answers "who held resource R at
+ * Audit history of resource-lease hold intervals (append-only, except that the retention pruner deletes CLOSED
+ * intervals older than `RETENTION_LEASE_HISTORY_DAYS`; the "never pruned" note in the V16 migration header predates
+ * it) — answers "who held resource R at
  * time T" (see [io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval]). Mirrors
  * `V16__Resource_Lease_History.sql` exactly.
  *

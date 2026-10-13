@@ -5,9 +5,15 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.CallLogTable
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import java.time.Instant
 
 /**
  * SQLite implementation of [CallLogStore] over [CallLogTable].
@@ -66,6 +72,24 @@ class SqliteCallLogStore(
                 if (count == 0 && CallLogTable.selectAll().where { CallLogTable.reqId eq record.reqId }.empty()) rejected++
             }
             CallLogAppendResult(inserted, rejected)
+        }
+    }
+
+    /** Selects the oldest [batch] rows before [cutoff] through `idx_call_log_at`, then deletes them by primary key. */
+    override suspend fun prune(
+        cutoff: Instant,
+        batch: Int
+    ): Int {
+        if (batch <= 0) return 0
+        return databaseManager.writeTx("CallLogStore.prune") {
+            val ids =
+                CallLogTable
+                    .select(CallLogTable.reqId)
+                    .where { CallLogTable.at less cutoff }
+                    .orderBy(CallLogTable.at to SortOrder.ASC)
+                    .limit(batch)
+                    .map { it[CallLogTable.reqId] }
+            ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk -> CallLogTable.deleteWhere { CallLogTable.reqId inList chunk } }
         }
     }
 }
