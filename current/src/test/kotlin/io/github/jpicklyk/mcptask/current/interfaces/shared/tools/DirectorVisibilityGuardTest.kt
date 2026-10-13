@@ -31,11 +31,12 @@ import kotlin.test.assertTrue
  * field carries a `@Doc`; no member touches the database.
  */
 class DirectorVisibilityGuardTest {
-    /** The AC3 allow-list: tool name to member names. */
+    /** The AC3 allow-list: tool name to member names. R9 added `report usage` (aggregates only, no note or document body). */
     private val allowed: Map<String, Set<String>> =
         mapOf(
             "items_read" to setOf("get", "list", "overview", "blocked"),
-            "deps_read" to setOf("list", "graph")
+            "deps_read" to setOf("list", "graph"),
+            "report" to setOf("usage")
         )
 
     @Serializable
@@ -115,11 +116,11 @@ class DirectorVisibilityGuardTest {
     }
 
     @Test
-    fun `S2 the production registry passes the guard and only items_read and deps_read are director tools`() {
+    fun `S2 the production registry passes the guard and only items_read, deps_read and report are director tools`() {
         val production = ToolRegistry(buildToolSpecs())
         assertEquals(emptyList(), violations(production))
         val directorTools = production.visible(ToolProfile.DIRECTOR).map { it.name }.toSet()
-        assertEquals(setOf("items_read", "deps_read"), directorTools)
+        assertEquals(setOf("items_read", "deps_read", "report"), directorTools)
         for (tool in listOf("notes_read", "notes_write", "docs_read", "docs_write", "advance", "config", "items_write", "deps_write")) {
             assertTrue(
                 tool !in directorTools,

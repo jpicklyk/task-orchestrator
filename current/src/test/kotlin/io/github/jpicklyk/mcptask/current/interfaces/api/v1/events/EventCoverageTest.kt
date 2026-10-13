@@ -1072,6 +1072,7 @@ class EventCoverageTest {
                     "deps_read" to emptyArray(),
                     "items_read" to emptyArray(),
                     "docs_read" to emptyArray(),
+                    "report" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
@@ -1081,6 +1082,7 @@ class EventCoverageTest {
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
                         "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
                         "docs_read" -> rig.ctx.callTool("docs_read", docsGet(root.id))
+                        "report" -> rig.ctx.callTool("report", buildJsonObject { put("select", "usage") }, profile = ToolProfile.DIRECTOR)
                         else -> error("unhandled read tool $name")
                     }
                 assertTrue(
@@ -1134,6 +1136,7 @@ class EventCoverageTest {
                 "deps_read",
                 "items_read",
                 "docs_read",
+                "report",
             )
 
         /** An `advance` call starting [id] (queue -> work). */

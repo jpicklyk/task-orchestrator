@@ -68,10 +68,15 @@ class ProfileVisibilityAllowlistTest {
 
     @Test
     fun `director members are also orchestration members and the knowledge allowlist is unchanged by director`() {
-        // R5 AC2/AC3: a director member is its current set plus DIRECTOR, so none is director-only today and the
-        // knowledge and orchestration visibility of every member is what it was before the third profile.
+        // R5 AC2/AC3: a director member is its current set plus DIRECTOR, so the knowledge and orchestration visibility of
+        // every member is what it was before the third profile. R9's report is the one director-only tool (plan R9,
+        // profiles {DIRECTOR}): it is checked to be absent from orchestration instead.
         val orchestration = members(ToolProfile.ORCHESTRATION)
-        for ((tool, names) in members(ToolProfile.DIRECTOR)) {
+        for (tool in DIRECTOR_ONLY_TOOLS) {
+            assertTrue(tool in members(ToolProfile.DIRECTOR), "$tool is a director tool")
+            assertTrue(tool !in orchestration, "$tool is director-only and must not be visible in orchestration")
+        }
+        for ((tool, names) in members(ToolProfile.DIRECTOR) - DIRECTOR_ONLY_TOOLS) {
             assertTrue(
                 orchestration[tool].orEmpty().containsAll(names),
                 "$tool: director members ${names - orchestration[tool].orEmpty()} are missing from orchestration"
@@ -81,12 +86,19 @@ class ProfileVisibilityAllowlistTest {
     }
 
     private companion object {
-        /** R5 AC3: exactly the items_read reads and the deps_read reads. Nothing that can carry a note, document or transition body. */
+        /**
+         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9's report usage (aggregates only). Nothing that
+         * can carry a note, document or transition body.
+         */
         val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
             mapOf(
                 "items_read" to setOf("get", "list", "overview", "blocked"),
-                "deps_read" to setOf("list", "graph")
+                "deps_read" to setOf("list", "graph"),
+                "report" to setOf("usage")
             )
+
+        /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */
+        val DIRECTOR_ONLY_TOOLS: Set<String> = setOf("report")
 
         /** Tools plan section 2 hides entirely from knowledge. */
         val HIDDEN_WHOLE_TOOLS = setOf("advance", "config")

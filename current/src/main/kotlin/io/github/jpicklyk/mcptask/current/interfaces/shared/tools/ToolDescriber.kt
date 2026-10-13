@@ -34,7 +34,7 @@ object ToolDescriber {
             when (spec) {
                 is SelectToolSpec ->
                     spec.visibleSelects(profile).map { s ->
-                        val extra = if (s is SelectSpec.Paged<*, *>) PAGED_ERRORS else emptySet()
+                        val extra = if (s.paged) PAGED_ERRORS else emptySet()
                         Operation(s.name, s.doc, s.request.descriptor, s.errors + COMMON_ERRORS + extra)
                     }
                 is OpsToolSpec<*> ->

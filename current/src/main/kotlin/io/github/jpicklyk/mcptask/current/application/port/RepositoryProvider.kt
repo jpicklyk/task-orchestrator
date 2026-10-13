@@ -56,4 +56,10 @@ interface RepositoryProvider {
      * The default throws, so a provider that serves retention must override it.
      */
     fun callLogStore(): CallLogStore = throw UnsupportedOperationException("This RepositoryProvider has no call log store")
+
+    /**
+     * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
+     * The default throws, so a provider that serves reports must override it.
+     */
+    fun reportQueries(): ReportQueries = throw UnsupportedOperationException("This RepositoryProvider has no report queries")
 }

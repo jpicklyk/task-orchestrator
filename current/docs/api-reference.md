@@ -36,9 +36,9 @@ over MCP.
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
-| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool with all its selects and ops, including `advance` and `config` |
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only) and `deps_read`: no read that can return a note, document or transition-summary body, and no write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read` and `report`: no read that can return a note, document or transition-summary body, and no write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
@@ -59,6 +59,7 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window); director profile only on MCP |
 
 ---
 
@@ -1809,6 +1810,68 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool docs_write -->
+
+---
+
+## Category: Reports
+
+### report
+
+**Purpose.** Read-only aggregate reports over the server's own telemetry. A 4.0 registry tool: the request is the
+envelope request (`select` plus the select's fields) and every answer is the response envelope. On MCP it is a
+**director-profile** tool only (`/mcp/director`); REST serves it at `POST /api/v1/ops/report`. Each field is documented
+once in the tool's own schema (`describe: true`).
+
+**Selects.** `usage` (the `call_log` usage aggregate). The rollup, gate, contention and waste reports are planned
+selects of this tool and are not served yet.
+
+| Select | Answer (`data`) |
+|---|---|
+| `usage` | `{items: [{key: {<groupBy>?: value}, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}], page: {total, truncated, next?}, window: {since, until, retainedSince?, basis, truncatedByRetention?}}` |
+
+- **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
+  precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
+  at most 31 days (the raw-table cap), else `invalid_request` on `/since`.
+- **Metrics.** Every metric is always present. `errors` counts calls whose outcome was an error; `responseBytes` and
+  `responseTokensEst` are sums (a call that recorded none counts 0); `avgLatencyMs` is the mean rounded half up;
+  `retries` is the sum of `attempts - 1`; `replays` counts idempotent replays.
+- **Grouping.** `groupBy` defaults to `tool`. `usage` accepts `tool`, `operation`, `host`, `surface`, `principalKind`,
+  `errorCode`, `day` (the UTC date of the call) and `principal` (the principal id); `noteKey`, `type`, `trait` and
+  `resource` belong to other selects and are `invalid_request` on `/groupBy`. A missing (NULL) value omits the
+  `<groupBy>` member, so `key` is `{}`, never a JSON `null`. Groups are ordered by `calls` descending, then key
+  ascending (an empty key first); `page.total` is the number of groups.
+- **Retention.** `window.retainedSince` is the oldest raw `call_log` row still held, over the whole table (absent when it
+  is empty); `window.truncatedByRetention: true` appears only when `since` is before it. `basis` is `raw`.
+- **Visibility.** A tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
+  A root-scoped credential sees only calls recorded against one of its roots (calls with no root are never visible to
+  it). Grouping by `principal` needs the `admin` capability (else `forbidden`, scope `capability`); the MCP profiles run
+  unrestricted. `rootId` must be a project root (depth 0, else `invalid_request`) and narrows the rows further; it
+  resolves by the shared scope-aware id rule (a root outside the caller's scope is `forbidden`).
+
+```json
+{ "select": "usage" }
+{ "select": "usage", "groupBy": "day", "since": "2026-10-01T00:00:00Z", "until": "2026-10-08T00:00:00Z" }
+{ "select": "usage", "rootId": "550e8400", "groupBy": "host", "limit": 20 }
+```
+
+**Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
+
+<!-- generated:tool report -->
+Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays per group).
+
+**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until): calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis raw and truncatedByRetention when the window starts before it. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), principal (admin only). |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool report -->
 
 ---
 
