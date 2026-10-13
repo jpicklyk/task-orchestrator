@@ -309,6 +309,52 @@ class ReportServiceDailyTest {
             )
         }
 
+    /**
+     * N1 ruling (fix round, spec change): with a fold present (watermark not null) and an EMPTY call_log (`retainedSince` null,
+     * e.g. a short RETENTION_CALL_LOG_DAYS pruned every raw row), a window of 31 days or less reads the daily basis, not an empty
+     * raw page. The control below has no fold: the same empty call_log stays raw and empty.
+     */
+    @Test
+    fun `S11 an empty call_log with a fold answers the folded days on the daily basis, not an empty raw page`(): Unit =
+        runBlocking {
+            val f = fx
+            f.seed(
+                ReportKit.rec(1, at("2026-10-08T10:00:00Z"), "t"),
+                ReportKit.rec(2, at("2026-10-08T11:00:00Z"), "t"),
+                ReportKit.rec(3, at("2026-10-09T10:00:00Z"), "t")
+            )
+            foldAndPrune()
+            assertEquals(
+                0L,
+                io.github.jpicklyk.mcptask.current.test.RetentionRows
+                    .scalar(db.jdbcUrl, "SELECT count(*) FROM call_log")
+            )
+
+            val report = f.ok(req())
+
+            assertEquals("daily", report.window.basis, "a fold exists and call_log is empty")
+            assertEquals(at("2026-10-06T00:00:00Z"), report.window.since, "7 day window floored to its UTC midnight")
+            assertNull(report.window.retainedSince)
+            assertEquals(3L, report.page.items.sumOf { it.calls }, "the folded counts, not an empty page")
+            assertEquals(
+                3L,
+                report.page.items
+                    .single()
+                    .calls
+            )
+        }
+
+    @Test
+    fun `S11 control - no fold and an empty call_log stays raw and empty`(): Unit =
+        runBlocking {
+            val report = fx.ok(req())
+
+            assertEquals("raw", report.window.basis)
+            assertEquals(at("2026-10-06T12:00:00Z"), report.window.since, "a raw window is not aligned")
+            assertNull(report.window.retainedSince)
+            assertTrue(report.page.items.isEmpty())
+        }
+
     @Test
     fun `S11 a window starting at or after the oldest raw row stays raw even with a fold`(): Unit =
         runBlocking {
