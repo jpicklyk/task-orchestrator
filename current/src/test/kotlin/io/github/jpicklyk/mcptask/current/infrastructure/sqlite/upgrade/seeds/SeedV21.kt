@@ -63,7 +63,9 @@ object SeedV21 : MigrationSeed(21) {
                 "eligible_count",
                 // V30 appends these two (this verify runs against the latest schema).
                 "hit_signals",
-                "lifecycle_free_rejections"
+                "lifecycle_free_rejections",
+                // V31 appends this one.
+                "root_id"
             ),
             columns,
             "call_log columns, in order"

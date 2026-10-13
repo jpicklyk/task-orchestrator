@@ -39,8 +39,11 @@ object SeedV30 : MigrationSeed(30) {
     override fun verify(conn: Connection) {
         val columns = tableInfo(conn)
         assertTrue(columns.size >= 3, "call_log keeps its columns and gains two: ${columns.map { it.name }}")
-        val hit = columns[columns.size - 2]
-        val lifecycle = columns[columns.size - 1]
+        // Name-relative: later migrations (V31 root_id) append after these two columns.
+        val hitIndex = columns.indexOfFirst { it.name == "hit_signals" }
+        assertTrue(hitIndex >= 1, "call_log has a hit_signals column after eligible_count: ${columns.map { it.name }}")
+        val hit = columns[hitIndex]
+        val lifecycle = columns.getOrNull(hitIndex + 1) ?: error("no column after hit_signals: ${columns.map { it.name }}")
         assertEquals("hit_signals", hit.name, "first appended column")
         assertEquals("TEXT", hit.type.uppercase(), "hit_signals type")
         assertEquals(0, hit.notNull, "hit_signals is nullable")
@@ -51,7 +54,7 @@ object SeedV30 : MigrationSeed(30) {
         assertEquals(0, lifecycle.notNull, "lifecycle_free_rejections is nullable")
         assertNull(lifecycle.default, "lifecycle_free_rejections has no default")
         assertEquals(0, lifecycle.pk, "lifecycle_free_rejections is not part of the key")
-        assertEquals("eligible_count", columns[columns.size - 3].name, "the new columns are appended directly after eligible_count")
+        assertEquals("eligible_count", columns[hitIndex - 1].name, "the new columns are appended directly after eligible_count")
 
         // No index covers either new column (the reports filter by tool and at, which the V21 index already serves).
         for (index in indexNames(conn)) {
