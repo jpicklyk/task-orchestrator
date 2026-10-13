@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toCallPrincipal
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -23,8 +24,7 @@ import kotlin.test.assertNull
  * until R14; `CallContext` gains `profile` and `sessionId`; `host` is `Principal.host`), and the nullable return type of
  * `provenance()` (declared `AnswerProvenance?`): a call with no [Principal] has no provenance. Expected values are literals.
  *
- * Not covered here (reason in the manifest): `runId` and `seat` are read from [CallTelemetry], whose setters for those two fields
- * are not in the supplied declarations; only their absent state (null) is asserted.
+ * `runId` and `seat` are read from [CallTelemetry] (first `setRun` wins); covered by the S13 telemetry tests below.
  *
  * Negative-assertion conditions: each `null` expectation is paired with a context that differs only by carrying a Principal and
  * does return a value, so a `provenance()` that always returned null (or never returned null) fails one of the pair.
@@ -154,6 +154,50 @@ class AnswerProvenanceTest {
                 withContext(telemetry) {
                     assertNotNull(context(principal().toCallPrincipal()).provenance())
                 }
+            assertNull(prov.runId)
+            assertNull(prov.seat)
+        }
+
+    private fun telemetry() = CallTelemetry(reqId = "k7f3q9ab", surface = "rest", sessionId = null)
+
+    private val runA = UUID.fromString("11111111-1111-4111-8111-111111111111")
+    private val runB = UUID.fromString("22222222-2222-4222-8222-222222222222")
+
+    @Test
+    fun `S13 a recorded run and seat come from the telemetry`() =
+        runBlocking {
+            val t = telemetry()
+            t.setRun(runA, "implementer")
+            val prov = withContext(t) { assertNotNull(context(principal().toCallPrincipal()).provenance()) }
+            assertEquals(runA, prov.runId)
+            assertEquals("implementer", prov.seat)
+        }
+
+    @Test
+    fun `S13 a recorded run with a null seat reports the run and no seat`() =
+        runBlocking {
+            val t = telemetry()
+            t.setRun(runA, null)
+            val prov = withContext(t) { assertNotNull(context(principal().toCallPrincipal()).provenance()) }
+            assertEquals(runA, prov.runId)
+            assertNull(prov.seat)
+        }
+
+    @Test
+    fun `S13 the first recorded run wins over a second setRun`() =
+        runBlocking {
+            val t = telemetry()
+            t.setRun(runA, "implementer")
+            t.setRun(runB, "reviewer")
+            val prov = withContext(t) { assertNotNull(context(principal().toCallPrincipal()).provenance()) }
+            assertEquals(runA, prov.runId)
+            assertEquals("implementer", prov.seat)
+        }
+
+    @Test
+    fun `S13 no telemetry element leaves run and seat null`() =
+        runBlocking {
+            val prov = assertNotNull(context(principal().toCallPrincipal()).provenance())
             assertNull(prov.runId)
             assertNull(prov.seat)
         }
