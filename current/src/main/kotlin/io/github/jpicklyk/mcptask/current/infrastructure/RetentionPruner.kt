@@ -115,7 +115,7 @@ class RetentionPruner(
                 logger.warn(
                     "Retention call_log fold failed on UTC day {} ({}: {}); call_log pruning is paused for this pass",
                     e.day,
-                    cause.javaClass.name,
+                    cause.javaClass.simpleName,
                     cause.message
                 )
             }
