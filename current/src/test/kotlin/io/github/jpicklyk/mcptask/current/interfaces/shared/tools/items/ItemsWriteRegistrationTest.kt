@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.parity.ParityCoverage
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.ProductionParity
@@ -60,13 +62,13 @@ class ItemsWriteRegistrationTest {
         for (op in spec.ops.filter { it.name != "complete_tree" }) {
             assertEquals(ApiCapability.WRITE_ITEMS, op.capability, op.name)
             // Amendment U23: create_tree and repin are orchestration-only; create/update/delete stay in the knowledge profile.
-            val expected = if (op.name == "create_tree" || op.name == "repin") ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
-            assertEquals(expected, op.profile, op.name)
+            val expected = if (op.name == "create_tree" || op.name == "repin") orchestration() else knowledge()
+            assertEquals(expected, op.profiles, op.name)
         }
         // Q21: complete_tree is N transitions through the advance pipeline (capability advance, orchestration profile).
         val completeTree = spec.ops.single { it.name == "complete_tree" }
         assertEquals(ApiCapability.ADVANCE, completeTree.capability)
-        assertEquals(ToolProfile.ORCHESTRATION, completeTree.profile)
+        assertEquals(orchestration(), completeTree.profiles)
         assertEquals(listOf(false, false, true, false, false, false), spec.ops.map { it.destructive }, "only delete is destructive")
     }
 

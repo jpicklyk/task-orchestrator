@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -26,7 +26,7 @@ internal val configResetOp =
         doc =
             "Reset a root's config: append an empty reset version so the root falls back to the server config; history is " +
                 "kept. A root with no config, or one already reset, appends nothing (appended false).",
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         destructive = true,
         capability = ApiCapability.WRITE_CONFIG,
         request = serializer<ConfigResetRequest>(),

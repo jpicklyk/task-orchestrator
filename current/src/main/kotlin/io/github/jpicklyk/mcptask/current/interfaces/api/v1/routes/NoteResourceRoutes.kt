@@ -12,8 +12,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -45,7 +45,7 @@ import kotlinx.serialization.json.put
 fun Route.noteResourceRoutes(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    profile: ToolView = ToolView.Rest,
     redactNoteAttribution: Boolean = true
 ) {
     get("/items/{id}/notes") {
@@ -76,7 +76,7 @@ private val LIST_PARAMETERS = setOf("role", "keys", "limit", "cursor")
 private suspend fun ApplicationCall.runNotesRead(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile,
+    profile: ToolView,
     redactNoteAttribution: Boolean,
     select: String,
     allowed: Set<String>

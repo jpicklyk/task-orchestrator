@@ -1,19 +1,41 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 /**
- * A tool profile: the set of selects and ops a server exposes (charter D19).
+ * Who a select or op is shown to: one MCP [ToolProfile], or [Rest] (the REST routes).
  *
- * [ORCHESTRATION] includes everything [KNOWLEDGE] does, so a select or op declared [KNOWLEDGE] is
- * visible in both profiles and one declared [ORCHESTRATION] only in [ORCHESTRATION].
+ * This is the ONE visibility predicate: the dispatcher, the describer, the schema renderer, the registry and the
+ * REST routes all ask [sees] with a member's declared `profiles` set. [Rest] sees every registered member,
+ * whatever its set, including a REST-only member (an empty set). [Rest] is not a [ToolProfile], so
+ * `MCP_TOOL_PROFILE` can never select it and no MCP server is ever built over it.
+ */
+sealed interface ToolView {
+    /** True when a select or op declared with [profiles] is visible to this view. */
+    fun sees(profiles: Set<ToolProfile>): Boolean
+
+    /** The REST view: every registered select and op, whatever its profile set (plan section 8.1). */
+    data object Rest : ToolView {
+        override fun sees(profiles: Set<ToolProfile>): Boolean = true
+    }
+}
+
+/**
+ * An MCP tool profile: the set of selects and ops one MCP server exposes (charter D19).
+ *
+ * Every select and op declares the set of profiles it is visible in (see [knowledge], [orchestration],
+ * [director]); a profile shows a member exactly when it is in that set. An empty set is a REST-only member,
+ * visible in no MCP profile.
  */
 enum class ToolProfile(
     val wire: String
-) {
+) : ToolView {
     KNOWLEDGE("knowledge"),
-    ORCHESTRATION("orchestration");
+    ORCHESTRATION("orchestration"),
+    DIRECTOR("director");
 
-    /** True when a select or op declared with profile [p] is visible in this profile. */
-    fun includes(p: ToolProfile): Boolean = this == ORCHESTRATION || p == KNOWLEDGE
+    /** True when a select or op declared with [profiles] is visible in this profile: set membership. */
+    fun includes(profiles: Set<ToolProfile>): Boolean = this in profiles
+
+    override fun sees(profiles: Set<ToolProfile>): Boolean = includes(profiles)
 
     companion object {
         /**
@@ -27,3 +49,12 @@ enum class ToolProfile(
         }
     }
 }
+
+/** The profile set of a knowledge member: visible in the knowledge and orchestration profiles. */
+fun knowledge(): Set<ToolProfile> = setOf(ToolProfile.KNOWLEDGE, ToolProfile.ORCHESTRATION)
+
+/** The profile set of an orchestration-only member. */
+fun orchestration(): Set<ToolProfile> = setOf(ToolProfile.ORCHESTRATION)
+
+/** The profile set of a director member; compose with `+`, e.g. `knowledge() + director()`. */
+fun director(): Set<ToolProfile> = setOf(ToolProfile.DIRECTOR)

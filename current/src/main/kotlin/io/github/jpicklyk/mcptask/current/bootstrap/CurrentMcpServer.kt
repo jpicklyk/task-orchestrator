@@ -161,7 +161,7 @@ class CurrentMcpServer(
             }
 
             // MCP_TOOL_PROFILE is validated on both transports (fail closed, like an unknown MCP_TRANSPORT) but
-            // applied to stdio only: HTTP serves both profiles on their own paths. Checked before anything is
+            // applied to stdio only: HTTP serves every profile on its own path. Checked before anything is
             // opened, so a bad value never touches the database or writes the readiness marker.
             val toolProfile = ToolProfile.parse(appConfig.mcpToolProfileRaw)
             if (toolProfile == null) {
@@ -251,9 +251,10 @@ class CurrentMcpServer(
 
             fun serverFor(profile: ToolProfile): Server = buildProfileServer(profile, serverName, version, registry, operationAdapter)
             logger.info(
-                "Tool profiles: orchestration={} tools, knowledge={} tools",
+                "Tool profiles: orchestration={} tools, knowledge={} tools, director={} tools",
                 registry.visible(ToolProfile.ORCHESTRATION).size,
-                registry.visible(ToolProfile.KNOWLEDGE).size
+                registry.visible(ToolProfile.KNOWLEDGE).size,
+                registry.visible(ToolProfile.DIRECTOR).size
             )
 
             // Transport dispatch
@@ -279,10 +280,12 @@ class CurrentMcpServer(
                     "http" -> {
                         val server = serverFor(ToolProfile.ORCHESTRATION)
                         val knowledgeServer = serverFor(ToolProfile.KNOWLEDGE)
-                        mcpSdkServers = listOf(server, knowledgeServer)
+                        val directorServer = serverFor(ToolProfile.DIRECTOR)
+                        mcpSdkServers = listOf(server, knowledgeServer, directorServer)
                         runHttpTransport(
                             server,
                             knowledgeServer,
+                            directorServer,
                             serverName,
                             apiWiring,
                             serverConfig,
@@ -389,6 +392,7 @@ class CurrentMcpServer(
     private suspend fun runHttpTransport(
         server: Server,
         knowledgeServer: Server,
+        directorServer: Server,
         serverName: String,
         apiWiring: ApiWiring,
         serverConfig: ServerConfigSource,
@@ -462,7 +466,7 @@ class CurrentMcpServer(
                 // installMcpStreamableHttp() and installRestApiRoutes() so the SAME production code
                 // path is exercised by tests (see McpStreamableHttpTransportTest). The MCP mount must
                 // come first: mcpStreamableHttp installs the SSE plugin that the events route reuses.
-                installMcpStreamableHttp(server, appConfig, knowledgeServer)
+                installMcpStreamableHttp(server, appConfig, knowledgeServer, directorServer)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = eventBus,
@@ -492,7 +496,7 @@ class CurrentMcpServer(
 
         // Registered MCP-close first, then HTTP stop: the LIFO drain stops HTTP, closes MCP, then
         // (registered earlier still) the JWKS providers and the database.
-        registerCommonCleanup(listOf(server, knowledgeServer))
+        registerCommonCleanup(listOf(server, knowledgeServer, directorServer))
         shutdownCoordinator.addCleanupAction("Stop HTTP Server") {
             if (httpStarted.get()) ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
             done.complete()
@@ -519,7 +523,9 @@ class CurrentMcpServer(
             return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
         }
 
-        logger.info("Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge)")
+        logger.info(
+            "Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge, /mcp/director)"
+        )
         try {
             done.join()
         } catch (e: Exception) {
@@ -553,10 +559,18 @@ internal fun productionServerCapabilities(): ServerCapabilities =
         logging = JsonObject(emptyMap())
     )
 
-/** The `initialize` `instructions` of [profile]'s Server: one sentence, no tool-name list (plan section 3.1). */
+/**
+ * The `initialize` `instructions` of [profile]'s Server: one sentence naming the profile and `describe`, no tool-name
+ * list (plan section 3.1). The director profile's sentence is shorter: its tools are reads only.
+ */
 internal fun profileInstructions(profile: ToolProfile): String =
-    "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
-        "for its selects, operations and parameters."
+    when (profile) {
+        ToolProfile.DIRECTOR ->
+            "Task Orchestrator MCP server, director tool profile: call any tool with describe: true for its reads."
+        ToolProfile.KNOWLEDGE, ToolProfile.ORCHESTRATION ->
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
+                "for its selects, operations and parameters."
+    }
 
 /**
  * Builds the MCP [Server] of [profile] with every tool registered (all before any session connects, see
@@ -624,6 +638,7 @@ internal fun Application.installMcpStreamableHttp(
     server: Server,
     appConfig: AppConfig,
     knowledgeServer: Server? = null,
+    directorServer: Server? = null,
 ) {
     installHostAllowlist(appConfig)
     install(ContentNegotiation) {
@@ -632,31 +647,40 @@ internal fun Application.installMcpStreamableHttp(
     install(CORS) {
         configureCors(appConfig)
     }
-    if (knowledgeServer == null) {
+    // The exact, case-sensitive sub-paths that are mounted: a null profile Server is not mounted (its path is a 404).
+    val profileServers =
+        buildMap {
+            if (knowledgeServer != null) put(MCP_KNOWLEDGE_PATH, knowledgeServer)
+            if (directorServer != null) put(MCP_DIRECTOR_PATH, directorServer)
+        }
+    if (profileServers.isEmpty()) {
         mcpStreamableHttp(enableDnsRebindingProtection = false) {
             server
         }
         return
     }
-    // Two profiles, ONE mount: a second mcpStreamableHttp call would install(SSE) again and throw
+    // Several profiles, ONE mount: a second mcpStreamableHttp call would install(SSE) again and throw
     // DuplicatePluginException. The route takes an optional segment and the Server factory (called only for a new
     // session) picks the profile from the exact path, so a session keeps the profile it was initialised with.
     // Any other /mcp/<x> is a 404 at the Setup phase, right after the Host guard: it never reaches the mount (so it
     // never falls back to the orchestration Server) and never reaches ApiBearerAuth (so it is not a 401).
     intercept(ApplicationCallPipeline.Setup) {
         val path = call.request.path()
-        if (path.startsWith("/mcp/") && path != MCP_KNOWLEDGE_PATH && path != "/mcp/") {
+        if (path.startsWith("/mcp/") && path !in profileServers && path != "/mcp/") {
             call.respond(HttpStatusCode.NotFound)
             finish()
         }
     }
     mcpStreamableHttp(path = "/mcp/{profile?}", enableDnsRebindingProtection = false) {
-        if (call.request.path() == MCP_KNOWLEDGE_PATH) knowledgeServer else server
+        profileServers[call.request.path()] ?: server
     }
 }
 
 /** The exact, case-sensitive path of the knowledge-profile MCP endpoint. */
 internal const val MCP_KNOWLEDGE_PATH = "/mcp/knowledge"
+
+/** The exact, case-sensitive path of the director-profile MCP endpoint. */
+internal const val MCP_DIRECTOR_PATH = "/mcp/director"
 
 /**
  * Registers the REST API routes under `/api/v1` when the API is enabled. No-op when
@@ -716,7 +740,7 @@ internal fun Application.installRestApiRoutes(
                 //   ApiBearerAuth's header-only check. publicPaths matches on the request path with
                 //   NO query string (see AuthenticationPlugin.kt), so this exact entry also matches
                 //   "/api/v1/events?token=<...>".
-                publicPaths = publicPaths + "/mcp" + MCP_KNOWLEDGE_PATH + "/api/v1/events"
+                publicPaths = publicPaths + "/mcp" + MCP_KNOWLEDGE_PATH + MCP_DIRECTOR_PATH + "/api/v1/events"
             }
             serviceRoutes(
                 repositoryProvider = effectiveProvider,

@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -20,8 +21,9 @@ import java.nio.file.Paths
 
 /**
  * Renders the generated blocks of `docs/api-reference.md` (Q33 / 8c5cb2a3): one block per registry tool and one error
- * catalog block. The source of truth is the registry ([ToolDescriber] over the orchestration profile, which shows every
- * select and op, with each op's own profile read from its spec), so the tables can never drift from the request classes.
+ * catalog block. The source of truth is the registry ([ToolDescriber] over [ToolView.Rest], which shows every select and
+ * op, REST-only members included, with each member's own profile set read from its spec), so the tables can never drift
+ * from the request classes.
  *
  * Markers: `<!-- generated:tool NAME -->` ... `<!-- /generated:tool NAME -->` and
  * `<!-- generated:error-catalog -->` ... `<!-- /generated:error-catalog -->`. Prose around the blocks stays hand-written.
@@ -85,7 +87,7 @@ object ApiReferenceDocs {
     // ------------------------------------------------------------------ rendering
 
     private fun toolBody(spec: ToolSpec): String {
-        val described = ToolDescriber.describe(spec, ToolProfile.ORCHESTRATION, null)
+        val described = ToolDescriber.describe(spec, ToolView.Rest, null)
         val ops = described.getValue("operations").jsonArray
         val noun = if (spec is SelectToolSpec) "select" else "op"
         val out = StringBuilder()
@@ -116,20 +118,27 @@ object ApiReferenceDocs {
         when (spec) {
             is SelectToolSpec -> {
                 val s = spec.selects.single { it.name == op }
-                "${profileLabel(s.profile)}; capability `${wire(s.capability)}`"
+                "${profileLabel(s.profiles)}; capability `${wire(s.capability)}`"
             }
             is OpsToolSpec<*> -> {
                 val o = spec.ops.single { it.name == op }
                 val destructive = if (o.destructive) "; destructive" else ""
-                "${profileLabel(o.profile)}; capability `${wire(o.capability)}`$destructive"
+                "${profileLabel(o.profiles)}; capability `${wire(o.capability)}`$destructive"
             }
         }
 
     /** The kebab-case form capabilities use in config and prose (`write-items`). */
     private fun wire(c: ApiCapability): String = c.name.lowercase().replace('_', '-')
 
-    private fun profileLabel(p: ToolProfile): String =
-        if (p == ToolProfile.KNOWLEDGE) "knowledge and orchestration profiles" else "orchestration profile only"
+    /** The member's MCP profile set by wire name, in [ToolProfile] order; an empty set is "REST only". */
+    private fun profileLabel(profiles: Set<ToolProfile>): String {
+        val names = ToolProfile.entries.filter { it in profiles }.map { it.wire }
+        return when (names.size) {
+            0 -> "REST only"
+            1 -> "${names.single()} profile only"
+            else -> names.dropLast(1).joinToString(", ") + " and " + names.last() + " profiles"
+        }
+    }
 
     private class Row(
         val field: String,

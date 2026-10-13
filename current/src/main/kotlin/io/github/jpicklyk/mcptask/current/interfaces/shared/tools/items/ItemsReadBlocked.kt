@@ -10,7 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResult
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -50,7 +51,7 @@ object ItemsReadBlocked {
                 "A page of the blocked items (default limit 50, max 200): role blocked (blockType explicit) or open with an " +
                     "unsatisfied blocking dependency (dependency), each with its blockers (id, title, role, threshold, " +
                     "satisfied). fields: summary, ancestors.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration() + director(),
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

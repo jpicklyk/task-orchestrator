@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.serializer
 
 /** `notes_read get`: one note with its body (or `{unchanged, version}` when the caller's `ifVersion` is current). */
@@ -19,7 +19,7 @@ internal val notesGetSelect =
         doc =
             "Read one note of an item by key, with its body. " +
                 "With ifVersion equal to the note's current version the answer is {unchanged: true, version} and no body.",
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<NotesGetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         capability = ApiCapability.READ,
@@ -34,7 +34,7 @@ internal val notesListSelect =
         doc =
             "List the notes of an item without their bodies (id, key, role, version, bodyLength, modifiedAt), " +
                 "ordered by key. Read a body with get.",
-        profile = ToolProfile.KNOWLEDGE,
+        profiles = knowledge(),
         request = serializer<NotesListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         capability = ApiCapability.READ,

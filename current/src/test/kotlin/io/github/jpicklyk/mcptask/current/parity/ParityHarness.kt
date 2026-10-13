@@ -216,12 +216,13 @@ internal suspend fun callMcp(
     registry: ToolRegistry,
     access: ((String?) -> CallAccess)?,
     tool: String,
-    args: JsonObject
+    args: JsonObject,
+    profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): McpResult {
     val dispatcher = buildToolDispatcher(toolContext)
     val adapter = if (access == null) McpOperationAdapter(dispatcher) else McpOperationAdapter(dispatcher, access = access)
     val server = Server(serverInfo = Implementation(name = "parity-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-    adapter.register(server, registry, ToolProfile.ORCHESTRATION)
+    adapter.register(server, registry, profile)
     val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
     val client =
         Client(
@@ -336,6 +337,8 @@ class ParityHarness(
     }
 
     fun run(s: ParityScenario): ParityOutcome {
+        // R5 AC6: the MCP leg runs on a profile whose set contains the member; an empty-set member has no MCP leg at all.
+        val mcpProfile = ParityCoverage.mcpLegProfile(registry, s.tool, s.member) ?: return runRestOnly(s)
         val restLeg = openLeg(s.seed)
         val mcpLeg =
             try {
@@ -359,7 +362,8 @@ class ParityHarness(
                         registry,
                         { parityAccess(s.token) },
                         s.tool,
-                        Json.parseToJsonElement(s.arguments).jsonObject
+                        Json.parseToJsonElement(s.arguments).jsonObject,
+                        mcpProfile
                     )
                 }
 
@@ -420,6 +424,91 @@ class ParityHarness(
             }
             val changed = project(restRawAfter) != before
             s.expectDbChanged?.let { assertEquals(it, changed, "${s.name}: database changed") }
+            return ParityOutcome(rest.status, restNorm, restAfter, changed)
+        } finally {
+            restLeg.close()
+            mcpLeg.close()
+        }
+    }
+
+    /**
+     * The scenario of a REST-only member (empty profile set, R5 AC5/AC6): only the REST leg runs the body and database
+     * expectations, and the MCP leg asserts the member is UNKNOWN on every profile (`invalid_request`, nothing written).
+     */
+    private fun runRestOnly(s: ParityScenario): ParityOutcome {
+        val restLeg = openLeg(s.seed)
+        val mcpLeg =
+            try {
+                openLeg(s.seed)
+            } catch (e: Throwable) {
+                restLeg.close()
+                throw e
+            }
+        try {
+            val rawBefore = rawTables(restLeg.db.jdbcUrl)
+            val mcpRawBefore = rawTables(mcpLeg.db.jdbcUrl)
+            val before = project(rawBefore)
+            assertEquals(before, project(mcpRawBefore), "${s.name}: the two legs must start from identical seeded databases")
+            val known = knownIds(rawBefore, s.arguments)
+
+            val rest = runRest(restLeg, s)
+            val restBody = Json.parseToJsonElement(rest.body).jsonObject
+            val restReqId =
+                assertNotNull(
+                    restBody["meta"]
+                        ?.jsonObject
+                        ?.get("reqId")
+                        ?.jsonPrimitive
+                        ?.content,
+                    "${s.name}: REST meta.reqId"
+                )
+            assertEquals(restReqId, rest.reqIdHeader, "${s.name}: X-Req-Id equals the body's meta.reqId")
+            val restRawAfter = rawTables(restLeg.db.jdbcUrl)
+            val (restNorm, restAfter) = tokenizeGeneratedIds(restRawAfter, normalize(rest.body, restReqId, seededStamps(rawBefore)), known)
+            val ok = restBody["ok"]?.jsonPrimitive?.boolean ?: error("${s.name}: body has no ok flag")
+            val code =
+                restBody["error"]
+                    ?.jsonObject
+                    ?.get("code")
+                    ?.jsonPrimitive
+                    ?.content
+            assertEquals(s.expectCode, code, "${s.name}: error code")
+            assertEquals(s.expectStatus, rest.status, "${s.name}: REST status")
+            if (code == null) assertTrue(ok && rest.status == 200, "${s.name}: an ok body is 200")
+            for (needle in s.expectContains) assertTrue(needle in restNorm, "${s.name}: body must contain $needle but was $restNorm")
+            for (needle in s.expectAbsent) assertFalse(needle in restNorm, "${s.name}: body must not contain $needle but was $restNorm")
+            val changed = project(restRawAfter) != before
+            s.expectDbChanged?.let { assertEquals(it, changed, "${s.name}: database changed") }
+
+            // The MCP half: the member is unknown on every profile, so nothing is served and nothing is written.
+            val spec = checkNotNull(registry[s.tool]) { "${s.name}: tool ${s.tool} is not registered" }
+            for (profile in ToolProfile.entries) {
+                if (spec !in registry.visible(profile)) continue
+                val mcp =
+                    runBlocking {
+                        callMcp(
+                            mcpLeg.rig.composition.toolContext,
+                            registry,
+                            { parityAccess(s.token) },
+                            s.tool,
+                            Json.parseToJsonElement(s.arguments).jsonObject,
+                            profile
+                        )
+                    }
+                assertTrue(mcp.isError, "${s.name}: a REST-only member must not run on the ${profile.wire} MCP profile: ${mcp.text}")
+                val mcpCode =
+                    mcp.structured["error"]
+                        ?.jsonObject
+                        ?.get("code")
+                        ?.jsonPrimitive
+                        ?.content
+                assertEquals("invalid_request", mcpCode, "${s.name}: unknown on ${profile.wire}, like any hidden member: ${mcp.text}")
+                assertEquals(
+                    project(mcpRawBefore),
+                    project(rawTables(mcpLeg.db.jdbcUrl)),
+                    "${s.name}: the refused ${profile.wire} call must write nothing"
+                )
+            }
             return ParityOutcome(rest.status, restNorm, restAfter, changed)
         } finally {
             restLeg.close()

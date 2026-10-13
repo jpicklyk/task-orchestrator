@@ -12,8 +12,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.unknownParameters
@@ -57,7 +57,7 @@ private const val MAX_RECEIVED = 100
 fun Route.itemRoutes(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    profile: ToolView = ToolView.Rest,
     redactNoteAttribution: Boolean = true,
 ) {
     get("/items/{id}") {
@@ -120,7 +120,7 @@ fun Route.itemRoutes(
 private suspend fun ApplicationCall.dispatchItemsRead(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile,
+    profile: ToolView,
     redactNoteAttribution: Boolean,
     arguments: JsonObject,
     reqId: String,

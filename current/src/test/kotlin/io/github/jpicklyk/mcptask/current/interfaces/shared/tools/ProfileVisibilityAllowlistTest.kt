@@ -61,7 +61,33 @@ class ProfileVisibilityAllowlistTest {
         }
     }
 
+    @Test
+    fun `director profile exposes exactly the allowlisted tool and member set`() {
+        assertEquals(DIRECTOR_ALLOWLIST, members(ToolProfile.DIRECTOR))
+    }
+
+    @Test
+    fun `director members are also orchestration members and the knowledge allowlist is unchanged by director`() {
+        // R5 AC2/AC3: a director member is its current set plus DIRECTOR, so none is director-only today and the
+        // knowledge and orchestration visibility of every member is what it was before the third profile.
+        val orchestration = members(ToolProfile.ORCHESTRATION)
+        for ((tool, names) in members(ToolProfile.DIRECTOR)) {
+            assertTrue(
+                orchestration[tool].orEmpty().containsAll(names),
+                "$tool: director members ${names - orchestration[tool].orEmpty()} are missing from orchestration"
+            )
+        }
+        assertEquals(KNOWLEDGE_ALLOWLIST, members(ToolProfile.KNOWLEDGE))
+    }
+
     private companion object {
+        /** R5 AC3: exactly the items_read reads and the deps_read reads. Nothing that can carry a note, document or transition body. */
+        val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
+            mapOf(
+                "items_read" to setOf("get", "list", "overview", "blocked"),
+                "deps_read" to setOf("list", "graph")
+            )
+
         /** Tools plan section 2 hides entirely from knowledge. */
         val HIDDEN_WHOLE_TOOLS = setOf("advance", "config")
 

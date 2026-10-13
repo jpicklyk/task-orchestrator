@@ -12,6 +12,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
@@ -30,7 +33,8 @@ import kotlin.test.assertTrue
  * budget and documentation guards (the 3.x ToolTokenBudgetTest and ToolDocumentationConsistencyTest are gone).
  *
  * Oracles: task-scope D11 (budgets measure the compact `tools/list` entry of `toolFor(spec, profile)`: per tool at most 8,000
- * characters in every profile, knowledge total at most 22,000, orchestration total at most 38,000, over the registry only), D12
+ * characters in every profile, knowledge total at most 22,000, orchestration total at most 42,000, director total at most
+ * 14,000 (V4 (b) of the Phase 3 plan), over the registry only), D12
  * (every property at every depth, including `ops.items` and nested classes, has a non-blank description; every rendered tool
  * description contains `DESCRIBE_HINT`).
  *
@@ -67,7 +71,13 @@ class ToolSurfaceGuardsTest {
                         OpSpec<FixtureTools.CreateReq, String>(
                             name = "make",
                             doc = "Make.",
-                            profile = profile,
+                            // R5 mechanical migration: the pre-R5 single-profile declaration as its profile set.
+                            profiles =
+                                when (profile) {
+                                    ToolProfile.KNOWLEDGE -> knowledge()
+                                    ToolProfile.ORCHESTRATION -> orchestration()
+                                    ToolProfile.DIRECTOR -> director()
+                                },
                             capability = ApiCapability.WRITE_ITEMS,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
@@ -129,18 +139,44 @@ class ToolSurfaceGuardsTest {
     }
 
     @Test
-    fun `S15 an orchestration total of 38000 passes and 38001 is flagged`() {
-        val ok = registryOf(*(1..5).map { padded("pad_$it", 7_600, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(38_000, ToolSurfaceChecks.sizes(ok, ToolProfile.ORCHESTRATION).values.sum())
+    fun `S15 an orchestration total of 42000 passes and 42001 is flagged`() {
+        val ok = registryOf(*(1..6).map { padded("pad_$it", 7_000, ToolProfile.ORCHESTRATION) }.toTypedArray())
+        assertEquals(42_000, ToolSurfaceChecks.sizes(ok, ToolProfile.ORCHESTRATION).values.sum())
         assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
 
-        val sizes = listOf(7_600, 7_600, 7_600, 7_600, 7_601)
+        val sizes = listOf(7_000, 7_000, 7_000, 7_000, 7_000, 7_001)
         val over =
             registryOf(*sizes.mapIndexed { i, size -> padded("pad_" + ('a' + i), size, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(38_001, ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum())
+        assertEquals(42_001, ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum())
         val violations = ToolSurfaceChecks.budgetViolations(over)
         assertEquals(1, violations.size, violations.toString())
         assertTrue("total" in violations.single() && "orchestration" in violations.single(), violations.single())
+    }
+
+    @Test
+    fun `S15 a director total of 14000 passes and 14001 is flagged for director only`() {
+        val ok = registryOf(padded("pad_a", 7_000, ToolProfile.DIRECTOR), padded("pad_b", 7_000, ToolProfile.DIRECTOR))
+        assertEquals(14_000, ToolSurfaceChecks.sizes(ok, ToolProfile.DIRECTOR).values.sum())
+        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
+
+        val over = registryOf(padded("pad_a", 7_000, ToolProfile.DIRECTOR), padded("pad_b", 7_001, ToolProfile.DIRECTOR))
+        assertEquals(14_001, ToolSurfaceChecks.sizes(over, ToolProfile.DIRECTOR).values.sum())
+        val violations = ToolSurfaceChecks.budgetViolations(over)
+        assertEquals(1, violations.size, violations.toString())
+        assertTrue("total" in violations.single() && "director" in violations.single(), violations.single())
+        assertEquals(
+            emptyMap(),
+            ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION),
+            "a director-only tool adds nothing to the orchestration or knowledge totals"
+        )
+        assertEquals(emptyMap(), ToolSurfaceChecks.sizes(over, ToolProfile.KNOWLEDGE))
+    }
+
+    @Test
+    fun `S15 a director tool of 8001 characters is flagged by name for director`() {
+        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 8_001, ToolProfile.DIRECTOR)))
+        assertEquals(1, violations.size, violations.toString())
+        assertTrue("pad_tool" in violations.single() && "director" in violations.single(), violations.single())
     }
 
     @Test
@@ -170,7 +206,11 @@ class ToolSurfaceGuardsTest {
     fun `S15 the ceilings are the frozen numbers`() {
         assertEquals(8_000, ToolSurfaceChecks.PER_TOOL_CEILING)
         assertEquals(22_000, ToolSurfaceChecks.KNOWLEDGE_TOTAL_CEILING)
-        assertEquals(38_000, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
+        assertEquals(42_000, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
+        assertEquals(14_000, ToolSurfaceChecks.DIRECTOR_TOTAL_CEILING)
+        assertEquals(22_000, ToolSurfaceChecks.totalCeiling(ToolProfile.KNOWLEDGE))
+        assertEquals(42_000, ToolSurfaceChecks.totalCeiling(ToolProfile.ORCHESTRATION))
+        assertEquals(14_000, ToolSurfaceChecks.totalCeiling(ToolProfile.DIRECTOR))
     }
 
     // ------------------------------------------------------------------ S17 documentation
@@ -193,7 +233,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -225,7 +265,7 @@ class ToolSurfaceGuardsTest {
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -256,7 +296,7 @@ class ToolSurfaceGuardsTest {
                             name = "go",
                             doc = "Go.",
                             capability = ApiCapability.WRITE_ITEMS,
-                            profile = ToolProfile.KNOWLEDGE,
+                            profiles = knowledge(),
                             request = serializer<NakedReq>(),
                             execute = {
                                 _,
@@ -278,7 +318,7 @@ class ToolSurfaceGuardsTest {
                     SelectSpec.Single<NakedReq, String>(
                         name = "go",
                         doc = "Go.",
-                        profile = ToolProfile.KNOWLEDGE,
+                        profiles = knowledge(),
                         request = serializer<NakedReq>(),
                         handler = { _, _, _ -> Outcome.Ok("x") },
                         data = { JsonPrimitive(it) }

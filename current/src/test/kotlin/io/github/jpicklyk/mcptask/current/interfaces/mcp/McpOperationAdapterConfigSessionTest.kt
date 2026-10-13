@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -84,7 +85,7 @@ class McpOperationAdapterConfigSessionTest {
                 SelectSpec.Single<ResolveReq, String>(
                     name = "resolve",
                     doc = "Resolve one root's config.",
-                    profile = ToolProfile.KNOWLEDGE,
+                    profiles = knowledge(),
                     request = serializer<ResolveReq>(),
                     handler = { env, _, req ->
                         repeat(req.times) { env.resolveTypeSchema("feature-task", rootId) }
@@ -95,7 +96,7 @@ class McpOperationAdapterConfigSessionTest {
                 SelectSpec.Single<ResolveReq, String>(
                     name = "throw",
                     doc = "Throw the per-root failure bare.",
-                    profile = ToolProfile.KNOWLEDGE,
+                    profiles = knowledge(),
                     request = serializer<ResolveReq>(),
                     handler = {
                         _,

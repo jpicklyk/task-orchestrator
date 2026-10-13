@@ -89,7 +89,7 @@ class ToolDispatcher(
 
     suspend fun dispatch(
         spec: ToolSpec,
-        profile: ToolProfile,
+        profile: ToolView,
         arguments: JsonObject,
         reqId: String,
         surface: String,
@@ -223,7 +223,7 @@ class ToolDispatcher(
 
     private fun describe(
         spec: ToolSpec,
-        profile: ToolProfile,
+        profile: ToolView,
         arguments: JsonObject,
         reqId: String
     ): EncodedEnvelope {
@@ -273,7 +273,7 @@ class ToolDispatcher(
 
     private fun selectFor(
         spec: SelectToolSpec,
-        profile: ToolProfile,
+        profile: ToolView,
         arguments: JsonObject
     ): Outcome<SelectSpec<*, *>> {
         val raw = arguments[SELECT] ?: return Outcome.Err(invalidField("/$SELECT", "is required"))
@@ -304,7 +304,7 @@ class ToolDispatcher(
 
     private suspend fun <R> runOps(
         spec: OpsToolSpec<R>,
-        profile: ToolProfile,
+        profile: ToolView,
         arguments: JsonObject,
         ctx: CallContext,
         access: CallAccess,

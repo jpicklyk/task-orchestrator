@@ -829,8 +829,9 @@ above.
 ### POST /api/v1/ops/{tool}
 
 The canonical RPC route for the 4.0 tool surface: one route that calls any tool in the tool registry, the
-same tools MCP serves. `{tool}` is the registry tool name. It always serves the orchestration profile: tool
-profiles (`/mcp`, `/mcp/knowledge`, `MCP_TOOL_PROFILE`) are an MCP-connection concept. The
+same tools MCP serves. `{tool}` is the registry tool name. It serves every registered select and op, whatever its
+profile set, including REST-only members (an empty set): tool profiles (`/mcp`, `/mcp/knowledge`, `/mcp/director`,
+`MCP_TOOL_PROFILE`) are an MCP-connection concept. The
 machine-readable form is in [`api/openapi.yaml`](api/openapi.yaml) (path `/ops/{tool}`).
 
 **Request body:** the tool's envelope request, i.e. the same JSON object an MCP `tools/call` carries as
@@ -925,8 +926,8 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 This route is exempted from the global `AuthenticationPlugin` via `publicPaths`/`publicPrefixes`
 (matched against the request path only, not the full URI — so a `?token=` or any other query
-string on the exempted path still matches). `CurrentMcpServer.kt` registers `/mcp`, `/mcp/knowledge` and
-`/api/v1/events` as public paths; a Ktor application plugin like `AuthenticationPlugin` is never
+string on the exempted path still matches). `CurrentMcpServer.kt` registers `/mcp`, `/mcp/knowledge`,
+`/mcp/director` and `/api/v1/events` as public paths; a Ktor application plugin like `AuthenticationPlugin` is never
 route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the global plugin from
 401'ing this route before the SSE pre-flight plugin gets a chance to run its own check.
 

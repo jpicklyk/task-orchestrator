@@ -13,8 +13,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.visibleNames
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -38,15 +38,15 @@ import kotlinx.serialization.json.JsonObject
  * so idempotency is namespaced per token. Capability is checked per select/op by the dispatcher with the
  * shared `grants` predicate, so this route installs no capability wrapper; scope reaches handlers through
  * `CallContext.scope`. Every fault answers an envelope: no authenticated principal is `unauthenticated`
- * (fail closed); an unknown or profile-hidden tool, a non-JSON `Content-Type`, an `Idempotency-Key` header
+ * (fail closed); an unknown tool, a non-JSON `Content-Type`, an `Idempotency-Key` header
  * (use `ops[].idempotencyKey`) or a body that is not a JSON object is `invalid_request`; a body over
- * [MAX_JSON_WRITE_BODY_BYTES] is `payload_too_large`. Serves the ORCHESTRATION [profile] until Q29. Note attribution is
+ * [MAX_JSON_WRITE_BODY_BYTES] is `payload_too_large`. Serves [ToolView.Rest] by default: every registered select and op, REST-only members included. Note attribution is
  * hidden from a non-admin caller while [redactNoteAttribution] holds (see [toCallAccess]).
  */
 fun Route.opsRoutes(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    profile: ToolView = ToolView.Rest,
     redactNoteAttribution: Boolean = true
 ) {
     post("/ops/{tool}") {

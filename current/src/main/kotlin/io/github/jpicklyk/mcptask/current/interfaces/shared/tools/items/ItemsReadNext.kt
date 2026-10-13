@@ -14,8 +14,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -93,7 +93,7 @@ object ItemsReadNext {
                     "not terminal), unclaimed, not under a claim by another agent, no unsatisfied blocker. includeClaimed lists " +
                     "claimed items too. Empty with reason claim_held or dependency_unmet when matches exist but none is ready. " +
                     "fields: summary, ancestors.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

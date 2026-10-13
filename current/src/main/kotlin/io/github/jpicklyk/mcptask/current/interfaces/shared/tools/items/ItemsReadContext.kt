@@ -35,8 +35,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphB
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -83,7 +83,7 @@ object ItemsReadContext {
                 "With itemId: the gate state of one item (canAdvance, blockedBy, blockers, missing notes, next, transitions, " +
                     "dispatch, claimDetail). Without: a health view of active, blocked and stalled items and the claim summary " +
                     "(default limit 50, max 200; ancestorId scopes it). fields: ancestors.",
-            profile = ToolProfile.ORCHESTRATION,
+            profiles = orchestration(),
             request = serializer<Request>(),
             errors =
                 setOf(

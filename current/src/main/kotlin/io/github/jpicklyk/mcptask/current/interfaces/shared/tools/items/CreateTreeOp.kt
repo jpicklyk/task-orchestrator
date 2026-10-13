@@ -21,8 +21,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -45,7 +45,7 @@ internal fun createTreeOp(): OpSpec<CreateTreeRequest, ItemWriteResult> =
         name = CreateTreeOp.NAME,
         doc = "Create a root (or attach to root.id) with children, dependencies and notes, all or nothing.",
         // Amendment U23: orchestration-only, like complete_tree (the knowledge profile hides it).
-        profile = ToolProfile.ORCHESTRATION,
+        profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
         request = serializer<CreateTreeRequest>(),
         errors =
