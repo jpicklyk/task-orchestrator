@@ -543,7 +543,7 @@ class PlannedSurfaceGuardTest {
     fun `S17 the four deltas add exactly the properties decision D5 and R9 give`() {
         val files = planned()
         assertEquals(setOf("usage", "reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
-        assertEquals(setOf("runId", "anchorId"), files.getValue("report.director.delta.json").keys)
+        assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.knowledge.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.orchestration.delta.json").keys)
     }

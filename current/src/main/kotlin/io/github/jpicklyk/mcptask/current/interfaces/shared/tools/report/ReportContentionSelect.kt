@@ -22,7 +22,8 @@ internal val reportContentionSelect =
     SelectSpec.PagedWith<ReportContentionRequest, JsonObject>(
         name = "contention",
         doc =
-            "Claim and lease contention per resource over [since, until): kind (claim or lease), acquired, rejected, expired, " +
+            "Claim and lease contention per resource over [since, until) (default the 7 days before now, " +
+                "at most 31 days): kind (claim or lease), acquired, rejected, expired, " +
                 "released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate " +
                 "(expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the " +
                 "denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key " +

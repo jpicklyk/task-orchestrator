@@ -669,9 +669,58 @@ internal object ReportParityScenarios {
             )
         )
 
-    val happy: List<ParityScenario> = usageHappy + wasteHappy
+    // ------------------------------------------------------------------ rollup (item 1be2db5e, R16): the registration pair
+    // the coverage guards require; the rollup's behaviour is tested by its own test-author suite.
 
-    val scopeForbidden: List<ParityScenario> = usageScopeForbidden + wasteScopeForbidden
+    private val rollupHappy: List<ParityScenario> =
+        listOf(
+            scenario(
+                "rollup anchor happy",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"rollup","anchorId":"$r1"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "\"anchorId\":\"a1000001\"",
+                        "\"itemCounts\":{\"total\":2,\"byRole\":{\"queue\":2}}",
+                        "\"blocked\":{\"total\":0}",
+                        "\"basis\":\"targets\""
+                    ),
+                expectAbsent = listOf("\"run\"", "\"seats\"", "\"decisions\"", "\"attempts\"", "\"byReason\""),
+                member = "rollup"
+            )
+        )
+
+    private val rollupScopeForbidden: List<ParityScenario> =
+        listOf(
+            scenario(
+                "rollup scope tag",
+                ParityKind.SCOPE_FORBIDDEN,
+                tagScoped,
+                """{"select":"rollup","anchorId":"$r1"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"tag\""),
+                expectAbsent = listOf("\"items\""),
+                member = "rollup"
+            ),
+            scenario(
+                "rollup scope root",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"rollup","anchorId":"$r2"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
+                expectAbsent = listOf("\"items\""),
+                member = "rollup"
+            )
+        )
+
+    val happy: List<ParityScenario> = usageHappy + wasteHappy + rollupHappy
+
+    val scopeForbidden: List<ParityScenario> = usageScopeForbidden + wasteScopeForbidden + rollupScopeForbidden
 
     val other: List<ParityScenario> = usageOther + wasteOther
 
@@ -980,7 +1029,7 @@ class ReportParityTest {
 
     @Test
     fun `R11 S15 control - every report select holds a happy and a restricted scope-forbidden scenario and runs on the director`() {
-        val selects = listOf("usage", "gates", "contention", "waste")
+        val selects = listOf("usage", "gates", "contention", "waste", "rollup")
         for (select in selects) {
             val mine = ReportParityScenarios.scenarios.filter { it.member == select }
             assertTrue(mine.any { it.kind == ParityKind.HAPPY }, "$select has a happy scenario")
@@ -1012,15 +1061,15 @@ class ReportParityTest {
     }
 
     @Test
-    fun `R11 S15 describe lists usage, gates, contention and waste with their exact inputs and no rollup or filter input`() {
+    fun `R11 S15 describe lists usage, gates, contention, waste and rollup with their exact inputs and no run or filter input`() {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
         assertEquals(
-            setOf("usage", "gates", "contention", "waste"),
+            setOf("usage", "gates", "contention", "waste", "rollup"),
             operations.map { it.getValue("name").jsonPrimitive.content }.toSet()
         )
-        assertEquals(4, operations.size)
+        assertEquals(5, operations.size)
         for (operation in operations) {
             val name = operation.getValue("name").jsonPrimitive.content
             val properties =
@@ -1030,13 +1079,14 @@ class ReportParityTest {
                     .getValue("properties")
                     .jsonObject.keys
             val expected =
-                if (name == "waste") {
-                    setOf("rootId", "since", "until")
-                } else {
-                    setOf("rootId", "since", "until", "groupBy", "limit", "cursor")
+                when (name) {
+                    "waste" -> setOf("rootId", "since", "until")
+                    "rollup" -> setOf("anchorId", "since", "until")
+                    else -> setOf("rootId", "since", "until", "groupBy", "limit", "cursor")
                 }
             assertEquals(expected, properties.toSet(), "$name inputs: $properties")
-            for (reserved in listOf("runId", "anchorId", "principalId", "tool", "noteKey", "filters")) {
+            val reservedInputs = listOf("runId", "anchorId", "principalId", "tool", "noteKey", "filters") - expected
+            for (reserved in reservedInputs) {
                 assertTrue(reserved !in properties, "$reserved is not an input of $name: $properties")
             }
         }
@@ -1054,12 +1104,12 @@ class ReportParityTest {
         assertTrue(mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted })
         assertTrue(mine.all { it.tool == "report" })
         assertEquals(
-            setOf("usage", "gates", "contention", "waste"),
+            setOf("usage", "gates", "contention", "waste", "rollup"),
             mine
                 .map {
                     it.member
                 }.toSet(),
-            "the catalog covers exactly the usage, gates, contention and waste selects"
+            "the catalog covers exactly the usage, gates, contention, waste and rollup selects"
         )
         assertTrue(ProductionParity.scenarios.containsAll(mine), "every report scenario is registered in the production catalog")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
@@ -1081,7 +1131,7 @@ class ReportParityTest {
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE))
         assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR))
         assertEquals(
-            listOf("usage", "gates", "contention", "waste"),
+            listOf("usage", "gates", "contention", "waste", "rollup"),
             ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second }
         )
     }
@@ -1121,7 +1171,10 @@ class ReportParityTest {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
-        assertEquals(listOf("usage", "gates", "contention", "waste"), operations.map { it.getValue("name").jsonPrimitive.content })
+        assertEquals(
+            listOf("usage", "gates", "contention", "waste", "rollup"),
+            operations.map { it.getValue("name").jsonPrimitive.content }
+        )
 
         fun inputsOf(select: String) =
             operations

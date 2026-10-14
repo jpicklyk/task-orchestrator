@@ -23,7 +23,8 @@ internal val reportGatesSelect =
     SelectSpec.PagedWith<ReportGatesRequest, JsonObject>(
         name = "gates",
         doc =
-            "Rejected transitions per group over [since, until): blocks (distinct rejections) and items (distinct item ids). " +
+            "Rejected transitions per group over [since, until) (default the 7 days before now, " +
+                "at most 31 days): blocks (distinct rejections) and items (distinct item ids). " +
                 "groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, " +
                 "joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every " +
                 "rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) " +
