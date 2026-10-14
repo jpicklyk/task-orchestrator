@@ -109,6 +109,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `guidance` | no | string | Project-specific authoring instructions — fetched via `query_items(operation="schema")`; `get_context`/`advance_item` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
 | `maxLength` | no | integer | Max note body length (chars). Enforced on every note write path (`manage_notes` inline `body` or `bodyFromFile`, REST `PUT /items/{id}/notes/{key}`, `create_work_tree` notes) per top-level `note_limits.mode` |
+| `shared` | no | boolean | Default `false`. `true` exempts the key from note ownership: any caller may upsert or delete it (last writer wins). Without it, a note is owned by the actor that first wrote it, and another principal's `notes_write` upsert or delete is refused `note_owned_by_other`. A non-boolean value is ignored with a warning (an error in a pushed document); an off-schema key is never shared |
 
 ### `guidance` vs `skill` — when to use which
 
@@ -727,7 +728,7 @@ All of these add one entry to the document's `warnings` (global startup log) or 
 
 | Code | Condition |
 |------|-----------|
-| W1 | An unknown key on a note-schema entry. Known keys: `key`, `role`, `required`, `description`, `guidance`, `skill`, `maxLength`, `seat`, `independent_of`. |
+| W1 | An unknown key on a note-schema entry. Known keys: `key`, `role`, `required`, `description`, `guidance`, `skill`, `maxLength`, `seat`, `independent_of`, `shared`. |
 | W2 | An unknown top-level section. Known sections: `work_item_schemas`, `note_schemas`, `traits`, `resources`, `note_limits`, `status_labels`, `schema_resolution`, `actor_authentication`, `project`, `retrospective`, `actor_attribution`. |
 | W3 | An unknown key at schema level (known: `lifecycle`, `default_traits`, `notes`, `seats`) or at trait level (known: `notes`, `resources`, `dispatch`, `seats`). |
 | W4 | A malformed `seats[]` entry: missing/blank `name` (entry skipped), invalid or missing `phase` (entry skipped), non-boolean `enters` (defaults to `false`), non-list `after`/`reads_exclude` (defaults to empty), or an unknown key on the entry (ignored). |

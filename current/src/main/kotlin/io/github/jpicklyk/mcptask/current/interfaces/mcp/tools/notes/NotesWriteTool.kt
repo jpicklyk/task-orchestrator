@@ -35,6 +35,7 @@ internal val noteUpsertOp =
                 ErrorCode.SCHEMA_VIOLATION,
                 ErrorCode.SCHEMA_PINNED_CONFLICT,
                 ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.NOTE_OWNED_BY_OTHER,
                 ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> NoteHandlers.upsert(this, env, ctx, req) }
@@ -56,6 +57,7 @@ internal val noteDeleteOp =
                 ErrorCode.FORBIDDEN,
                 ErrorCode.VERSION_CONFLICT,
                 ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.NOTE_OWNED_BY_OTHER,
                 ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> NoteHandlers.delete(this, env, ctx, req) }

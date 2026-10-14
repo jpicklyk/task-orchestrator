@@ -213,6 +213,25 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("itemId" to itemId, "key" to key, "role" to role, "cause" to cause.wire)
     }
 
+    /**
+     * An ADMIN took over a note first written by another actor (`notes_write upsert` with `takeover`): [from] is the
+     * previous owner's actor id, [to] the taking principal's. Recorded in the same unit as the write, before the
+     * `note.upserted` row. Audit class.
+     */
+    data class NoteOwnershipTransferred(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val itemId: UUID,
+        val key: String,
+        val from: String,
+        val to: String
+    ) : DomainEvent() {
+        override val type: String get() = NOTE_OWNERSHIP_TRANSFERRED
+        override val entityKind: String get() = KIND_NOTE
+
+        override fun payload(): Map<String, Any?> = mapOf("itemId" to itemId, "key" to key, "from" to from, "to" to to)
+    }
+
     // ---- dependencies ----
 
     data class DependencyAdded(
@@ -558,6 +577,7 @@ sealed class DomainEvent {
         const val TRANSITION_REJECTED = "transition.rejected"
         const val NOTE_UPSERTED = "note.upserted"
         const val NOTE_DELETED = "note.deleted"
+        const val NOTE_OWNERSHIP_TRANSFERRED = "note.ownership_transferred"
         const val DEPENDENCY_ADDED = "dependency.added"
         const val DEPENDENCY_REMOVED = "dependency.removed"
         const val CLAIM_ACQUIRED = "claim.acquired"

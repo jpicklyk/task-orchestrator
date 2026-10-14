@@ -28,6 +28,7 @@ data class NoteSchemaEntryDto(
     val guidance: String? = null,
     val skill: String? = null,
     val maxLength: Int? = null,
+    val shared: Boolean? = null,
 )
 
 /**

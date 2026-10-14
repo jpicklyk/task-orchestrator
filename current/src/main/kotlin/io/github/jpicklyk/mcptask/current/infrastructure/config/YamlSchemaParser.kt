@@ -74,7 +74,7 @@ internal object ConfigKeyCatalog {
     val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
     val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats")
     val NOTE_ENTRY: Set<String> =
-        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of")
+        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
     val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
@@ -1311,6 +1311,18 @@ internal object YamlSchemaParser {
                 }
             }
 
+        val sharedRaw = raw["shared"]
+        val shared =
+            if (sharedRaw != null && sharedRaw !is Boolean) {
+                warnings.soft(
+                    "$entryPath/shared",
+                    "Schema '$schemaName' entry (key='$key') has non-boolean 'shared' value '$sharedRaw'; defaulting to false"
+                )
+                false
+            } else {
+                sharedRaw as? Boolean ?: false
+            }
+
         for (rawKey in raw.keys) {
             if (rawKey !in KNOWN_NOTE_ENTRY_KEYS) {
                 warnings.soft(
@@ -1330,6 +1342,7 @@ internal object YamlSchemaParser {
             maxLength = maxLength,
             seat = seat,
             independentOf = independentOf,
+            shared = shared,
         )
     }
 

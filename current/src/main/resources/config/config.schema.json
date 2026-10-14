@@ -121,7 +121,8 @@
         "skill": { "type": "string" },
         "maxLength": { "type": "integer", "minimum": 1 },
         "seat": { "type": "string" },
-        "independent_of": { "type": "array", "items": { "type": "string" } }
+        "independent_of": { "type": "array", "items": { "type": "string" } },
+        "shared": { "type": "boolean" }
       }
     },
     "seat": {

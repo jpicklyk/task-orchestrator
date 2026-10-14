@@ -26,6 +26,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
  * restricted scope this follows ADMIN in [capabilities]; an unrestricted scope always allows it. An [unauthenticated]
  * access never allows it.
  *
+ * [takeoverAllowed] says whether the caller may take over a note first written by another actor (`notes_write`
+ * `takeover`). It follows ADMIN in [capabilities]; an [unauthenticated] access has none.
+ *
  * [sessionId] is the caller's MCP session (null on REST and stdio); the dispatcher copies it into
  * `CallContext.sessionId` so the call's provenance carries it.
  *
@@ -39,7 +42,8 @@ data class CallAccess(
     val attributionVisible: Boolean = false,
     val principalsVisible: Boolean = ApiCapability.ADMIN in capabilities,
     val sessionId: String? = null,
-    val rootWritesAllowed: Boolean = scope.isUnrestricted || ApiCapability.ADMIN in capabilities
+    val rootWritesAllowed: Boolean = scope.isUnrestricted || ApiCapability.ADMIN in capabilities,
+    val takeoverAllowed: Boolean = ApiCapability.ADMIN in capabilities
 ) {
     companion object {
         /** The access of the local principal (`local`, ADMIN, unrestricted): stdio and the local `/mcp` mode. */

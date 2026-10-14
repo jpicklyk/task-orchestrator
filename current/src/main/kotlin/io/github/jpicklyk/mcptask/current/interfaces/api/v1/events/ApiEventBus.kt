@@ -576,7 +576,7 @@ class ApiEventBus(
                     DomainEvent.ITEM_REPARENTED ->
                         if (str("side") == "left") ApiEventType.SCOPE_LEFT else ApiEventType.SCOPE_ENTERED
                     DomainEvent.CLAIM_ACQUIRED, DomainEvent.CLAIM_RELEASED -> ApiEventType.ITEM_UPDATED
-                    DomainEvent.NOTE_UPSERTED, DomainEvent.NOTE_DELETED -> {
+                    DomainEvent.NOTE_UPSERTED, DomainEvent.NOTE_DELETED, DomainEvent.NOTE_OWNERSHIP_TRANSFERRED -> {
                         itemId = str("itemId") ?: itemId
                         record.type
                     }

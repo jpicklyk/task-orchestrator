@@ -21,9 +21,6 @@ enum class EventClass {
  * type is never pruned. `EventClassCoverageTest` fails the build on an unclassified [DomainEvent] constant.
  */
 object EventClasses {
-    /** `note.ownership_transferred` (R19): classified ahead of its constant so the map needs no edit when it lands. */
-    private const val NOTE_OWNERSHIP_TRANSFERRED = "note.ownership_transferred"
-
     /** Audit types matched exactly. */
     val AUDIT_TYPES: Set<String> =
         setOf(
@@ -38,7 +35,7 @@ object EventClasses {
             DomainEvent.DOCUMENT_ARCHIVED,
             DomainEvent.DOCUMENT_DELETED,
             DomainEvent.DOCUMENT_ADOPTED,
-            NOTE_OWNERSHIP_TRANSFERRED
+            DomainEvent.NOTE_OWNERSHIP_TRANSFERRED
         ) + DomainEvent.RUN_TYPES
 
     /** Audit type families: any type starting with one of these is audit. */

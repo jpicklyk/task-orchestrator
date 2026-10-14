@@ -55,7 +55,8 @@ data class NoteUpsertRequest(
             "An idempotency replay does not re-read the file."
     )
     val bodyFromFile: String? = null,
-    @Doc(NoteDocs.EXPECTED_VERSION) val expectedVersion: Long? = null
+    @Doc(NoteDocs.EXPECTED_VERSION) val expectedVersion: Long? = null,
+    @Doc("Admin only: take over a note first written by another actor. Never with a seat token.") val takeover: Boolean? = null
 )
 
 /** `notes_write delete`: remove one note. */

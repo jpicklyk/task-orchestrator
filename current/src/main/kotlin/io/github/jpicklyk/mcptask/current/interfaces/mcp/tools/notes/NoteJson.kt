@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
+import io.github.jpicklyk.mcptask.current.application.api.notes.NoteOwner
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteView
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.api.proofStatus
@@ -42,6 +43,12 @@ internal object NoteJson {
             verification.reason?.let { put("reason", it) }
         }
 
+    fun owner(owner: NoteOwner): JsonObject =
+        buildJsonObject {
+            put("id", owner.id)
+            owner.seat?.let { put("seat", it) }
+        }
+
     fun view(note: NoteView): JsonObject =
         buildJsonObject {
             put("id", note.id.toString())
@@ -52,6 +59,7 @@ internal object NoteJson {
             put("modifiedAt", note.modifiedAt.toString())
             note.actor?.let { put("actor", actor(it)) }
             note.verification?.let { put("verification", verification(it)) }
+            note.owner?.let { put("owner", owner(it)) }
         }
 
     fun entry(entry: NoteListEntry): JsonObject =
@@ -64,6 +72,7 @@ internal object NoteJson {
             put("modifiedAt", entry.modifiedAt.toString())
             entry.actor?.let { put("actor", actor(it)) }
             entry.verification?.let { put("verification", verification(it)) }
+            entry.owner?.let { put("owner", owner(it)) }
         }
 
     fun getResult(result: NoteGetResult): JsonElement =

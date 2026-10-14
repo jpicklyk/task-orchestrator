@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -48,7 +49,14 @@ data class NoteUpsertCommand(
      * (the note must not exist); n means the note's current version must equal n. Anything else is
      * `version_conflict` and nothing is written. Negative values are the caller's `invalid_request`.
      */
-    val expectedVersion: Long? = null
+    val expectedVersion: Long? = null,
+    /**
+     * Take over a note first written by another actor ([NoteOwnership]). Honoured only when [takeoverAllowed]; asking
+     * without it is `forbidden{capability, admin}`. Fail-closed defaults: `create_tree` passes neither.
+     */
+    val takeover: Boolean = false,
+    /** Whether the caller holds the capability `takeover` needs (ADMIN); decided by the transport, never inferred here. */
+    val takeoverAllowed: Boolean = false
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -125,7 +133,7 @@ class NoteCommandService(
 
         val normalizedBody = body.replace("\r\n", "\n")
 
-        val schemaEntry = configResolver.resolveSchema(item)?.notes?.firstOrNull { it.key == key }
+        val schemaEntry = schemaEntryOf(item, key)
         if (schemaEntry == null) pinnedConflict(item, key)?.let { return Outcome.Err(it) }
         if (schemaEntry != null) {
             val expectedRole = schemaEntry.role.name.lowercase()
@@ -201,12 +209,13 @@ class NoteCommandService(
                             Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
                         )
                 FenceGuard.check(item, cmd.caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                var entry: NoteSchemaEntry? = null
                 val prepared =
                     try {
                         when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
                             is Outcome.Ok -> p.value
                             is Outcome.Err -> return@writeUnit UnitResult.Rollback(p)
-                        }
+                        }.also { entry = schemaEntryOf(item, cmd.key) }
                     } catch (e: PerRootConfigUnavailableException) {
                         configUnavailable = e
                         return@writeUnit UnitResult.Rollback(
@@ -214,6 +223,23 @@ class NoteCommandService(
                         )
                     }
                 val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
+                val transfer =
+                    when (
+                        val decided =
+                            NoteOwnership.decide(
+                                itemId = cmd.itemId,
+                                key = cmd.key,
+                                existing = existing,
+                                entry = entry,
+                                caller = cmd.caller,
+                                callerSeat = null,
+                                takeover = cmd.takeover,
+                                takeoverAllowed = cmd.takeoverAllowed
+                            )
+                    ) {
+                        is Outcome.Err -> return@writeUnit UnitResult.Rollback(decided)
+                        is Outcome.Ok -> decided.value as? NoteOwnership.Decision.Transferred
+                    }
                 cmd.expectedVersion?.let { expected ->
                     versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
                 }
@@ -235,6 +261,7 @@ class NoteCommandService(
                     }
                 val stored = noteRepo.upsert(note)
                 val rootId = eventRootOf(item, repositoryProvider.workItemRepository())
+                if (transfer != null) events.record(noteOwnershipTransferredEvent(stored, rootId, transfer.from, transfer.to))
                 events.record(noteUpsertedEvent(stored, rootId, cmd.bodyFromFile))
                 links.syncNote(stored.id, rootId, stored.body, existing?.body, now)
                 UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
@@ -249,35 +276,70 @@ class NoteCommandService(
      * (`not_found` kind note, id `<itemId>/<key>`). A non-null [expectedVersion] must equal the note's current version
      * (`version_conflict` otherwise, the note kept); the compare shares the delete's write unit. An item with an active
      * claim held by someone other than [caller] is `not_claim_holder` ([FenceGuard]), checked right after the item lookup.
+     * A note another actor owns is `note_owned_by_other` ([NoteOwnership], checked after the existence check and before
+     * the version compare); a delete never takes ownership over. Resolving the schema (the key's `shared` flag) can throw
+     * [PerRootConfigUnavailableException], which propagates as in [upsert].
      */
     suspend fun delete(
         itemId: UUID,
         key: String,
         expectedVersion: Long? = null,
         caller: ClaimHolder?
-    ): Outcome<Note> =
-        unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
-            val workItems = repositoryProvider.workItemRepository()
-            val item =
-                workItems.getById(itemId)
-                    ?: return@writeUnit UnitResult.Rollback(
-                        Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "WorkItem '$itemId' not found"))
-                    )
-            FenceGuard.check(item, caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
-            val noteRepo = repositoryProvider.noteRepository()
-            val existing =
-                noteRepo.findByItemIdAndKey(itemId, key)
-                    ?: return@writeUnit UnitResult.Rollback(
-                        Outcome.Err(notFound(EntityKind.NOTE, noteRef(itemId, key), "Note '$key' not found on item $itemId"))
-                    )
-            expectedVersion?.let { expected ->
-                versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
+    ): Outcome<Note> {
+        var configUnavailable: PerRootConfigUnavailableException? = null
+        val result =
+            unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
+                val workItems = repositoryProvider.workItemRepository()
+                val item =
+                    workItems.getById(itemId)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "WorkItem '$itemId' not found"))
+                        )
+                FenceGuard.check(item, caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                val noteRepo = repositoryProvider.noteRepository()
+                val existing =
+                    noteRepo.findByItemIdAndKey(itemId, key)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.NOTE, noteRef(itemId, key), "Note '$key' not found on item $itemId"))
+                        )
+                val entry =
+                    try {
+                        schemaEntryOf(item, key)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        configUnavailable = e
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "config unavailable"))
+                        )
+                    }
+                NoteOwnership
+                    .decide(
+                        itemId = itemId,
+                        key = key,
+                        existing = existing,
+                        entry = entry,
+                        caller = caller,
+                        callerSeat = null,
+                        takeover = false,
+                        takeoverAllowed = false
+                    ).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                expectedVersion?.let { expected ->
+                    versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
+                }
+                noteRepo.delete(existing.id)
+                events.record(noteDeletedEvent(existing, eventRootOf(item, workItems), DeleteCause.EXPLICIT))
+                links.onNoteDeleted(existing.id)
+                UnitResult.Commit(Outcome.Ok(existing))
             }
-            noteRepo.delete(existing.id)
-            events.record(noteDeletedEvent(existing, eventRootOf(item, workItems), DeleteCause.EXPLICIT))
-            links.onNoteDeleted(existing.id)
-            UnitResult.Commit(Outcome.Ok(existing))
-        }
+        val unavailable = configUnavailable
+        if (unavailable != null) throw unavailable
+        return result
+    }
+
+    /** The schema entry the item's resolved schema declares for [key], or null (an off-schema key is non-shared). */
+    private suspend fun schemaEntryOf(
+        item: WorkItem,
+        key: String
+    ): NoteSchemaEntry? = configResolver.resolveSchema(item)?.notes?.firstOrNull { it.key == key }
 
     /** The `version_conflict` of a write guarded by [expected] against [existing], or null when the guard holds. */
     private fun versionMismatch(

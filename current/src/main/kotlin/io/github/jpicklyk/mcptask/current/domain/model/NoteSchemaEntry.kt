@@ -40,6 +40,8 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   see `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`.
  * @property independentOf Seat names this note's authorship must be independent of (an
  *   orchestration signal only; A1a parses and serves it, A2 enforces it).
+ * @property shared When true the key is exempt from note ownership: any caller may upsert or delete it (last writer
+ *   wins). Default false; an off-schema key is never shared.
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -50,5 +52,6 @@ data class NoteSchemaEntry(
     val skill: String? = null,
     val maxLength: Int? = null,
     val seat: String? = null,
-    val independentOf: List<String> = emptyList()
+    val independentOf: List<String> = emptyList(),
+    val shared: Boolean = false
 )

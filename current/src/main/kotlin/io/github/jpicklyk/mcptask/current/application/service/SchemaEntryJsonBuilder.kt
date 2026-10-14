@@ -60,6 +60,7 @@ fun buildExpectedNotesJson(
                 if (filledNoteKeys != null) {
                     put("filled", JsonPrimitive(entry.key in filledNoteKeys))
                 }
+                if (entry.shared) put("shared", JsonPrimitive(true))
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
                 }

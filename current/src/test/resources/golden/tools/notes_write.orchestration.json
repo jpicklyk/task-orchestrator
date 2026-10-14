@@ -40,6 +40,10 @@
               "type": "integer",
               "description": "Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written."
             },
+            "takeover": {
+              "type": "boolean",
+              "description": "Admin only: take over a note first written by another actor. Never with a seat token. [ops: upsert]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."

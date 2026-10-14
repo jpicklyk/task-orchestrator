@@ -101,7 +101,8 @@ class ToolDispatcher(
                     access.principalsVisible,
                     profile = profile.wire,
                     sessionId = access.sessionId,
-                    rootWritesAllowed = access.rootWritesAllowed
+                    rootWritesAllowed = access.rootWritesAllowed,
+                    takeoverAllowed = access.takeoverAllowed
                 )
 
             when (val describe = describeFlag(arguments)) {

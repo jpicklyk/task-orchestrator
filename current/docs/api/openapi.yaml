@@ -747,7 +747,7 @@ paths:
         A thin translation to `notes_read select=get`: the answer is the response envelope whose `data` is
         `{id, key, role, version, body, modifiedAt, actor?, verification?}`. The `ETag` response header is `"v{version}"`;
         an `If-None-Match` naming it (or `*`) answers 304 with no body. Writes have no resource route: use
-        `POST /ops/notes_write` (`upsert`, `delete`, each with an optional `expectedVersion`). The route takes no query
+        `POST /ops/notes_write` (`upsert`, `delete`, each with an optional `expectedVersion`; an `upsert` may carry the admin-only `takeover` flag, and a write to another principal's non-shared note is `note_owned_by_other`). The route takes no query
         parameter.
       parameters:
         - $ref: "#/components/parameters/itemId"
@@ -1363,7 +1363,7 @@ paths:
                 description: |
                   Each event: id:<n>\nevent:<type>\ndata:<ApiEvent JSON>\n\n
                   Event types: item.created, item.updated, item.deleted, item.advanced,
-                  note.upserted, note.deleted, dependency.added, dependency.removed,
+                  note.upserted, note.deleted, note.ownership_transferred, dependency.added, dependency.removed,
                   scope.entered, scope.left, sync.lost, auth.expired
 
                   ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
