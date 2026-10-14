@@ -32,7 +32,13 @@ class EventClassCoverageTest {
             "document.updated",
             "document.archived",
             "document.deleted",
-            "document.adopted"
+            "document.adopted",
+            "run.opened",
+            "run.updated",
+            "run.paused",
+            "run.resumed",
+            "run.ended",
+            "run.marked"
         )
 
     /** Every constant the DomainEvent companion declared when this test was authored, grouped by the oracle clause. */

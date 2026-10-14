@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
@@ -7,10 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -110,11 +110,12 @@ class ScopedIdsTest {
     ): JsonObject {
         val registry = ToolRegistry(buildToolSpecs())
         val principal =
-            ApiPrincipal(
-                tokenId = "h-scoped",
-                scope = ApiScope(rootIds = setOf(r1), tagsInclude = emptySet()),
+            Principal(
+                id = "h-scoped",
+                scope = AccessScope.principal(rootIds = setOf(r1), tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.ADMIN),
-                authMode = ApiAuthMode.BEARER
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED
             )
         val body =
             buildToolDispatcher(ctx)

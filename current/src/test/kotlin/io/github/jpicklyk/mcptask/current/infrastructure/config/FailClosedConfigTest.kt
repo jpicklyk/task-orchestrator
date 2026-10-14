@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidExcep
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
@@ -334,7 +333,7 @@ class FailClosedConfigTest {
     private fun Application.productionRest(composition: CompositionResult) {
         install(ContentNegotiation) { json(McpJson) }
         val authConfig = makeWriteAuthConfig()
-        val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+        val tokenEntries = authConfig.tokens
         installRestApiRoutes(
             apiConfig = authConfig,
             eventBus = null,

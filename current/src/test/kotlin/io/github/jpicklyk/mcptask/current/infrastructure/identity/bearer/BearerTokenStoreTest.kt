@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -65,8 +67,8 @@ class BearerTokenStoreTest {
     fun `valid file with one token loads correctly`() {
         val path = writeYaml(content = validTokenYaml())
         val store = BearerTokenStore(path)
-        val config = store.load()
-        assertEquals(1, config.tokens.size, "Should load exactly one token")
+        val config = store.loadWithEntries()
+        assertEquals(1, config.size, "Should load exactly one token")
     }
 
     @Test
@@ -94,8 +96,8 @@ class BearerTokenStoreTest {
                   - write-notes
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val config = BearerTokenStore(path).load()
-        assertEquals(2, config.tokens.size)
+        val config = BearerTokenStore(path).loadWithEntries()
+        assertEquals(2, config.size)
     }
 
     @Test
@@ -132,8 +134,8 @@ class BearerTokenStoreTest {
                   - admin
             """.trimIndent()
         val path = writeYaml(content = fullYaml)
-        val config = BearerTokenStore(path).load()
-        val principal = config.tokens.values.first()
+        val config = BearerTokenStore(path).loadWithEntries()
+        val principal = config.values.first().principal
         assertEquals(6, principal.capabilities.size)
         assertTrue(ApiCapability.ADMIN in principal.capabilities)
     }
@@ -155,8 +157,8 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val config = BearerTokenStore(path).load()
-        val principal = config.tokens.values.first()
+        val config = BearerTokenStore(path).loadWithEntries()
+        val principal = config.values.first().principal
         assertNotNull(principal.scope.rootIds)
         assertEquals(1, principal.scope.rootIds!!.size)
     }
@@ -168,21 +170,21 @@ class BearerTokenStoreTest {
     @Test
     fun `missing file throws with descriptive error`() {
         val store = BearerTokenStore("/nonexistent/path/tokens.yaml")
-        val ex = assertThrows<IllegalArgumentException> { store.load() }
+        val ex = assertThrows<IllegalArgumentException> { store.loadWithEntries() }
         assertTrue(ex.message!!.contains("not found"), "Error should mention 'not found': ${ex.message}")
     }
 
     @Test
     fun `empty file throws`() {
         val path = writeYaml(content = "")
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("empty") || ex.message!!.contains("null") || ex.message!!.lowercase().contains("empty"))
     }
 
     @Test
     fun `malformed YAML throws`() {
         val path = writeYaml(content = "this: is: invalid: yaml: [[[")
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message != null, "Should throw with a message")
     }
 
@@ -202,7 +204,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("length") || ex.message!!.contains("64"), "Error: ${ex.message}")
     }
 
@@ -222,7 +224,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("length") || ex.message!!.contains("64"), "Error: ${ex.message}")
     }
 
@@ -243,7 +245,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("invalid") || ex.message!!.contains("character"), "Error: ${ex.message}")
     }
 
@@ -263,7 +265,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message != null)
     }
 
@@ -291,7 +293,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("duplicate") || ex.message!!.contains("Duplicate"), "Error: ${ex.message}")
     }
 
@@ -312,7 +314,7 @@ class BearerTokenStoreTest {
                 expires_at: "not-a-date"
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("expires_at") || ex.message!!.contains("unparseable"), "Error: ${ex.message}")
     }
 
@@ -332,7 +334,7 @@ class BearerTokenStoreTest {
                   - superpower
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("superpower") || ex.message!!.contains("capability"), "Error: ${ex.message}")
     }
 
@@ -352,7 +354,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("version") || ex.message!!.contains("unsupported"), "Error: ${ex.message}")
     }
 
@@ -371,7 +373,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("id") || ex.message!!.contains("missing"), "Error: ${ex.message}")
     }
 
@@ -389,7 +391,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("token_sha256") || ex.message!!.contains("missing"), "Error: ${ex.message}")
     }
 
@@ -411,7 +413,7 @@ class BearerTokenStoreTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("description") || ex.message!!.contains("1024"), "Error: ${ex.message}")
     }
 
@@ -441,7 +443,7 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = store.lookupInEntries(rawToken, entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
         assertNull(result, "Expired token should return null at lookup time")
     }
 
@@ -467,9 +469,9 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = store.lookupInEntries(rawToken, entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
         assertNotNull(result, "Valid non-expired token should return a principal")
-        assertEquals("valid", result!!.tokenId)
+        assertEquals("valid", result!!.id)
     }
 
     @Test
@@ -492,7 +494,7 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = store.lookupInEntries("wrong-secret", entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolve("wrong-secret")?.principal }
         assertNull(result, "Wrong token should return null")
     }
 }

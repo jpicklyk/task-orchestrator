@@ -1,15 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.auditClaim
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.post
@@ -83,12 +85,13 @@ class WriteRouteAuthInvariantTest {
     private fun jwksPrincipal(
         tokenId: String,
         capabilities: Set<ApiCapability>,
-    ): ApiPrincipal =
-        ApiPrincipal(
-            tokenId = tokenId,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+    ): Principal =
+        Principal(
+            id = tokenId,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = capabilities,
-            authMode = ApiAuthMode.JWKS,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.VERIFIED,
         )
 
     /** Same shape a JSON response body's `"id":"<uuid>"` uses across this route family
@@ -99,34 +102,29 @@ class WriteRouteAuthInvariantTest {
     }
 
     // -------------------------------------------------------------------------------------------
-    // S15 -- resolveTrustedActorIdOrNull, all 3 ApiAuthMode x 3 DegradedModePolicy combinations.
-    // No Ktor involved: exercises ApiAuditBridge directly (declaration gap #1's lower-friction
-    // option (a) -- constructing the 3 ApiAuthMode principals directly rather than routing a full
-    // request through ApiBearerAuth, since ApiTestHelper's fixtures only build BEARER principals).
+    // S15 -- the audited REST actor (Principal.auditClaim) is api:<id>, kind external, with no
+    // parent or proof, for every ProofStatus and every PrincipalKind. No Ktor involved. (The
+    // resolveTrustedActorIdOrNull helper this used to drive was dead code and was deleted in R10.)
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S15 - resolveTrustedActorIdOrNull resolves api colon tokenId for every ApiAuthMode x DegradedModePolicy pair`() {
-        val modes = listOf(ApiAuthMode.BEARER, ApiAuthMode.JWKS, ApiAuthMode.UNAUTHENTICATED)
-        val policies =
-            listOf(DegradedModePolicy.ACCEPT_CACHED, DegradedModePolicy.ACCEPT_SELF_REPORTED, DegradedModePolicy.REJECT)
-
-        for (mode in modes) {
-            for (policy in policies) {
-                val tokenId = "s15-${mode.name.lowercase()}-${policy.name.lowercase()}"
+    fun `S15 - the audit claim is api colon id for every ProofStatus x PrincipalKind pair`() {
+        for (mode in ProofStatus.entries) {
+            for (kind in PrincipalKind.entries) {
+                val tokenId = "s15-${mode.name.lowercase()}-${kind.name.lowercase()}"
                 val principal =
-                    ApiPrincipal(
-                        tokenId = tokenId,
-                        scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                    Principal(
+                        id = tokenId,
+                        kind = kind,
+                        proofStatus = mode,
+                        scope = AccessScope.unrestricted(),
                         capabilities = setOf(ApiCapability.READ),
-                        authMode = mode,
                     )
-                val result = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, policy)
-                assertEquals(
-                    "api:$tokenId",
-                    result,
-                    "S15: mode=$mode policy=$policy must resolve to api:$tokenId (fleet-deployment.md:155; D-b)",
-                )
+                val claim = principal.auditClaim()
+                assertEquals("api:$tokenId", claim.id, "S15: mode=$mode kind=$kind must audit as api:$tokenId")
+                assertEquals(ActorKind.EXTERNAL, claim.kind, "S15: every REST principal audits as external")
+                assertEquals(null, claim.parent, "S15: no parent")
+                assertEquals(null, claim.proof, "S15: the credential is never echoed into the audit")
             }
         }
     }

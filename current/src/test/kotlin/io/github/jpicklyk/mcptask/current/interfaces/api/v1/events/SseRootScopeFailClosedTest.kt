@@ -1,12 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
@@ -62,7 +63,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * was opened to write this file.
  *
  * Oracles (from `test-plan`):
- * - O1 `ApiScope` KDoc -- non-null `rootIds` = access ONLY items under those roots => a non-null,
+ * - O1 `AccessScope` KDoc -- non-null `rootIds` = access ONLY items under those roots => a non-null,
  *   unmatched intersection is a deny, never an implicit allow.
  * - O2 `AuthorizationPlugin` -- an empty candidate set / lookup failure denies, never admits.
  * - O3 `api-rest.md` SS21 -- effective subscription = intersection of `?root=` with the principal's
@@ -102,11 +103,12 @@ class SseRootScopeFailClosedTest {
             rootIds: Set<UUID>?,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val principal =
-                ApiPrincipal(
-                    tokenId = "sse-root-scope-fail-closed-test-principal",
-                    scope = ApiScope(rootIds = rootIds, tagsInclude = emptySet()),
+                Principal(
+                    id = "sse-root-scope-fail-closed-test-principal",
+                    scope = AccessScope.principal(rootIds = rootIds, tagsInclude = emptySet()),
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
         }

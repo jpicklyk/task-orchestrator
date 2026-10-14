@@ -130,9 +130,13 @@ class ClaimService(
 
     /**
      * Clears the claim columns of [itemId] unconditionally; `Ok(true)` when the item exists. A row is recorded only
-     * when a claim was actually held: `claim.released` (`cleared`) for an active one, `claim.expired` for a lapsed one.
+     * when a claim was actually held: `claim.released` with [reason] (`cleared` unless the caller names another, e.g.
+     * `run_closed` from a run close) for an active one, `claim.expired` for a lapsed one.
      */
-    suspend fun clearClaim(itemId: UUID): Outcome<Boolean> =
+    suspend fun clearClaim(
+        itemId: UUID,
+        reason: ClaimReleaseReason = ClaimReleaseReason.CLEARED
+    ): Outcome<Boolean> =
         unitOfWork.writeOutcome("ClaimService.clearClaim") {
             val prior = repositoryProvider.workItemRepository().getById(itemId)
             val result = repositoryProvider.workItemRepository().clear(itemId)
@@ -140,7 +144,7 @@ class ClaimService(
                 if (isLapsed(prior, now)) {
                     events.record(newClaimExpiredEvents(listOf(prior), now))
                 } else {
-                    events.record(DomainEvent.ClaimReleased(itemId, rootOf(prior), ClaimReleaseReason.CLEARED))
+                    events.record(DomainEvent.ClaimReleased(itemId, rootOf(prior), reason))
                 }
             }
             result

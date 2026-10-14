@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
+import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -27,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.directorOpsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
@@ -226,10 +228,17 @@ class CurrentMcpServer(
             }
 
             // Rows older than the RETENTION_* windows are pruned in the background, first pass after readiness, then
-            // hourly. Built and registered here (AFTER Close Database, so the LIFO drain stops it first) but launched
+            // hourly. Each pass first folds the completed days of call_log into usage_daily. Built and registered here (AFTER
+            // Close Database, so the LIFO drain stops it first) but launched
             // only by the transport runner once the readiness marker is written: a start that fails before that
             // (unknown transport, bind failure, marker write) never has a pass in flight while run() closes the pools.
-            val retentionPruner = RetentionPruner(composition.unitOfWork, appConfig.retention, appConfig.apiSseBufferSize)
+            val retentionPruner =
+                RetentionPruner(
+                    composition.unitOfWork,
+                    appConfig.retention,
+                    appConfig.apiSseBufferSize,
+                    folder = UsageDailyFolder(composition.unitOfWork)
+                )
             shutdownCoordinator.addCleanupAction("Stop Retention Pruner") {
                 runBlocking { retentionPruner.stop() }
             }
@@ -777,6 +786,8 @@ internal fun Application.installRestApiRoutes(
             // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced
             // by the dispatcher from the bearer principal; mounted last so it never shadows a resource route.
             opsRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
+            // The director tool profile over REST; the only path a `profile: director` credential may call.
+            directorOpsRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
         }
         // Phase 6: real-time SSE event stream — registered in a separate, sibling
         // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does

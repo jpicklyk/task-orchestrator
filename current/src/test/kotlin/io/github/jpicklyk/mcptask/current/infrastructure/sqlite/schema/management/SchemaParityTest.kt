@@ -130,14 +130,19 @@ class SchemaParityTest {
                     // Known, accepted pair: Flyway declares `id BLOB PRIMARY KEY` (SQLite reports notnull=0) while
                     // Exposed models the key as non-null. idempotency_records declares its composite key columns
                     // `NOT NULL` (notnull=1) and call_log declares its TEXT key `req_id TEXT NOT NULL PRIMARY KEY` (SQLite lets a
-                    // non-INTEGER primary key hold NULL unless NOT NULL is stated); every other table is pinned to (database
+                    // non-INTEGER primary key hold NULL unless NOT NULL is stated), and usage_daily declares all nine composite key
+                    // columns `NOT NULL` for the same reason (a NULL key would never conflict, so the upsert could not find its row);
+                    // every other table is pinned to (database
                     // notnull=0, Exposed non-null).
                     val allowedDbNotNull =
                         t == "idempotency_records" ||
                             t == "call_log" ||
                             t == "data_steps" ||
                             t == "config_known_fingerprints" ||
-                            t == "item_traits"
+                            t == "item_traits" ||
+                            t == "runs" ||
+                            t == "run_items" ||
+                            t == "usage_daily"
                     if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
                         mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
                     }

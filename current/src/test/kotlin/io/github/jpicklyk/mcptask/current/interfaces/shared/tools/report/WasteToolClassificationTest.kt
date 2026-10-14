@@ -78,7 +78,14 @@ class WasteToolClassificationTest {
 
     @Test
     fun `S16 report lists usage and waste, and waste is visible in the director profile only`() {
-        assertEquals(listOf("usage", "waste"), ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second })
+        assertEquals(
+            listOf("usage", "gates", "contention", "waste"),
+            ParityCoverage
+                .members(registry)
+                .filter {
+                    it.first == "report"
+                }.map { it.second }
+        )
         assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "waste"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "waste"))
     }
@@ -120,9 +127,13 @@ class WasteToolClassificationTest {
             assertEquals(usage.getValue(shared), waste.getValue(shared), "$shared has one schema in both selects")
         }
         val until = waste.getValue("until").toString()
-        assertTrue("(waste: 7)" in until, "until documents the waste cap: $until")
-        assertTrue("At most 31 days after since" in until, "until still documents the usage cap: $until")
-        assertTrue(ReportFieldDocs.UNTIL.endsWith("At most 31 days after since (waste: 7)."), ReportFieldDocs.UNTIL)
+        assertTrue("7 for waste" in until, "until documents the waste cap: $until")
+        assertTrue("400 days after since for usage" in until, "until documents the usage cap: $until")
+        assertTrue("31 for other selects" in until, "until documents the other-selects cap: $until")
+        assertTrue(
+            ReportFieldDocs.UNTIL.endsWith("At most 400 days after since for usage, 7 for waste, 31 for other selects."),
+            ReportFieldDocs.UNTIL
+        )
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
@@ -9,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
 import io.github.jpicklyk.mcptask.current.domain.model.RefKind
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -134,7 +134,7 @@ internal data class DocsParityCase(
  * Oracles: the response-envelope spec for statuses and shapes (200 ok, 207 partial_failure, 400 invalid_request /
  * unknown_parameter / invalid_cursor, 403 forbidden, 404 not_found), the `DocumentService` KDoc (SHA-256 of the LF-normalized
  * UTF-8 body, CRLF to LF and nothing else, created iff version 1, REASON_ARCHIVED / REASON_ADOPTED, size caps 65536 / 16384),
- * and the frozen task-scope decisions D1-D9 (kind required, WRITE_CONFIG for every write op, slug guard on upsert only, scope
+ * and the frozen task-scope decisions D1-D9 (kind required, WRITE_DOCS for every write op (WRITE_CONFIG before R10), slug guard on upsert only, scope
  * checked on the root and on secondary ends, a forbidden call writes nothing).
  */
 internal object DocsParityScenarios {
@@ -150,12 +150,12 @@ internal object DocsParityScenarios {
 
     val admin = ParityToken("docs-admin", setOf(ApiCapability.ADMIN))
     val reader = ParityToken("docs-reader", setOf(ApiCapability.READ))
-    val writer = ParityToken("docs-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_CONFIG))
+    val writer = ParityToken("docs-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_DOCS))
     val notesOnly = ParityToken("docs-notes-only", setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES, ApiCapability.WRITE_ITEMS))
     val rootReader = ParityToken("docs-root-reader", setOf(ApiCapability.READ), rootIds = setOf(r1))
-    val rootWriter = ParityToken("docs-root-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_CONFIG), rootIds = setOf(r1))
+    val rootWriter = ParityToken("docs-root-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_DOCS), rootIds = setOf(r1))
     val tagReader = ParityToken("docs-tag-reader", setOf(ApiCapability.READ), tagsInclude = setOf("alpha"))
-    val tagWriter = ParityToken("docs-tag-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_CONFIG), tagsInclude = setOf("alpha"))
+    val tagWriter = ParityToken("docs-tag-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_DOCS), tagsInclude = setOf("alpha"))
 
     const val READ_TOOL = "docs_read"
     const val WRITE_TOOL = "docs_write"
@@ -344,7 +344,7 @@ internal object DocsParityScenarios {
 
     private fun scopeTag() = listOf("\"scope\":\"tag\"", "\"required\":\"alpha\"")
 
-    private fun capability() = listOf("\"scope\":\"capability\"", "\"required\":\"write-config\"")
+    private fun capability() = listOf("\"scope\":\"capability\"", "\"required\":\"write-docs\"")
 
     private val partial = "partial_failure"
 
@@ -1366,7 +1366,7 @@ internal object DocsParityScenarios {
                 contains = listOf("\"rootId\":\"$r1\""),
                 dbChanged = false
             ),
-            // S14 capability: every write op needs write-config
+            // S14 capability: every write op needs write-docs
             case(
                 "S14 reader cannot upsert",
                 WRITE_TOOL,
@@ -1456,7 +1456,7 @@ internal object DocsParityScenarios {
                 docs = ruleDoc
             ),
             case(
-                "S14 control - a write-config token upserts a rule document",
+                "S14 control - a write-docs token upserts a rule document",
                 WRITE_TOOL,
                 "upsert",
                 otherKind,

@@ -15,7 +15,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the usage `report` only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
 
 This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
 
@@ -289,7 +289,7 @@ matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v
 
 On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
 `ActorClaim` cap (the same bound as actor ids already stored in notes and in the `events` table's `principal_id`); `proof_status` says
-whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
+whether the id was verified. On REST rows it holds the authenticated API principal (`api:<id>`), never client text.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
@@ -300,7 +300,7 @@ never used for authorization, scoping or identity. See
 overrides that variable must add the header itself for browser clients to send it.
 
 `call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
-(`RETENTION_CALL_LOG_DAYS`) takes effect once call-log days are folded into `usage_daily`; see
+(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V33); see
 [Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
@@ -316,15 +316,23 @@ A background retention pruner deletes old rows from `events`, `resource_lease_hi
 pass right after startup (in the background, so it never delays readiness) and then hourly. Each pass deletes in
 write units of at most 5,000 rows and stops after 200,000 rows (a larger backlog drains over the following passes),
 so the writer lock is released between units and concurrent writes are delayed by one unit at most. Each pass logs
-one INFO line (`Retention pass: events=... lease_history=... call_log=... capped=...`); a failed pass logs a WARN and
+one INFO line (`Retention pass: events=... lease_history=... call_log=... folded_days=... capped=...`); a failed pass logs a WARN and
 the next pass retries. The pruner writes no `events` rows.
+
+Each pass first folds the completed UTC days of `call_log` into `usage_daily` (one row per day and dimension group), one
+write unit per day, before it deletes anything: today, and yesterday during the first hour after midnight UTC, are never
+folded, a day below the fold watermark (`usage_fold`) is never folded again, and at most 400 days fold per pass (the first
+pass on a long-lived volume folds the whole backlog, then deletes). A fold failure pauses only `call_log` pruning for that
+pass (events and lease history are still pruned; `call_log` deletes only folded days, so nothing unfolded goes) and logs a WARN
+naming the failed UTC day and the exception class and message, never row data. `usage_daily` serves the `report` `usage` select past the raw horizon (`window.basis` `daily`); it is not pruned and
+has no setting.
 
 | Variable | Default | Prunes |
 |----------|---------|--------|
 | `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `item.updated`, `transition.rejected`). |
 | `RETENTION_AUDIT_EVENTS_DAYS` | `0` | Audit-class `events` rows: `item.transitioned`, `item.created`, `item.deleted`, `item.reparented`, `item.pinned`, `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`, and the 3.x transition trail backfilled by V29. `0` keeps them forever. |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | Closed `resource_lease_history` intervals, by `released_at`. Open intervals are never pruned. |
-| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily`. Until that fold ships, no `call_log` row is pruned. |
+| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily` (the pruner folds first; nothing is pruned while no day is folded). |
 
 Each value is a whole number of days; `0` keeps that data forever. Values are read once at startup (restart to
 change); a blank, negative or non-integer value fails startup with an error naming the variable.
@@ -419,7 +427,8 @@ API_ALLOW_UNAUTHENTICATED=true
 
 See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
-- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`
+- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
+- `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
 - `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
   list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
   and `scope.tags_include` fail closed on any malformed shape too — see
@@ -454,7 +463,7 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an A
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
-**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual rule stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). **4.0 note:** that route is removed on a 4.0 server (rules are `docs_write` `upsert` with `kind` `rule`, over `POST /api/v1/ops/docs_write`, which needs the same `write-config` capability); the hook moves to the new tool in the plugin work, and until then rule sync against a 4.0 server reports the failed `PUT` in its one-line note. Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
+**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual rule stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). **4.0 note:** that route is removed on a 4.0 server (rules are `docs_write` `upsert` with `kind` `rule`, over `POST /api/v1/ops/docs_write`, which needs the `write-docs` capability; `write-config` no longer grants it); the hook moves to the new tool in the plugin work, and until then rule sync against a 4.0 server reports the failed `PUT` in its one-line note. Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
 
 **Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
 the happy path — a per-root config read failing with a transient database error is a distinct case
@@ -843,7 +852,7 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 | `iat` | Optional — RFC 7519 §4.1.6 makes it optional, so its absence never fails a token on its own | When present: a token dated more than 60s in the future is rejected (`reason: "iat in the future"`, `failureKind: claims`); an `exp - iat` spread beyond `max_token_lifetime_seconds` (+60s skew) is rejected (`reason: "token lifetime exceeds maximum"`, `failureKind: claims`). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
 | `jti` | Only when `jti_replay_protection: true` (opt-in, default `false`) | Required when the flag is on — a token without one is rejected (`reason: "missing jti claim"`, `failureKind: claims`); the `(iss, jti)` pair may then be presented only once (see "Opt-in `jti` Replay Protection" below). |
 
-TO does not read any other custom claims — those are deployment concerns outside the TO contract.
+TO does not read any other custom claims — those are deployment concerns outside the TO contract. (This table is the MCP actor-proof contract. A REST API JWT under `API_AUTH_MODE=jwks` additionally reads `to_kind`, `to_scope` and `to_capabilities`; a non-string or unknown `to_kind` rejects the JWT — see [api-rest.md §1](api-rest.md#1-authentication).)
 
 ### Token Lifetime Cap
 

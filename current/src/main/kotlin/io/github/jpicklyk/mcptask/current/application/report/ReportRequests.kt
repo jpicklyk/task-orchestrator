@@ -62,7 +62,8 @@ internal object ReportFieldDocs {
         "Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see."
     const val SINCE = "Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days."
     const val UNTIL =
-        "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 31 days after since (waste: 7)."
+        "Window end, exclusive: ISO 8601 with Z or an offset. Default now. " +
+            "At most 400 days after since for usage, 7 for waste, 31 for other selects."
 }
 
 /** `report usage`: call_log aggregates over a half-open window, grouped by one column. */
@@ -74,10 +75,37 @@ data class ReportUsageRequest(
     val since: String? = null,
     @Doc(ReportFieldDocs.UNTIL)
     val until: String? = null,
-    @Doc(
-        "Row grouping, default tool. usage accepts tool, operation, host, surface, principalKind, errorCode, day (UTC date), " +
-            "principal (admin only)."
-    )
+    @Doc(GROUP_BY_DOC)
+    val groupBy: ReportGroupBy? = null,
+    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("The page.next value of the previous page.") val cursor: String? = null
+)
+
+/** `report gates`: transition.rejected aggregates over a half-open window. The fields and docs match [ReportUsageRequest] (one name, one schema). */
+@Serializable
+data class ReportGatesRequest(
+    @Doc(ReportFieldDocs.ROOT_ID)
+    val rootId: IdRef? = null,
+    @Doc(ReportFieldDocs.SINCE)
+    val since: String? = null,
+    @Doc(ReportFieldDocs.UNTIL)
+    val until: String? = null,
+    @Doc(GROUP_BY_DOC)
+    val groupBy: ReportGroupBy? = null,
+    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("The page.next value of the previous page.") val cursor: String? = null
+)
+
+/** `report contention`: claim and lease aggregates over a half-open window. The fields and docs match [ReportUsageRequest]. */
+@Serializable
+data class ReportContentionRequest(
+    @Doc(ReportFieldDocs.ROOT_ID)
+    val rootId: IdRef? = null,
+    @Doc(ReportFieldDocs.SINCE)
+    val since: String? = null,
+    @Doc(ReportFieldDocs.UNTIL)
+    val until: String? = null,
+    @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
     @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
     @Doc("The page.next value of the previous page.") val cursor: String? = null
@@ -93,3 +121,5 @@ data class ReportWasteRequest(
     @Doc(ReportFieldDocs.UNTIL)
     val until: String? = null
 )
+
+private const val GROUP_BY_DOC = "Row grouping; each select accepts its own subset and default, see describe."

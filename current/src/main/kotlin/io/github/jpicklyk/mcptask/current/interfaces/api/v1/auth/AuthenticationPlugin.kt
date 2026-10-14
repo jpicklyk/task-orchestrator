@@ -1,24 +1,32 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.telemetry.HostName
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.Resolved
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
+import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.request.header
 import io.ktor.server.request.path
 import io.ktor.server.response.header
 import io.ktor.util.AttributeKey
 import org.slf4j.LoggerFactory
-import java.security.MessageDigest
 
 /**
- * AttributeKey used to attach the resolved [ApiPrincipal] to the request pipeline.
+ * AttributeKey used to attach the resolved [Principal] to the request pipeline.
  *
  * Routes and plugins downstream of [ApiBearerAuth] retrieve the principal via:
  * ```kotlin
@@ -26,15 +34,15 @@ import java.security.MessageDigest
  * ```
  * or via the convenience extension [ApplicationCall.apiPrincipal].
  */
-val ApiPrincipalKey: AttributeKey<ApiPrincipal> = AttributeKey("ApiPrincipal")
+val ApiPrincipalKey: AttributeKey<Principal> = AttributeKey("ApiPrincipal")
 
 /**
- * Retrieves the authenticated [ApiPrincipal] attached to this call by [ApiBearerAuth].
+ * Retrieves the authenticated [Principal] attached to this call by [ApiBearerAuth].
  *
  * @throws IllegalStateException if the plugin has not been installed or the call was
  *   not authenticated (i.e., the plugin responded with 401 before this is called).
  */
-fun ApplicationCall.apiPrincipal(): ApiPrincipal = attributes[ApiPrincipalKey]
+fun ApplicationCall.apiPrincipal(): Principal = attributes[ApiPrincipalKey]
 
 /**
  * Configuration holder for [ApiBearerAuth].
@@ -75,21 +83,14 @@ class ApiAuthPluginConfig {
 /**
  * Ktor application plugin that enforces bearer-token or JWT authentication on every request.
  *
- * **Installation (Phase 2):**
- * ```kotlin
- * install(ApiBearerAuth) {
- *     authConfig = loadedBearerConfig
- *     tokenEntries = store.loadWithEntries()
- * }
- * ```
- *
  * **Behavior:**
  * - Extracts `Authorization: Bearer <token>` header.
- * - Resolves the credential to an [ApiPrincipal]:
- *     - Bearer mode: computes SHA-256 of the presented token, constant-time lookup in token map,
- *       checks expiry.
- *     - JWKS mode: validates the JWT via [JwksApiVerifier].
- * - On success: attaches the principal to `call.attributes[ApiPrincipalKey]`.
+ * - Resolves the credential through the one bearer pipeline, [CredentialResolver]: bearer mode against the token
+ *   entries (SHA-256, constant-time lookup, expiry), JWKS mode through [JwksApiVerifier].
+ * - On success: attaches the [Principal] (with [Principal.host] from `X-Client-Host`, else the `User-Agent`
+ *   product) to `call.attributes[ApiPrincipalKey]`.
+ * - A credential whose profile is `director` is confined to `POST /api/v1/ops/director/{tool}`: on any other path
+ *   it answers `403 forbidden {scope: capability, required: director}`.
  * - On failure (missing/invalid/expired credential):
  *     - Responds `401 Unauthorized` with `WWW-Authenticate: Bearer error="invalid_token"`.
  *     - Short-circuits the pipeline (no further handlers are invoked).
@@ -108,6 +109,7 @@ val ApiBearerAuth =
     ) {
         val logger = LoggerFactory.getLogger("ApiBearerAuth")
         val config = pluginConfig
+        val resolver = credentialResolverFor(config.authConfig, config.tokenEntries, config.jwksVerifier, config.clock)
 
         onCall { call ->
             val authConfig = config.authConfig
@@ -119,7 +121,7 @@ val ApiBearerAuth =
             // attach the synthetic ADMIN/unrestricted principal and skip the Authorization-header
             // check entirely -- this MUST run before that check so a token-less request isn't 401'd.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
-                call.attributes.put(ApiPrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
+                call.attributes.put(ApiPrincipalKey, LOCAL_UNAUTH_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 
@@ -147,61 +149,69 @@ val ApiBearerAuth =
                 return@onCall
             }
 
-            val principal: ApiPrincipal? =
-                when (authConfig) {
-                    is ApiAuthConfig.Bearer -> {
-                        // Compute SHA-256 of presented token and constant-time lookup
-                        val digest = sha256(token)
-                        val entry = config.tokenEntries[HashBytes(digest)]
-                        if (entry == null) {
-                            null
-                        } else {
-                            val expiry = entry.expiresAt
-                            if (expiry != null && config.clock().isAfter(expiry)) {
-                                logger.debug("Bearer token expired for tokenId='{}'", entry.principal.tokenId)
-                                null
-                            } else {
-                                entry.principal
-                            }
-                        }
-                    }
-
-                    is ApiAuthConfig.Jwks -> {
-                        val verifier = config.jwksVerifier
-                        if (verifier == null) {
-                            logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
-                            null
-                        } else {
-                            verifier.verify(token)
-                        }
-                    }
-
-                    is ApiAuthConfig.Disabled -> null // unreachable due to guard above
-                    is ApiAuthConfig.Unauthenticated -> null // unreachable due to guard above
-                }
-
-            if (principal == null) {
+            val resolved = resolver?.resolve(token)
+            if (resolved == null) {
+                if (resolver == null) logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
                 logger.debug("Authentication failed for request to {}", call.request.local.uri)
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
                 call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
                 return@onCall
             }
 
-            call.attributes.put(ApiPrincipalKey, principal)
+            if (resolved.isDirectorOnly() && !isDirectorOpsPath(path)) {
+                logger.debug("Director-profile credential '{}' refused outside the director path", resolved.principal.id)
+                call.respondEnvelopeError(directorOnlyForbidden())
+                return@onCall
+            }
+
+            call.attributes.put(ApiPrincipalKey, resolved.principal.withHostOf(call))
         }
     }
+
+/**
+ * The [CredentialResolver] of [authConfig]: bearer mode resolves against [tokenEntries] only, JWKS mode through
+ * [jwksVerifier] only (null when that verifier is missing, so every JWT fails closed). Null for the modes that
+ * resolve no credential.
+ */
+internal fun credentialResolverFor(
+    authConfig: ApiAuthConfig,
+    tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
+    jwksVerifier: JwksApiVerifier?,
+    clock: () -> java.time.Instant
+): CredentialResolver? =
+    when (authConfig) {
+        is ApiAuthConfig.Bearer -> CredentialResolver(tokenEntries, null, clock)
+        is ApiAuthConfig.Jwks -> jwksVerifier?.let { CredentialResolver(emptyMap(), it, clock) }
+        // The SSE route resolves in Disabled mode too (tests wire it without the REST plugin); it then accepts
+        // whichever source is configured, exactly as before the resolver existed.
+        is ApiAuthConfig.Disabled -> CredentialResolver(tokenEntries, jwksVerifier, clock)
+        is ApiAuthConfig.Unauthenticated -> null
+    }
+
+/** True when this credential is confined to the director path (token-file `profile: director`). */
+internal fun Resolved.isDirectorOnly(): Boolean = profile == DIRECTOR_CREDENTIAL_PROFILE
+
+/**
+ * True for exactly `/api/v1/ops/director/<tool>` with a lowercase snake_case tool name: no trailing slash, no
+ * percent-encoding, no dot segment, no other casing. The raw request path is checked, so anything a router might
+ * normalize differently is refused rather than admitted.
+ */
+internal fun isDirectorOpsPath(path: String): Boolean = DIRECTOR_OPS_PATH.matches(path)
+
+private val DIRECTOR_OPS_PATH = Regex("^/api/v1/ops/director/[a-z0-9_]+$")
+
+/** The `forbidden` error of a director-profile credential used outside the director path. */
+internal fun directorOnlyForbidden(): DomainError = ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, DIRECTOR_CREDENTIAL_PROFILE)
+
+/** This principal with [Principal.host] set from the request: `X-Client-Host`, else the `User-Agent` product. */
+internal fun Principal.withHostOf(call: ApplicationCall): Principal =
+    copy(host = HostName.forRest(call.request.header(CLIENT_HOST_HEADER), call.request.header(HttpHeaders.UserAgent)))
 
 /**
  * The `unauthenticated` error (401) of a rejected credential. The RFC 6750 `WWW-Authenticate` challenge the caller sets
  * next to it keeps its `error=` attribute; the body is the 4.0 error envelope.
  */
 internal fun unauthenticated(message: String): DomainError = DomainError(ErrorCode.UNAUTHENTICATED, message)
-
-/** Computes SHA-256 of the UTF-8 encoding of [input]. */
-private fun sha256(input: String): ByteArray {
-    val md = MessageDigest.getInstance("SHA-256")
-    return md.digest(input.toByteArray(Charsets.UTF_8))
-}
 
 /**
  * Parses an `Authorization` header value for the `Bearer` auth-scheme (RFC 7235 §2.1,

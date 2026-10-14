@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  * import or fully-qualify
  *  - anything under `io.github.jpicklyk.mcptask.current.domain.lifecycle`, nor
  *  - any `io.github.jpicklyk.mcptask.current.*` type whose simple name starts with `Claim`, `Seat`, `Transition`,
- *    `RoleTransition` or `Advance`.
+ *    `RoleTransition`, `Advance` or `Run` (the run lifecycle, R17).
  * `Role` (a plain value), `ActorClaim` and `ProofClaims` are allowed (their simple names do not start with a forbidden
  * prefix). Comments and string contents are ignored.
  *
@@ -38,7 +38,7 @@ class KnowledgeBoundaryTest {
     companion object {
         private const val ROOT = "io.github.jpicklyk.mcptask.current"
         private const val LIFECYCLE = "$ROOT.domain.lifecycle"
-        private val FORBIDDEN_NAME_PREFIXES = listOf("Claim", "Seat", "Transition", "RoleTransition", "Advance")
+        private val FORBIDDEN_NAME_PREFIXES = listOf("Claim", "Seat", "Transition", "RoleTransition", "Advance", "Run")
         private val FQN = Regex("""io\.github\.jpicklyk\.mcptask\.current(?:\.[A-Za-z0-9_]+)+""")
         private val SCOPE_DIRS = listOf("application/knowledge/", "infrastructure/sqlite/knowledge/")
         private const val BASELINE = "src/test/resources/architecture/knowledge-boundary-baseline.txt"
@@ -153,6 +153,7 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.domain.model.SeatOwnership",
             "import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService",
+            "import io.github.jpicklyk.mcptask.current.application.run.RunService",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService as Adv",
             "val s = io.github.jpicklyk.mcptask.current.application.service.ClaimService(x)",
             "val t = io.github.jpicklyk.mcptask.current.domain.lifecycle.RoleTable.lookup(r)",

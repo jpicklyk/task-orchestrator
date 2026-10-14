@@ -10,17 +10,16 @@ const val REPORT = "report"
 
 /**
  * The `report` tool (plan R9): read-only aggregate reports, one file per select. Director-only on MCP (profiles
- * {DIRECTOR}); REST serves it at `POST /api/v1/ops/report`. R9 ships `usage`, R12 `waste`; rollup, gates and contention
- * follow.
+ * {DIRECTOR}); REST serves it at `POST /api/v1/ops/report`. R9 ships `usage`, R11 `gates` and `contention`, R12 `waste`; rollup
+ * follows.
  */
 fun reportTool(): SelectToolSpec =
     SelectToolSpec(
         name = REPORT,
         description =
-            "Aggregate reports over the call log. select: usage (calls, errors, bytes, tokens, latency, retries and replays " +
-                "per group); waste (ratios: redundant reads, over-fetch, reads with no later write, empty next, related " +
-                "follow-through, lifecycle-free rejections).",
-        selects = listOf(reportUsageSelect, reportWasteSelect)
+            "Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected " +
+                "transitions), contention (claims, leases), waste (call-pattern waste ratios).",
+        selects = listOf(reportUsageSelect, reportGatesSelect, reportContentionSelect, reportWasteSelect)
     )
 
 /** `data.window`: `{since, until, retainedSince?, basis, truncatedByRetention?}`, instants in UTC. */

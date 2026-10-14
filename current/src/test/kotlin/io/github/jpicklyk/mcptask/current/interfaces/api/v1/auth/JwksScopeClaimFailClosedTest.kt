@@ -11,6 +11,8 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -19,8 +21,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
@@ -342,7 +342,7 @@ class JwksScopeClaimFailClosedTest {
             for ((label, scopeValue) in malformedToScopeCases) {
                 val claims = buildClaims(extraClaims = mapOf("to_scope" to scopeValue))
                 val jwt = signRsa(claims)
-                var result: ApiPrincipal? = null
+                var result: Principal? = null
                 val warnMessages = captureWarnLogs { result = verifier.verify(jwt) }
                 assertNull(result, "S8[$label]: sanity -- malformed to_scope must still reject the JWT")
                 assertTrue(warnMessages.isNotEmpty(), "S8[$label]: must log at least one WARN")
@@ -439,7 +439,7 @@ class JwksScopeClaimFailClosedTest {
             for ((label, capabilitiesValue) in malformedCapabilities) {
                 val claims = buildClaims(extraClaims = mapOf("to_capabilities" to capabilitiesValue))
                 val jwt = signRsa(claims)
-                var principal: ApiPrincipal? = null
+                var principal: Principal? = null
                 val warnMessages = captureWarnLogs { principal = verifier.verify(jwt) }
                 assertNotNull(principal, "S16[$label]: malformed to_capabilities must not reject the whole JWT (D9)")
                 assertEquals(setOf(ApiCapability.READ), principal!!.capabilities, "S16[$label]: must default to READ-only")

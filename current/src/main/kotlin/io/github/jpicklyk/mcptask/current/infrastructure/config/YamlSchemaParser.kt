@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
+import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -13,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -59,6 +61,7 @@ internal object ConfigKeyCatalog {
             "project",
             "independence",
             "extensions",
+            "runs",
         )
 
     /**
@@ -75,6 +78,8 @@ internal object ConfigKeyCatalog {
     val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
+    val RUNS: Set<String> = setOf("stall_after", "budgets")
+    val RUN_BUDGETS: Set<String> = setOf("tokens", "cost_usd", "attempts_per_seat", "max_active_seats")
     val RESOURCE_DEFINITION: Set<String> = setOf("description", "maxHolders", "defaultTtlSeconds")
     val RESOURCE_REQUIREMENT: Set<String> = setOf("key", "mode", "ttlSeconds")
     val DISPATCH_PROFILE: Set<String> = setOf("agent", "model", "effort")
@@ -292,6 +297,7 @@ internal object YamlSchemaParser {
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val independence = parseIndependencePolicy(root, warnings)
+        val runs = parseRunsConfig(root, warnings)
         val parsedStatusLabels = parseStatusLabels(root, warnings)
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
@@ -336,6 +342,7 @@ internal object YamlSchemaParser {
             warningViolations = warningViolations,
             noteLimitsMode = noteLimitsMode,
             independence = independence,
+            runs = runs,
             statusLabels = parsedStatusLabels,
             traitResources = traitResources,
             resourceRegistry = resourceRegistry,
@@ -1415,6 +1422,59 @@ internal object YamlSchemaParser {
             }
 
         return IndependencePolicy(mode = mode, requireVerified = requireVerified)
+    }
+
+    /**
+     * Parses the top-level `runs:` block into a [RunsConfig], or null when the key is absent. Every invalid value
+     * ([ConfigValidator.runsValueViolations], same paths and reasons) and every unknown key is a soft finding and is
+     * left out, so a field that does not parse falls through to the next layer like an absent one. `cost_usd` (US
+     * dollars) is converted to micro-USD. A block whose fields all fail still yields a (field-less) [RunsConfig].
+     */
+    private fun parseRunsConfig(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): RunsConfig? {
+        if (!root.containsKey("runs")) return null
+        val violations = ConfigValidator.runsValueViolations(root["runs"])
+        violations.forEach { warnings.soft(it.path, it.reason) }
+        val bad = violations.mapTo(HashSet()) { it.path }
+        val runs = root["runs"] as? Map<*, *> ?: return RunsConfig()
+
+        for (key in runs.keys) {
+            if (key.toString() !in ConfigKeyCatalog.RUNS) {
+                warnings.soft(ptr("runs", key.toString()), "Unknown key 'runs.$key'; ignoring")
+            }
+        }
+        val stallAfter =
+            if (runs.containsKey("stall_after") && ptr("runs", "stall_after") !in bad) (runs["stall_after"] as Number).toInt() else null
+
+        val budgetsRaw = runs["budgets"] as? Map<*, *>
+        val budgets =
+            if (budgetsRaw == null) {
+                null
+            } else {
+                for (key in budgetsRaw.keys) {
+                    if (key.toString() !in ConfigKeyCatalog.RUN_BUDGETS) {
+                        warnings.soft(ptr("runs", "budgets", key.toString()), "Unknown key 'runs.budgets.$key'; ignoring")
+                    }
+                }
+
+                fun valid(key: String): Any? =
+                    if (budgetsRaw.containsKey(key) &&
+                        ptr("runs", "budgets", key) !in bad
+                    ) {
+                        budgetsRaw[key]
+                    } else {
+                        null
+                    }
+                RunBudget(
+                    tokens = (valid("tokens") as? Number)?.toLong(),
+                    costMicroUsd = valid("cost_usd")?.let { ConfigValidator.costMicroUsd(it) },
+                    attemptsPerSeat = (valid("attempts_per_seat") as? Number)?.toInt(),
+                    maxActiveSeats = (valid("max_active_seats") as? Number)?.toInt(),
+                ).takeUnless { it.isUnlimited }
+            }
+        return RunsConfig(stallAfterSeconds = stallAfter, budgets = budgets)
     }
 
     /**

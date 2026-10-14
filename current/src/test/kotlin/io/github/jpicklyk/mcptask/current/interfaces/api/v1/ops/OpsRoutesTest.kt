@@ -1,19 +1,21 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.grants
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -108,8 +110,11 @@ class OpsRoutesTest {
         capabilities: Set<ApiCapability>
     ): ApiAuthConfig.Bearer {
         val base = makeWriteAuthConfig()
-        val principal = ApiPrincipal(id, ApiScope(rootIds = null, tagsInclude = emptySet()), capabilities, ApiAuthMode.BEARER)
-        return ApiAuthConfig.Bearer(tokens = base.tokens + (HashBytes(sha256(raw)) to principal))
+        val principal = Principal(id, PrincipalKind.SERVICE, ProofStatus.ISSUED, AccessScope.unrestricted(), capabilities)
+        return ApiAuthConfig.Bearer(
+            tokens =
+                base.tokens + (HashBytes(sha256(raw)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
+        )
     }
 
     private suspend fun HttpClient.ops(
@@ -295,6 +300,9 @@ class OpsRoutesTest {
                 ApiCapability.ADVANCE to "advance",
                 ApiCapability.MANAGE_DEPENDENCIES to "manage-dependencies",
                 ApiCapability.WRITE_CONFIG to "write-config",
+                ApiCapability.WRITE_DOCS to "write-docs",
+                ApiCapability.RUNS to "runs",
+                ApiCapability.DECIDE to "decide",
                 ApiCapability.ADMIN to "admin"
             )
         assertEquals(ApiCapability.entries.toSet(), expected.keys, "fixture: every capability has an expected spelling")

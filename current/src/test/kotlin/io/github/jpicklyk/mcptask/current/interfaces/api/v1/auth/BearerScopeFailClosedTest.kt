@@ -79,9 +79,10 @@ class BearerScopeFailClosedTest {
 
         val principalFromLoad =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertEquals(setOf(UUID.fromString(u1)), principalFromLoad.scope.rootIds, "S2: load() must resolve root_ids")
         assertEquals(setOf("feature"), principalFromLoad.scope.tagsInclude, "S2: load() must resolve tags_include")
 
@@ -109,9 +110,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertNull(principal.scope.rootIds, "S3a: an absent scope key must be unrestricted")
         assertTrue(principal.scope.tagsInclude.isEmpty(), "S3a: an absent scope key must carry no tag constraint")
     }
@@ -132,9 +134,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertNull(principal.scope.rootIds, "S3b: a bare (YAML-null) scope key must be unrestricted (D4)")
         assertTrue(principal.scope.tagsInclude.isEmpty(), "S3b: a bare scope key must carry no tag constraint")
     }
@@ -155,9 +158,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertNull(principal.scope.rootIds, "S3c: scope: {} must be unrestricted (D5)")
         assertTrue(principal.scope.tagsInclude.isEmpty(), "S3c: scope: {} must carry no tag constraint")
     }
@@ -180,9 +184,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertNull(principal.scope.rootIds, "S3d: explicit null root_ids must be unrestricted (D4)")
         assertTrue(principal.scope.tagsInclude.isEmpty(), "S3d: tags_include: [] is the canonical no-constraint form (D3)")
     }
@@ -207,7 +212,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("bad-scalar"), "S10: message must name the token id. Got: ${ex.message}")
         assertTrue(ex.message!!.contains("root_ids"), "S10: message must name root_ids. Got: ${ex.message}")
     }
@@ -228,7 +233,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("bad-empty"), "S10: message must name the token id. Got: ${ex.message}")
         assertTrue(
             ex.message!!.contains("root_ids"),
@@ -264,7 +269,7 @@ class BearerScopeFailClosedTest {
                       - read
                 """.trimIndent()
             val path = writeYaml(content = yaml)
-            val ex = assertThrows<IllegalArgumentException>("S11[$label] must fail startup") { BearerTokenStore(path).load() }
+            val ex = assertThrows<IllegalArgumentException>("S11[$label] must fail startup") { BearerTokenStore(path).loadWithEntries() }
             assertTrue(ex.message!!.contains("tags_include"), "S11[$label]: message must name tags_include. Got: ${ex.message}")
         }
     }
@@ -289,7 +294,7 @@ class BearerScopeFailClosedTest {
                       - read
                 """.trimIndent()
             val path = writeYaml(content = yaml)
-            val ex = assertThrows<IllegalArgumentException>("S12[$label]") { BearerTokenStore(path).load() }
+            val ex = assertThrows<IllegalArgumentException>("S12[$label]") { BearerTokenStore(path).loadWithEntries() }
             assertTrue(ex.message!!.contains("scope"), "S12[$label]: message must name scope. Got: ${ex.message}")
         }
     }
@@ -312,7 +317,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("root_id"), "S12: message must name the unknown key. Got: ${ex.message}")
     }
 
@@ -336,7 +341,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("scopes"), "S13: message must name the unknown entry key. Got: ${ex.message}")
     }
 
@@ -402,7 +407,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(ex.message!!.contains("second-bad"), "S15: error must name the second token's id. Got: ${ex.message}")
         assertTrue(!ex.message!!.contains("first-good"), "S15: error must not name the first (valid) token's id. Got: ${ex.message}")
     }
@@ -432,9 +437,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertEquals(setOf(UUID.fromString(u1)), principal.scope.rootIds, "S17: duplicate root_ids must collapse into one entry")
     }
 
@@ -463,9 +469,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertEquals(setOf(u1), principal.scope.rootIds, "S18: an uppercase UUID string must parse to the same UUID")
     }
 
@@ -489,7 +496,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("tags_include"),
             "Probe: an unquoted 'yes' parses as a YAML boolean, not a String -- malformed per D3. Got: ${ex.message}",
@@ -512,7 +519,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("root_ids"),
             "Probe: a quoted brace-wrapped string is a scalar -- malformed per D2. Got: ${ex.message}",
@@ -536,7 +543,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("root_ids"),
             "Probe: whitespace-padded UUID text must not parse. Got: ${ex.message}",
@@ -560,7 +567,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("ROOT_IDS"),
             "Probe: scope keys are case-sensitive; ROOT_IDS is unknown per D5. Got: ${ex.message}",
@@ -584,7 +591,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("root_ids"),
             "Probe: a nested list element is not a String -- malformed per D2. Got: ${ex.message}",
@@ -608,7 +615,7 @@ class BearerScopeFailClosedTest {
                   - read
             """.trimIndent()
         val path = writeYaml(content = yaml)
-        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).load() }
+        val ex = assertThrows<IllegalArgumentException> { BearerTokenStore(path).loadWithEntries() }
         assertTrue(
             ex.message!!.contains("tags_include"),
             "Probe: tags_include must be a list -- a map is malformed per D3. Got: ${ex.message}",
@@ -631,9 +638,10 @@ class BearerScopeFailClosedTest {
         val path = writeYaml(content = yaml)
         val principal =
             BearerTokenStore(path)
-                .load()
-                .tokens.values
+                .loadWithEntries()
+                .values
                 .first()
+                .principal
         assertNull(principal.scope.rootIds, "Probe: scope: ~ (YAML null) must mean unrestricted, same as an absent scope")
         assertTrue(principal.scope.tagsInclude.isEmpty(), "Probe: scope: ~ must carry no tag constraint")
     }

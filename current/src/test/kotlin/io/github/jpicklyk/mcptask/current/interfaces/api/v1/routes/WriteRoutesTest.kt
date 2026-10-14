@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.ktor.serialization.kotlinx.json.json
@@ -34,9 +33,7 @@ fun Application.configureWriteTestApp(
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
                 tokenEntries =
-                    authConfig.tokens.mapValues { (_, p) ->
-                        BearerTokenStore.TokenEntry(p, expiresAt = null)
-                    }
+                    authConfig.tokens
             }
             itemRoutes(repo)
         }

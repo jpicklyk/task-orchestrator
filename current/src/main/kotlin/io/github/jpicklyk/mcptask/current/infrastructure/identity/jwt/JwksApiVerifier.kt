@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
 import com.nimbusds.jwt.JWTClaimsSet
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiCapability
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.ApiScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimParser
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import org.slf4j.LoggerFactory
@@ -13,17 +14,17 @@ import java.time.Clock
 import java.time.Instant
 
 /**
- * A successfully verified API JWT: the resolved [ApiPrincipal] plus the token's own expiry.
+ * A successfully verified API JWT: the resolved [Principal] plus the token's own expiry.
  *
  * [expiresAt] is non-null by construction -- the pipeline rejects a JWT without an `exp` claim
  * before this is built -- so callers holding a long-lived connection (the SSE endpoint) always have
  * an instant to schedule an expiry check against.
  *
- * @param principal The principal resolved from the JWT's `sub` / `to_scope` / `to_capabilities`.
+ * @param principal The principal resolved from the JWT's `sub` / `to_kind` / `to_scope` / `to_capabilities`.
  * @param expiresAt The JWT's `exp` claim, as a whole-second [Instant].
  */
 data class VerifiedApiToken(
-    val principal: ApiPrincipal,
+    val principal: Principal,
     val expiresAt: Instant,
 )
 
@@ -31,9 +32,15 @@ data class VerifiedApiToken(
  * Verifies `Authorization: Bearer <jwt>` tokens for the REST API layer through the shared
  * [JwtVerifier] pipeline under [JwtPolicy.forApi]: algorithm allowlist, `kid` key selection,
  * signature, required `exp`, `nbf`, lifetime cap, `iss`, `aud` and a required `sub`. A verified
- * token is then mapped to an [ApiPrincipal] from its custom claims (`to_scope.root_ids`,
+ * token is then mapped to a [Principal] from its custom claims (`to_kind`, `to_scope.root_ids`,
  * `to_scope.tags_include`, `to_capabilities`), defaulting to read-only unrestricted scope when
  * those claims are absent.
+ *
+ * Kind: `to_kind` (`human`, `agent` or `service`, trimmed, case-insensitive). Absent (or null), it is
+ * [PrincipalKind.SERVICE], except for the actor DID path (`sub == iss` and `sub` starts with `did:`), which is
+ * [PrincipalKind.AGENT]. A non-string or unknown `to_kind` rejects the token (fail-closed, like `to_scope`).
+ * Proof: [ProofStatus.VERIFIED], or [ProofStatus.VERIFIED_STALE] when the verifying key set was served from the
+ * stale cache.
  *
  * `exp` is REQUIRED: RFC 7519 section 4.1.4 makes it optional, but an API credential that never
  * expires cannot be revoked short of key rotation, and a non-null expiry is what lets long-lived
@@ -54,15 +61,16 @@ class JwksApiVerifier(
     private val jwtVerifier = JwtVerifier(JwtPolicy.forApi(config), keyProvider, clock, logger = logger)
 
     /**
-     * Verifies [jwtString] and returns the resolved [ApiPrincipal] on success, or null on any
-     * failure. Delegates to [verifyWithExpiry] and discards the expiry.
+     * Verifies [jwtString] and returns the resolved [Principal] on success, or null on any
+     * failure. Delegates to [verifyWithExpiry] and discards the expiry. Production resolves REST credentials
+     * through `CredentialResolver` only.
      */
-    suspend fun verify(jwtString: String): ApiPrincipal? = verifyWithExpiry(jwtString)?.principal
+    suspend fun verify(jwtString: String): Principal? = verifyWithExpiry(jwtString)?.principal
 
     /**
      * Verifies [jwtString] and returns the resolved principal together with the token's `exp`,
      * or null on any failure (invalid signature, missing/past `exp`, wrong iss/aud, unavailable
-     * key set, malformed `to_scope`, etc.).
+     * key set, malformed `to_scope` or `to_kind`, etc.).
      *
      * Rejections are logged at DEBUG to avoid leaking detail in production logs; an unavailable
      * key set is logged at WARN.
@@ -86,10 +94,13 @@ class JwksApiVerifier(
                 logger.warn("API JWT verification unavailable: {}", verdict.reason)
                 null
             }
-            is JwtVerdict.Verified -> toVerifiedApiToken(verdict.claims)
+            is JwtVerdict.Verified -> toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
         }
 
-    private fun toVerifiedApiToken(claims: JWTClaimsSet): VerifiedApiToken? {
+    private fun toVerifiedApiToken(
+        claims: JWTClaimsSet,
+        fromStaleCache: Boolean
+    ): VerifiedApiToken? {
         // The pipeline guarantees sub (requireSub) and exp are present on a Verified verdict.
         val sub = claims.subject ?: return null
         val expiry = claims.expirationTime ?: return null
@@ -99,18 +110,44 @@ class JwksApiVerifier(
                 logger.debug("JWT rejected: malformed to_scope claim")
                 return null
             }
+        val kind = extractKind(claims, sub) ?: return null
         val capabilities = extractCapabilities(claims)
 
         return VerifiedApiToken(
             principal =
-                ApiPrincipal(
-                    tokenId = sub,
+                Principal(
+                    id = sub,
+                    kind = kind,
+                    proofStatus = if (fromStaleCache) ProofStatus.VERIFIED_STALE else ProofStatus.VERIFIED,
                     scope = scope,
                     capabilities = capabilities,
-                    authMode = ApiAuthMode.JWKS,
                 ),
             expiresAt = expiry.toInstant(),
         )
+    }
+
+    /**
+     * The principal kind from the `to_kind` claim. Absent or null: [PrincipalKind.AGENT] on the actor DID path
+     * (`sub == iss` and `sub` starts with `did:`), else [PrincipalKind.SERVICE]. A non-string or unknown value
+     * returns null so the caller rejects the whole JWT; a WARN names the claim, never the JWT.
+     */
+    private fun extractKind(
+        claims: JWTClaimsSet,
+        sub: String
+    ): PrincipalKind? {
+        val raw = claims.getClaim(TO_KIND)
+        if (raw == null) {
+            return if (sub == claims.issuer && sub.startsWith(DID_PREFIX)) PrincipalKind.AGENT else PrincipalKind.SERVICE
+        }
+        val text =
+            raw as? String ?: run {
+                logger.warn("Rejecting JWT: {} claim is not a string", TO_KIND)
+                return null
+            }
+        return PrincipalKind.parse(text) ?: run {
+            logger.warn("Rejecting JWT: {} claim has an unknown value", TO_KIND)
+            null
+        }
     }
 
     /**
@@ -122,7 +159,7 @@ class JwksApiVerifier(
      * fails the whole JWT closed rather than silently widening access. A single WARN is logged
      * naming the claim path and the defect; it never includes the JWT itself.
      */
-    private fun extractScope(claims: JWTClaimsSet): ApiScope? {
+    private fun extractScope(claims: JWTClaimsSet): AccessScope? {
         val toScope =
             try {
                 claims.getJSONObjectClaim("to_scope")
@@ -171,5 +208,10 @@ class JwksApiVerifier(
                 }
             }.toSet()
             .ifEmpty { setOf(ApiCapability.READ) }
+    }
+
+    private companion object {
+        const val TO_KIND = "to_kind"
+        const val DID_PREFIX = "did:"
     }
 }

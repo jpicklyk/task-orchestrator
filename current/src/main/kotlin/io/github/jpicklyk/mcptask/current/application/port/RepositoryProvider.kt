@@ -58,8 +58,20 @@ interface RepositoryProvider {
     fun callLogStore(): CallLogStore = throw UnsupportedOperationException("This RepositoryProvider has no call log store")
 
     /**
+     * Runs and their membership. Writes belong to `RunService`. The default throws, so a provider that serves runs
+     * must override it.
+     */
+    fun runStore(): RunStore = throw UnsupportedOperationException("This RepositoryProvider has no run store")
+
+    /**
      * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
      * The default throws, so a provider that serves reports must override it.
      */
     fun reportQueries(): ReportQueries = throw UnsupportedOperationException("This RepositoryProvider has no report queries")
+
+    /**
+     * The `usage_daily` fold store (R13), used by the retention pruner's fold and the daily-basis report. The default throws,
+     * so a provider that serves the fold must override it.
+     */
+    fun usageDailyStore(): UsageDailyStore = throw UnsupportedOperationException("This RepositoryProvider has no usage daily store")
 }
