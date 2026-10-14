@@ -241,11 +241,34 @@ class RunPermissionsTest {
     }
 
     @Test
-    fun `the coordinator is decided by the caller id alone, so a different recorded opener kind does not unseat the same id`() {
-        // TS-P: coordinator = caller id equals run.openedBy. The kind recorded beside it is not part of the predicate.
+    fun `the coordinator is the caller whose id AND kind equal the recorded opener, so the same id with another recorded kind is not`() {
+        // Orchestrator ruling (decisions note, item 3) amending TS-P: id equality plus the caller kind equal to openedByKind.
+        val recordedService = runOpenedBy("api:rw-coord", "service")
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), recordedService), "same id, same kind")
         val recordedHuman = runOpenedBy("api:rw-coord", "human")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), recordedHuman))
-        assertFalse(RunPermissions.isCoordinator(rest("rw-other", PrincipalKind.SERVICE), recordedHuman), "control: another id is not")
+        assertFalse(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), recordedHuman), "same id, different kind")
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.HUMAN), recordedHuman), "control: same id, matching kind")
+        assertFalse(RunPermissions.isCoordinator(rest("rw-other", PrincipalKind.SERVICE), recordedService), "control: another id is not")
+    }
+
+    @Test
+    fun `a lifted MCP actor declaring the api id of a REST opener is not the coordinator and cannot update its run`() {
+        // The spoof case: the run was opened by REST principal api:rw-coord (credential kind service).
+        val run = runOpenedBy("api:rw-coord", "service")
+        val spoof = lifted("api:rw-coord", ActorKind.SUBAGENT)
+        assertEquals("api:rw-coord", RunPermissions.callerId(spoof), "the spoof carries the identical caller id")
+        assertFalse(RunPermissions.isCoordinator(spoof, run))
+        assertFalse(RunPermissions.mayUpdate(spoof, run), "update requires the coordinator, so the spoof is refused")
+        assertFalse(RunPermissions.mayClose(spoof, run), "close needs coordinator, director or human; the spoof is none")
+        val refusal = assertIs<ErrorDetail.Forbidden>(RunPermissions.refuse(RunPermissions.UPDATE_REQUIRED).detail)
+        assertEquals(ForbiddenScope.PRINCIPAL_KIND, refusal.scope)
+        assertEquals("coordinator", refusal.required)
+        // controls: the genuine REST opener is the coordinator, and a lifted actor that opened its own run is too
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), run))
+        assertTrue(RunPermissions.mayUpdate(rest("rw-coord", PrincipalKind.SERVICE), run))
+        assertTrue(RunPermissions.isCoordinator(lifted("orch-1"), runOpenedBy("orch-1", "agent")))
+        // a principal-less call matches only a run with no opener
+        assertFalse(RunPermissions.isCoordinator(anonymous(), run))
     }
 
     // ------------------------------------------------------------------ the three rows, as a truth table
