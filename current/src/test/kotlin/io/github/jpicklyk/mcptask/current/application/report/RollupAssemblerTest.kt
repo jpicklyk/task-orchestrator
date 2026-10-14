@@ -302,7 +302,7 @@ class RollupAssemblerTest {
     fun `wire - an anchor rollup has the declared member order and omits absent parts`() {
         val json = rollupJson(RollupAssembler.assemble(parts(roleCounts = linkedMapOf("work" to 2L, "queue" to 1L))))
 
-        assertEquals(listOf("scope", "window", "items", "blocked", "transitions", "notes", "cost"), json.keys.toList())
+        assertEquals(listOf("scope", "window", "itemCounts", "blocked", "transitions", "notes", "cost"), json.keys.toList())
         assertEquals(
             listOf("anchorId", "rootId"),
             json
@@ -321,7 +321,7 @@ class RollupAssemblerTest {
         assertEquals(
             listOf("queue", "work"),
             json
-                .getValue("items")
+                .getValue("itemCounts")
                 .jsonObject
                 .getValue("byRole")
                 .jsonObject.keys
@@ -330,7 +330,7 @@ class RollupAssemblerTest {
         assertEquals(
             "3",
             json
-                .getValue("items")
+                .getValue("itemCounts")
                 .jsonObject
                 .getValue("total")
                 .jsonPrimitive.content
@@ -393,7 +393,7 @@ class RollupAssemblerTest {
                 "scope",
                 "window",
                 "run",
-                "items",
+                "itemCounts",
                 "blocked",
                 "decisions",
                 "seats",

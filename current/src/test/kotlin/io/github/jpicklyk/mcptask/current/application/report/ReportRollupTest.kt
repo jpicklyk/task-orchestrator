@@ -618,7 +618,7 @@ class ReportRollupTest {
             assertNull(report.scope.runId)
 
             val json = rollupJson(report)
-            assertEquals(listOf("scope", "window", "items", "blocked", "transitions", "notes", "cost"), json.keys.toList())
+            assertEquals(listOf("scope", "window", "itemCounts", "blocked", "transitions", "notes", "cost"), json.keys.toList())
             val scope = json.getValue("scope").jsonObject
             assertEquals(listOf("anchorId", "rootId"), scope.keys.toList())
             assertEquals("f1000001", scope.getValue("anchorId").jsonPrimitive.content)
@@ -655,7 +655,7 @@ class ReportRollupTest {
             assertEquals(
                 listOf("total", "byRole"),
                 json
-                    .getValue("items")
+                    .getValue("itemCounts")
                     .jsonObject.keys
                     .toList()
             )

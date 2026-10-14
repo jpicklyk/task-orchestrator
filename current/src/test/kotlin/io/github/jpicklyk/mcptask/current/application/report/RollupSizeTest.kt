@@ -166,7 +166,7 @@ class RollupSizeTest {
                 assertEquals(
                     "50",
                     data
-                        .getValue("items")
+                        .getValue("itemCounts")
                         .jsonObject
                         .getValue("total")
                         .jsonPrimitive.content,
@@ -175,7 +175,7 @@ class RollupSizeTest {
                 assertEquals(
                     setOf("queue", "work", "review", "blocked", "terminal"),
                     data
-                        .getValue("items")
+                        .getValue("itemCounts")
                         .jsonObject
                         .getValue("byRole")
                         .jsonObject.keys,
