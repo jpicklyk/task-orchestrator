@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
 
-/** A note's owner as a view shows it: the owning principal's audited [id] (notes.owner_id) and its [seat] (notes.seat), when owned under a seat token. */
+/** A note's owner as a view shows it: the owning principal's audited [id] (notes.owner_id) and its [seat] (notes.owner_seat), when owned under a seat token. */
 data class NoteOwner(
     val id: String,
     val seat: String? = null

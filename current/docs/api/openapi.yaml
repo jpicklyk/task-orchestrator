@@ -925,8 +925,9 @@ paths:
         Any body may carry a top-level `seatToken` (every tool): it is accepted only while its assignment is active
         and only from the principal it was issued to; otherwise the call is `401 unauthenticated` with the fixed
         message `The seat token is not accepted.` and no detail, before anything else in the body is read. A call
-        under a token loses ADMIN, holds claims as its seat (principal plus assignment), owns the notes it creates as
-        its seat, and is its own idempotency principal. `advance` `heartbeat` takes `usage{tokens, costUsd}` under a
+        under a token loses ADMIN, holds claims as its seat (principal plus assignment), owns the notes it creates or
+        adopts as its seat (owner pair), records its seat as each written note's attribution seat, and is its own
+        idempotency principal. `advance` `heartbeat` takes `usage{tokens, costUsd}` under a
         token.
       parameters:
         - name: tool

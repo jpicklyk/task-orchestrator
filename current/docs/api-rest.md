@@ -982,8 +982,11 @@ records its run and seat on its events and call-log row, refreshes the seat's `l
 every 5 seconds; the coordinator token also refreshes the run's `coordinatorSeenAt`), and keys idempotency records by
 `<principal>#<assignmentId>`. A claim taken under a token is held by the pair (principal, assignment): only a call
 under the same token is its holder for heartbeat, release, transition and every fenced write, and a claim no longer
-auto-releases the other claims of a sibling seat of the same principal. A note created under a token is owned by
-(principal, seat). `advance` `heartbeat` takes `usage{tokens, costUsd}` (absolute values; the highest per field is
+auto-releases the other claims of a sibling seat of the same principal; a stdio or local agent that presents a
+`seatToken` holds claims as `(local, assignmentId)`, so two local agents with different seats are distinct holders for
+claims, fencing and note ownership. A note created or adopted under a token is owned by (principal, seat)
+(`notes.owner_id` and `notes.owner_seat`, written only together); every write under a token also records its seat as
+the note's attribution seat (`notes.seat`), which the independence gate pairs with the actor. `advance` `heartbeat` takes `usage{tokens, costUsd}` (absolute values; the highest per field is
 kept), which needs a token. `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
 nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with

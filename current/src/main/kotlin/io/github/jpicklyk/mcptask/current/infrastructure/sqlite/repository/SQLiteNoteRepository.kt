@@ -114,6 +114,7 @@ class SQLiteNoteRepository(
                 it[NotesTable.version] = NotesTable.version + 1L
                 it[NotesTable.ownerId] = note.ownerId
                 it[NotesTable.seat] = note.seat
+                it[NotesTable.ownerSeat] = note.ownerSeat
             },
         ) {
             it[id] = note.id
@@ -136,6 +137,7 @@ class SQLiteNoteRepository(
             it[NotesTable.version] = 1L
             it[NotesTable.ownerId] = note.ownerId
             it[NotesTable.seat] = note.seat
+            it[NotesTable.ownerSeat] = note.ownerSeat
         }
 
         // Read back the canonical row to obtain the actual ID (preserved from the pre-existing
@@ -248,7 +250,7 @@ class SQLiteNoteRepository(
                     NotesTable.role,
                     NotesTable.version,
                     NotesTable.ownerId,
-                    NotesTable.seat,
+                    NotesTable.ownerSeat,
                     bodyLength,
                     NotesTable.modifiedAt,
                     NotesTable.actorId,
@@ -269,7 +271,7 @@ class SQLiteNoteRepository(
                         role = row[NotesTable.role],
                         version = row[NotesTable.version],
                         ownerId = row[NotesTable.ownerId],
-                        ownerSeat = row[NotesTable.seat],
+                        ownerSeat = row[NotesTable.ownerSeat],
                         bodyLength = row[bodyLength].toInt(),
                         modifiedAt = row[NotesTable.modifiedAt],
                         actorClaim = mapActor(row, noteId),
@@ -352,7 +354,8 @@ class SQLiteNoteRepository(
             verification = mapVerification(row, noteId),
             version = row[NotesTable.version],
             ownerId = row[NotesTable.ownerId],
-            seat = row[NotesTable.seat]
+            seat = row[NotesTable.seat],
+            ownerSeat = row[NotesTable.ownerSeat]
         )
     }
 

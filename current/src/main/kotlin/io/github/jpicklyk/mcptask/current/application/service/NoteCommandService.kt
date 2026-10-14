@@ -58,8 +58,9 @@ data class NoteUpsertCommand(
     /** Whether the caller holds the capability `takeover` needs (ADMIN); decided by the transport, never inferred here. */
     val takeoverAllowed: Boolean = false,
     /**
-     * The seat of the call's seat token (R22), null without one. With [caller] it is the ownership pair: a note created
-     * or adopted under a token is owned by `(principal, seat)`, and only that pair (or a shared key) may rewrite it.
+     * The seat of the call's seat token (R22), null without one. It is the note's attribution seat on every write. With
+     * [caller] it is also the ownership pair: a note created or adopted under a token is owned by `(principal, seat)`
+     * (notes.owner_seat), and only that pair (or a shared key) may rewrite it.
      */
     val callerSeat: String? = null
 )
@@ -240,7 +241,7 @@ class NoteCommandService(
                                 callerSeat = cmd.callerSeat,
                                 takeover = cmd.takeover,
                                 takeoverAllowed = cmd.takeoverAllowed,
-                                ownerSeat = existing?.seat
+                                ownerSeat = existing?.ownerSeat
                             )
                     ) {
                         is Outcome.Err -> return@writeUnit UnitResult.Rollback(decided)
@@ -249,7 +250,9 @@ class NoteCommandService(
                 cmd.expectedVersion?.let { expected ->
                     versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
                 }
-                // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise.
+                // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise. A
+                // takeover is never under a token, so a transfer clears it. The attribution seat (`seat`) is the caller's on
+                // every write, like actor_*.
                 val ownerId: String?
                 val ownerSeat: String?
                 when {
@@ -259,7 +262,7 @@ class NoteCommandService(
                     }
                     decision is NoteOwnership.Decision.Transferred -> {
                         ownerId = decision.to
-                        ownerSeat = cmd.callerSeat
+                        ownerSeat = null
                     }
                     existing == null -> {
                         ownerId = cmd.caller?.principalId
@@ -267,7 +270,7 @@ class NoteCommandService(
                     }
                     else -> {
                         ownerId = existing.ownerId
-                        ownerSeat = existing.seat
+                        ownerSeat = existing.ownerSeat
                     }
                 }
                 val note =
@@ -281,7 +284,8 @@ class NoteCommandService(
                             actorClaim = cmd.actorClaim,
                             verification = cmd.verification,
                             ownerId = ownerId,
-                            seat = ownerSeat
+                            seat = cmd.callerSeat,
+                            ownerSeat = ownerSeat
                         )
                     } catch (e: ValidationException) {
                         return@writeUnit UnitResult.Rollback(
@@ -357,7 +361,7 @@ class NoteCommandService(
                         callerSeat = callerSeat,
                         takeover = false,
                         takeoverAllowed = false,
-                        ownerSeat = existing.seat
+                        ownerSeat = existing.ownerSeat
                     ).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
                 expectedVersion?.let { expected ->
                     versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }

@@ -17,9 +17,13 @@
 -- purpose: an assignment row disappears only with its run (that is, with the root and its items); a dangling id would
 -- merely never match a holder, and an FK added later would need a table recreation.
 --
--- notes.seat: the seat of the note's owner (NULL = a principal-level owner, every pre-4.0 note).
+-- notes.seat: ATTRIBUTION, the seat of the token that made the note's latest write; NULL without a token, and on every
+-- pre-4.0 note. It is rewritten on every upsert, like actor_*.
 --
--- Additive only: one new table with four indexes and two nullable ADD COLUMNs with no default (schema-only, no row
+-- notes.owner_seat: the seat half of the note owner (owner_id, owner_seat); written only with owner_id (create, adoption,
+-- takeover; a takeover is never under a token, so it writes NULL). NULL = a principal-level owner, every pre-4.0 note.
+--
+-- Additive only: one new table with four indexes and three nullable ADD COLUMNs with no default (schema-only, no row
 -- rewrite); no existing object is touched, no data is migrated.
 
 CREATE TABLE run_seats (
@@ -54,3 +58,5 @@ CREATE UNIQUE INDEX uq_run_seats_coordinator ON run_seats(run_id) WHERE seat = '
 ALTER TABLE work_items ADD COLUMN claim_assignment_id BLOB;
 
 ALTER TABLE notes ADD COLUMN seat TEXT;
+
+ALTER TABLE notes ADD COLUMN owner_seat TEXT;

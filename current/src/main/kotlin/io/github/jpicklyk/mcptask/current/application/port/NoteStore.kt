@@ -29,7 +29,7 @@ data class NoteSummary(
     val modifiedAt: Instant,
     val actorClaim: ActorClaim?,
     val verification: VerificationResult?,
-    /** The owner's seat ([io.github.jpicklyk.mcptask.current.domain.model.Note.seat]); null for a principal-level owner. */
+    /** The owner's seat ([io.github.jpicklyk.mcptask.current.domain.model.Note.ownerSeat]); null for a principal-level owner. */
     val ownerSeat: String? = null
 )
 
@@ -100,7 +100,7 @@ interface NoteStore {
                     it.modifiedAt,
                     it.actorClaim,
                     it.verification,
-                    it.seat
+                    it.ownerSeat
                 )
             }
 }

@@ -211,10 +211,11 @@ object GatePredicate {
     }
 
     /**
-     * Identity of a note: the pair (principal identity, owner seat). The principal identity is
+     * Identity of a note: the attribution pair (principal identity, seat). The principal identity is
      * verification.proofClaims.sub when the verification is a cryptographic proof (`status == VERIFIED`) and that sub is
-     * non-null, else actorClaim.id (may be null when the note is actor-less); the seat is the note's owner seat
-     * ([Note.seat], R22), null for a note written without a seat token. Two notes of one principal written under
+     * non-null, else actorClaim.id (may be null when the note is actor-less); the seat is the attribution seat of the
+     * note's latest write ([Note.seat], R22), null for a write made without a seat token. Ownership (`ownerId`,
+     * `ownerSeat`) is never read here. Two notes of one principal written under
      * different seats are different identities; a token-less note and a seat note of the same principal are different
      * pairs too (strict enforcement of that gap is R23's seat gate).
      */

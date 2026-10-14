@@ -975,8 +975,10 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)).
   A per-root config that cannot be read answers `unavailable` (`retryAfterMs`). A config head that exists but cannot be loaded answers `config_invalid` (permanent).
 - **Attribution.** The note records the call's principal (`api:<id>` for a credential, `local` for the local
-  principal) with its verification, on every transport; a body `actor` is `unknown_parameter`.
-- **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. Another principal's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other`; only an admin `takeover` moves an owned note. `notes_read` shows `owner{id}` under the attribution rule and omits it for an unowned note.
+  principal) with its verification, on every transport; a body `actor` is `unknown_parameter`. A write under a
+  `seatToken` also records that token's seat as the note's attribution seat (`notes.seat`, rewritten on every write
+  like the actor, NULL without a token); the independence gate compares the attribution pair (actor, seat).
+- **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. A note created or adopted under a `seatToken` is owned by the pair (principal, seat), stored as `notes.owner_id` and `notes.owner_seat`, which are written only together (create, adoption, takeover; a takeover is never under a token, so it clears the owner seat). Another owner pair's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other` (with `ownerSeat` when the owner is a seat); only an admin `takeover` moves an owned note. `notes_read` shows `owner{id, seat?}` under the attribution rule and omits it for an unowned note.
 
 ```json
 {
@@ -1246,7 +1248,10 @@ phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?,
 non-empty. Empty and null members are omitted.
 
 **Ownership.** When an item has an active (non-expired) claim, `transition` requires the caller's trusted actor id to equal the
-holder, on every trigger and on both MCP and REST; any other caller gets `not_claim_holder`.
+holder, on every trigger and on both MCP and REST; any other caller gets `not_claim_holder`. A claim taken under a
+`seatToken` is held by the pair (principal, assignment), so a stdio or local agent that presents a `seatToken` holds
+claims as `(local, assignmentId)`: two local agents with different seats are distinct holders for claims, fencing and note
+ownership.
 An unclaimed item, or one whose claim has lapsed, can be transitioned by anyone. The same fence guards the other writes to a
 held item: `notes_write` `upsert`/`delete`, `items_write` `update`/`delete` (a recursive delete over a held descendant is refused
 for that descendant) and every `deps_write` op naming it answer `not_claim_holder{itemId}` and write nothing, checked right after

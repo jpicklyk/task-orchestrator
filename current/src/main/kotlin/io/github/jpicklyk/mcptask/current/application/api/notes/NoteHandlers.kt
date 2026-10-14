@@ -274,7 +274,7 @@ object NoteHandlers {
             modifiedAt = note.modifiedAt,
             actor = if (ctx.attributionVisible) note.actorClaim else null,
             verification = if (ctx.attributionVisible) note.verification else null,
-            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it, note.seat) } else null
+            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it, note.ownerSeat) } else null
         )
 
     private fun entry(
