@@ -884,8 +884,8 @@ paths:
         `push`, `rollback` and `reset` (capability `write-config`). Only `GET /config/schema` stays a route.
 
         The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
-        reports. Its selects are `usage` (windows at most 400 days), `gates` and `contention` (at most 31 days) and
-        `waste` (at most 7 days). `usage` reports call-log calls, errors,
+        reports. Its selects are `usage` (windows at most 400 days), `gates`, `contention` and `rollup` (at most 31
+        days) and `waste` (at most 7 days). `usage` reports call-log calls, errors,
         response bytes, token estimate, average and maximum latency, retries and replays per `groupBy` group over a
         half-open `[since, until)` window (default the last 7 days, at most 400; at most 31 inside the raw horizon reads
         `call_log`, `basis: raw`, otherwise the per-day summaries plus the raw tail, `basis: daily`), with
@@ -897,11 +897,26 @@ paths:
         when the group value is missing (never a JSON `null`). `waste` answers one object of call-pattern waste
         signals (`redundantReads`, `overFetch`, `readsWithoutLaterWrite`, `emptyNext`, `relatedFollowThrough`,
         `lifecycleFreeRejections`, each `{value?, numerator, denominator, basis?}`), with no grouping and no page.
-        Scope differs per select. `usage` and `waste` read `call_log` rows, which carry no tags: a tag-scoped token is
+        `rollup` takes a required `anchorId` and answers one object for the anchor's subtree (inclusive):
+        `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
+        transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes,
+        responseTokensEst, basis: targets}}`, short ids only; with neither `since` nor `until` the window runs from the
+        subtree's first event to its last plus 1 ms, clamped to 31 days (`window.clamped`). Its cost is a lower bound
+        (calls that named a subtree item or wrote one of its events).
+        Scope differs per select. `usage`, `waste` and `rollup` read `call_log` rows, which carry no tags: a tag-scoped token is
         `forbidden` (`scope: tag`) and a root-scoped token sees only calls recorded against its roots; `groupBy:
         principal` needs `admin` (else `forbidden`, `scope: capability`) and is raw-only (`invalid_request` on the
         daily basis). `gates` and `contention` read events: a tag-scoped token is not refused and sees only the events
         whose item currently carries an allowed tag, and a root-scoped token sees only the events of its roots.
+
+        The `runs_read` tool (`get`, `list`; capability `read`) and the `runs_write` tool (`open`, `update`, `close`,
+        `pause`, `resume`, `mark`; capability `runs`) serve runs. A run is as visible as its root: a run whose root
+        is outside the token's scope is `forbidden` (`root` or `tag`) before any permission rule, and `list` leaves
+        it out. `close` is for the coordinator, the director profile or a human token; `pause` and `resume` for the
+        director profile or a human token; `update` for the coordinator only (before the coordinator token exists,
+        the caller that opened the run); a refusal is `forbidden` with `detail.scope: principal_kind` and
+        `detail.required` the allowed kinds. `mark` is REST only: it sets a named instant on a run in any status,
+        first write wins, and `marked: false` reports a replay.
       parameters:
         - name: tool
           in: path
@@ -978,7 +993,8 @@ paths:
       description: |
         The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
         envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
-        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`). For a member of that set the envelope is
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`; `runs_write` `open`,
+        `close`, `pause`, `resume`). For a member of that set the envelope is
         byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
         A registered tool with no member in the director set is 403 `forbidden` (`scope: capability`,

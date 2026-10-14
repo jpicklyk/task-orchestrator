@@ -13,6 +13,10 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
+import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -25,9 +29,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.liftTestActor
 import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -135,6 +141,51 @@ class ParitySeeder(
         checkNotNull(provider) { "this seeder was built without a repository provider" }
             .callLogStore()
             .append(records.toList())
+
+    /**
+     * Seeds a run through the undecorated [io.github.jpicklyk.mcptask.current.application.port.RunStore] inside a write unit (no
+     * event rows, the same on both legs), with [items] as its members. The state fields are derived from [status] by
+     * construction: a paused run carries a [pauseReason], a closed run a [terminalReason], a `closedAt` and a `closedBy`, so a
+     * fixture cannot name an inconsistent combination. Instants are fixed, so both legs seed identical rows.
+     */
+    suspend fun run(
+        id: UUID,
+        rootId: UUID,
+        items: List<UUID> = emptyList(),
+        status: RunStatus = RunStatus.OPEN,
+        openedBy: String? = null,
+        openedByKind: String? = null,
+        pauseReason: RunPauseReason = RunPauseReason.MANUAL,
+        terminalReason: RunTerminalReason = RunTerminalReason.COMPLETED,
+        openedAt: Instant = PARITY_NOW.minusSeconds(3_600),
+        closedAt: Instant = PARITY_NOW.minusSeconds(60),
+        marks: Map<String, Instant> = emptyMap()
+    ): Run {
+        val store = checkNotNull(provider) { "this seeder was built without a repository provider" }.runStore()
+        val uow = checkNotNull(unitOfWork) { "this seeder was built without a unit of work" }
+        lateinit var created: Run
+        uow.inUnit("parity.seedRun") {
+            created =
+                store.create(
+                    Run(
+                        id = id,
+                        rootId = rootId,
+                        status = status,
+                        pauseReason = if (status == RunStatus.PAUSED) pauseReason else null,
+                        terminalReason = if (status == RunStatus.CLOSED) terminalReason else null,
+                        openedBy = openedBy,
+                        openedByKind = openedByKind,
+                        openedAt = openedAt,
+                        closedBy = if (status == RunStatus.CLOSED) openedBy else null,
+                        closedAt = if (status == RunStatus.CLOSED) closedAt else null,
+                        stallAfterSeconds = Run.DEFAULT_STALL_AFTER_SECONDS,
+                        marks = marks
+                    )
+                )
+            if (items.isNotEmpty()) store.addMembers(id, items, openedAt)
+        }
+        return created
+    }
 
     /** Creates an item; a child's depth and root are derived from its parent so the domain invariants hold by construction. */
     suspend fun item(
@@ -589,7 +640,18 @@ class ParityHarness(
                         ?.get("code")
                         ?.jsonPrimitive
                         ?.content
-                assertEquals("invalid_request", mcpCode, "${s.name}: unknown on ${profile.wire}, like any hidden member: ${mcp.text}")
+                if (spec is OpsToolSpec<*>) {
+                    // An ops tool reports a hidden op as a failed ELEMENT: the whole call is partial_failure (207) and the element
+                    // carries invalid_request at the op selector (envelope: a failed element never fails its batch siblings).
+                    val body = mcp.structured.toString()
+                    assertEquals("partial_failure", mcpCode, "${s.name}: unknown on ${profile.wire}, like any hidden op: ${mcp.text}")
+                    assertTrue(
+                        "\"code\":\"invalid_request\"" in body && "/ops/0/op" in body,
+                        "${s.name}: the element is invalid_request at /ops/0/op on ${profile.wire}: $body"
+                    )
+                } else {
+                    assertEquals("invalid_request", mcpCode, "${s.name}: unknown on ${profile.wire}, like any hidden member: ${mcp.text}")
+                }
                 assertEquals(
                     project(mcpRawBefore),
                     project(rawTables(mcpLeg.db.jdbcUrl)),
@@ -646,7 +708,9 @@ class ParityHarness(
                 "document_versions",
                 "links",
                 "config_versions",
-                "config_heads"
+                "config_heads",
+                "runs",
+                "run_items"
             )
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")

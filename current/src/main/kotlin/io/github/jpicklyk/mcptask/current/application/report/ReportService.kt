@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
@@ -13,6 +14,8 @@ import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
+import io.github.jpicklyk.mcptask.current.application.port.RunFacts
+import io.github.jpicklyk.mcptask.current.application.port.SubtreeEventSpan
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
 import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
@@ -84,8 +87,8 @@ object WasteToolClasses {
     /** Tools whose calls write: the later write of `readsWithoutLaterWrite`, and the `lifecycleFreeRejections` calls. */
     val WRITE: Set<String> = setOf("items_write", "notes_write", "deps_write", "docs_write", "advance")
 
-    /** Tools in no class: the reports themselves and config. */
-    val EXCLUDED: Set<String> = setOf("report", "config")
+    /** Tools in no class: the reports themselves, config, and the run coordination tools (not item work). */
+    val EXCLUDED: Set<String> = setOf("report", "config", "runs_read", "runs_write")
 
     /** The tool whose selects feed `overFetch`, `emptyNext` and `relatedFollowThrough`. */
     const val ITEMS_READ = "items_read"
@@ -151,12 +154,122 @@ data class WasteReport(
  * Visibility (W6 decision 10): for `usage` and `waste` a tag-scoped caller is `forbidden` (scope tag) before any read, since
  * `call_log` rows carry no tags; a root-scoped caller sees only rows whose `root_id` is one of its roots (rows without a
  * root never); the `principal` grouping needs [CallContext.principalsVisible] (else `forbidden`, scope capability,
- * required `admin`). `gates` and `contention` read events instead: a tag-scoped caller is filtered, not refused.
+ * required `admin`). `gates` and `contention` read events instead: a tag-scoped caller is filtered, not refused. `rollup`
+ * includes `call_log` cost, so it follows `usage`.
+ *
+ * [runFacts] is the run-only fact source of the rollup; this default is its ONE wiring site ([NotTrackedRunFacts] until
+ * R28 implements the port).
  */
 class ReportService(
     private val unitOfWork: UnitOfWork,
-    private val clock: Clock
+    private val clock: Clock,
+    @Suppress("unused") private val runFacts: RunFacts = NotTrackedRunFacts
 ) {
+    /**
+     * `report rollup anchorId` (plan R16): the subtree of the anchor (inclusive, any depth) as one object, assembled by
+     * [RollupAssembler.assemble] with no run-only part. Validation order: tag scope (`forbidden`), `anchorId` present, the
+     * explicit window, then, in ONE read unit, the anchor (ScopedIds: prefix, `forbidden` outside the scope, `not_found`)
+     * and the counts.
+     *
+     * Window: when `since` or `until` is given, the usual rules apply (until defaults to now, since to until minus 7 days,
+     * at most [MAX_RAW_WINDOW]). When both are absent, the window is derived from the subtree events: the first event to
+     * the last event plus 1 ms, clamped to the [MAX_RAW_WINDOW] ending there (`clamped`); with no subtree event it is the
+     * last 7 days.
+     */
+    suspend fun rollup(
+        ctx: CallContext,
+        req: ReportRollupRequest
+    ): Outcome<RollupReport> {
+        if (ctx.scope.tagsInclude.isNotEmpty()) return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.TAG, ctx.scope.tagsInclude))
+        val anchorRef = req.anchorId ?: return Outcome.Err(invalid(ANCHOR_FIELD, "is required", null))
+        val explicit =
+            if (req.since == null && req.until == null) {
+                null
+            } else {
+                when (val w = window(req.since, req.until, MAX_RAW_WINDOW)) {
+                    is Outcome.Err -> return w
+                    is Outcome.Ok -> w.value
+                }
+            }
+
+        return unitOfWork.read<Outcome<RollupReport>> {
+            val repo = stores.workItemRepository()
+            val anchorId =
+                when (val r = ScopedIds.resolveTarget(repo, ctx.scope, anchorRef, ANCHOR_FIELD)) {
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val anchor =
+                repo.getById(anchorId)
+                    ?: return@read Outcome.Err(
+                        if (ctx.scope.isUnrestricted) notFound(anchorRef.raw) else ScopedIds.denied(ctx.scope)
+                    )
+            val rootId = anchor.rootId ?: anchor.id
+            val queries = stores.reportQueries()
+            val window =
+                if (explicit != null) {
+                    RollupWindow(explicit.first, explicit.second, clamped = false)
+                } else {
+                    derivedWindow(queries.subtreeEventSpan(anchorId))
+                }
+            val counts =
+                queries.anchorRollup(
+                    AnchorRollupQuery(
+                        anchorId = anchorId,
+                        rootId = rootId,
+                        since = window.since,
+                        until = window.until,
+                        scopeRootIds = ctx.scope.rootIds
+                    )
+                )
+            Outcome.Ok(
+                RollupAssembler.assemble(
+                    RollupParts(
+                        scope = RollupScope(anchorId = anchorId, runId = null, rootId = rootId),
+                        window = window,
+                        roleCounts = counts.roleCounts,
+                        transitions = RollupTransitions(counts.transitions, counts.cascades, counts.rejected),
+                        notesWritten = counts.notesWritten,
+                        cost =
+                            RollupCost(
+                                calls = counts.calls,
+                                errors = counts.errors,
+                                retries = counts.retries,
+                                responseBytes = counts.responseBytes,
+                                responseTokensEst = counts.responseTokensEst,
+                                basis = RollupAssembler.BASIS_TARGETS
+                            )
+                    )
+                )
+            )
+        }
+    }
+
+    /**
+     * The default rollup window: first subtree event to last plus 1 ms, clamped to the [MAX_RAW_WINDOW] ending at that
+     * until when longer; the last [DEFAULT_WINDOW] up to now when the subtree has no event.
+     */
+    private fun derivedWindow(span: SubtreeEventSpan?): RollupWindow {
+        if (span == null) {
+            val until = clock.now().truncatedTo(ChronoUnit.MILLIS)
+            return RollupWindow(until.minus(DEFAULT_WINDOW), until, clamped = false)
+        }
+        val until = span.last.plusMillis(1)
+        return if (Duration.between(span.first, until) > MAX_RAW_WINDOW) {
+            RollupWindow(until.minus(MAX_RAW_WINDOW), until, clamped = true)
+        } else {
+            RollupWindow(span.first, until, clamped = false)
+        }
+    }
+
+    private fun notFound(raw: String): DomainError =
+        DomainError(
+            code = ErrorCode.NOT_FOUND,
+            message = "No item matches $raw.",
+            detail = ErrorDetail.NotFound(EntityKind.ITEM, raw),
+            fixArgs = mapOf("kind" to "item", "id" to raw)
+        )
+
     suspend fun usage(
         ctx: CallContext,
         req: ReportUsageRequest
@@ -579,6 +692,7 @@ class ReportService(
         const val ADMIN = "admin"
 
         private const val ROOT_FIELD = "/rootId"
+        private const val ANCHOR_FIELD = "/anchorId"
         private const val MAX_RECEIVED = 100
     }
 }

@@ -41,7 +41,7 @@ over MCP.
 |---|---|---|---|
 | `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read` and `report`: no read that can return a note, document or transition-summary body, and no write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`) and `runs_write` (`open`, `close`, `pause`, `resume` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
@@ -62,7 +62,9 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios); director profile only on MCP |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree: items per role, blocked, transitions, notes written and call cost); director profile only on MCP |
+| `runs_read` | Runs | Read | Get one run or list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`); orchestration and director profiles |
+| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs: ops of one 4.0 tool; `mark` is REST only |
 
 ---
 
@@ -1823,8 +1825,8 @@ envelope request (`select` plus the select's fields) and every answer is the res
 once in the tool's own schema (`describe: true`).
 
 **Selects.** `usage` (the `call_log` usage aggregate, windows up to 400 days), `gates` and `contention` (aggregates over
-the `events` table, windows up to 31 days) and `waste` (call-pattern waste signals, windows up to 7 days). The rollup
-report is a planned select of this tool and is not served yet.
+the `events` table, windows up to 31 days), `waste` (call-pattern waste signals, windows up to 7 days) and `rollup`
+(one subtree as one object, windows up to 31 days). The run-scoped rollup (`runId`) is planned and not served yet.
 
 | Select | Answer (`data`) |
 |---|---|
@@ -1832,11 +1834,14 @@ report is a planned select of this tool and is not served yet.
 | `gates` | `{items: [{key: {<groupBy>?: value}, blocks, items}], page, window}` |
 | `contention` | `{items: [{key: {resource?: value}, kind, acquired, rejected, expired, released, forceReleased, contentionRate?, expiryRate?, forceReleaseRate?}], page, window}` |
 | `waste` | `{window: {...as usage}, signals: {redundantReads, overFetch, readsWithoutLaterWrite, emptyNext, relatedFollowThrough: {edges, links, tags, text}, lifecycleFreeRejections}}`, each signal `{value?, numerator, denominator, basis?}` |
+| `rollup` | `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total}, transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst, basis}}` |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
-  at most 400 days for `usage` (its daily basis), 31 days (the raw-table cap) for `gates` and `contention`, and 7 days
-  (the session-join bound) for `waste`, else `invalid_request` on `/since`.
+  at most 400 days for `usage` (its daily basis), 31 days (the raw-table cap) for `gates`, `contention` and `rollup`,
+  and 7 days (the session-join bound) for `waste`, else `invalid_request` on `/since`. The shared `since`/`until` field
+  docs point at `describe`, where each select states its own default and cap. `rollup` derives its default window from
+  the subtree when both bounds are absent (see below).
 - **Metrics.** Every metric is always present. `errors` counts calls whose outcome was an error; `responseBytes` and
   `responseTokensEst` are sums (a call that recorded none counts 0); `avgLatencyMs` is the mean rounded half up;
   `retries` is the sum of `attempts - 1`; `replays` counts idempotent replays.
@@ -1849,7 +1854,7 @@ report is a planned select of this tool and is not served yet.
 - **`gates`.** Counts `transition.rejected` events in the window. `groupBy` defaults to `noteKey`; `noteKey`, `type` and `trait` count only `gate_blocked` rejections, `errorCode` counts every rejection code (`gate_blocked`, `dependency_unmet`). `blocks` is the number of distinct rejections in the group and `items` the number of distinct item ids. A rejection counts once for each distinct key of its missing notes under `noteKey`; one that names no missing note (an independence violation) falls in the `{}` group. `type` and `trait` are joined **as of now** (the item's current type and traits, not those at the time of the rejection): a rejection counts once per current trait, and a deleted item, an item without a type, or an item without traits falls in the `{}` group. Groups are ordered by `blocks` descending, then key ascending (an empty key first).
 - **`contention`.** Counts claim and lease events per resource; `groupBy` accepts only `resource`. A lease's resource is its key and a claim's resource is the claimed item id; `kind` (`claim` or `lease`) separates rows whose resource strings are equal. `acquired` counts `claim.acquired` (heartbeat re-claims included) or `lease.acquired`; `rejected` counts `claim.rejected`, or `lease.rejected` once per distinct contended key; `expired` counts `claim.expired` or `lease.expired`; `released` counts `claim.released` (any reason) or `lease.released` that was not forced; `forceReleased` counts forced lease releases and is always 0 for claims. The rates are computed by the server: `contentionRate` = `rejected / (acquired + rejected)`, `expiryRate` = `expired / acquired`, `forceReleaseRate` = `forceReleased / acquired`, each rounded half up to 4 decimals, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). Groups are ordered by `rejected` descending, then resource ascending, then kind ascending.
 - **Per root.** There is no `root` grouping: pass `rootId` to report one project root.
-- **Visibility.** For `usage` and `waste`, a tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
+- **Visibility.** For `usage`, `waste` and `rollup` (whose cost reads call rows), a tag-scoped credential is `forbidden` (scope `tag`) before anything is read: call rows carry no tags.
   `gates` and `contention` read events, which name their item: a tag-scoped credential sees only the events whose item currently carries an allowed tag (a deleted item's events are invisible) and is not refused; a root-scoped one sees the events of its roots (a lease row is rooted at its holder item's root). For `usage`, a root-scoped credential sees only calls recorded against one of its roots (calls with no root are never visible to
   it). Grouping by `principal` needs the `admin` capability (else `forbidden`, scope `capability`); the MCP profiles run
   unrestricted. `rootId` must be a project root (depth 0, else `invalid_request`) and narrows the rows further; it
@@ -1887,6 +1892,28 @@ an ok read like any other.
     their `lifecycle_free_rejections`. A replay repeats a stored response and is not a new rejection, so replayed
     rows are left out of both. It is a per-call rate, so a batch can push it above 1.
 
+**`rollup` (anchor).** One object, no grouping and no page, built from pointers and counts only (8-character short
+ids, never a note body). `anchorId` is required (absent is `invalid_request` on `/anchorId`) and resolves like any
+item id (a hex prefix of 8 to 32 characters; outside the caller's scope `forbidden`; unknown `not_found`); any depth
+is allowed. The subtree is the anchor plus every descendant.
+
+- **Items.** `itemCounts.total` and `itemCounts.byRole` count the subtree's items by their current role (not windowed); a
+  lifecycle-free item (no role) is not counted, but its descendants are. Zero roles are omitted. `blocked.total` is the
+  number of items in the `blocked` role.
+- **Events.** `transitions.total` counts `item.transitioned` events of subtree items in the window, `cascades` those
+  with origin `cascade`, `rejected` the `transition.rejected` events; `notes.written` counts `note.upserted` events of
+  the subtree items' current notes (each upsert counts, deletes never). An upsert of a note deleted since is not counted.
+- **Cost** (`basis: "targets"`, always present). The distinct calls in the window whose `target_ids` names a subtree
+  item, or that wrote one of the subtree's events in the window (same `req_id`), each counted once; metrics as `usage`
+  (`errors`, `retries` = sum of `attempts - 1`, response sums with a missing value as 0). A lower bound: a call that
+  named no id (or an id past the 50 that `target_ids` keeps) and wrote nothing is missed. A root-scoped credential
+  counts only calls recorded against one of its roots (calls with no root never).
+- **Window.** With `since` or `until` given, the usual rules apply (at most 31 days). With neither, the window runs
+  from the subtree's first event to its last event plus 1 ms; a span longer than 31 days is cut to the 31 days ending
+  there and `window.clamped: true` is set; a subtree with no event gets the last 7 days.
+- **Not on an anchor.** `run`, `blocked.byReason`, `decisions`, `seats` and `attempts` are run-only sections and are
+  absent; the run-scoped rollup (`runId`) adds them.
+
 ```json
 { "select": "usage" }
 { "select": "usage", "groupBy": "day", "since": "2026-10-01T00:00:00Z", "until": "2026-10-08T00:00:00Z" }
@@ -1894,62 +1921,213 @@ an ok read like any other.
 { "select": "gates", "groupBy": "trait" }
 { "select": "contention", "since": "2026-10-01T00:00:00Z" }
 { "select": "waste", "since": "2026-10-06T00:00:00Z", "until": "2026-10-13T00:00:00Z" }
+{ "select": "rollup", "anchorId": "1be2db5e" }
 ```
 
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool report -->
-Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected transitions), contention (claims, leases), waste (call-pattern waste ratios).
+Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), contention (claims, leases), waste (ratios), rollup (subtree items, transitions, notes, cost).
 
-**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until). groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until), default the 7 days before now. groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 7 for waste, 31 for other selects. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe). |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | The page.next value of the previous page. |
+| `cursor` | string | no | page.next of the previous page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `gates`** (director profile only; capability `read`): Rejected transitions per group over [since, until): blocks (distinct rejections) and items (distinct item ids). groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince (the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.
+**`report` select `gates`** (director profile only; capability `read`): Rejected transitions per group over [since, until) (default the 7 days before now, at most 31 days): blocks (distinct rejections) and items (distinct item ids). groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince (the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 7 for waste, 31 for other selects. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe). |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | The page.next value of the previous page. |
+| `cursor` | string | no | page.next of the previous page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `contention`** (director profile only; capability `read`): Claim and lease contention per resource over [since, until): kind (claim or lease), acquired, rejected, expired, released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate (expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key (a lease.rejected counts once per contended key); a claim's resource is the claimed item id. Only leases report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw and truncatedByRetention. Visibility as for gates.
+**`report` select `contention`** (director profile only; capability `read`): Claim and lease contention per resource over [since, until) (default the 7 days before now, at most 31 days): kind (claim or lease), acquired, rejected, expired, released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate (expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key (a lease.rejected counts once per contended key); a claim's resource is the claimed item id. Only leases report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw and truncatedByRetention. Visibility as for gates.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 7 for waste, 31 for other selects. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; each select accepts its own subset and default, see describe. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe). |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select, see describe. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | The page.next value of the previous page. |
+| `cursor` | string | no | page.next of the previous page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `waste`** (director profile only; capability `read`): Waste signals over [since, until), at most 7 days, each {value?, numerator, denominator, basis?}: value is numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only (basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `waste`** (director profile only; capability `read`): Waste signals over [since, until), default the 7 days before now, at most 7 days, each {value?, numerator, denominator, basis?}: value is numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only (basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 7 for waste, 31 for other selects. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe). |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`report` select `rollup`** (director profile only; capability `read`): One subtree as one object: anchorId and every descendant, any depth. itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `anchorId` | string | no | Roll up this item and every descendant (UUID or 8-32 hex prefix). |
+| `since` | string | no | Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe). |
+| `until` | string | no | Window end, exclusive: ISO 8601 with Z or an offset. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool report -->
+
+---
+
+## Category: Runs
+
+A run is a bounded, budgeted pass over a set of member items of one root. The run tools are 4.0 registry tools: the request is
+the envelope request and every answer is the response envelope. Each field is documented once in the tool's own schema
+(`describe: true`).
+
+### runs_read
+
+**Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (a page of runs, `openedAt` descending
+then id). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
+`unmarked` (a mark key; only closed runs that do not carry it, so combining it with a `status` other than `closed` is
+`invalid_request` on `/unmarked`). A run is as visible as its root: `get` of a run whose root is outside the caller's scope is
+`forbidden` (never `not_found`), and `list` leaves such runs out.
+
+**The run view** (every `runs_read` and `runs_write` result): `{runId, rootId, scopeId?, label?, title?, status,
+pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, coordinatorSeenAt?,
+coordinatorStalled, stallAfterSeconds, budget?: {tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}, usage:
+{reportedTokens, reportedCostUsd, observedTokens}, hints, marks, members, activeSeats, version}`. Absent members are
+omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD.
+
+**Request reference.** Generated from the registry (see [Overview](#overview)).
+
+<!-- generated:tool runs_read -->
+Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters). A run is outside the call scope when its root is.
+
+**`runs_read` select `get`** (orchestration and director profiles; capability `read`): Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call scope is forbidden, not not_found.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `list`** (orchestration and director profiles; capability `read`): List runs, newest first (openedAt descending). status, rootId and endedSince (closedAt at or after, inclusive) filter; unmarked names a mark key and keeps only closed runs without it, so it cannot be combined with a status other than closed. Runs on roots outside the call scope are left out.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | no | Only runs on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `status` | string: open \| paused \| closed | no | Only runs in this status: open, paused or closed. |
+| `endedSince` | string (date-time) | no | Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z). |
+| `unmarked` | string | no | Only closed runs that do not carry this mark key (lowercase letters, digits, - and _, starting with a letter). Implies closed runs. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool runs_read -->
+
+### runs_write
+
+**Ops.** `open` (a run on a root over up to 500 of its items; the caller is recorded as `openedBy`), `update` (add or remove
+items, lower the budget, replace the hints; `expectedVersion` guards a concurrent change), `close` (reason `completed`,
+`cancelled`, `failed` or `abandoned`; the answer adds `snapshot: {reason, countsByRole, inFlight, released, openDecisions}`),
+`pause`, `resume` and `mark` (REST only: sets a named instant, first write wins, at most 32 marks; the answer adds
+`marked`, false for a replay). Every op needs the `runs` capability and a run whose root is in scope.
+
+**Permissions.** `open` any caller with `runs`. `close`, any reason: the coordinator, the director profile or a human
+token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update`: the
+coordinator only. `mark`: any caller with `runs`. Until the coordinator token ships, the coordinator is the caller that
+opened the run: the same principal id and the same credential kind (the local principal is `local`, kind `agent`). A refusal is `forbidden` with `detail:
+{scope: "principal_kind", required}` where `required` lists the allowed kinds. The scope check on the run's root comes
+first, so a permission refusal never reveals whether an out-of-scope run exists.
+
+**Request reference.** Generated from the registry (see [Overview](#overview)).
+
+<!-- generated:tool runs_write -->
+Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
+
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rootId` | string | yes | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `items` | array of string | no | Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. |
+| `scopeId` | string | no | An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `label` | string | no | A short label, at most 64 characters. |
+| `title` | string | no | A title, at most 200 characters. |
+| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
+| `budget.tokens` | integer | no | Token limit. |
+| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
+| `budget.maxActiveSeats` | integer | no | Most seats active at once. |
+| `stallAfterSeconds` | integer | no | Seconds without a coordinator sign of life before the run reads as stalled. Default from config. |
+| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+
+Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `update`** (orchestration profile only; capability `runs`): Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), replace the hints. Coordinator only. A paused run is run_paused; a closed run is run_closed. expectedVersion guards against a concurrent change. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `addItems` | array of string | no | Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `removeItems` | array of string | no | Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
+| `budget.tokens` | integer | no | Token limit. |
+| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
+| `budget.maxActiveSeats` | integer | no | Most seats active at once. |
+| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+| `expectedVersion` | integer | no | Fails with version_conflict unless the run is at this version. |
+
+Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `run_paused`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`runs_write` op `close`** (orchestration and director profiles; capability `runs`; destructive): End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). Coordinator, director or a human. Any reason but completed ends active seats and releases claims and leases of the members; completed is refused while a seat is active. Returns the run and a snapshot of what the close recorded.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `reason` | string: completed \| cancelled \| failed \| abandoned | yes | Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `pause`** (director profile only; capability `runs`): Pause an open run (reason manual). Director or a human only; the opener of a run may not pause it. A run that is not open is invalid_run_state. Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `resume`** (director profile only; capability `runs`): Resume a manually paused run. Director or a human only. A budget or attempts pause cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `mark`** (REST only; capability `runs`): Set a named mark on a run to now. REST only. Allowed in every status, including closed; the first write of a key wins and a replay changes nothing (marked false). A run holds at most 32 marks. Returns the run and marked.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `key` | string | yes | The mark key: lowercase letters, digits, - and _, starting with a letter, at most 64 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool runs_write -->
 
 ---
 

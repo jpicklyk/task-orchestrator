@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
  * the registered surface of the `waste` select.
  *
  * Oracles (never read from a run). S18, task-scope point 4: READ = items_read, notes_read, docs_read, deps_read; WRITE =
- * items_write, notes_write, deps_write, docs_write, advance; EXCLUDED = report, config; every registered tool name is in exactly
+ * items_write, notes_write, deps_write, docs_write, advance; EXCLUDED = report, config, runs_read, runs_write; every registered tool name is in exactly
  * one class, so a tool added later without a classification fails here. The surface, task-scope points 1 and 7: `waste` is a
  * select of `report` visible in the director profile only (like `usage`), takes exactly rootId, since and until (no groupBy,
  * limit or cursor), and rootId, since and until keep ONE schema across the selects of the tool (a shared field-doc constant set
@@ -44,7 +44,7 @@ class WasteToolClassificationTest {
     fun `S18 the three classes hold exactly the tools of the task-scope`() {
         assertEquals(setOf("items_read", "notes_read", "docs_read", "deps_read"), WasteToolClasses.READ)
         assertEquals(setOf("items_write", "notes_write", "deps_write", "docs_write", "advance"), WasteToolClasses.WRITE)
-        assertEquals(setOf("report", "config"), WasteToolClasses.EXCLUDED)
+        assertEquals(setOf("report", "config", "runs_read", "runs_write"), WasteToolClasses.EXCLUDED)
     }
 
     @Test
@@ -79,7 +79,7 @@ class WasteToolClassificationTest {
     @Test
     fun `S16 report lists usage and waste, and waste is visible in the director profile only`() {
         assertEquals(
-            listOf("usage", "gates", "contention", "waste"),
+            listOf("usage", "gates", "contention", "waste", "rollup"),
             ParityCoverage
                 .members(registry)
                 .filter {
@@ -118,7 +118,7 @@ class WasteToolClassificationTest {
     }
 
     @Test
-    fun `rootId, since and until keep one schema across the selects and until carries the waste cap`() {
+    fun `rootId, since and until keep one schema across the selects and each select documents its window cap`() {
         val ops = operations()
         val usage = properties(assertNotNull(ops["usage"]))
         val waste = properties(assertNotNull(ops["waste"]))
@@ -126,13 +126,20 @@ class WasteToolClassificationTest {
         for (shared in listOf("rootId", "since", "until")) {
             assertEquals(usage.getValue(shared), waste.getValue(shared), "$shared has one schema in both selects")
         }
-        val until = waste.getValue("until").toString()
-        assertTrue("7 for waste" in until, "until documents the waste cap: $until")
-        assertTrue("400 days after since for usage" in until, "until documents the usage cap: $until")
-        assertTrue("31 for other selects" in until, "until documents the other-selects cap: $until")
+
+        // R16 moved the per-select window caps out of the shared until doc (compact budget) into each select's describe text.
+        fun doc(select: String): String =
+            assertNotNull(ops[select])
+                .getValue("description")
+                .jsonPrimitive.content
+        assertTrue("at most 7 days" in doc("waste"), "waste documents its cap: ${doc("waste")}")
+        assertTrue("at most 400 days" in doc("usage"), "usage documents its cap: ${doc("usage")}")
+        for (select in listOf("gates", "contention", "rollup")) {
+            assertTrue("31 days" in doc(select), "$select documents its cap: ${doc(select)}")
+        }
         assertTrue(
-            ReportFieldDocs.UNTIL.endsWith("At most 400 days after since for usage, 7 for waste, 31 for other selects."),
-            ReportFieldDocs.UNTIL
+            "describe" in ReportFieldDocs.SINCE,
+            "since points at describe for the per-select default and cap: ${ReportFieldDocs.SINCE}"
         )
     }
 

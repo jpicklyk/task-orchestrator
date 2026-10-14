@@ -434,9 +434,10 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 every registered tool other than items_read, deps_read and report is forbidden director on the director path`() {
+    fun `S10 every registered tool outside the director set is forbidden director on the director path`() {
         val registry = ToolRegistry(buildToolSpecs())
-        val outside = registry.tools.map { it.name }.filter { it != "items_read" && it != "deps_read" && it != "report" }
+        val directorSet = setOf("items_read", "deps_read", "report", "runs_read", "runs_write")
+        val outside = registry.tools.map { it.name }.filter { it !in directorSet }
         assertTrue(outside.isNotEmpty(), "fixture: the production registry has tools outside the director set")
         assertTrue(
             "notes_read" in outside && "docs_write" in outside && "config" in outside,
@@ -453,6 +454,14 @@ class DirectorOpsRouteTest {
 
             // control: a director-set tool on the same path, same credential, is served
             assertEquals(200, client.send("/api/v1/ops/director/items_read", """{"select":"overview"}""", token = "raw-admin").status.value)
+            // runs_read and runs_write are in the director set too: served on the director path, not refused
+            assertEquals(200, client.send("/api/v1/ops/director/runs_read", """{"select":"list"}""", token = "raw-admin").status.value)
+            val runsWrite = client.send("/api/v1/ops/director/runs_write", "{}", token = "raw-admin")
+            assertEquals(
+                "invalid_request",
+                runsWrite.envelope().code(),
+                "reaches the tool, which refuses the missing ops: ${runsWrite.bodyAsText()}"
+            )
             // the report tool is in the director set now: an empty body reaches the tool, which refuses the missing select
             val report = client.send("/api/v1/ops/director/report", "{}", token = "raw-admin")
             assertEquals(400, report.status.value, report.bodyAsText())

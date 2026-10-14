@@ -1,0 +1,70 @@
+{
+  "itemId": {
+    "type": "string",
+    "description": "Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign, raise]"
+  },
+  "seat": {
+    "type": "string",
+    "description": "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]"
+  },
+  "outcome": {
+    "type": "string",
+    "description": "How the calling seat ended. [ops: end_seat]",
+    "enum": [
+      "done",
+      "failed",
+      "abandoned"
+    ]
+  },
+  "links": {
+    "type": "array",
+    "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: end_seat, raise]",
+    "items": {
+      "type": "object"
+    }
+  },
+  "class": {
+    "type": "string",
+    "description": "Decision class (for example question or deviation); it decides who may answer. [ops: raise]"
+  },
+  "question": {
+    "type": "string",
+    "description": "The question, at most 500 characters. [ops: raise]"
+  },
+  "options": {
+    "type": "array",
+    "description": "1 to 8 choices, each {key, label, consequence}. [ops: raise]",
+    "items": {
+      "type": "object"
+    }
+  },
+  "recommended": {
+    "type": "string",
+    "description": "Key of the recommended option. [ops: raise]"
+  },
+  "context": {
+    "type": "string",
+    "description": "Background for the answerer, at most 1000 characters. [ops: raise]"
+  },
+  "dedupeKey": {
+    "type": "string",
+    "description": "Re-raising the same key returns the open or answered decision instead of a new one. [ops: raise]"
+  },
+  "severity": {
+    "type": "string",
+    "description": "Default normal. [ops: raise]",
+    "enum": [
+      "high",
+      "normal",
+      "low"
+    ]
+  },
+  "block": {
+    "type": "boolean",
+    "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
+  },
+  "summary": {
+    "type": "string",
+    "description": "Closing summary, at most 500 characters. [ops: end_seat]"
+  }
+}

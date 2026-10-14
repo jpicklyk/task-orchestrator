@@ -9,24 +9,25 @@
           "usage",
           "gates",
           "contention",
-          "waste"
+          "waste",
+          "rollup"
         ]
       },
       "rootId": {
         "type": "string",
-        "description": "Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see."
+        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. [select: usage, gates, contention, waste]"
       },
       "since": {
         "type": "string",
-        "description": "Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days."
+        "description": "Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe)."
       },
       "until": {
         "type": "string",
-        "description": "Window end, exclusive: ISO 8601 with Z or an offset. Default now. At most 400 days after since for usage, 7 for waste, 31 for other selects."
+        "description": "Window end, exclusive: ISO 8601 with Z or an offset."
       },
       "groupBy": {
         "type": "string",
-        "description": "Row grouping; each select accepts its own subset and default, see describe. [select: usage, gates, contention]",
+        "description": "Row grouping; subset and default per select, see describe. [select: usage, gates, contention]",
         "enum": [
           "tool",
           "operation",
@@ -48,7 +49,11 @@
       },
       "cursor": {
         "type": "string",
-        "description": "The page.next value of the previous page. [select: usage, gates, contention]"
+        "description": "page.next of the previous page. [select: usage, gates, contention]"
+      },
+      "anchorId": {
+        "type": "string",
+        "description": "Roll up this item and every descendant (UUID or 8-32 hex prefix). [select: rollup]"
       },
       "describe": {
         "type": "boolean",
@@ -57,7 +62,7 @@
     },
     "type": "object"
   },
-  "description": "Aggregate reports. select: usage (call-log calls, errors, bytes, tokens, latency per group), gates (rejected transitions), contention (claims, leases), waste (call-pattern waste ratios). Call with describe:true for each operation's parameters and errors.",
+  "description": "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), contention (claims, leases), waste (ratios), rollup (subtree items, transitions, notes, cost). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

@@ -55,3 +55,9 @@ data class RunCloseResult(
     val run: Run,
     val snapshot: RunEndedSnapshot
 )
+
+/** The run after a mark, and whether this call set it ([marked] false means the key was already set: a replay). */
+data class RunMarkResult(
+    val run: Run,
+    val marked: Boolean
+)
