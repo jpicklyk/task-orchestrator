@@ -692,10 +692,10 @@ class SqliteItemStore(
      * The AND-ed WHERE conditions of [find]/[count], or null when nothing can match (an empty scope or ancestor subtree).
      * Must run inside a transaction: resolving a root set may probe or walk the hierarchy.
      *
-     * The access scope's roots and the filter's ancestor are two AND-ed subtree conditions. When the ancestor is
-     * itself a listed scope root, its subtree lies inside the scope and the scope condition is dropped (one
-     * resolution instead of two). The `tags_include` allowlist is [TagAllowlistOp], the same SQL the search
-     * engine applies.
+     * The access scope's roots (roots-only, `root_id IN`) and the filter's ancestor subtree are two AND-ed
+     * conditions. The principal condition is never dropped, even when the ancestor is a listed root: the ancestor
+     * subtree traverses, so it alone would admit rows outside the scope once the anchor stops being a root. The
+     * `tags_include` allowlist is [TagAllowlistOp], the same SQL the search engine applies.
      */
     private fun conditionsFor(
         filter: ItemFilter,
@@ -703,8 +703,7 @@ class SqliteItemStore(
         at: Instant?,
     ): List<Op<Boolean>>? {
         val ancestorId = filter.ancestorId
-        val scopeRoots = scope.rootIds?.takeUnless { ancestorId != null && ancestorId in it }
-        val accessScope = scopeRoots?.let { ScopeResolver.resolve(it) }
+        val accessScope = scope.rootIds?.let { ScopeResolver.resolve(it) }
         val conditions = ItemQueries.conditions(ItemQueries.specOf(filter), accessScope, at) ?: return null
         if (ancestorId != null) {
             val ancestorScope = ScopeResolver.subtree(setOf(ancestorId))
