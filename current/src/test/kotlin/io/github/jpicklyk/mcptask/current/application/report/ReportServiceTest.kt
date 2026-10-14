@@ -118,7 +118,7 @@ internal class ReportFixture(
         title: String,
         tags: String? = null
     ) {
-        database.repositoryProvider().workItemRepository().create(WorkItem(id = id, title = title, tags = tags))
+        database.repositoryProvider().workItemRepository().create(WorkItem(id = id, title = title, tags = tags, rootId = id))
     }
 
     /** A depth-1 child of [parent]; its root is the parent. */

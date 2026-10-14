@@ -471,7 +471,7 @@ internal class R11Events(
                 title = title,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 type = type,
                 tags = tags,
                 traits = traits

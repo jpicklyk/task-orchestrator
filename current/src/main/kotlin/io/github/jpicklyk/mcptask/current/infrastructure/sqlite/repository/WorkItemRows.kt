@@ -257,30 +257,30 @@ internal sealed interface ResolvedScope {
 
 internal object ScopeResolver {
     /**
-     * Resolve a caller-supplied root set into a scope filter, preferring the flat `root_id`
-     * predicate over the recursive expansion whenever it is provably equivalent.
+     * Resolve a PRINCIPAL scope's root set (an [io.github.jpicklyk.mcptask.current.application.port.AccessScope]'s
+     * `rootIds`) into a scope filter: `root_id IN (rootIds)`, or [ResolvedScope.Empty] for an empty set. Never
+     * traverses. A listed id is a project root by contract (anchor validation); V9 stamps every item with the id of
+     * its depth-0 ancestor, so `{x : x.root_id = R}` is the whole tree of R. An id that is not a root simply admits
+     * nothing (fail closed); it never widens to a containing tree.
+     */
+    fun resolve(rootIds: Set<UUID>): ResolvedScope = if (rootIds.isEmpty()) ResolvedScope.Empty else ResolvedScope.ByRoot(rootIds)
+
+    /**
+     * Resolve a REQUEST subtree filter (`ancestorId`, or the root ids derived from it) into a scope filter,
+     * preferring the flat `root_id` predicate whenever it is provably equivalent.
      *
-     * Fast path (ALL-OR-NOTHING): taken only when EVERY id in [rootIds] resolves to a row that is
-     * a stamped depth-0 root, `parent_id IS NULL AND root_id = id`. V9 stamps every item with the id of its
-     * depth-0 ancestor and a depth-0 item with its own id, so for such a root R the set
-     * `{x : x.root_id = R}` is exactly `subtree(R)`, R included. The scope then costs |rootIds|
-     * bound variables instead of one per subtree row.
-     *
-     * The all-or-nothing guard is the entire safety mechanism: accepting a set containing a
-     * below-root id would silently widen that id scope to its whole containing tree. One
-     * non-root, unstamped, inconsistently stamped or missing id and the whole call falls back to
-     * [HierarchyTraversal.subtreeIds].
-     *
-     * Declared behaviour delta: the fast path does not traverse, so a cyclic `parent_id` edge
-     * beneath a stamped root returns rows here where the traversal raises MAX_TRAVERSAL_DEPTH.
+     * Fast path (ALL-OR-NOTHING): taken only when EVERY id in [ids] resolves to a row that is
+     * a stamped depth-0 root, `parent_id IS NULL AND root_id = id`; then `{x : x.root_id = R}` is exactly
+     * `subtree(R)`. One non-root, unstamped, inconsistently stamped or missing id and the whole call falls back to
+     * [HierarchyTraversal.subtreeIds], so a below-root id keeps meaning "only this item's subtree, itself included".
      *
      * Must be called from within an active Exposed transaction.
      */
-    fun resolve(rootIds: Set<UUID>): ResolvedScope {
-        if (rootIds.isEmpty()) return ResolvedScope.Empty
-        if (allAreStampedRoots(rootIds)) return ResolvedScope.ByRoot(rootIds)
+    fun subtree(ids: Set<UUID>): ResolvedScope {
+        if (ids.isEmpty()) return ResolvedScope.Empty
+        if (allAreStampedRoots(ids)) return ResolvedScope.ByRoot(ids)
 
-        val scopeIds = HierarchyTraversal.subtreeIds(rootIds)
+        val scopeIds = HierarchyTraversal.subtreeIds(ids)
         return if (scopeIds.isEmpty()) ResolvedScope.Empty else ResolvedScope.ByIds(scopeIds)
     }
 

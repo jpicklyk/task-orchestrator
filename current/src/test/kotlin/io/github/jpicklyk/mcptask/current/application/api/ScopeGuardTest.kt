@@ -24,8 +24,9 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item f67e1762) for [ScopeGuard], scenarios S5 and S12 of the frozen test-plan
  * (NEW-SURFACE).
  *
- * Oracles: task-scope item 6 and decision D2. `check` is the transport-neutral twin of the REST scope check: an unrestricted
- * scope is Ok with no repository read; a root-restricted scope admits an item that is itself listed or has a listed ancestor,
+ * Oracles: task-scope item 6 and decision D2, amended by item 754ae3dc (scope on root_id, roots only). `check` is the
+ * transport-neutral twin of the REST scope check: an unrestricted scope is Ok with no repository read; a root-restricted scope
+ * admits an item whose stamped `rootId` is a listed root (a listed non-root admits nothing, itself included),
  * else `forbidden{scope: root}`; a tag-restricted scope admits an item whose CSV `tags` (entries trimmed, matched exactly,
  * case-sensitive) contain a listed tag, else `forbidden{scope: tag}`; a missing item or a lookup fault under a restricted scope
  * is `forbidden` too (fail closed, no existence oracle, never `not_found`). `required` is the sorted listed root ids or tags
@@ -60,7 +61,8 @@ class ScopeGuardTest {
                 title = "item-${id.toString().takeLast(2)}",
                 parentId = parent,
                 depth = (p?.depth ?: -1) + 1,
-                rootId = p?.let { it.rootId ?: it.id },
+                // a root is stamped with its own id, a child with its parent's root (the one-writer invariant)
+                rootId = p?.let { it.rootId ?: it.id } ?: id,
                 tags = tags
             )
         )
@@ -117,13 +119,16 @@ class ScopeGuardTest {
         }
 
     @Test
-    fun `S5 a listed non-root ancestor admits its descendants and itself, not its parent`(): Unit =
+    fun `S5 a listed non-root admits neither itself nor its descendants nor its parent`(): Unit =
         runBlocking {
             seedTree()
             val scope = AccessScope.principal(setOf(childA), emptySet())
-            check(scope, childA).assertOk()
-            check(scope, grandA).assertOk()
+            check(scope, childA).forbidden(ForbiddenScope.ROOT, childA.toString())
+            check(scope, grandA).forbidden(ForbiddenScope.ROOT, childA.toString())
             check(scope, rootA).forbidden(ForbiddenScope.ROOT, childA.toString())
+            // control: the real root admits the same rows
+            check(AccessScope.principal(setOf(rootA), emptySet()), childA).assertOk()
+            check(AccessScope.principal(setOf(rootA), emptySet()), grandA).assertOk()
         }
 
     @Test

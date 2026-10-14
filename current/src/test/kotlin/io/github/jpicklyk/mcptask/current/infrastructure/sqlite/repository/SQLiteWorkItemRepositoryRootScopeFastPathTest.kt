@@ -41,6 +41,10 @@ import kotlin.test.assertTrue
  * `root_id` column and its index) backs every test -- not a hand-rolled schema copy. A fixture must pass `rootId` explicitly on construction; the
  * `WorkItem` default (`rootId = null`) never reaches the fast path (item's diagnosis note, part D).
  *
+ * AMENDED by item 754ae3dc (scope on root_id, roots only): there is no CTE fallback any more. A scope id admits exactly the
+ * rows whose stamped `root_id` equals it, so a listed non-root, an unstamped depth-0 row and an unknown id admit NOTHING
+ * (oracle: task-scope item 2, `ScopeResolver.resolve` is Empty or ByRoot and never traverses; test-plan S5).
+ *
  * S1 is the headline: a stamped root with 32,767 children, bulk-inserted by ONE raw
  * `WITH RECURSIVE` `INSERT ... SELECT` (not 32,767 repository calls) so the fixture itself stays
  * sub-second. Pre-fix, `countInScope`/`findInScope` on this fixture throw sqlite-jdbc's
@@ -178,106 +182,115 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S2 (happy, equivalence) -- fast path (stamped) vs. CTE fallback (legacy) agree, all 7 methods
+    // S2 (happy / failure, amended) -- a stamped root scopes its tree on all seven methods; an unstamped tree admits nothing
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `stamped fast path and legacy CTE fallback agree across all seven scope-aware methods`(): Unit =
+    fun `a stamped root scopes its tree on all seven scope-aware methods`(): Unit =
         runBlocking {
-            // Stamped tree -- root_id set throughout -> fast path (root_id = R.id).
             val r = createRoot("S2 stamped root")
             val c1 = createChild("S2 c1", r)
             val c2 = createChild("S2 c2", r)
             createChild("S2 c3", r)
             createChild("S2 gc1", c1)
             createChild("S2 gc2", c2)
+            val scope = setOf(r.id)
             val stampedIds =
-                repository.findInScope(rootIds = setOf(r.id)).let {
+                repository.findInScope(rootIds = scope).let {
                     assertNotNull(it)
-                    it
-                        .map { w ->
-                            w.id
-                        }.toSet()
+                    it.map { w -> w.id }.toSet()
                 }
             assertEquals(6, stampedIds.size, "fixture sanity: root + 3 children + 2 grandchildren")
 
-            // Legacy tree, identical shape, root_id left NULL throughout -> CTE fallback
-            // (diagnosis part D: a directly-constructed / unbackfilled item never reaches the
-            // fast path; V9's comment: unbackfilled rows stay NULL and are equally unreachable
-            // by the CTE from anywhere but their own root).
+            val byRole = repository.findByRole(role = Role.QUEUE, rootIds = scope)
+            assertNotNull(byRole)
+            assertEquals(stampedIds, byRole.map { it.id }.toSet(), "findByRole")
+
+            val next = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = scope), limit = 1000).items
+            assertNotNull(next)
+            assertEquals(stampedIds, next.map { it.id }.toSet(), "findEligible")
+
+            assertEquals(
+                ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
+                repository.claimSummary(rootIds = scope),
+                "claimSummary"
+            )
+            assertEquals(6, repository.countInScope(rootIds = scope), "countInScope")
+            assertEquals(mapOf(Role.QUEUE to 6), repository.countInScopeByRole(rootIds = scope), "countInScopeByRole")
+        }
+
+    /** A depth-0 row and a 5-item tree below it, `root_id` NULL throughout (a legacy, never-stamped tree). */
+    private fun legacyTree(): UUID =
+        runBlocking {
             val ru = createRoot("S2 legacy root", stamped = false)
             val cu1 = createChild("S2 legacy c1", ru, stamped = false)
             val cu2 = createChild("S2 legacy c2", ru, stamped = false)
             createChild("S2 legacy c3", ru, stamped = false)
             createChild("S2 legacy gc1", cu1, stamped = false)
             createChild("S2 legacy gc2", cu2, stamped = false)
-            val legacyIds =
-                repository.findInScope(rootIds = setOf(ru.id)).let {
-                    assertNotNull(it)
-                    it
-                        .map { w ->
-                            w.id
-                        }.toSet()
-                }
-            assertEquals(6, legacyIds.size, "fixture sanity: legacy root + 3 children + 2 grandchildren")
-
-            val stampedByRole = repository.findByRole(role = Role.QUEUE, rootIds = setOf(r.id))
-            val legacyByRole = repository.findByRole(role = Role.QUEUE, rootIds = setOf(ru.id))
-            assertNotNull(stampedByRole)
-            assertNotNull(legacyByRole)
-            assertEquals(stampedIds, stampedByRole.map { it.id }.toSet(), "findByRole (fast path)")
-            assertEquals(legacyIds, legacyByRole.map { it.id }.toSet(), "findByRole (CTE fallback)")
-
-            val stampedNext = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(r.id)), limit = 1000).items
-            val legacyNext = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(ru.id)), limit = 1000).items
-            assertNotNull(stampedNext)
-            assertNotNull(legacyNext)
-            assertEquals(stampedIds, stampedNext.map { it.id }.toSet(), "findEligible (fast path)")
-            assertEquals(legacyIds, legacyNext.map { it.id }.toSet(), "findEligible (CTE fallback)")
-
-            val stampedClaimable = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(r.id)), limit = 1000).items
-            val legacyClaimable = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(ru.id)), limit = 1000).items
-            assertNotNull(stampedClaimable)
-            assertNotNull(legacyClaimable)
-            assertEquals(stampedIds, stampedClaimable.map { it.id }.toSet(), "findEligible (fast path)")
-            assertEquals(legacyIds, legacyClaimable.map { it.id }.toSet(), "findEligible (CTE fallback)")
-
-            val stampedClaimStatus = repository.claimSummary(rootIds = setOf(r.id))
-            val legacyClaimStatus = repository.claimSummary(rootIds = setOf(ru.id))
-            assertNotNull(stampedClaimStatus)
-            assertNotNull(legacyClaimStatus)
-            assertEquals(
-                ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
-                stampedClaimStatus,
-                "claimSummary (fast path)"
-            )
-            assertEquals(
-                ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
-                legacyClaimStatus,
-                "claimSummary (CTE fallback)"
-            )
-
-            val stampedCount = repository.countInScope(rootIds = setOf(r.id))
-            val legacyCount = repository.countInScope(rootIds = setOf(ru.id))
-            assertNotNull(stampedCount)
-            assertNotNull(legacyCount)
-            assertEquals(6, stampedCount, "countInScope (fast path)")
-            assertEquals(6, legacyCount, "countInScope (CTE fallback)")
-
-            val stampedByRoleCount = repository.countInScopeByRole(rootIds = setOf(r.id))
-            val legacyByRoleCount = repository.countInScopeByRole(rootIds = setOf(ru.id))
-            assertNotNull(stampedByRoleCount)
-            assertNotNull(legacyByRoleCount)
-            assertEquals(mapOf(Role.QUEUE to 6), stampedByRoleCount, "countInScopeByRole (fast path)")
-            assertEquals(mapOf(Role.QUEUE to 6), legacyByRoleCount, "countInScopeByRole (CTE fallback)")
+            ru.id
         }
 
+    // One test per method on an unstamped tree, so each method's outcome is visible on its own. findInScope and countInScope serve
+    // the PRINCIPAL scope: roots only, no row carries a root_id, so a scope naming the depth-0 row admits nothing (task-scope item 2,
+    // test-plan S5). findByRole, findEligible (claim selection), claimSummary and countInScopeByRole take a caller-supplied
+    // request-filter rootIds, which keeps the subtree traversal (task-scope D3, supplementary declarations section B): on the
+    // unstamped tree they still return the whole subtree. The per-method grouping is declared (section B), not inferred.
+
+    @Test
+    fun `an unstamped legacy tree admits nothing on findInScope`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            val rows = repository.findInScope(rootIds = setOf(ru))
+            assertNotNull(rows)
+            assertEquals(emptySet(), rows.map { it.id }.toSet())
+        }
+
+    @Test
+    fun `an unstamped legacy tree admits nothing on countInScope`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            assertEquals(0, repository.countInScope(rootIds = setOf(ru)))
+        }
+
+    @Test
+    fun `an unstamped legacy tree still returns its subtree on findByRole, a request-filter caller`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            val rows = repository.findByRole(role = Role.QUEUE, rootIds = setOf(ru))
+            assertNotNull(rows)
+            assertEquals(6, rows.size, "root + 3 children + 2 grandchildren")
+            assertTrue(ru in rows.map { it.id })
+        }
+
+    @Test
+    fun `an unstamped legacy tree still returns its subtree on findEligible, a request-filter caller`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            val rows = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = setOf(ru)), limit = 1000).items
+            assertEquals(6, rows.size, "root + 3 children + 2 grandchildren")
+            assertTrue(ru in rows.map { it.id })
+        }
+
+    @Test
+    fun `an unstamped legacy tree still counts its subtree on claimSummary, a request-filter caller`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            assertEquals(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6), repository.claimSummary(rootIds = setOf(ru)))
+        }
+
+    @Test
+    fun `an unstamped legacy tree still counts its subtree on countInScopeByRole, a request-filter caller`(): Unit =
+        runBlocking {
+            val ru = legacyTree()
+            assertEquals(mapOf(Role.QUEUE to 6), repository.countInScopeByRole(rootIds = setOf(ru)))
+        }
     // ────────────────────────────────────────────────────────────────────────
-    // S3 (edge, below-root) -- scoping at a non-root stamped descendant stays on the CTE
+    // S3 (edge, below-root, amended) -- scoping at a non-root stamped descendant admits nothing
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `scoping at a non-root stamped descendant still falls back to the CTE, unaffected by the fast path`(): Unit =
+    fun `scoping at a non-root stamped descendant admits nothing while the real root admits the whole tree`(): Unit =
         runBlocking {
             val r = createRoot("S3 root")
             val b = createChild("S3 B", r)
@@ -285,24 +298,27 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             val bChild2 = createChild("S3 B child 2", b)
             val sibling = createChild("S3 sibling", r)
 
-            // B has parent_id = r.id (not NULL) -> guard fails -> CTE, exactly as before the fix.
+            // B has parent_id = r.id and root_id = r.id: B is not a root, so listing B admits nothing (roots only).
             val result = repository.findInScope(rootIds = setOf(b.id))
             assertNotNull(result)
-            val ids = result.map { it.id }.toSet()
-            assertEquals(setOf(b.id, bChild1.id, bChild2.id), ids, "below-root scope: B and its own descendants only")
-            assertTrue(r.id !in ids && sibling.id !in ids, "R and B's sibling must be excluded")
+            assertEquals(emptySet(), result.map { it.id }.toSet(), "a listed non-root admits nothing, itself included")
 
             val count = repository.countInScope(rootIds = setOf(b.id))
             assertNotNull(count)
-            assertEquals(3, count)
+            assertEquals(0, count)
+
+            // control: the real root admits B and everything below it
+            val underRoot = repository.findInScope(rootIds = setOf(r.id))
+            assertNotNull(underRoot)
+            assertEquals(setOf(r.id, b.id, bChild1.id, bChild2.id, sibling.id), underRoot.map { it.id }.toSet())
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S5 (failure, guard) -- a mixed root/non-root scope must fall back to the CTE union
+    // S5 (failure, guard, amended) -- a mixed root / non-root scope admits the real root's tree only
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `mixed root and non-root ids in the same scope fall back to the CTE union, not just a subset`(): Unit =
+    fun `mixed root and non-root ids in the same scope admit the real root's tree only`(): Unit =
         runBlocking {
             val r = createRoot("S5 R")
             val rChild = createChild("S5 R child", r)
@@ -311,25 +327,19 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             val r2Child = createChild("S5 R2 child", r2)
             val r2Grandchild = createChild("S5 R2 grandchild", r2Child)
 
-            // rootIds = {R2 (a genuine stamped root), rChild (a depth-1 NON-root under R)}.
-            // A wrongly-taken fast path would filter `root_id IN (R2.id, rChild.id)` -- but
-            // rChild's OWN descendants (it has none here, but the mechanism matters) are stamped
-            // root_id = R.id, not rChild.id, so a wrong fast path would drop them. The guard must
-            // see rChild fails "parent_id IS NULL" and send the WHOLE call to the CTE union.
+            // rootIds = {R2 (a genuine stamped root), rChild (a depth-1 NON-root under R)}: rChild contributes nothing, R is not
+            // admitted through it, and R2's tree is returned whole.
             val result = repository.findInScope(rootIds = setOf(r2.id, rChild.id))
             assertNotNull(result)
             val ids = result.map { it.id }.toSet()
-            assertEquals(setOf(r2.id, r2Child.id, r2Grandchild.id, rChild.id), ids)
-            assertTrue(r.id !in ids, "R itself was never in the requested scope")
+            assertEquals(setOf(r2.id, r2Child.id, r2Grandchild.id), ids)
+            assertTrue(r.id !in ids && rChild.id !in ids, "neither R nor the listed non-root is admitted")
 
-            // Probe: same-tree overlap {R, child-of-R} -- subtree(rChild) is a subset of
-            // subtree(R), so the CTE union must equal exactly subtree(R): no duplicates, nothing
-            // dropped.
+            // Probe: same-tree overlap {R, child-of-R} equals exactly subtree(R): no duplicates, nothing dropped.
             val overlapResult = repository.findInScope(rootIds = setOf(r.id, rChild.id))
             assertNotNull(overlapResult)
             assertEquals(setOf(r.id, rChild.id), overlapResult.map { it.id }.toSet())
         }
-
     // ────────────────────────────────────────────────────────────────────────
     // S6 (edge, reparent) -- the fast path follows a subtree moved to a different stamped root
     // ────────────────────────────────────────────────────────────────────────
@@ -407,5 +417,44 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
                 "fast path does no traversal; a cyclic parent_id edge below a stamped root must not error",
             )
             assertEquals(setOf(r.id, a.id, b.id), result.map { it.id }.toSet())
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Principal scope vs request filter (supplementary declarations section B)
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a request filter naming a stamped non-root returns that item's subtree on the request-filter methods`(): Unit =
+        runBlocking {
+            val r = createRoot("PF root")
+            val b = createChild("PF B", r)
+            val bChild = createChild("PF B child", b)
+            createChild("PF sibling", r)
+            val expected = setOf(b.id, bChild.id)
+            val filter = setOf(b.id)
+
+            val byRole = repository.findByRole(role = Role.QUEUE, rootIds = filter)
+            assertNotNull(byRole)
+            assertEquals(expected, byRole.map { it.id }.toSet(), "findByRole keeps the traversal")
+            val eligible = repository.findEligible(EligibilityQuery(role = Role.QUEUE, rootIds = filter), limit = 1000).items
+            assertEquals(expected, eligible.map { it.id }.toSet(), "findEligible keeps the traversal")
+            assertEquals(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 2), repository.claimSummary(rootIds = filter))
+            assertEquals(mapOf(Role.QUEUE to 2), repository.countInScopeByRole(rootIds = filter))
+        }
+
+    @Test
+    fun `a principal scope listing a non-root admits nothing through findInScope and countInScope`(): Unit =
+        runBlocking {
+            val r = createRoot("PS root")
+            val b = createChild("PS B", r)
+            createChild("PS B child", b)
+            val unstampedRoot = createRoot("PS unstamped", stamped = false)
+
+            for (anchor in listOf(b.id, unstampedRoot.id)) {
+                val rows = repository.findInScope(rootIds = setOf(anchor))
+                assertNotNull(rows)
+                assertEquals(emptySet(), rows.map { it.id }.toSet(), "anchor $anchor")
+                assertEquals(0, repository.countInScope(rootIds = setOf(anchor)), "count for anchor $anchor")
+            }
         }
 }

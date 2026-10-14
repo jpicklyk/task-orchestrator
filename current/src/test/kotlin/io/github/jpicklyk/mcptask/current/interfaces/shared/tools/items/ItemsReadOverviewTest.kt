@@ -403,24 +403,31 @@ class ItemsReadOverviewTest {
             assertEquals(1, global.total)
         }
 
+    /**
+     * R15 ruling (roots only): a mid-tree scope anchor admits nothing, so the former "reached with anchorId" behaviour is
+     * removed by design. Mid carries the stamped root_id of Top, never MID, so every target is forbidden{root, required=MID}.
+     */
     @Test
-    fun `S9 a mid-tree scope root has an empty global list and is reached with anchorId`() =
+    fun `S9 a mid-tree scope anchor admits nothing - global list is empty and every anchor is forbidden`() =
         irApp(db.db, dir, scopeRootIds = setOf(MID)) { rig ->
             val top = rig.make("Top")
             val mid = rig.make("Mid", top, id = MID)
-            rig.make("Under", mid)
+            val under = rig.make("Under", mid)
 
             val global = select(overview(), TEST_TOKEN)
             assertEquals(200, global.status, global.raw)
             assertEquals(emptyList<JsonObject>(), global.items, "no parentless item is visible")
             assertEquals(0, global.total)
 
-            val anchored = select(overview(""","anchorId":"${mid.id}""""), TEST_TOKEN)
-            assertEquals(listOf("Under"), anchored.items.titles())
-
-            val above = select(overview(""","anchorId":"${top.id}""""), TEST_TOKEN)
-            assertEquals(403, above.status, above.raw)
-            assertEquals("forbidden", above.code)
+            for (member in listOf("anchorId", "itemId")) {
+                for (target in listOf(mid, top, under)) {
+                    val denied = select(overview(""","$member":"${target.id}""""), TEST_TOKEN)
+                    assertEquals(403, denied.status, "$member ${target.title}: ${denied.raw}")
+                    assertEquals("forbidden", denied.code)
+                    assertEquals("root", denied.detail.str("scope"))
+                    assertEquals(MID.toString(), denied.detail.str("required"))
+                }
+            }
         }
 
     companion object {

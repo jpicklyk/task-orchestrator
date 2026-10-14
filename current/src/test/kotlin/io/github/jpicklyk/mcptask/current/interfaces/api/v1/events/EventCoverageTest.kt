@@ -352,7 +352,7 @@ class EventCoverageTest {
     ): Unit =
         runBlocking {
             val rig = rig(dir)
-            val root = rig.seed("S15 root")
+            val root = rig.seed("S15 root", stamped = false)
             assertNull(root.rootId, "fixture: a depth-0 seed has no stored root id")
             val orphanChild =
                 rig.raw.workItemRepository().create(

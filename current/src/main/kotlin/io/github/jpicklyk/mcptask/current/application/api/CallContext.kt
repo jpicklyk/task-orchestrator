@@ -28,7 +28,9 @@ data class CallPrincipal(
  * note view's `actor` and `verification`); the transport decides it, so application code never inspects capabilities.
  * It defaults to false (hidden). Proof evidence is never emitted, whatever its value. [principalsVisible] says whether the
  * caller may see other principals' ids in an aggregate (the `report` `principal` grouping); the transport decides it too
- * (ADMIN only), and it defaults to false. [profile] is the wire name of
+ * (ADMIN only), and it defaults to false. [rootWritesAllowed] says whether the caller may create a depth-0 root or move an
+ * item to the top level; the transport decides it (an unrestricted scope or ADMIN), and it defaults to whether [scope] is
+ * unrestricted. [profile] is the wire name of
  * the tool view that served the call (set by the dispatcher); [sessionId] is the caller's session, null until
  * sessions exist.
  */
@@ -40,7 +42,8 @@ data class CallContext(
     val attributionVisible: Boolean = false,
     val principalsVisible: Boolean = false,
     val profile: String? = null,
-    val sessionId: String? = null
+    val sessionId: String? = null,
+    val rootWritesAllowed: Boolean = scope.isUnrestricted
 ) {
     /**
      * The provenance tuple of this call, or null when no credential [Principal] established the caller (MCP's

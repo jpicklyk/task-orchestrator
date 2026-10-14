@@ -110,14 +110,16 @@ class SqliteEventStoreHistoryReadsTest {
     private suspend fun item(
         title: String,
         tags: String? = null,
-        parent: WorkItem? = null
+        parent: WorkItem? = null,
+        id: UUID = UUID.randomUUID()
     ): WorkItem =
         db.repositoryProvider().workItemRepository().create(
             WorkItem(
                 title = title,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                id = id,
+                rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 tags = tags,
                 type = "test-item"
             )
