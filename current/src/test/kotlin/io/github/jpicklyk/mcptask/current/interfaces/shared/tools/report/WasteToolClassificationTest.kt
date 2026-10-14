@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
  * the registered surface of the `waste` select.
  *
  * Oracles (never read from a run). S18, task-scope point 4: READ = items_read, notes_read, docs_read, deps_read; WRITE =
- * items_write, notes_write, deps_write, docs_write, advance; EXCLUDED = report, config; every registered tool name is in exactly
+ * items_write, notes_write, deps_write, docs_write, advance; EXCLUDED = report, config, runs_read, runs_write; every registered tool name is in exactly
  * one class, so a tool added later without a classification fails here. The surface, task-scope points 1 and 7: `waste` is a
  * select of `report` visible in the director profile only (like `usage`), takes exactly rootId, since and until (no groupBy,
  * limit or cursor), and rootId, since and until keep ONE schema across the selects of the tool (a shared field-doc constant set
@@ -44,7 +44,7 @@ class WasteToolClassificationTest {
     fun `S18 the three classes hold exactly the tools of the task-scope`() {
         assertEquals(setOf("items_read", "notes_read", "docs_read", "deps_read"), WasteToolClasses.READ)
         assertEquals(setOf("items_write", "notes_write", "deps_write", "docs_write", "advance"), WasteToolClasses.WRITE)
-        assertEquals(setOf("report", "config"), WasteToolClasses.EXCLUDED)
+        assertEquals(setOf("report", "config", "runs_read", "runs_write"), WasteToolClasses.EXCLUDED)
     }
 
     @Test

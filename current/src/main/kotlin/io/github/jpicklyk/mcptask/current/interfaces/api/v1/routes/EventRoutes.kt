@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -565,8 +566,11 @@ fun Route.eventRoutes(
  * Returns `true` immediately (no lookup) when [principal] has no tag scope, so non-tag-scoped
  * and unscoped connections are byte-identical to the pre-fix behavior.
  *
- * Bus-level events ([ApiEvent.itemId] null, e.g. `sync.lost`/`auth.expired`) always pass --
- * there is no item to check tags against.
+ * Item-less events: the control events ([ApiEventType.CONTROL_EVENTS], `sync.lost`/`auth.expired`) always
+ * pass -- they carry stream state, not data. A `run.*` event is anchored to its run's root ([ApiEvent.rootId]):
+ * it passes a restricted subscriber only when that root is in the subscriber's root set (when it has one) AND,
+ * for a tag-scoped one, the root item is admitted by [ScopeGuard] (a decision cached with the item decisions).
+ * Any other item-less event is dropped (fail closed).
  *
  * Fails CLOSED: an unparsable [ApiEvent.itemId], a missing [repository] (should not happen --
  * the pre-flight plugin already rejected this connection in that case), or a repository lookup
@@ -582,8 +586,33 @@ private suspend fun isEventVisibleToTagScope(
     repository: WorkItemRepository?,
     cache: MutableMap<UUID, Boolean>,
 ): Boolean {
+    if (principal.scope.isUnrestricted) return true
+    if (event.itemId == null) {
+        if (event.event in ApiEventType.CONTROL_EVENTS) return true
+        if (event.event !in DomainEvent.RUN_TYPES) return false
+        val rootUuid =
+            try {
+                UUID.fromString(event.rootId ?: return false)
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+        val rootIds = principal.scope.rootIds
+        if (rootIds != null && rootUuid !in rootIds) return false
+        if (principal.scope.tagsInclude.isEmpty()) return true
+        cache[rootUuid]?.let { return it }
+        val admitted =
+            repository != null &&
+                ScopeGuard
+                    .admitted(
+                        AccessScope.principal(rootIds = null, tagsInclude = principal.scope.tagsInclude),
+                        setOf(rootUuid),
+                        repository,
+                    ).contains(rootUuid)
+        cache[rootUuid] = admitted
+        return admitted
+    }
     if (principal.scope.tagsInclude.isEmpty()) return true
-    val itemId = event.itemId ?: return true
+    val itemId = event.itemId
     val uuid =
         try {
             UUID.fromString(itemId)

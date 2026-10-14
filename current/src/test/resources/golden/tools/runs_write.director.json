@@ -1,0 +1,119 @@
+{
+  "name": "runs_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "open",
+                "close",
+                "pause",
+                "resume"
+              ]
+            },
+            "rootId": {
+              "type": "string",
+              "description": "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+            },
+            "items": {
+              "type": "array",
+              "description": "Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. [ops: open]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeId": {
+              "type": "string",
+              "description": "An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+            },
+            "label": {
+              "type": "string",
+              "description": "A short label, at most 64 characters. [ops: open]"
+            },
+            "title": {
+              "type": "string",
+              "description": "A title, at most 200 characters. [ops: open]"
+            },
+            "budget": {
+              "type": "object",
+              "description": "Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open]",
+              "properties": {
+                "tokens": {
+                  "type": "integer",
+                  "description": "Token limit."
+                },
+                "costUsd": {
+                  "type": "number",
+                  "description": "Cost limit in US dollars, a decimal such as 12.5."
+                },
+                "attemptsPerSeat": {
+                  "type": "integer",
+                  "description": "Most attempts one seat may take."
+                },
+                "maxActiveSeats": {
+                  "type": "integer",
+                  "description": "Most seats active at once."
+                }
+              }
+            },
+            "stallAfterSeconds": {
+              "type": "integer",
+              "description": "Seconds without a coordinator sign of life before the run reads as stalled. Default from config. [ops: open]"
+            },
+            "hints": {
+              "type": "object",
+              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open]",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "runId": {
+              "type": "string",
+              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: close, pause, resume]"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. [ops: close]",
+              "enum": [
+                "completed",
+                "cancelled",
+                "failed",
+                "abandoned"
+              ]
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

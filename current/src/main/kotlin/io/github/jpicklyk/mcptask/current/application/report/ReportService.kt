@@ -87,8 +87,8 @@ object WasteToolClasses {
     /** Tools whose calls write: the later write of `readsWithoutLaterWrite`, and the `lifecycleFreeRejections` calls. */
     val WRITE: Set<String> = setOf("items_write", "notes_write", "deps_write", "docs_write", "advance")
 
-    /** Tools in no class: the reports themselves and config. */
-    val EXCLUDED: Set<String> = setOf("report", "config")
+    /** Tools in no class: the reports themselves, config, and the run coordination tools (not item work). */
+    val EXCLUDED: Set<String> = setOf("report", "config", "runs_read", "runs_write")
 
     /** The tool whose selects feed `overFetch`, `emptyNext` and `relatedFollowThrough`. */
     const val ITEMS_READ = "items_read"

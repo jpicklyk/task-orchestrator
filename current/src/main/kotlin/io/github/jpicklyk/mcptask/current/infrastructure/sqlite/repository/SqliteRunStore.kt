@@ -19,12 +19,15 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -177,6 +180,47 @@ class SqliteRunStore(
                 .single()[n]
                 .toInt()
         }
+
+    override suspend fun list(
+        rootIds: Set<UUID>?,
+        status: RunStatus?,
+        closedSince: Instant?
+    ): List<Run> {
+        if (rootIds != null && rootIds.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            val chunks = rootIds?.chunked(SQL_IN_CHUNK_SIZE) ?: listOf(null)
+            val rows = ArrayList<Run>()
+            for (chunk in chunks) {
+                RunsTable
+                    .selectAll()
+                    .where {
+                        var cond: Op<Boolean> = Op.TRUE
+                        if (chunk != null) cond = cond and (RunsTable.rootId inList chunk)
+                        if (status != null) cond = cond and (RunsTable.status eq status.wire)
+                        if (closedSince != null) cond = cond and (RunsTable.closedAt greaterEq closedSince)
+                        cond
+                    }.mapTo(rows) { toRun(it) }
+            }
+            rows.sortedWith(compareByDescending<Run> { it.openedAt }.thenBy { it.id })
+        }
+    }
+
+    override suspend fun findIdsByPrefix(
+        prefix: String,
+        limit: Int
+    ): List<UUID> {
+        val bounds = IdPrefixRange.of(prefix) ?: return emptyList()
+        return databaseManager.readTx {
+            val lower = RunsTable.id greaterEq bounds.lower
+            val condition = bounds.upper?.let { lower and (RunsTable.id less it) } ?: lower
+            RunsTable
+                .select(RunsTable.id)
+                .where { condition }
+                .orderBy(RunsTable.id, SortOrder.ASC)
+                .limit(limit)
+                .map { it[RunsTable.id] }
+        }
+    }
 
     /** Writes every column a run may change after it is opened. */
     private fun writeMutable(
