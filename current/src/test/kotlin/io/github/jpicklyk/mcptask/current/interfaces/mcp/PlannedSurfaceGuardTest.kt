@@ -250,7 +250,6 @@ class PlannedSurfaceGuardTest {
             "director has planned files (runs_read, runs_write, the report delta)"
         )
         assertTrue(totals.getValue(ToolProfile.ORCHESTRATION).planned > 0, "orchestration has planned files")
-        assertTrue(totals.getValue(ToolProfile.KNOWLEDGE).planned > 0, "knowledge has the notes_write takeover delta")
     }
 
     @Test
@@ -330,7 +329,7 @@ class PlannedSurfaceGuardTest {
     ) {
         val registry = FixtureTools().registry
         val productionTotal = ToolSurfaceChecks.sizes(registry, ToolProfile.KNOWLEDGE).values.sum()
-        val delta = """{"takeover":{"type":"boolean","description":"Take over."}}"""
+        val delta = """{"zz_new_field":{"type":"boolean","description":"Take over."}}"""
         write(dir, "fx_write.knowledge.delta.json", delta)
         val deltaSize = delta.length + 2
 
@@ -410,7 +409,7 @@ class PlannedSurfaceGuardTest {
 
         assertEquals(
             emptyList(),
-            only(fresh, "notes_write.knowledge.delta.json", """{"takeover":{"type":"boolean","description":"Take over."}}""")
+            only(fresh, "notes_write.knowledge.delta.json", """{"zz_new_field":{"type":"boolean","description":"Take over."}}""")
         )
     }
 
@@ -474,7 +473,7 @@ class PlannedSurfaceGuardTest {
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the eight delta files of decision D5, the runs tools now real (R20)`() {
+    fun `S17 the planned directory holds exactly the six delta files of decision D5, the runs tools (R20) and notes_write (R21) now real`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
         // stale; what the later items still add stays reserved as deltas.
         assertEquals(
@@ -484,9 +483,7 @@ class PlannedSurfaceGuardTest {
                 "runs_write.orchestration.delta.json",
                 "runs_write.director.delta.json",
                 "report.director.delta.json",
-                "advance.orchestration.delta.json",
-                "notes_write.knowledge.delta.json",
-                "notes_write.orchestration.delta.json"
+                "advance.orchestration.delta.json"
             ),
             planned().keys
         )
@@ -535,12 +532,10 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S17 the other four deltas add exactly the properties decision D5 and R9 give`() {
+    fun `S17 the other two deltas add exactly the properties decision D5 and R9 give`() {
         val files = planned()
         assertEquals(setOf("usage", "reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
         assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
-        assertEquals(setOf("takeover"), files.getValue("notes_write.knowledge.delta.json").keys)
-        assertEquals(setOf("takeover"), files.getValue("notes_write.orchestration.delta.json").keys)
     }
 
     @Test

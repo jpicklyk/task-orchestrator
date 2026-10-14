@@ -160,6 +160,18 @@ class NoteResourceRoutesTest {
         assertTrue(answer.toString().contains("\"ok\":true"), "fixture write through notes_write must succeed: $answer")
     }
 
+    /** Seeds a note as the REST principal [token] itself, so a later write by the same token is the owner's own (R21). */
+    private suspend fun ApplicationTestBuilder.seedAs(
+        token: ParityToken,
+        item: UUID,
+        key: String,
+        body: String
+    ) {
+        val written =
+            opsAs(token, "notes_write", """{"ops":[{"op":"upsert","itemId":"$item","key":"$key","role":"work","body":"$body"}]}""")
+        assertEquals(200, written.status.value, written.bodyAsText())
+    }
+
     private suspend fun newItem(title: String = "owner"): WorkItem = rig.seed(title)
 
     // ------------------------------------------------------------------ S19 get
@@ -205,13 +217,10 @@ class NoteResourceRoutesTest {
     @Test
     fun `S19 If-None-Match equal to the current ETag answers 304 with an empty body, a different one answers the note`() {
         val item =
-            runBlocking {
-                val owner = newItem()
-                seedNote(owner.id, "spec", "first")
-                seedNote(owner.id, "spec", "second")
-                owner
-            }
+            runBlocking { newItem() }
         runApp(listOf(reader, writer)) {
+            seedAs(writer, item.id, "spec", "first")
+            seedAs(writer, item.id, "spec", "second")
             val path = "/api/v1/items/${item.id}/notes/spec"
 
             val notModified = getAs(reader, path, HttpHeaders.IfNoneMatch to "\"v2\"")
@@ -331,12 +340,9 @@ class NoteResourceRoutesTest {
     @Test
     fun `S19 PUT and DELETE on a note path are gone - the note is untouched - while ops notes_write still writes`() {
         val item =
-            runBlocking {
-                val owner = newItem()
-                seedNote(owner.id, "spec", "ORIGINAL")
-                owner
-            }
+            runBlocking { newItem() }
         runApp(listOf(writer, reader)) {
+            seedAs(writer, item.id, "spec", "ORIGINAL")
             val path = "/api/v1/items/${item.id}/notes/spec"
 
             val put =

@@ -33,6 +33,7 @@ class EventClassCoverageTest {
             "document.archived",
             "document.deleted",
             "document.adopted",
+            "note.ownership_transferred",
             "run.opened",
             "run.updated",
             "run.paused",
