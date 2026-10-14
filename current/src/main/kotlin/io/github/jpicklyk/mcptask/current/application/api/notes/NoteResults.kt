@@ -6,6 +6,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
 
+/** A note's owner as a view shows it: the owning principal's audited [id] (notes.owner_id); [seat] stays null until seats bind (R22). */
+data class NoteOwner(
+    val id: String,
+    val seat: String? = null
+)
+
 /**
  * A note as `notes_read get` shows it. [actor] and [verification] are already filtered by the call's attribution
  * visibility (null when hidden or absent). Proof evidence (the proof hash and verified claims) is never part of a view:
@@ -19,7 +25,8 @@ data class NoteView(
     val body: String,
     val modifiedAt: Instant,
     val actor: ActorClaim?,
-    val verification: VerificationResult?
+    val verification: VerificationResult?,
+    val owner: NoteOwner? = null
 )
 
 /** What `notes_read get` answers: the note, or that the caller's `ifVersion` is still current. */
@@ -42,7 +49,8 @@ data class NoteListEntry(
     val bodyLength: Int,
     val modifiedAt: Instant,
     val actor: ActorClaim?,
-    val verification: VerificationResult?
+    val verification: VerificationResult?,
+    val owner: NoteOwner? = null
 ) {
     companion object {
         const val SHORT_ID_LENGTH = 8

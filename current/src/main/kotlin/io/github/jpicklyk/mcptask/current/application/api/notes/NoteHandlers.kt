@@ -155,7 +155,9 @@ object NoteHandlers {
                         verification = principal.verification,
                         caller = caller,
                         bodyFromFile = file,
-                        expectedVersion = expected
+                        expectedVersion = expected,
+                        takeover = req.takeover == true,
+                        takeoverAllowed = ctx.takeoverAllowed
                     )
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -198,7 +200,21 @@ object NoteHandlers {
                 is Outcome.Ok -> admitted.value
             }
         val caller = caller(ctx)
-        val deleted = env.noteCommandService.delete(itemId, req.key, expected, caller)
+        val deleted =
+            try {
+                env.noteCommandService.delete(itemId, req.key, expected, caller)
+            } catch (e: PerRootConfigUnavailableException) {
+                // Resolving the item's schema (the key's `shared` flag) failed with no last-known-good config: nothing was deleted.
+                return Outcome.Err(
+                    DomainError(
+                        code = ErrorCode.UNAVAILABLE,
+                        message = "The project config could not be read; retry shortly.",
+                        detail = ErrorDetail.Unavailable(CONFIG_RETRY_MS)
+                    )
+                )
+            } catch (e: PerRootConfigInvalidException) {
+                return Outcome.Err(e.toDomainError())
+            }
         return when (deleted) {
             is Outcome.Err -> deleted
             is Outcome.Ok -> Outcome.Ok(NoteWriteOutcome.Deleted(deleted.value.id))
@@ -256,7 +272,8 @@ object NoteHandlers {
             body = note.body,
             modifiedAt = note.modifiedAt,
             actor = if (ctx.attributionVisible) note.actorClaim else null,
-            verification = if (ctx.attributionVisible) note.verification else null
+            verification = if (ctx.attributionVisible) note.verification else null,
+            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it) } else null
         )
 
     private fun entry(
@@ -275,7 +292,8 @@ object NoteHandlers {
             bodyLength = row.bodyLength,
             modifiedAt = row.modifiedAt,
             actor = if (ctx.attributionVisible) row.actorClaim else null,
-            verification = if (ctx.attributionVisible) row.verification else null
+            verification = if (ctx.attributionVisible) row.verification else null,
+            owner = if (ctx.attributionVisible) row.ownerId?.let { NoteOwner(it) } else null
         )
 
     private fun noteNotFound(

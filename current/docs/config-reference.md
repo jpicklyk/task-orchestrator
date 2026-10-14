@@ -62,7 +62,8 @@ three parts, merged into one result:
    `role` or an invalid one, an invalid `lifecycle` (including the removed `auto-reopen`), a seat with no `name`, an
    invalid dispatch `effort`, a `maxHolders` above 1, a reserved budget key, and so on. Enumerated values are
    case-sensitive and lowercase (`lifecycle: auto`, resource `mode: exclusive`); values 3.x accepted in other
-   cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors.
+   cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors. A note entry's
+   `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean.
 3. **Semantics.** `resources` and `actor_authentication` are rejected in a per-root document; `work_item_schemas` and
    `note_schemas` cannot be combined; every `default_traits` entry must name a trait defined in the document or in
    the server config; every trait `resources[].key` must be declared in the server resource registry; a

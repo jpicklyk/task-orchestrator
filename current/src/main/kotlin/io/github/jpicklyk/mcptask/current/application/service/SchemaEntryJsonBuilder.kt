@@ -60,6 +60,7 @@ fun buildExpectedNotesJson(
                 if (filledNoteKeys != null) {
                     put("filled", JsonPrimitive(entry.key in filledNoteKeys))
                 }
+                if (entry.shared) put("shared", JsonPrimitive(true))
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
                 }
@@ -101,6 +102,9 @@ fun buildFullSchemaEntriesJson(
                 }
                 if (entry.independentOf.isNotEmpty()) {
                     put("independentOf", JsonArray(entry.independentOf.map { JsonPrimitive(it) }))
+                }
+                if (entry.shared) {
+                    put("shared", JsonPrimitive(true))
                 }
             }
         }

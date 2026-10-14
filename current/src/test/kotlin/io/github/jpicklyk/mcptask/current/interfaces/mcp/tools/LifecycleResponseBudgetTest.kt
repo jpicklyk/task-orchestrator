@@ -9,10 +9,10 @@ import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
-import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.transitionOp
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
  * health view -> items_read context item -> advance start (gated FAILURE — queue note unfilled) ->
  * fill the queue note -> advance start (-> work) -> fill both work notes -> advance start (-> review) ->
  * fill the review note -> advance start (-> terminal) -> items_read next.
- * The note fills are fixture writes (`putNote`): the note tools are budgeted by their own tests.
+ * The note fills are fixture writes (`upsertNoteVia` as the creating actor): the note tools are budgeted by their own tests.
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
  * only)" drive_workflow.py script this test's call sequence is modeled on.
@@ -231,44 +231,48 @@ class LifecycleResponseBudgetTest {
             measureAdvance("advance(start, gated FAILURE)", t1Id, "start")
 
             // ── 5. fill the required queue note (fixture write: the note tools have their own budget) ──
-            context.putNote(
+            context.upsertNoteVia(
                 UUID.fromString(t1Id),
                 "task-scope",
                 "queue",
                 "Build a CsvSerializer class in reports/serializers.py that converts ReportRow lists to " +
                     "RFC-4180 CSV. Acceptance: given rows with commas/quotes/newlines, output round-trips " +
-                    "through csv.reader. Constraint: no new dependencies."
+                    "through csv.reader. Constraint: no new dependencies.",
+                actor = actor("test-actor")
             )
 
             // ── 6. advance start -> work ──
             measureAdvance("advance(start -> work)", t1Id, "start")
 
             // ── 7. fill both required work notes ──
-            context.putNote(
+            context.upsertNoteVia(
                 UUID.fromString(t1Id),
                 "implementation-notes",
                 "work",
                 "Implemented CsvSerializer with csv.writer + StringIO. Deviation: used csv module " +
-                    "dialect=excel rather than manual escaping. No API surprises."
+                    "dialect=excel rather than manual escaping. No API surprises.",
+                actor = actor("test-actor")
             )
-            context.putNote(
+            context.upsertNoteVia(
                 UUID.fromString(t1Id),
                 "session-tracking",
                 "work",
                 "Outcome: success. Files changed: reports/serializers.py, tests/test_csv.py. " +
-                    "Deviations: none. Friction: none. Test results: 8 pass."
+                    "Deviations: none. Friction: none. Test results: 8 pass.",
+                actor = actor("test-actor")
             )
 
             // ── 8. advance start -> review ──
             measureAdvance("advance(start -> review)", t1Id, "start")
 
             // ── 9. fill the required review note ──
-            context.putNote(
+            context.upsertNoteVia(
                 UUID.fromString(t1Id),
                 "review-checklist",
                 "review",
                 "Scope alignment: matches task-scope. Tests: cover commas/quotes/newlines + round-trip. " +
-                    "No side effects outside reports/."
+                    "No side effects outside reports/.",
+                actor = actor("test-actor")
             )
 
             // ── 10. advance start -> terminal ──

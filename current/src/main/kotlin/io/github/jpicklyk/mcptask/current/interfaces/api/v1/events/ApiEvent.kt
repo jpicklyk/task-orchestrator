@@ -71,6 +71,8 @@ object SyncLostReason {
  *
  * - `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` — work-item CRUD via [WorkItemRepository].
  * - `NOTE_UPSERTED`, `NOTE_DELETED` — note writes via [NoteStore].
+ * - `NOTE_OWNERSHIP_TRANSFERRED`: a note changed owner, by an ADMIN `takeover` or by the first 4.0 upsert of an unowned
+ *   (pre-4.0) note; carries the note's [ApiEvent.itemId].
  * - `DEPENDENCY_ADDED`, `DEPENDENCY_REMOVED` — dependency changes via [DependencyStore].
  * - `ITEM_ADVANCED` -- role transition (the `item.transitioned` row); payload carries [ApiEvent.newRole].
  * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
@@ -94,6 +96,7 @@ object ApiEventType {
     const val ITEM_DELETED = "item.deleted"
     const val NOTE_UPSERTED = "note.upserted"
     const val NOTE_DELETED = "note.deleted"
+    const val NOTE_OWNERSHIP_TRANSFERRED = "note.ownership_transferred"
     const val DEPENDENCY_ADDED = "dependency.added"
     const val DEPENDENCY_REMOVED = "dependency.removed"
     const val ITEM_ADVANCED = "item.advanced"

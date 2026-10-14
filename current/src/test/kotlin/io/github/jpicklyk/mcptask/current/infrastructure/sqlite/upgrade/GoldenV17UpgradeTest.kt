@@ -129,6 +129,30 @@ class GoldenV17UpgradeTest {
                 )
                 val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
                 assertTrue(failures.isEmpty(), "rows, FK or FTS failures after real startup:\n" + failures.joinToString("\n"))
+                // V34 (decision D'): every golden note is a pre-4.0 note, so none has an owner, and its 3.x actor id is untouched.
+                assertEquals(
+                    0,
+                    scalar(conn, "SELECT count(*) FROM notes WHERE owner_id IS NOT NULL"),
+                    "no pre-4.0 note may gain an owner through the upgrade"
+                )
+                val goldenActors = before.getValue("notes").values.associate { it.getValue("id") to it["actor_id"] }
+                val actorsAfter =
+                    conn.createStatement().use { st ->
+                        st.executeQuery("SELECT lower(hex(id)), actor_id FROM notes").use { rs ->
+                            buildMap<Any?, Any?> { while (rs.next()) put(rs.getString(1), rs.getString(2)) }
+                        }
+                    }
+                assertTrue(goldenActors.isNotEmpty(), "the golden carries notes")
+                assertEquals(goldenActors, actorsAfter, "every note keeps the actor_id it has in the golden file")
+                assertTrue(
+                    goldenActors.values.any { it != null },
+                    "fixture condition: at least one golden note has an actor id, so the actor comparison can fail"
+                )
+                assertEquals(
+                    0,
+                    scalar(conn, "SELECT count(*) FROM data_steps WHERE name LIKE '%owner%'"),
+                    "V34 has no data step: data_steps has no row naming an owner"
+                )
                 // The wiped external-content FTS tables key on implicit rowids (here offset by the gap). Prove the rebuilt
                 // indexes still point at the right rows: a MATCH must resolve, through the rowid, to the seeded titles.
                 val itemHits =

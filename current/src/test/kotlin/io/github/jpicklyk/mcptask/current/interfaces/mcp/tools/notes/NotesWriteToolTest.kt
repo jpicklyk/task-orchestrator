@@ -2,17 +2,27 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testAccess
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -487,13 +497,16 @@ class NotesWriteToolTest {
             assertEquals("key-m", mismatch.elementError(0).obj("detail").str("idempotencyKey"))
             assertEquals("one", assertNotNull(stored(item.id, "spec")).body)
 
+            // R21: agent-1 owns "spec", so agent-2's write goes to its own note key; the idempotency namespace is per actor,
+            // which is what this half of the scenario is about.
             val otherActor =
                 write(
-                    upsertOp(item.id, "spec", body = "two", fields = mapOf("idempotencyKey" to JsonPrimitive("key-m"))),
+                    upsertOp(item.id, "spec-agent-2", body = "two", fields = mapOf("idempotencyKey" to JsonPrimitive("key-m"))),
                     actor = actor("agent-2")
                 )
             assertTrue(envelopeOk(otherActor), "another principal may reuse the key: $otherActor")
-            assertEquals("two", assertNotNull(stored(item.id, "spec")).body)
+            assertEquals("two", assertNotNull(stored(item.id, "spec-agent-2")).body)
+            assertEquals("one", assertNotNull(stored(item.id, "spec")).body, "agent-1's note is untouched")
         }
 
     @Test
@@ -901,5 +914,338 @@ class NotesWriteToolTest {
                 "D12: the payload is unchanged, no version: ${upsertRows.single().data}"
             )
             assertEquals(listOf("note.deleted"), deleteRows.map { it.type })
+        }
+
+    // ------------------------------------------------------------------ R21 note ownership (item 190f1bdd, test-author seat)
+    //
+    // Oracles: frozen task-scope "What to build" 2-5 and AC2, AC3, AC6, AC7, decisions D5, D6, D8; test-plan S3-S9, S13, S14
+    // and the probe list. Owner = the stored actor id; callers are test principals (testAccess), so the owner, the second
+    // principal and the admin are three distinct credentials. Every refusal is paired with a control that stores through
+    // the same call shape.
+
+    private val ownerId = "owner-zq7x"
+    private val callerId = "caller-w4k9"
+    private val adminId = "admin-p2m6"
+    private val ownerAccess = testAccess(ownerId, setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES))
+    private val callerAccess = testAccess(callerId, setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES))
+    private val adminAccess = testAccess(adminId)
+
+    private val takeoverField = mapOf<String, JsonElement>("takeover" to JsonPrimitive(true))
+
+    private val sharedConfig =
+        "work_item_schemas:\n  board-type:\n    notes:\n" +
+            "      - key: board\n        role: work\n        shared: true\n" +
+            "      - key: private\n        role: work\n"
+
+    @Test
+    fun `R21 S3 a second principal cannot upsert or delete a non-shared note - nothing written, no event, no owner id`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            assertTrue(envelopeOk(write(upsertOp(item.id, "spec", body = "original"), access = ownerAccess)))
+
+            val (refusedUpsert, upsertRows) = rig.written { write(upsertOp(item.id, "spec", body = "hijack"), access = callerAccess) }
+            val (refusedDelete, deleteRows) = rig.written { write(deleteOp(item.id, "spec"), access = callerAccess) }
+
+            for (answer in listOf(refusedUpsert, refusedDelete)) {
+                assertFalse(envelopeOk(answer), "$answer")
+                assertEquals("partial_failure", answer.code())
+                val error = answer.elementError(0)
+                assertEquals("note_owned_by_other", error.str("code"))
+                val detail = error.obj("detail")
+                assertEquals(item.id.toString(), detail.str("itemId"))
+                assertEquals("spec", detail.str("key"))
+                assertFalse("ownerSeat" in detail, "no seat owns it in R21: $detail")
+                assertFalse(ownerId in answer.toString(), "the owner id is in no message, detail or fix argument: $answer")
+            }
+            assertEquals(emptyList(), upsertRows.map { it.type }, "a refused upsert records no event")
+            assertEquals(emptyList(), deleteRows.map { it.type }, "a refused delete records no event")
+            val row = assertNotNull(stored(item.id, "spec"))
+            assertEquals("original", row.body)
+            assertEquals(1L, row.version)
+            assertEquals(ownerId, row.actorClaim?.id)
+
+            // control: the owner's identical rewrite stores, so the refusals are the ownership rule and nothing else
+            val control = write(upsertOp(item.id, "spec", body = "by owner"), access = ownerAccess)
+            assertEquals(2L, control.results().single().num("version"))
+        }
+
+    @Test
+    fun `R21 S3 a refused element in an atomic batch rolls the whole batch back, and replaying a refusal repeats it`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            write(upsertOp(item.id, "spec", body = "original"), access = ownerAccess)
+            val mark = rig.maxSeq()
+
+            val atomic = write(upsertOp(item.id, "fresh"), upsertOp(item.id, "spec", body = "hijack"), atomic = true, access = callerAccess)
+
+            assertFalse(envelopeOk(atomic), "$atomic")
+            assertEquals("note_owned_by_other", atomic.code())
+            assertEquals(1L, atomic.obj("error").num("index"))
+            assertNull(stored(item.id, "fresh"), "element 0 was rolled back with the batch")
+            assertEquals("original", assertNotNull(stored(item.id, "spec")).body)
+            assertEquals(mark, rig.maxSeq(), "the rolled-back batch left no event rows")
+
+            repeat(2) {
+                val again = write(upsertOp(item.id, "spec", body = "hijack"), access = callerAccess)
+                assertEquals("note_owned_by_other", again.elementError(0).str("code"))
+            }
+            // control: the same batch without the refused element commits
+            assertTrue(envelopeOk(write(upsertOp(item.id, "fresh"), upsertOp(item.id, "other"), atomic = true, access = callerAccess)))
+        }
+
+    @Test
+    fun `R21 S4 a key declared shared in the config is last-writer-wins, a sibling key without the flag is not`(): Unit =
+        runBlocking {
+            useRig(sharedConfig)
+            val item = rig.seed("typed", tags = "board-type")
+            write(upsertOp(item.id, "board", body = "first"), access = ownerAccess)
+            write(upsertOp(item.id, "private", body = "first"), access = ownerAccess)
+
+            val rewrite = write(upsertOp(item.id, "board", body = "second"), access = callerAccess)
+            assertTrue(envelopeOk(rewrite), "$rewrite")
+            assertEquals(callerId, assertNotNull(stored(item.id, "board")).actorClaim?.id, "the actor of a shared key is the last writer")
+            assertEquals("second", assertNotNull(stored(item.id, "board")).body)
+            assertTrue(envelopeOk(write(deleteOp(item.id, "board"), access = ownerAccess)), "the former owner deletes a shared key")
+            assertNull(stored(item.id, "board"))
+
+            val refused = write(upsertOp(item.id, "private", body = "second"), access = callerAccess)
+            assertEquals("note_owned_by_other", refused.elementError(0).str("code"), "$refused")
+            assertEquals("first", assertNotNull(stored(item.id, "private")).body)
+        }
+
+    @Test
+    fun `R21 S5 a NULL-actor note is unowned - the first writer after it owns it - and anyone may delete one`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
+            rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "legacy-del", role = "work", body = "orig"))
+
+            assertTrue(envelopeOk(write(upsertOp(item.id, "legacy", body = "claimed"), access = callerAccess)))
+            assertEquals(callerId, assertNotNull(stored(item.id, "legacy")).actorClaim?.id)
+            val refused = write(upsertOp(item.id, "legacy", body = "third"), access = ownerAccess)
+            assertEquals("note_owned_by_other", refused.elementError(0).str("code"), "$refused")
+
+            assertTrue(envelopeOk(write(deleteOp(item.id, "legacy-del"), access = ownerAccess)))
+            assertNull(stored(item.id, "legacy-del"))
+        }
+
+    @Test
+    fun `R21 S6 an ADMIN takeover rewrites another principal's note, stamps the admin and records the transfer before the upsert`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            write(upsertOp(item.id, "spec", body = "original"), access = ownerAccess)
+
+            val (answer, rows) =
+                rig.written {
+                    write(
+                        upsertOp(item.id, "spec", body = "taken", fields = takeoverField),
+                        access = adminAccess
+                    )
+                }
+
+            assertTrue(envelopeOk(answer), "$answer")
+            assertEquals(2L, answer.results().single().num("version"))
+            val row = assertNotNull(stored(item.id, "spec"))
+            assertEquals("taken", row.body)
+            assertEquals(adminId, row.actorClaim?.id)
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), rows.map { it.type }, "transfer first, then the write")
+            val transfer = rows.first().payload()
+            assertEquals(setOf("itemId", "key", "from", "to"), transfer.keys)
+            assertEquals(item.id.toString(), transfer.str("itemId"))
+            assertEquals("spec", transfer.str("key"))
+            assertEquals(ownerId, transfer.str("from"))
+            assertEquals(adminId, transfer.str("to"))
+
+            val former = write(upsertOp(item.id, "spec", body = "back"), access = ownerAccess)
+            assertEquals("note_owned_by_other", former.elementError(0).str("code"), "ownership moved to the admin: $former")
+        }
+
+    @Test
+    fun `R21 S7 takeover without ADMIN is forbidden capability admin - nothing written, no event`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            write(upsertOp(item.id, "foreign", body = "original"), access = ownerAccess)
+            write(upsertOp(item.id, "mine", body = "mine"), access = callerAccess)
+            val mark = rig.maxSeq()
+
+            val answer =
+                write(
+                    upsertOp(item.id, "foreign", body = "TAKEN", fields = takeoverField),
+                    upsertOp(item.id, "mine", body = "TAKEN", fields = takeoverField),
+                    upsertOp(item.id, "missing", body = "TAKEN", fields = takeoverField),
+                    access = callerAccess
+                )
+
+            for (index in 0..2) {
+                val error = answer.elementError(index)
+                assertEquals("forbidden", error.str("code"), "element $index: $answer")
+                assertEquals("capability", error.obj("detail").str("scope"), "element $index")
+                assertEquals("admin", error.obj("detail").str("required"), "element $index")
+            }
+            assertEquals("original", assertNotNull(stored(item.id, "foreign")).body)
+            assertEquals("mine", assertNotNull(stored(item.id, "mine")).body)
+            assertNull(stored(item.id, "missing"))
+            assertEquals(mark, rig.maxSeq(), "forbidden elements record no event")
+
+            // control: the same element shape from an ADMIN is accepted
+            assertTrue(envelopeOk(write(upsertOp(item.id, "foreign", body = "TAKEN", fields = takeoverField), access = adminAccess)))
+        }
+
+    @Test
+    fun `R21 S9 an ADMIN takeover where no transfer is needed writes without a transfer event`(): Unit =
+        runBlocking {
+            useRig(sharedConfig)
+            val item = rig.seed("typed", tags = "board-type")
+            write(upsertOp(item.id, "private", body = "mine"), access = adminAccess)
+            write(upsertOp(item.id, "board", body = "theirs"), access = ownerAccess)
+
+            for (key in listOf("private", "board", "fresh")) {
+                val (answer, rows) =
+                    rig.written {
+                        write(
+                            upsertOp(item.id, key, body = "T-$key", fields = takeoverField),
+                            access = adminAccess
+                        )
+                    }
+                assertTrue(envelopeOk(answer), "$key: $answer")
+                assertEquals(listOf("note.upserted"), rows.map { it.type }, "$key: a no-op takeover records no transfer")
+                assertEquals(adminId, assertNotNull(stored(item.id, key)).actorClaim?.id, key)
+            }
+        }
+
+    @Test
+    fun `R21 S9 an ADMIN takeover of an unowned legacy note is an adoption - from null with the 3x actor as legacyActor`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            rig.raw.noteRepository().upsert(
+                Note(
+                    itemId = item.id,
+                    key = "legacy",
+                    role = "work",
+                    body = "orig",
+                    actorClaim = ActorClaim(id = "planner:eadaaa4e", kind = ActorKind.SUBAGENT),
+                    ownerId = null
+                )
+            )
+
+            val (answer, rows) =
+                rig.written { write(upsertOp(item.id, "legacy", body = "T", fields = takeoverField), access = adminAccess) }
+
+            assertTrue(envelopeOk(answer), "$answer")
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), rows.map { it.type })
+            val transfer = rows.first().payload()
+            assertEquals(setOf("itemId", "key", "from", "to", "legacyActor"), transfer.keys, "adoption carries legacyActor: $transfer")
+            assertEquals(JsonNull, transfer["from"], "an adoption has no previous owner: $transfer")
+            assertEquals(adminId, transfer.str("to"))
+            assertEquals("planner:eadaaa4e", transfer.str("legacyActor"))
+            // control: the admin now owns it, so another principal is refused
+            val refused = write(upsertOp(item.id, "legacy", body = "x"), access = callerAccess)
+            assertEquals("note_owned_by_other", refused.elementError(0).str("code"), "$refused")
+        }
+
+    @Test
+    fun `R21 probe takeover false is the same as absent - an ADMIN without takeover is refused on another's note`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            write(upsertOp(item.id, "spec", body = "original"), access = ownerAccess)
+
+            val absent = write(upsertOp(item.id, "spec", body = "x"), access = adminAccess)
+            val explicitFalse =
+                write(upsertOp(item.id, "spec", body = "x", fields = mapOf("takeover" to JsonPrimitive(false))), access = adminAccess)
+
+            for (answer in listOf(absent, explicitFalse)) {
+                assertEquals("note_owned_by_other", answer.elementError(0).str("code"), "ADMIN alone is not a takeover: $answer")
+            }
+            assertEquals("original", assertNotNull(stored(item.id, "spec")).body)
+        }
+
+    @Test
+    fun `R21 probe takeover on a delete element is unknown_parameter and deletes nothing`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            write(upsertOp(item.id, "spec", body = "original"), access = ownerAccess)
+
+            val answer = write(deleteOp(item.id, "spec", "takeover" to JsonPrimitive(true)), access = adminAccess)
+
+            assertEquals("unknown_parameter", answer.elementError(0).str("code"), "$answer")
+            assertNotNull(stored(item.id, "spec"), "nothing was deleted")
+            assertTrue(envelopeOk(write(deleteOp(item.id, "spec"), access = ownerAccess)), "control: a plain delete by the owner works")
+        }
+
+    private object UnreadablePerRoot : PerRootConfigSource {
+        override suspend fun layer(rootId: UUID): ConfigLayer? =
+            throw PerRootConfigUnavailableException(rootId, "per-root config unreadable")
+    }
+
+    @Test
+    fun `R21 S13 a delete under an unreadable per-root config is unavailable and keeps the note`(): Unit =
+        runBlocking {
+            val repo = db.repositoryProvider().workItemRepository()
+            val rootId = UUID.randomUUID()
+            repo.create(WorkItem(id = rootId, title = "failing root", depth = 0, rootId = rootId))
+            val underRoot = repo.create(WorkItem(title = "under the failing root", parentId = rootId, depth = 1, rootId = rootId))
+            val rootless = repo.create(WorkItem(title = "no root", depth = 0))
+            val notes = db.repositoryProvider().noteRepository()
+            notes.upsert(Note(itemId = underRoot.id, key = "keep", role = "work", body = "keep me"))
+            notes.upsert(Note(itemId = rootless.id, key = "gone", role = "work", body = "control"))
+            val ctx = ToolExecutionContext(db.repositoryProvider(), perRootConfigService = UnreadablePerRoot, unitOfWork = db.unitOfWork())
+
+            val answer =
+                ctx.callTool(
+                    "notes_write",
+                    buildJsonObject { put("ops", JsonArray(listOf(deleteOp(underRoot.id, "keep"), deleteOp(rootless.id, "gone")))) }
+                )
+
+            assertFalse(answer.elementOk(0), "$answer")
+            assertEquals("unavailable", answer.elementError(0).str("code"), "$answer")
+            assertTrue(answer.elementOk(1), "the sibling of a non-atomic call still runs: $answer")
+            assertEquals(
+                "keep me",
+                assertNotNull(notes.findByItemIdAndKey(underRoot.id, "keep")).body,
+                "nothing deleted under the failing root"
+            )
+            assertNull(notes.findByItemIdAndKey(rootless.id, "gone"))
+        }
+
+    @Test
+    fun `R21 S14 the upsert and delete error sets list note_owned_by_other, and only upsert takes takeover`() {
+        val spec = checkNotNull(ToolRegistry(buildToolSpecs())["notes_write"])
+        val described = ToolDescriber.describe(spec, ToolProfile.KNOWLEDGE, null)
+
+        fun JsonObject.operation(name: String) = getValue("operations").jsonArray.map { it.jsonObject }.single { it.str("name") == name }
+
+        fun JsonObject.errorCodes() = getValue("errors").jsonArray.map { it.jsonObject.str("code") }
+
+        fun JsonObject.parameterNames() = obj("parameters").obj("properties").keys
+        for (op in listOf("upsert", "delete")) {
+            val codes = described.operation(op).errorCodes()
+            assertTrue("note_owned_by_other" in codes, "$op error set: $codes")
+            assertTrue("forbidden" in codes, "$op error set: $codes")
+        }
+        assertTrue("takeover" in described.operation("upsert").parameterNames(), "upsert takes takeover")
+        assertFalse("takeover" in described.operation("delete").parameterNames(), "delete has no takeover")
+    }
+
+    @Test
+    fun `R21 probe a base entry's shared false wins over the same key shared in a default trait`(): Unit =
+        runBlocking {
+            useRig(
+                "work_item_schemas:\n  mixed-type:\n    default_traits: [shared-board]\n    notes:\n" +
+                    "      - key: board\n        role: work\n        shared: false\n" +
+                    "traits:\n  shared-board:\n    notes:\n" +
+                    "      - key: board\n        role: work\n        shared: true\n" +
+                    "      - key: trait-only\n        role: work\n        shared: true\n"
+            )
+            val item = rig.seed("typed", tags = "mixed-type")
+            write(upsertOp(item.id, "board", body = "first"), access = ownerAccess)
+            write(upsertOp(item.id, "trait-only", body = "first"), access = ownerAccess)
+
+            val base = write(upsertOp(item.id, "board", body = "second"), access = callerAccess)
+            assertEquals("note_owned_by_other", base.elementError(0).str("code"), "the base entry's shared: false wins: $base")
+            assertEquals("first", assertNotNull(stored(item.id, "board")).body)
+
+            val traitOnly = write(upsertOp(item.id, "trait-only", body = "second"), access = callerAccess)
+            assertTrue(envelopeOk(traitOnly), "a key only the trait declares shared is shared: $traitOnly")
+            assertEquals("second", assertNotNull(stored(item.id, "trait-only")).body)
         }
 }

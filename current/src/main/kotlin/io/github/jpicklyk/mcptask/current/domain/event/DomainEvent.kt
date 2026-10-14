@@ -213,6 +213,31 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("itemId" to itemId, "key" to key, "role" to role, "cause" to cause.wire)
     }
 
+    /**
+     * A note changed owner: an ADMIN `takeover` ([from] is the previous owner's principal id) or the first 4.0 upsert of
+     * an unowned pre-4.0 note ([from] is null and [legacyActor] is the note's pre-4.0 actor id, or null); [to] is the
+     * new owner's principal id. Recorded in the same unit as the write, before the `note.upserted` row. Audit class.
+     */
+    data class NoteOwnershipTransferred(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val itemId: UUID,
+        val key: String,
+        val from: String?,
+        val to: String,
+        val legacyActor: String? = null
+    ) : DomainEvent() {
+        override val type: String get() = NOTE_OWNERSHIP_TRANSFERRED
+        override val entityKind: String get() = KIND_NOTE
+
+        override fun payload(): Map<String, Any?> =
+            if (from != null) {
+                mapOf("itemId" to itemId, "key" to key, "from" to from, "to" to to)
+            } else {
+                mapOf("itemId" to itemId, "key" to key, "from" to null, "to" to to, "legacyActor" to legacyActor)
+            }
+    }
+
     // ---- dependencies ----
 
     data class DependencyAdded(
@@ -558,6 +583,7 @@ sealed class DomainEvent {
         const val TRANSITION_REJECTED = "transition.rejected"
         const val NOTE_UPSERTED = "note.upserted"
         const val NOTE_DELETED = "note.deleted"
+        const val NOTE_OWNERSHIP_TRANSFERRED = "note.ownership_transferred"
         const val DEPENDENCY_ADDED = "dependency.added"
         const val DEPENDENCY_REMOVED = "dependency.removed"
         const val CLAIM_ACQUIRED = "claim.acquired"

@@ -79,7 +79,15 @@ object SeedV28 : MigrationSeed(28) {
             }
         val version = columns.filter { it[0] == "version" }
         assertEquals(listOf(listOf("version", "INTEGER", 1, "1")), version, "notes.version (name, type, notnull, default)")
-        assertEquals("version", columns.last()[0], "ADD COLUMN appends: version is the last notes column")
+        // ADD COLUMN appends, but this verify runs after the chain reaches the latest schema, so later migrations may have
+        // appended further columns (V34 owner_id): assert version sits after every column that existed before V28.
+        val names = columns.map { it[0] as String }
+        val v27Names = names.filter { it != "version" && it != "owner_id" }
+        assertEquals(
+            v27Names + "version",
+            names.filter { it != "owner_id" },
+            "ADD COLUMN appends: version follows every pre-V28 notes column"
+        )
     }
 
     private fun verifyRows(conn: Connection) {

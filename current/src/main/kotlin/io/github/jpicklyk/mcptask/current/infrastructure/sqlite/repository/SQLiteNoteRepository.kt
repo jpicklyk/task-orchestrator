@@ -112,6 +112,7 @@ class SQLiteNoteRepository(
                 it[NotesTable.verificationReason] = note.verification?.reason
                 // The store owns the version: +1 on every update, in the same statement as the new body.
                 it[NotesTable.version] = NotesTable.version + 1L
+                it[NotesTable.ownerId] = note.ownerId
             },
         ) {
             it[id] = note.id
@@ -132,6 +133,7 @@ class SQLiteNoteRepository(
             it[NotesTable.verificationVerifier] = note.verification?.verifier
             it[NotesTable.verificationReason] = note.verification?.reason
             it[NotesTable.version] = 1L
+            it[NotesTable.ownerId] = note.ownerId
         }
 
         // Read back the canonical row to obtain the actual ID (preserved from the pre-existing
@@ -243,6 +245,7 @@ class SQLiteNoteRepository(
                     NotesTable.key,
                     NotesTable.role,
                     NotesTable.version,
+                    NotesTable.ownerId,
                     bodyLength,
                     NotesTable.modifiedAt,
                     NotesTable.actorId,
@@ -262,6 +265,7 @@ class SQLiteNoteRepository(
                         key = row[NotesTable.key],
                         role = row[NotesTable.role],
                         version = row[NotesTable.version],
+                        ownerId = row[NotesTable.ownerId],
                         bodyLength = row[bodyLength].toInt(),
                         modifiedAt = row[NotesTable.modifiedAt],
                         actorClaim = mapActor(row, noteId),
@@ -342,7 +346,8 @@ class SQLiteNoteRepository(
             modifiedAt = row[NotesTable.modifiedAt],
             actorClaim = mapActor(row, noteId),
             verification = mapVerification(row, noteId),
-            version = row[NotesTable.version]
+            version = row[NotesTable.version],
+            ownerId = row[NotesTable.ownerId]
         )
     }
 

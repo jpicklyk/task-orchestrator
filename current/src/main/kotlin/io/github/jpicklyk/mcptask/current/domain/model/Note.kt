@@ -23,7 +23,8 @@ data class Note(
     val modifiedAt: Instant = Instant.now(),
     val actorClaim: ActorClaim? = null,
     val verification: VerificationResult? = null,
-    val version: Long = 1L
+    val version: Long = 1L,
+    val ownerId: String? = null
 ) {
     init {
         validate()

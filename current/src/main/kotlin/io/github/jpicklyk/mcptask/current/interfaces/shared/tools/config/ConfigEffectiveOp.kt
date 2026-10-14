@@ -94,7 +94,8 @@ private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
         description = description,
         guidance = guidance,
         skill = skill,
-        maxLength = maxLength
+        maxLength = maxLength,
+        shared = shared.takeIf { it }
     )
 
 private fun DispatchProfile.toDto(): DispatchProfileDto = DispatchProfileDto(agent = agent, model = model, effort = effort)
