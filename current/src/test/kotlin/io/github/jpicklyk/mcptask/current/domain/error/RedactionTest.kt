@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.CascadeSummary
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
@@ -233,5 +235,29 @@ class RedactionTest {
             setOf("itemId", "expiresAt", "retryAfterMs"),
             dataFields(ClaimResult.AlreadyClaimed::class.java).map { it.name }.toSet()
         )
+    }
+
+    // ------------------------------------------------------------------ R19 (item 46a83aca, test-author seat)
+    // Oracle: task-scope item 2 and 4 + AC6 ("no holder id in any error detail"): the not_claim_holder detail names the item
+    // only, and the cascade/echo shapes that report an ownership block have no member that can carry a principal identity.
+
+    @Test
+    fun `R19-S11 not_claim_holder detail carries exactly itemId`() {
+        assertEquals(setOf("itemId"), dataFields(ErrorDetail.NotClaimHolder::class.java).map { it.name }.toSet())
+    }
+
+    @Test
+    fun `R19-S11 the cascade event that reports an ownership block has no member that can name a principal`() {
+        val names = dataFields(AdvanceCascadeEvent::class.java).map { it.name }
+        assertTrue("ownershipBlocked" in names, "the event carries the ownership flag: $names")
+        val offenders = names.filter { isDenied(it) }
+        assertTrue(offenders.isEmpty(), "identity-like members on the cascade event: $offenders")
+    }
+
+    @Test
+    fun `R19-S11 the items_write cascade summary has no member that can name a principal`() {
+        val names = dataFields(CascadeSummary::class.java).map { it.name }
+        val offenders = names.filter { isDenied(it) }
+        assertTrue(offenders.isEmpty(), "identity-like members on the cascade summary: $offenders (all members: $names)")
     }
 }
