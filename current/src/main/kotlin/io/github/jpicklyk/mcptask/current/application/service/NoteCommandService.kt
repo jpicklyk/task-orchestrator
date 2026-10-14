@@ -51,7 +51,7 @@ data class NoteUpsertCommand(
      */
     val expectedVersion: Long? = null,
     /**
-     * Take over a note first written by another actor ([NoteOwnership]). Honoured only when [takeoverAllowed]; asking
+     * Take over a note owned by another principal ([NoteOwnership]). Honoured only when [takeoverAllowed]; asking
      * without it is `forbidden{capability, admin}`. Fail-closed defaults: `create_tree` passes neither.
      */
     val takeover: Boolean = false,

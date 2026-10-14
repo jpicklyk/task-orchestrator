@@ -26,7 +26,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
  * restricted scope this follows ADMIN in [capabilities]; an unrestricted scope always allows it. An [unauthenticated]
  * access never allows it.
  *
- * [takeoverAllowed] says whether the caller may take over a note first written by another actor (`notes_write`
+ * [takeoverAllowed] says whether the caller may take over a note owned by another principal (`notes_write`
  * `takeover`). It follows ADMIN in [capabilities]; an [unauthenticated] access has none.
  *
  * [sessionId] is the caller's MCP session (null on REST and stdio); the dispatcher copies it into

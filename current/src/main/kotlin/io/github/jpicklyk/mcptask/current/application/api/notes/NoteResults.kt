@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
 
-/** A note's owner as a view shows it: the first writer's audited actor [id]; [seat] stays null until seats bind (R22). */
+/** A note's owner as a view shows it: the owning principal's audited [id] (notes.owner_id); [seat] stays null until seats bind (R22). */
 data class NoteOwner(
     val id: String,
     val seat: String? = null

@@ -31,7 +31,7 @@ data class CallPrincipal(
  * caller may see other principals' ids in an aggregate (the `report` `principal` grouping); the transport decides it too
  * (ADMIN only), and it defaults to false. [rootWritesAllowed] says whether the caller may create a depth-0 root or move an
  * item to the top level; the transport decides it (an unrestricted scope or ADMIN), and it defaults to whether [scope] is
- * unrestricted. [takeoverAllowed] says whether the caller may take over a note first written by another actor (`notes_write`
+ * unrestricted. [takeoverAllowed] says whether the caller may take over a note owned by another principal (`notes_write`
  * `takeover`); the transport decides it (ADMIN only) and it defaults to false. [profile] is the wire name of
  * the tool view that served the call (set by the dispatcher); [sessionId] is the caller's MCP session (null on REST and stdio).
  */
