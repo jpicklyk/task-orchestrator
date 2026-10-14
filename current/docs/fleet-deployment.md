@@ -51,11 +51,11 @@ finishes wiring — the exception
 propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
 non-zero **before** the readiness marker is ever written and before any transport binds. The same
 applies to a present, non-null field that fails to parse under `actor_authentication:` (an
-unrecognized `degraded_mode_policy`, an unrecognized `verifier.type`, a non-mapping `verifier` or
+unrecognized `verifier.type`, a non-mapping `verifier` or
 `actor_authentication` value, `type: jwks` with no configured key source, or any `verifier` field of
 the wrong type — e.g. a list-valued `audience`, which would otherwise silently disable the audience
-check) — see "Policy Values"
-and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
+check) — see "Fail-closed verification"
+and "JWKS Sources" below. A leftover `actor_authentication.degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable is refused the same way (they were removed in 4.0). An absent file, or one that is empty or comment-only, is not an error: it
 keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
 config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
 now fails startup. Per-project config pushed via the `config` tool's `push` op (`POST /api/v1/ops/config`) is unaffected — only the single, server-wide global file is on this
@@ -445,11 +445,9 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 **This mode carries the same fence requirement as `/mcp`:** ensure the port is unreachable from any untrusted network before setting both keys — for Docker, publish only to loopback (`-p 127.0.0.1:3001:3001`; leave `MCP_HTTP_HOST=0.0.0.0`, see the bind-default rationale above and [SECURITY.md](../../SECURITY.md)), or for a direct non-Docker JAR run, set `MCP_HTTP_HOST=127.0.0.1`. Do not combine this mode with a `0.0.0.0` publish or a port published outside a trusted host, and do not set `MCP_HTTP_HOST=127.0.0.1` inside a Docker container to "harden" it — that binds loopback *inside* the container's own network namespace and breaks host→container reachability instead of restricting it. The server logs a `SECURITY:` WARN at startup whenever this mode is active, mirroring the existing `/mcp`-is-unauthenticated warning.
 
-### `degradedModePolicy` and the REST API
+### Key-set outages on the REST API
 
-When `API_AUTH_MODE=jwks`, a JWT reaching a REST write route has already passed full validation in `ApiBearerAuth` — so its audit-trail verification status is always `VERIFIED`, and every `DEGRADED_MODE_POLICY` (including `reject`) trusts a `VERIFIED` result. REST write endpoints therefore never actually return `401 verification_failed` in practice, regardless of `DEGRADED_MODE_POLICY`. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
-
-This is different from the MCP actor `reject` policy, which governs MCP tool calls (the `advance` tool's `claim`, `release`, `heartbeat` and `transition` ops) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result - that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+When `API_AUTH_MODE=jwks`, a request whose JWT cannot be judged because the JWKS key set is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`) is answered `503 unavailable` with `error.detail.retryAfterMs` 15000 and no `WWW-Authenticate` header; a token the key set rejects is `401 invalid_token`. The same holds for `/mcp` and the SSE `?token=` path. Nothing is served under a guessed identity. `GET /api/v1/info` reports the verifier (`verifier`: `none`, `bearer` or `jwks`) and, with `jwks`, `maxStale`, so a client can tell how long an outage is tolerated. **Bearer mode** has no key set to lose: a token-file token is judged locally.
 
 ### Client-side config sync (SessionStart hook)
 
@@ -616,14 +614,25 @@ Heartbeat: call `advance` `heartbeat` with the feature's `itemId` at the recomme
 
 ---
 
-## Identity Configuration — `auth.degradedModePolicy`
+## Identity Configuration — fail-closed verification
 
-The `degradedModePolicy` field under `actor_authentication:` in `.taskorchestrator/config.yaml` controls how the server resolves actor identity when JWKS verification cannot produce a fully verified result.
+Verification fails closed. There is no degraded-mode policy: `actor_authentication.degraded_mode_policy` and the `DEGRADED_MODE_POLICY` environment variable were removed in 4.0. A credential is accepted, rejected (`401`) or, when the JWKS key set is unavailable, answered `503 unavailable`; the server never falls back to a self-reported identity.
+
+A leftover key (any value, `null` included) or a set variable (any value) stops the server with an `IllegalArgumentException` naming it, before the readiness marker is written (the container exits non-zero). Delete the key from the global config and unset the variable before upgrading:
+
+```bash
+# This now exits non-zero: "DEGRADED_MODE_POLICY is no longer supported ..."
+docker run --rm -i \
+  -v mcp-task-data:/app/data \
+  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e DEGRADED_MODE_POLICY=reject \
+  task-orchestrator:dev
+```
 
 ```yaml
 actor_authentication:
   enabled: true
-  degraded_mode_policy: accept-cached   # see table below
   verifier:
     type: jwks
     oidc_discovery: "https://your-oidc-provider/.well-known/openid-configuration"
@@ -634,41 +643,22 @@ actor_authentication:
     require_sub_match: true
 ```
 
-### `DEGRADED_MODE_POLICY` Environment Variable
+### What replaced the policy values
 
-The `DEGRADED_MODE_POLICY` environment variable overrides the YAML `degraded_mode_policy` value at runtime. It is evaluated at server startup and takes precedence over any value set in the config file.
-
-```bash
-# Docker — set reject policy for fleet deployments
-docker run --rm -i \
-  -v mcp-task-data:/app/data \
-  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  -e DEGRADED_MODE_POLICY=reject \
-  task-orchestrator:dev
-```
-
-Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`. A YAML `degraded_mode_policy` value that is unrecognized fails startup the same way (naming the config file path) — it is no longer silently coerced to `accept-cached`; the env var check above is one instance of a fail-closed rule that now also covers the YAML value.
-
-**Recommended for cross-org fleet deployments:** `DEGRADED_MODE_POLICY=reject` — ensures that agents without a valid JWT in `actor.proof` cannot claim items or advance claimed items, regardless of what the YAML config contains.
-
-### Policy Values
-
-| Policy | Identity used | Recommended for |
-|---|---|---|
-| `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes — with a WARN log (verifier, reason, actor id; never the proof) when the outcome is `REJECTED` (verification was attempted and actively failed), and a WARN when JWKS was unreachable with no usable cache; `ABSENT`/`UNCHECKED` fall back silently. A one-time startup WARN is also logged when a real `jwks` verifier is configured under this policy. | Single-org deployments; JWKS endpoint occasionally unreachable |
-| `accept-self-reported` | Always use self-reported `actor.id` from the caller, regardless of verification result. Equivalent to v3.2 implicit behavior. | Local dev; no JWKS; explicitly documented opt-out of identity guarantees |
-| `reject` | Reject any operation requiring verified identity when the actor is not fully verified. The `advance` tool's `claim`, `release` and `heartbeat` ops return `unauthenticated`; a `transition` on a claimed item fails. | Cross-org `did:web` deployments; high-assurance environments |
+| Former value | Now |
+|---|---|
+| `accept-cached` | Gone. A token verified against a stale key set (within `max_stale_seconds`) still authenticates, with proof `verified_stale`; past `max_stale_seconds`, or with no key set ever fetched, the answer is `503 unavailable`. A rejected token is `401`, never accepted. |
+| `accept-self-reported` | Gone. The caller is always the transport principal (`api:<id>`, or `local` in local mode); no request carries an identity of its own. |
+| `reject` | The only behavior: nothing is trusted that was not proven. Claim ownership (`claim`, `release`, `heartbeat`, and the ownership check of `transition`) is enforced against the principal. |
 
 ### Cross-Org `did:web` Deployments
 
 For deployments where agents from different organizations share a single Task Orchestrator instance,
-combine `reject` policy with native DID-trust mode:
+use native DID-trust mode (verification always fails closed):
 
 ```yaml
 actor_authentication:
   enabled: true
-  degraded_mode_policy: reject        # unverified actors cannot claim or advance claimed items
   verifier:
     type: jwks
     # DID trust mode — each agent is identified by its own did:web DID
@@ -720,16 +710,14 @@ validation and before the `require_sub_match` check, so an untrusted issuer is s
 A mismatch here is rejected with `failureKind: claims` and a reason starting `sub/iss mismatch
 under DID trust`. Without this binding, an agent could sign a token with its own key asserting
 `sub` equal to a *different* trusted DID and be verified as that other agent. The binding turns
-such a token into `REJECTED`; it blocks the impersonation only under `degraded_mode_policy:
-reject` — under `accept-cached`, a `REJECTED` proof still falls back to the self-reported
-`actor.id` (see [Identity Configuration](#identity-configuration--authdegradedmodepolicy)).
+such a token into `REJECTED`, which is refused (there is no self-reported fallback).
 
 **Verified identity under DID trust.** On a `VERIFIED` result under DID trust, the resolved
-identity used by `resolveTrustedActorId` (under `accept-cached` and `reject`) is the verified DID
+identity is the verified DID
 (`sub`, which the binding above guarantees equals `iss`) — not the caller's self-reported
 `actor.id`. This holds even when `require_sub_match: false`, so operators cannot silently weaken
-the identity guarantee for `did:web` fleets by turning that flag off. `accept-self-reported` and
-static-JWKS (non-DID) verification are unaffected — see [Identity Model](#identity-model).
+the identity guarantee for `did:web` fleets by turning that flag off. Static-JWKS (non-DID)
+verification is unaffected — see [Identity Model](#identity-model).
 
 **DID identifier validation.** Before a `did:web` issuer is checked against `did_allowlist` /
 `did_pattern`, and before any network fetch, TO validates the identifier's structure:
@@ -816,26 +804,22 @@ Claim mode is opt-in. New deployments can start in any policy; existing deployme
 
 ### Stages
 
-The four stages below correspond to increasing identity-enforcement strictness. At any stage you can hold position indefinitely; advance only when clients are ready for the next stage.
+Identity is no longer a policy dial: every call runs as the transport principal and claim ownership is always enforced against it. The remaining ramp is the credential mode of the deployment:
 
 | Stage | Config | Server behavior |
 |---|---|---|
-| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | The `advance` tool's `claim` op works but is optional. A `transition` does not enforce ownership of unclaimed items. No actor required. |
-| **1 — Actor authentication on, self-reported identity** | Hook-side `actor_authentication.enabled: true` (client config, not read by the server), `degraded_mode_policy: accept-self-reported`, no `verifier` | The plugin hook requires an actor on writes. Claim ownership is not gated by `enabled`: the server enforces it whenever the item is claimed, and a call carrying no actor at all on a claimed item is also rejected. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
-| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
-| **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
+| **0 — Local** | Unauthenticated mode (`API_AUTH_MODE=none`, or `/mcp` local mode) | Every call is the `local` principal. The `advance` tool's `claim` op works but is optional; a `transition` of an unclaimed item needs no claim. |
+| **1 — Issued tokens** | `API_AUTH_MODE=bearer` | Each caller holds a token-file credential (proof `issued`); the principal id is the audited holder id (`api:<id>`). |
+| **2 — Verified tokens** | `API_AUTH_MODE=jwks` | Each caller presents a JWT (proof `verified`, or `verified_stale` against a stale key set); an unavailable key set answers `503`, a bad token `401`. |
 
 ### Recommended Sequence
 
-1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true` in the clients' workspace or user config (the plugin hook reads it; the server does not). Clients that don't pass `actor` will fail writes once attribution enforcement is active.
-2. **Stage 1 → Stage 2.** Configure the JWKS source and have clients begin attaching `actor.proof` JWTs. Stage 2 is forgiving — clients without `actor.proof` continue to work via self-reported fallback. Use this stage to confirm verification metadata in responses (`verification.status: VERIFIED` for upgraded clients).
-3. **Stage 2 -> Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `unauthenticated` on the `advance` tool's `claim`, `release` and `heartbeat` ops and on `transition` for claimed items.
+1. **Stage 0 → Stage 1.** Mint a token per agent in the token file and have clients send `Authorization: Bearer`. Claims then belong to `api:<id>` holders.
+2. **Stage 1 → Stage 2.** Configure the JWKS source (`API_JWKS_*`) and have clients present JWTs. Use `GET /api/v1/info` (`verifier`, `maxStale`) to confirm the mode, and watch for `503 unavailable` answers to size `API_JWKS_MAX_STALE_SECONDS` against your issuer's outages.
 
 ### Rolling Back
 
-Each stage is reversible. Loosening `degraded_mode_policy` (e.g., `reject` -> `accept-cached`) immediately allows previously-rejected operations to succeed. Disabling actor authentication entirely reverts to default-mode semantics - claims still work, but `advance` `transition` no longer enforces ownership.
-
-Existing claim records persist across policy changes. If a claim was placed under Stage 2 and the policy is loosened to Stage 1, the claim remains valid; ownership comparison still uses whatever identity scheme was in effect when the claim was placed.
+Each stage is reversible by changing the credential mode. Existing claim records persist across the change: a claim placed by `api:<id>` can be heartbeated, released or transitioned only by that principal until it expires, so move holders between modes only when their claims have lapsed.
 
 ---
 
@@ -874,7 +858,6 @@ Config key `actor_authentication.verifier.jti_replay_protection` (default `false
 - Every presented JWT must carry a non-blank `jti` claim; a token without one is rejected.
 - The `(iss, jti)` pair is tracked in an in-memory, single-instance cache (retained through `exp + 60s`, inclusive — the same instant through which the verifier still accepts the token); a second presentation of the same pair within that window is rejected with `reason: "jti replay detected"`, `failureKind: policy`.
 - **Off by default** because the same proof is legitimately re-verified more than once inside a single MCP call (a batch verifies the actor once per element, for example one `advance` `transition` call over several items) and reused across heartbeats/retries by design (see `advance` `heartbeat` above). TO installs a per-call memo so repeated verification of the *same* (proof, claim) pair within one call is never treated as a replay - but **a client that enables this flag must mint a fresh `proof` for every distinct call, including retries and heartbeats**, or those calls will be rejected as replays. This is separate from idempotency: the `idempotencyKey` of a batch element, not the proof, is what makes a retry idempotent, so an idempotent retry must still carry a fresh proof when this flag is on.
-- This protection only has an observable effect under `degraded_mode_policy: reject` — `accept-cached` and `accept-self-reported` fall back to the self-reported `actor.id` on a REJECTED verification (see [Identity Configuration — `auth.degradedModePolicy`](#identity-configuration--authdegradedmodepolicy) above), so a replay rejection is silently absorbed under those policies.
 - Not persisted or shared across instances: a restart, or a second server instance behind a load balancer, reopens the replay window for tokens still inside their `max_token_lifetime_seconds` cap. This is a single-instance mitigation, not a distributed one.
 - **Bounded capacity, best-effort:** the cache holds at most 10,000 `(iss, jti)` entries. When a new entry must be admitted at capacity, expired entries are purged first; if that still isn't enough, the oldest-inserted entry is evicted (rate-limited WARN logged) — regardless of which issuer it belongs to. Under a flood of distinct valid proofs large enough to evict a still-live entry before its retention window elapses, that entry's token can be replayed. Treat this as a best-effort, per-instance control, not a hard guarantee — raise the cache's capacity or lower `max_token_lifetime_seconds` if this is a concern for your issuer mix.
 
@@ -910,28 +893,24 @@ actor_authentication:
     algorithms: [RS256]
 ```
 
-### `cache_ttl_seconds`, `stale_on_error`, and Degraded Mode
+### `cache_ttl_seconds`, `stale_on_error`, and `max_stale_seconds`
 
-JWKS key material is cached for `cache_ttl_seconds` (default: 300). When a cached entry expires and a refresh fails, the `stale_on_error` flag (default: `true`) controls whether the prior cache is served. The interaction with `degraded_mode_policy`:
+JWKS key material is cached for `cache_ttl_seconds` (default: 300). When a cached entry expires and a refresh fails, `stale_on_error` (default: `true`) controls whether the prior cache is served, and `max_stale_seconds` (default `max(3600, cache_ttl_seconds)`) bounds how old, from its real fetch time, a served set may be:
 
-| Cache + refresh state | `accept-cached` | `accept-self-reported` | `reject` |
-|---|---|---|---|
-| Fresh hit (within TTL) | JWT verified, identity = `sub` | Same | Same |
-| Expired, refresh succeeds | JWT verified against fresh JWKS, identity = `sub` | Same | Same |
-| Expired, refresh fails, `stale_on_error: true`, prior fetch exists | Stale cache served, JWT verified, status = `VERIFIED` with `verifiedFromCache: true` metadata, identity = `sub` | Same | Same (verification still succeeds; stale-cache is invisible to the policy gate) |
-| Expired, refresh fails, `stale_on_error: false` or no prior fetch | Status = `UNAVAILABLE`; identity = self-reported `actor.id` | Identity = self-reported `actor.id` | Operation rejected with `unauthenticated` |
+| Cache + refresh state | Result |
+|---|---|
+| Fresh hit (within TTL) | JWT verified, identity = `sub`, proof `verified` |
+| Expired, refresh succeeds | JWT verified against the fresh key set, proof `verified` |
+| Expired, refresh fails, `stale_on_error: true`, prior fetch younger than `max_stale_seconds` | Stale key set served, JWT verified, proof `verified_stale` |
+| Expired, refresh fails, `stale_on_error: false`, or no prior fetch, or prior fetch older than `max_stale_seconds` | The key set is unavailable: `503 unavailable` (`retryAfterMs` 15000), no `WWW-Authenticate`; the token is neither accepted nor called invalid |
 
-Stale-cache success is reported as `VERIFIED` (with `verifiedFromCache: true` and `cacheAgeSeconds: N` in `verification.metadata`) — operators can scrape that metadata to alert on prolonged JWKS outages.
+Operators can alert on the `503` rate and on `verified_stale` in the call log's `proof_status` column to see prolonged JWKS outages.
 
 ### JWT `exp` vs Claim TTL
 
 JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but it does affect subsequent operations that re-verify identity (`advance` `heartbeat`, `advance` `transition` on the claimed item).
 
-When a presented JWT is past `exp`, the verifier returns a non-`VERIFIED` status. The resolution chain then applies:
-- Under `accept-cached`: identity falls back to the self-reported `actor.id`. If that value matches the claim's existing `claimedBy`, the operation succeeds. Holders that consistently pass the same self-reported `actor.id` they used at claim time will continue to operate even after their JWT expires.
-- Under `reject`: the operation is rejected with `unauthenticated`.
-
-For long-running work under `reject`, size JWT lifetime to comfortably exceed the heartbeat cadence so the holder always presents a fresh token. Under `accept-cached`, JWT expiry is non-fatal as long as the holder's `actor.id` is stable.
+When a presented JWT is past `exp`, it is rejected (`401 invalid_token`) and the call does not run: there is no fallback to a self-reported identity. A holder must present a fresh token to heartbeat or transition a claimed item, so size JWT lifetime to comfortably exceed the heartbeat cadence.
 
 The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime — it caches the verifier's public key material, not the JWTs themselves.
 
@@ -1185,14 +1164,14 @@ When a JWKS verifier is configured and the `actor.proof` JWT is valid, the serve
 Under **DID trust** (`did_allowlist`/`did_pattern` configured), the verifier additionally binds `sub` to `iss` (see [`require_sub_match`](#require_sub_match)), so the identity used here is the verified `did:web` DID — the same value whether or not `require_sub_match` is set. Under plain (non-DID) JWKS verification, this override applies only when `require_sub_match: true`, since `sub` is otherwise not read.
 
 The identity resolution chain:
-1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy` (under DID trust: the DID, bound equal to `iss`)
-2. `actor.proof` missing/invalid, `degradedModePolicy=accept-cached` → use self-reported `actor.id`
-3. `actor.proof` missing/invalid, `degradedModePolicy=accept-self-reported` → use self-reported `actor.id`
-4. `actor.proof` missing/invalid, `degradedModePolicy=reject` -> reject the operation (`unauthenticated`)
+1. A valid JWT → its `sub` claim is the principal id, and the audited holder id is `api:<sub>` (under DID trust: the DID, bound equal to `iss`)
+2. An invalid JWT → `401`, the call does not run
+3. An unavailable key set → `503 unavailable`, the call does not run
+4. There is no self-reported identity and no fallback to one
 
 ### `claimedBy` and PII
 
-`claimedBy` is whatever value the identity resolution chain produces — typically the JWT `sub` claim under verified mode, or the self-reported `actor.id` under fallback. If your issuer puts an email address, employee ID, or other personal identifier in `sub`, that value persists in the database on every claim and in audit log entries on every write.
+`claimedBy` is whatever value the identity resolution chain produces — typically `api:<id>` (the JWT `sub` or token-file id), or `local` in local mode. If your issuer puts an email address, employee ID, or other personal identifier in `sub`, that value persists in the database on every claim and in audit log entries on every write.
 
 | Surface | What gets persisted |
 |---|---|
@@ -1421,18 +1400,16 @@ An agent retrying a claim and getting `claim_held` back-to-back is **expected** 
 
 `claim_held` never discloses the competing agent's identity by design (see Tiered Claim Disclosure above). Use `items_read` `context` with the `itemId` for full diagnostics.
 
-### `unauthenticated` from the `advance` tool under `reject`
+### `unavailable` (HTTP 503) on every call under JWKS
 
-This outcome means `degradedModePolicy=reject` is configured and the caller's actor proof did not produce a fully-verified identity (the verifier returned `ABSENT`, `REJECTED`, or `UNAVAILABLE`).
+This means the JWKS key set cannot be had: it was never fetched, or the refresh keeps failing and the cached set is older than `max_stale_seconds`. The answer carries `retryAfterMs` 15000 and no `WWW-Authenticate` header, and the same holds on REST, `/mcp` and the SSE `?token=` path.
 
 **Recovery checklist:**
 
-1. Check the verifier configuration — `oidc_discovery` URL or `jwks_uri` must be reachable from the server.
-2. Read the error `message`, which names the verification status and reason, and the verification metadata - `failureKind` (`crypto | claims | policy | network | internal`) tells you which layer rejected.
-3. If `failureKind=network`, the JWKS endpoint is unreachable. Either restore connectivity or temporarily lower `degradedModePolicy` to `accept-cached` so the stale-cache fallback can serve.
-4. If `failureKind=crypto` or `claims`, the JWT itself is invalid — check `iss`, `aud`, and signing key alignment with the verifier's `algorithms` allowlist.
-
-The rejection concerns the call's actor, so every element of the call that needs a verified identity fails `unauthenticated` (alone in a non-atomic call; with `atomic: true` the first failure rolls the whole call back).
+1. Check the key source: the `API_JWKS_URL` (or `jwks_uri` / `oidc_discovery`) must be reachable from the server, and not resolve to a non-public address (the egress guard refuses those).
+2. Read the server log: one WARN names the reason (never the token) each time a call is refused.
+3. Restore connectivity; the next call after the refresh backoff succeeds. To ride out longer outages raise `API_JWKS_MAX_STALE_SECONDS` (`GET /api/v1/info` shows the value as `maxStale`), accepting that a revoked key is honored for that long.
+4. A `401 invalid_token` is a different problem: the JWT itself is invalid (`iss`, `aud`, expiry, or a signing key outside the `algorithms` allowlist).
 
 ### Stale `originalClaimedAt` — diagnosing crashed holders
 

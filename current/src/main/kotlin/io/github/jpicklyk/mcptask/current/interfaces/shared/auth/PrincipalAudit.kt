@@ -44,6 +44,10 @@ fun Principal.auditVerification(): VerificationResult =
             VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "api-bearer", reason = null)
         ProofStatus.NONE ->
             VerificationResult(status = VerificationStatus.UNCHECKED, verifier = LOCAL_VERIFIER, reason = null)
+        // History-only: the pipeline never builds a principal with it (see ProofStatus.REJECTED); if one ever did, it
+        // is audited as a rejected proof, never as a verified or an unchecked one.
+        ProofStatus.REJECTED ->
+            VerificationResult(status = VerificationStatus.REJECTED, verifier = "api-jwks", reason = null)
     }
 
 /** The [CallPrincipal] of a call: the synthesized audit claim and verification, carrying this principal. */

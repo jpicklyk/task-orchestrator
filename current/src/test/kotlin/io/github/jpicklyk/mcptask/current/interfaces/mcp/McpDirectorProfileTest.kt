@@ -668,7 +668,6 @@ class McpDirectorProfileTest {
             actorAuthEnabled = s.rig.composition.actorAuthEnabled,
             serverConfig = s.rig.composition.serverConfig,
             toolContext = s.rig.ctx,
-            degradedModePolicy = s.rig.composition.degradedModePolicy,
             appConfig = appConfig
         )
     }

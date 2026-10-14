@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -326,7 +325,7 @@ class EventRoutesTest {
                     unitOfWork = unitOfWork,
                     claimService = testClaimService(decorated.workItemRepository(), null, unitOfWork)
                 )
-            val outcome = service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+            val outcome = service.advance(item, "start", null, null, null)
             assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
 
             val events = collectorDeferred.await()

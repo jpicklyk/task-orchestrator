@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -17,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.credentialResol
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.directorOnlyForbidden
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.isDirectorOnly
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.keySetUnavailable
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.withHostOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
@@ -254,12 +256,19 @@ private val sseInlineAuthPlugin =
             // Resolve through the one bearer pipeline. A token-file entry carries its own expiry (null: none); a
             // JWT always carries its `exp`. The check happens ONCE, at connect; an SSE stream outlives it, so the
             // expiry is carried through to the periodic watchdog below.
-            val resolved = resolver?.resolve(rawToken)
-            if (resolved == null) {
-                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
-                return@onCall
-            }
+            val resolved =
+                when (val decision = resolver?.resolve(rawToken) ?: TrustDecision.Unauthenticated) {
+                    is TrustDecision.Trusted -> decision.resolved
+                    is TrustDecision.Unavailable -> {
+                        call.respondEnvelopeError(keySetUnavailable(decision, sseLogger))
+                        return@onCall
+                    }
+                    is TrustDecision.Unauthenticated -> {
+                        call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                        call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
+                        return@onCall
+                    }
+                }
             if (resolved.isDirectorOnly()) {
                 call.respondEnvelopeError(directorOnlyForbidden())
                 return@onCall

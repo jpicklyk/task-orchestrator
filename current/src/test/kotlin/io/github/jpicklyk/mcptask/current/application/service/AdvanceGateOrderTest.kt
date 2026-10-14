@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
@@ -397,7 +396,7 @@ class AdvanceGateOrderTest {
                     claimService = testClaimService(provider.workItemRepository(), null, db.unitOfWork())
                 )
 
-            val outcome = service.advance(item, "bogus", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+            val outcome = service.advance(item, "bogus", null, null, null)
 
             val failure = assertIs<AdvanceOutcome.Failure>(outcome).failure
             val resolution = assertIs<AdvanceFailure.ResolutionFailed>(failure)

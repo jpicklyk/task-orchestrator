@@ -671,7 +671,7 @@ Each entry: `{seq, id, itemId, occurredAt, trigger, fromRole, toRole, fromStatus
 summary?, consumedCredentials?, backfilled?, actor?, verification?}`; `id` is the event id and `itemId` a full
 UUID; absent values are omitted; `consumedCredentials` is omitted when empty; `origin` is `user` or `cascade` on
 a live row; `backfilled: true` marks a row copied from the retired 3.x `role_transitions` table (V29), which has
-no `origin`. `actor` `{id, kind, parent?}` and `verification` `{status, verifier?, reason?}` appear only when the
+no `origin`. `actor` `{id, kind, parent?}` and `verification` `{proofStatus, verifier?, reason?}` appear only when the
 caller may see attribution (the `notes_read` rule); the proof hash and the verified claims are never returned.
 Cascades: a live cascade row renders the caller's `actor` with `origin: cascade`; a backfilled 3.x cascade row
 renders no `actor` and no `origin`, only `trigger: cascade`.
@@ -894,7 +894,7 @@ are thin translations to it (see `api-rest.md` section 11). `notes_read` replace
 - Paging follows the envelope's list rules (amendment U22): `page.total` is the full count on every
   page, `truncated` is true exactly when notes exist after this page, and `next` (an opaque cursor) is
   present exactly when `truncated`, so following `next` until it is absent always terminates.
-- `actor` (`{id, kind, parent?}`) and `verification` (`{status, verifier?, reason?}`) appear only when
+- `actor` (`{id, kind, parent?}`) and `verification` (`{proofStatus, verifier?, reason?}`) appear only when
   the caller may see attribution: on every transport, a principal with `ADMIN`, or any principal when
   `API_REDACT_NOTE_ATTRIBUTION=false`. Proof evidence (the proof hash and verified claims) is never
   returned.
@@ -1248,7 +1248,7 @@ claimed item waits out the claim TTL.
 **Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor). The holder claiming
 again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
 it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). For claim, release and
-heartbeat the holder id is the principal's audited id after the degraded-mode policy (`unauthenticated` when the policy rejects). The holder's identity never appears in any error detail.
+heartbeat the holder id is the principal's audited id (`api:<id>` for a credential, `local` for the local principal); no policy can reject it. The holder's identity never appears in any error detail.
 
 `select` filters: `role` (default `queue`), `parentId`, `tags` (any), `priority`, `type`, `complexityMax`, `createdAfter`,
 `createdBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy` (`priority` default, `oldest`, `newest`). The best eligible
@@ -2118,14 +2118,14 @@ API runs a credential mode) and `local` for the local principal (stdio, `/mcp` i
 
 Every persisted actor claim includes a verification record.
 
-**Where it appears.** A verification record is returned as `verification` `{status, verifier?, reason?}` on `notes_read`
+**Where it appears.** A verification record is returned as `verification` `{proofStatus, verifier?, reason?}` on `notes_read`
 entries and on `items_read` `history` entries, and only to a caller allowed to see attribution (on every transport, a
 principal with `ADMIN`, or any principal when `API_REDACT_NOTE_ATTRIBUTION=false`). The record is always persisted; the metadata
 below is stored with it and is not part of the MCP wire shape.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| status | string | One of the five values below |
+| proofStatus | string | One of the five proof-status values below |
 | verifier | string | Which verifier produced the result (e.g., `noop`, `jwks`) |
 | reason | string | Failure detail or exception message; null when absent or verified |
 | metadata | object | Optional key/value bag — omitted when empty (see below) |
@@ -2135,19 +2135,23 @@ the database additionally stores `proofSha256` (a SHA-256 hex digest of the raw 
 whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT claims — `iss`,
 `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
 field is returned by any tool or REST route since the 4.0 note reads (`notes_read` and the REST note GETs return
-`verification` as `{status, verifier?, reason?}` only, `ADMIN` included; 3.x showed `verification.proof` to `ADMIN`), and the
+`verification` as `{proofStatus, verifier?, reason?}` only, `ADMIN` included; 3.x showed `verification.proof` to `ADMIN`), and the
 transition trail (`items_read` `history`) never returns them either. They are stored for forensics only. See
 [api-rest.md](api-rest.md) section 22.
 
-**VerificationStatus values:**
+**Proof status values.** The wire spells a verification as a proof status, never as the stored verification status:
 
 | Value | Meaning |
 |-------|---------|
-| `absent` | No proof was provided; the caller decides how to treat proof-less actors |
-| `unchecked` | Proof was present but no verifier is configured to evaluate it |
-| `verified` | Proof was cryptographically validated and all claims passed |
-| `rejected` | Proof was present but validation failed (bad signature, expired, wrong claims, policy violation) |
-| `unavailable` | Verification could not complete due to a transient error (network failure, unreachable JWKS endpoint) |
+| `verified` | The credential was a JWT verified against a fresh key set |
+| `verified_stale` | The JWT was verified against a key set served from the stale cache after a failed refresh (within `max_stale_seconds`); a per-request fact of the principal, call log and provenance. A stored note records `verified` for it |
+| `issued` | A server-issued token from the token file; not cryptographic proof, so it never satisfies `independence.require_verified` |
+| `none` | No credential at all (the local principal) |
+| `rejected` | History only: a proof that was presented and failed. The pipeline never produces it and a rejected credential yields no principal (`401`) |
+
+Stored rows keep the older spellings and are read through one mapping: `unchecked` with verifier `api-bearer` is `issued`,
+any other `unchecked` and the legacy `absent`, `unverified` and `unavailable` are `none`, and the legacy `failed` is
+`rejected`; an unknown value is skipped. Nothing on a wire says `unchecked`, `absent` or `unavailable`.
 
 **Metadata fields:**
 
@@ -2159,8 +2163,8 @@ transition trail (`items_read` `history`) never returns them either. They are st
 
 ### Verifier names
 
-A transport principal's verification record names its source: `api-jwks` (`verified`) for a verified JWT, fresh or
-stale; `api-bearer` (`unchecked`) for a token-file credential; `local` (`unchecked`) for the local principal. The
+A transport principal's verification record names its source: `api-jwks` (proof `verified`) for a verified JWT, fresh or
+stale; `api-bearer` (proof `issued`) for a token-file credential; `local` (proof `none`) for the local principal. The
 plugin's `actor_authentication.enabled` hook no longer has a server-side counterpart: the server ignores any body
 `actor`.
 
@@ -2169,12 +2173,11 @@ plugin's `actor_authentication.enabled` hook no longer has a server-side counter
 
 ### Verifier Configuration
 
-Since R14 no request body carries an actor claim or proof, so the actor verifier below is not consulted on any tool call; its configuration is still parsed and its future is decided with the trust-policy work (R18). The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
+Since R14 no request body carries an actor claim or proof, so the actor verifier below is not consulted on any tool call; its configuration is still parsed and its future is decided with the field-guide work (R29). The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
 
 ```yaml
 actor_authentication:
   enabled: true          # Plugin hook only (client-side config); the server ignores this key
-  degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
     type: jwks           # "noop" (default) | "jwks"
     # Exactly one key source: jwks_uri, jwks_path, or oidc_discovery.
@@ -2188,30 +2191,15 @@ actor_authentication:
     require_sub_match: true
 ```
 
-### `auth.degradedModePolicy`
+### No degraded-mode policy
 
-Controls how the server resolves actor identity when verification cannot produce a `verified` result.
-
-| Value | Behavior | Use case |
-|---|---|---|
-| `accept-cached` | *(default)* When verification status is `unavailable` **and** a stale JWKS cache was used, the verified `actor.id` from the JWT is trusted. All other non-verified outcomes fall back to the self-reported `actor.id`. | Single-org deployments with occasional JWKS outages |
-| `accept-self-reported` | Always trust the caller-supplied `actor.id` regardless of verification outcome. Equivalent to v3.2 implicit behavior. | Local dev without JWKS; explicitly documented opt-out |
-| `reject` | Any operation requiring verified identity fails when verification status is not `verified`. Every ownership-sensitive operation fails `unauthenticated`. | Cross-org `did:web` deployments; maximum identity assurance |
-
-`degradedModePolicy` applies at every ownership-sensitive call: `advance` `claim`, `release` and `heartbeat`, and the ownership check of `advance` `transition`. When in `reject` mode and verification is absent or fails, the operation is rejected before any DB access.
-
-### `DEGRADED_MODE_POLICY` Environment Variable
-
-The `DEGRADED_MODE_POLICY` environment variable overrides the `actor_authentication.degraded_mode_policy` YAML value. It is evaluated at server startup before any requests are processed.
-
-| Aspect | Detail |
-|---|---|
-| Valid values | `accept-cached`, `accept-self-reported`, `reject` (case-insensitive) |
-| Priority | Env var **>** YAML field **>** coded default (`accept-cached`) |
-| Invalid value | Throws `IllegalArgumentException` at startup — server will not start |
-| Unset | Falls through to the YAML value (or the coded default) |
-
-Use `DEGRADED_MODE_POLICY=reject` for cross-org or multi-tenant fleet deployments. See [Fleet Deployment Guide — DEGRADED_MODE_POLICY](fleet-deployment.md#degraded_mode_policy-environment-variable) for Docker examples and security rationale.
+Verification fails closed. `actor_authentication.degraded_mode_policy` and the `DEGRADED_MODE_POLICY` environment
+variable were removed in 4.0: a leftover key (any value, `null` included) or a set variable (any value) is an
+`IllegalArgumentException` at startup naming it, before the readiness marker is written, so the server does not start
+believing a security setting is in force. Ownership-sensitive calls (`advance` `claim`, `release`, `heartbeat` and the
+ownership check of `transition`) run as the transport principal and are always enforced. A JWT whose key set is
+unavailable is answered `503 unavailable` at the transport (REST, `/mcp`, SSE `?token=`), never served under a guessed
+identity; see [api-rest.md](api-rest.md) section 1.
 
 ### Verification Behavior
 

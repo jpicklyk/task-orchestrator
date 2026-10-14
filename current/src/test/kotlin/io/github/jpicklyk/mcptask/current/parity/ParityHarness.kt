@@ -181,7 +181,6 @@ internal fun Application.installParityRestApp(
         actorAuthEnabled = rig.composition.actorAuthEnabled,
         serverConfig = rig.composition.serverConfig,
         toolContext = rig.composition.toolContext,
-        degradedModePolicy = rig.composition.degradedModePolicy,
         callLog = callLog,
         toolRegistry = registry,
         toolDispatcher = buildToolDispatcher(rig.composition.toolContext),

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
@@ -94,7 +93,6 @@ class P5bWriteUnitToolsTest {
         ToolExecutionContext(
             db.repositoryProvider(),
             actorVerifier = NoOpActorVerifier,
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             unitOfWork = uow
         ) to uow
 

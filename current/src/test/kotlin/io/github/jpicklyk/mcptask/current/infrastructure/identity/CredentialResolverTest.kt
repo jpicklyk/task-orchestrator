@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -122,7 +123,7 @@ class CredentialResolverTest {
     private fun resolve(
         resolver: CredentialResolver,
         raw: String,
-    ): Resolved? = runBlocking { resolver.resolve(raw) }
+    ): Resolved? = runBlocking { resolver.resolveOrNull(raw) }
 
     // ------------------------------------------------------------------ JWT fixtures
 

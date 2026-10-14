@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
@@ -249,7 +248,6 @@ class CurrentMcpServer(
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
             val serverConfig = composition.serverConfig
-            val degradedModePolicy = composition.degradedModePolicy
 
             // Expired idempotency records are pruned once now and then hourly. Registered AFTER Close Database
             // so the LIFO drain stops the pruner first.
@@ -349,7 +347,6 @@ class CurrentMcpServer(
                             apiWiring,
                             serverConfig,
                             toolContext,
-                            degradedModePolicy,
                             composition.actorAuthEnabled,
                             readinessMarker,
                             mcpAuth,
@@ -462,7 +459,6 @@ class CurrentMcpServer(
         apiWiring: ApiWiring,
         serverConfig: ServerConfigSource,
         toolContext: ToolExecutionContext,
-        degradedModePolicy: DegradedModePolicy,
         actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
         mcpAuth: McpAuthMode,
@@ -534,7 +530,6 @@ class CurrentMcpServer(
                     actorAuthEnabled = actorAuthEnabled,
                     serverConfig = serverConfig,
                     toolContext = toolContext,
-                    degradedModePolicy = degradedModePolicy,
                     jwksVerifier = jwksVerifier,
                     appConfig = appConfig,
                     callLog = callLog,
@@ -785,7 +780,6 @@ internal fun Application.installRestApiRoutes(
     actorAuthEnabled: Boolean,
     @Suppress("UNUSED_PARAMETER") serverConfig: ServerConfigSource,
     toolContext: ToolExecutionContext,
-    degradedModePolicy: DegradedModePolicy,
     jwksVerifier: JwksApiVerifier? = null,
     appConfig: AppConfig,
     callLog: CallLogSink = CallLogSink.NONE,
@@ -838,6 +832,13 @@ internal fun Application.installRestApiRoutes(
                 serverName = serverName,
                 serverVersion = serverVersion,
                 actorAuthEnabled = actorAuthEnabled,
+                verifier =
+                    when (apiConfig) {
+                        is ApiAuthConfig.Jwks -> "jwks"
+                        is ApiAuthConfig.Bearer -> "bearer"
+                        else -> "none"
+                    },
+                maxStale = (apiConfig as? ApiAuthConfig.Jwks)?.maxStaleSeconds,
                 configService = toolContext.configService,
             )
             // Phase 3: read API — items (through the items_read select), notes, dependencies

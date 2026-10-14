@@ -835,7 +835,7 @@ Items with `type: feature-task` use the `work_item_schemas` entry. Items with ta
 
 ## Actor authentication
 
-The `actor_authentication` section is a top-level key alongside `work_item_schemas` and `traits`. It carries two kinds of setting that different readers consume: the client-side `enabled` flag (read only by the plugin hook) and the server-side `verifier` and `degraded_mode_policy` (read only by the server, from the global file).
+The `actor_authentication` section is a top-level key alongside `work_item_schemas` and `traits`. It carries two kinds of setting that different readers consume: the client-side `enabled` flag (read only by the plugin hook) and the server-side `verifier` (read only by the server, from the global file). The former `degraded_mode_policy` key and `DEGRADED_MODE_POLICY` variable were removed in 4.0 and fail startup if still set.
 
 ```yaml
 actor_authentication:
@@ -1242,9 +1242,9 @@ in an additive `ignoredSections` field.
 > "Resources (Trait Dimension)" above.
 
 **Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
-server reads `actor_authentication.verifier` and `degraded_mode_policy` only from the global
+server reads `actor_authentication.verifier` only from the global
 file. A per-root document may carry the section, but the server ignores it (and reports it in
-`ignoredSections`); keep those two keys in the global config. `actor_authentication.enabled` is
+`ignoredSections`); keep that key in the global config. `actor_authentication.enabled` is
 different: it is read only by the plugin hook from the client-side workspace or user config, and
 the server ignores it wherever it appears.
 

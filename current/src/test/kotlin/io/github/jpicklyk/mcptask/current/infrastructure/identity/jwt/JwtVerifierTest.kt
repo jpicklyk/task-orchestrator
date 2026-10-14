@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -641,7 +642,7 @@ class JwtVerifierTest {
             val token = signRsa(claims(expiry = Instant.ofEpochSecond(expEpoch)))
             val api = JwksApiVerifier(apiConfig(), staticProvider(rsaKey), CLOCK)
 
-            val verified = api.verifyWithExpiry(token)
+            val verified = api.verifyWithExpiryOrNull(token)
             assertNotNull(verified)
             assertEquals(Instant.ofEpochSecond(expEpoch), verified!!.expiresAt)
 

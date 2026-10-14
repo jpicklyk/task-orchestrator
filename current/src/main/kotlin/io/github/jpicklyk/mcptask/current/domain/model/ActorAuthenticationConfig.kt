@@ -1,94 +1,19 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
- * Determines how the system behaves when actor-claim verification cannot produce a
- * [VerificationStatus.VERIFIED] result.
- *
- * Three-value enum aligned with the `auth.degradedModePolicy` config key described in the
- * v1 implementation plan (issue #117, distributed-correctness contract item 4).
- *
- * Values:
- * - [ACCEPT_CACHED] *(default)* — preserves the v3.3.0 stale-cache fallback.
- *   When verification status is [VerificationStatus.VERIFIED] (whether fresh OR stale-cache
- *   success — `JwksActorVerifier` returns VERIFIED with `metadata["verifiedFromCache"] == "true"`
- *   when a stale cached key successfully validates the JWT during a JWKS fetch failure), the
- *   verified `actor.id` from the JWT is trusted. When verification status is
- *   [VerificationStatus.UNAVAILABLE] (JWKS down with no usable cache), falls back to the
- *   self-reported `actor.id` with a WARN log so operators see the degradation. When verification
- *   status is [VerificationStatus.REJECTED] (verification was attempted and actively failed —
- *   bad signature, wrong issuer/audience, expired, etc.), also falls back to the self-reported
- *   `actor.id`, logging a WARN naming the verifier and reason (never the proof) so operators
- *   running a real verifier under this policy see that a failed verification was still accepted.
- *   For the remaining non-VERIFIED outcomes (ABSENT, UNCHECKED), falls back silently to the
- *   self-reported `actor.id` (same as pre-v3.3 implicit behavior).
- *
- *   Note: `ActorTrustPolicy.resolveTrustedActorId` also handles a defensive
- *   "UNAVAILABLE + verifiedFromCache=true" branch — this is reserved for future verifier
- *   implementations that might emit UNAVAILABLE for stale-cache success. The current
- *   `JwksActorVerifier` always returns VERIFIED for that case, so the branch is unreachable
- *   today but preserved for forward compatibility.
- * - [ACCEPT_SELF_REPORTED] — always trusts the caller-supplied `actor.id` regardless of
- *   verification outcome. This is the v3.2 implicit behavior; explicitly labeled here so operators
- *   understand they are opting out of JWKS identity guarantees.
- * - [REJECT] — any operation that requires verified identity is rejected when the verification
- *   status is not [VerificationStatus.VERIFIED]. Recommended for cross-org `did:web` deployments.
- *
- * **Downstream integration points (items 4 and 5):**
- * - the `advance` claim op: when placing a claim, the trusted actor id is determined by
- *   `DegradedModePolicy.resolveTrustedActorId(actorClaim, verificationResult)`.
- * - the `advance` transition ownership checks: claim ownership is validated against the
- *   same trusted actor id resolver to ensure consistent identity resolution.
- */
-enum class DegradedModePolicy {
-    /** Trust verified `actor.id` from stale-cache fallback; otherwise fall back to self-reported. */
-    ACCEPT_CACHED,
-
-    /**
-     * Always trust the self-reported `actor.id` from the caller, regardless of verification.
-     * Documents the pre-v3.3 implicit behavior explicitly.
-     */
-    ACCEPT_SELF_REPORTED,
-
-    /** Reject any operation requiring identity when the actor is not fully verified. */
-    REJECT;
-
-    fun toConfigString(): String =
-        when (this) {
-            ACCEPT_CACHED -> "accept-cached"
-            ACCEPT_SELF_REPORTED -> "accept-self-reported"
-            REJECT -> "reject"
-        }
-
-    companion object {
-        /**
-         * Parse a config-file string to a [DegradedModePolicy].
-         * Accepts both hyphenated config-file form (`accept-cached`) and enum name form (`ACCEPT_CACHED`).
-         * Defaults to [ACCEPT_CACHED] if the value is unrecognized (with caller responsible for warning).
-         */
-        fun fromConfigString(value: String): DegradedModePolicy? =
-            when (value.lowercase().replace("_", "-")) {
-                "accept-cached" -> ACCEPT_CACHED
-                "accept-self-reported" -> ACCEPT_SELF_REPORTED
-                "reject" -> REJECT
-                else -> null
-            }
-    }
-}
-
-/**
  * Top-level actor authentication configuration parsed from `.taskorchestrator/config.yaml`
  * under the `actor_authentication:` key.
  *
  * There is deliberately no `enabled` field: `actor_authentication.enabled` is read only by the
  * client-side plugin hook (`enforce-actor-attribution.mjs`), never by the server, and is ignored here.
  *
+ * There is no degraded-mode policy: verification fails closed (an unavailable key set answers 503,
+ * never a self-reported identity), so the former `degraded_mode_policy` key is rejected at startup.
+ *
  * @param verifier The actor-claim verifier strategy to use.
- * @param degradedModePolicy Controls what happens when actor verification is not fully successful.
- *   See [DegradedModePolicy] for the three values and their security trade-offs.
  */
 data class ActorAuthenticationConfig(
-    val verifier: VerifierConfig = VerifierConfig.Noop,
-    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
+    val verifier: VerifierConfig = VerifierConfig.Noop
 )
 
 /**

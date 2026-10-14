@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -347,8 +346,11 @@ class GlobalConfigFileTest {
         val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath), envResolver)
         val viaPath = YamlActorAuthenticationConfigService(configPath, envResolver)
 
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, viaGcf.getConfig().degradedModePolicy)
+        // The variable (like the YAML key) is removed: both constructors refuse it, naming the variable.
+        val exGcf = assertFailsWith<IllegalArgumentException> { viaGcf.getConfig() }
+        val exPath = assertFailsWith<IllegalArgumentException> { viaPath.getConfig() }
+        assertEquals(exPath.message, exGcf.message)
+        assertTrue(exGcf.message?.contains("DEGRADED_MODE_POLICY") == true)
     }
 
     // ──────────────────────────────────────────────
@@ -459,6 +461,6 @@ class GlobalConfigFileTest {
         val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath, badEnv).getConfig() }
 
         assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("banana") == true)
+        assertTrue(exGcf.message?.contains("DEGRADED_MODE_POLICY") == true)
     }
 }

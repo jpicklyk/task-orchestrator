@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -109,8 +108,6 @@ class TransitionEventAuditPayloadTest {
                 summary,
                 actor,
                 verification,
-                DegradedModePolicy.ACCEPT_CACHED,
-                enforceOwnership = false,
                 credentialRefs = refs
             )
         val success = assertIs<AdvanceOutcome.Success>(outcome, "the advance must apply: $outcome")

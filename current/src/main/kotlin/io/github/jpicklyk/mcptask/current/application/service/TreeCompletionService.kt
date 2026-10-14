@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -60,8 +59,7 @@ data class TreeCompletionResult(
  */
 class TreeCompletionService(
     private val repositoryProvider: RepositoryProvider,
-    private val advanceServiceFactory: AdvanceServiceFactory,
-    private val degradedModePolicy: DegradedModePolicy
+    private val advanceServiceFactory: AdvanceServiceFactory
 ) {
     /**
      * The descendants of [rootId] (in store order), and the root itself when [includeRoot]; null when it does not exist.
@@ -171,8 +169,6 @@ class TreeCompletionService(
                     summary = null,
                     actorClaim = actorClaim,
                     verification = verification,
-                    degradedModePolicy = degradedModePolicy,
-                    enforceOwnership = true,
                     credentialRefs = emptyList(),
                     enforceResourceLeases = true
                 )

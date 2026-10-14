@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -68,7 +67,6 @@ class WriteRouteAuthInvariantTest {
     private fun Application.wireJwksWriteApp(
         repo: DefaultRepositoryProvider,
         verifier: JwksApiVerifier,
-        degradedModePolicy: DegradedModePolicy,
     ) {
         install(ContentNegotiation) { json(McpJson) }
         install(SSE)
@@ -140,7 +138,7 @@ class WriteRouteAuthInvariantTest {
         testApplication {
             val repo = db.repositoryProvider()
             val verifier = mockk<JwksApiVerifier>()
-            application { wireJwksWriteApp(repo, verifier, DegradedModePolicy.REJECT) }
+            application { wireJwksWriteApp(repo, verifier) }
 
             val response =
                 client.post("/api/v1/items") {

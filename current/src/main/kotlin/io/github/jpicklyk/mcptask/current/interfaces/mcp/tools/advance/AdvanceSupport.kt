@@ -3,12 +3,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceErrors
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -28,26 +25,11 @@ import java.util.UUID
  */
 internal object AdvanceSupport {
     /**
-     * The holder id of a claim, release or heartbeat: the trusted id of the call's principal under the degraded-mode
-     * policy; a policy rejection is `unauthenticated`.
+     * The holder id of a claim, release or heartbeat: the audited id of the call's principal (`api:<id>` for an
+     * authenticated caller, `local` for the unauthenticated local principal). The principal always exists and there
+     * is no policy to reject it, so this cannot fail.
      */
-    fun holderId(
-        env: ToolExecutionContext,
-        ctx: CallContext
-    ): Outcome<String> {
-        val principal = ctx.principal
-        return when (
-            val resolved =
-                ActorTrustPolicy.resolveTrustedActorId(
-                    principal.claim,
-                    principal.verification,
-                    env.degradedModePolicy
-                )
-        ) {
-            is PolicyResolution.Trusted -> Outcome.Ok(resolved.trustedId)
-            is PolicyResolution.Rejected -> Outcome.Err(AdvanceErrors.unauthenticated(resolved.reason))
-        }
-    }
+    fun holderId(ctx: CallContext): String = ctx.principal.claim.id
 
     /** Resolves [ref] to an item id the call's scope admits ([ScopedIds.resolveTarget]): never an existence oracle. */
     suspend fun resolveInScope(

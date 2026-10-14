@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -130,12 +131,13 @@ object ItemsReadHistory {
                 }
                 val verifier = data.str("verifier")
                 val reason = data.str("verificationReason")
-                val status = record.proofStatus
-                if (status != null) {
+                // A stored value (new `proof_status` vocabulary or a legacy row) read through the one mapping.
+                val proof = record.proofStatus?.let { ProofStatus.fromStored(it, verifier) }
+                if (proof != null) {
                     put(
                         "verification",
                         buildJsonObject {
-                            put("status", status)
+                            put("proofStatus", proof.wire)
                             verifier?.let { put("verifier", it) }
                             reason?.let { put("reason", it) }
                         }

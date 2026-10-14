@@ -35,7 +35,6 @@ import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
@@ -56,7 +55,6 @@ class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
-    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
     val nextItemRecommender: NextItemRecommender =
         NextItemRecommender(repositoryProvider.workItemRepository()),
     perRootConfigService: PerRootConfigSource? = null,

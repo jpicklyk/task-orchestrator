@@ -39,11 +39,7 @@ private suspend fun WriteScope.runRelease(
     ctx: CallContext,
     req: ReleaseRequest
 ): Outcome<JsonElement> {
-    val holder =
-        when (val resolved = AdvanceSupport.holderId(env, ctx)) {
-            is Outcome.Err -> return resolved
-            is Outcome.Ok -> resolved.value
-        }
+    val holder = AdvanceSupport.holderId(ctx)
     val id =
         when (val resolved = AdvanceSupport.resolveInScope(stores, ctx, req.itemId)) {
             is Outcome.Err -> return resolved

@@ -90,7 +90,7 @@ class ToolDispatcher(
         val batchSize = if (spec is OpsToolSpec<*>) (arguments["ops"] as? JsonArray)?.size else null
         return try {
             val principal = access.principal ?: return Dispatched(EnvelopeEncoder.error(noPrincipal(), reqId), null, batchSize)
-            recordCallPrincipal(principal.claim, principal.verification)
+            recordCallPrincipal(principal.claim, principal.verification, principal.principal?.proofStatus?.wire)
             val ctx =
                 CallContext(
                     reqId,

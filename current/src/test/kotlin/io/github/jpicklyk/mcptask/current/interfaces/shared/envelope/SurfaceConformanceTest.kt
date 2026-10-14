@@ -194,7 +194,6 @@ class SurfaceConformanceTest {
             actorAuthEnabled = rig.composition.actorAuthEnabled,
             serverConfig = rig.composition.serverConfig,
             toolContext = rig.composition.toolContext,
-            degradedModePolicy = rig.composition.degradedModePolicy,
             appConfig = config,
             toolRegistry = registry,
             toolDispatcher = dispatcher

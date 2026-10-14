@@ -167,7 +167,6 @@ the verifier resolves the agent's DID document on-demand and extracts the signin
 ```yaml
 actor_authentication:
   enabled: true
-  degraded_mode_policy: reject       # recommended for cross-org did:web fleets
   verifier:
     type: jwks
     # DID trust mode — mutually exclusive with oidc_discovery / jwks_uri / jwks_path
@@ -292,4 +291,4 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 ### Future Considerations
 
 - **Verification gating (opt-in)**: A future `actor_authentication.require_verified_actor: true` flag could optionally reject write operations when actor verification fails, converting the accountability layer into an access control layer for high-security deployments. This would apply to write operations only (`advance_item`, `manage_notes`, `claim_item`) and would be opt-in to preserve the current low-friction single-team experience. This is not currently planned — the existing design (accountability, not access control) is intentional and sufficient for the database-per-tenant isolation model.
-- **Claim identity and verified actors**: `claim_item` resolves identity via the same `actor` claim used by `advance_item` and `manage_notes`, subject to the deployment's `actor_authentication.degradedModePolicy`. When JWKS verification succeeds, the JWT `sub` becomes authoritative for claim ownership and overrides any per-entry `agentId` supplied on individual claims. Under `degradedModePolicy=reject`, unverified callers cannot place or transition claims. Under `accept-cached` (default), stale-cache verification continues to work during transient JWKS outages. Under `accept-self-reported`, the self-reported `actor.id` is used — this negates the security benefit of JWKS verification when both are configured, and is documented as an explicit opt-out. See [Fleet Deployment Guide](current/docs/fleet-deployment.md#identity-configuration--authdegradedmodepolicy) for cross-org `did:web` recommendations.
+- **Claim identity and verified actors**: `claim_item` resolves identity as the transport principal (`api:<id>`, or `local`); since 4.0 no request carries an identity of its own and verification fails closed. A JWT verified against a fresh or stale (within `max_stale_seconds`) key set is the principal and its `sub` is authoritative for claim ownership; a rejected JWT is `401`, and a JWT whose key set is unavailable is `503 unavailable`, never a guessed identity. There is no degraded-mode policy: `actor_authentication.degraded_mode_policy` and `DEGRADED_MODE_POLICY` were removed and fail startup. See [Fleet Deployment Guide](current/docs/fleet-deployment.md#identity-configuration--fail-closed-verification) for cross-org `did:web` recommendations.

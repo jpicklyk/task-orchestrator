@@ -267,6 +267,7 @@ class CapabilitySplitAndProfileGuardTest {
                 ProofStatus.VERIFIED_STALE to VerificationStatus.VERIFIED,
                 ProofStatus.ISSUED to VerificationStatus.UNCHECKED,
                 ProofStatus.NONE to VerificationStatus.UNCHECKED,
+                ProofStatus.REJECTED to VerificationStatus.REJECTED,
             )
         assertEquals(ProofStatus.entries.toSet(), expected.keys, "fixture: every proof status has an expectation")
         for ((proof, status) in expected) {

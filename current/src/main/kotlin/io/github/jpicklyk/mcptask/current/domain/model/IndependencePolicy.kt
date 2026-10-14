@@ -26,8 +26,9 @@ enum class IndependenceMode {
  *
  * @property mode enforcement level; default [IndependenceMode.WARN].
  * @property requireVerified when true, a declaring note (or a conflicting seat's note) whose
- *   verification status is not [VerificationStatus.VERIFIED] is also reported as an
- *   [IndependenceConstraint.UNVERIFIED] violation. Default false.
+ *   proof is not cryptographic (proof status `verified` or `verified_stale`) is also reported as an
+ *   [IndependenceConstraint.UNVERIFIED] violation. `issued` (a server-issued token), `none` and `rejected` are
+ *   unverified ON PURPOSE: attestation wants cryptographic proof. Default false.
  */
 data class IndependencePolicy(
     val mode: IndependenceMode = IndependenceMode.WARN,
@@ -46,7 +47,7 @@ enum class IndependenceConstraint {
     /** A declaring note, or a conflicting seat's note, has no actor claim at all (fail-closed). */
     MISSING_ACTOR,
 
-    /** `require_verified` is set and a relevant note's verification status is not VERIFIED. */
+    /** `require_verified` is set and a relevant note's proof is not cryptographic (verified or verified_stale). */
     UNVERIFIED;
 
     fun toJsonString(): String = name.lowercase()

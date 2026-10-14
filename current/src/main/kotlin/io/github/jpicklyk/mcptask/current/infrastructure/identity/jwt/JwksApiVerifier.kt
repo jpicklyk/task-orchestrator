@@ -29,6 +29,24 @@ data class VerifiedApiToken(
 )
 
 /**
+ * The verdict on one presented JWT: [Verified] (a principal and its expiry), [Rejected] (the token itself is
+ * invalid: the credential proves nothing, answered 401), or [Unavailable] (the verifier could not decide because the
+ * key set is unavailable: never fetched, or past `max_stale_seconds`; answered 503, retryable). Fail closed either way.
+ */
+sealed class ApiTokenVerdict {
+    data class Verified(
+        val token: VerifiedApiToken
+    ) : ApiTokenVerdict()
+
+    data object Rejected : ApiTokenVerdict()
+
+    /** [reason] is the verifier's own description (never the token). */
+    data class Unavailable(
+        val reason: String
+    ) : ApiTokenVerdict()
+}
+
+/**
  * Verifies `Authorization: Bearer <jwt>` tokens for the REST API layer through the shared
  * [JwtVerifier] pipeline under [JwtPolicy.forApi]: algorithm allowlist, `kid` key selection,
  * signature, required `exp`, `nbf`, lifetime cap, `iss`, `aud` and a required `sub`. A verified
@@ -46,7 +64,7 @@ data class VerifiedApiToken(
  * expires cannot be revoked short of key rotation, and a non-null expiry is what lets long-lived
  * connections (SSE) run an expiry watchdog for the life of the stream.
  *
- * Fail-closed: a rejected token and an unavailable key set both yield null.
+ * Fail-closed: a rejected token and an unavailable key set are distinct [ApiTokenVerdict]s, neither a principal.
  *
  * @param config The JWKS auth configuration (URL, issuer, audience, algorithms, TTL).
  * @param keyProvider The [JwksKeySetProvider] key material is fetched from.
@@ -62,39 +80,40 @@ class JwksApiVerifier(
 
     /**
      * Verifies [jwtString] and returns the resolved [Principal] on success, or null on any
-     * failure. Delegates to [verifyWithExpiry] and discards the expiry. Production resolves REST credentials
-     * through `CredentialResolver` only.
+     * failure (rejected or unavailable). Delegates to [verifyWithExpiry] and discards the expiry and the distinction.
+     * Production resolves REST credentials through `CredentialResolver` only.
      */
-    suspend fun verify(jwtString: String): Principal? = verifyWithExpiry(jwtString)?.principal
+    suspend fun verify(jwtString: String): Principal? = (verifyWithExpiry(jwtString) as? ApiTokenVerdict.Verified)?.token?.principal
 
     /**
-     * Verifies [jwtString] and returns the resolved principal together with the token's `exp`,
-     * or null on any failure (invalid signature, missing/past `exp`, wrong iss/aud, unavailable
-     * key set, malformed `to_scope` or `to_kind`, etc.).
+     * Verifies [jwtString]: [ApiTokenVerdict.Verified] with the resolved principal and the token's `exp`;
+     * [ApiTokenVerdict.Rejected] on any token defect (invalid signature, missing/past `exp`, wrong iss/aud,
+     * malformed `to_scope` or `to_kind`, an unexpected verifier fault, etc.); [ApiTokenVerdict.Unavailable] when the
+     * key set cannot be had (never fetched, or past `max_stale_seconds`).
      *
-     * Rejections are logged at DEBUG to avoid leaking detail in production logs; an unavailable
-     * key set is logged at WARN.
+     * Rejections are logged at DEBUG to avoid leaking detail in production logs; the caller logs an unavailable
+     * key set once at WARN (it answers 503).
      */
-    suspend fun verifyWithExpiry(jwtString: String): VerifiedApiToken? =
+    suspend fun verifyWithExpiry(jwtString: String): ApiTokenVerdict =
         try {
             verifyInternal(jwtString)
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             logger.debug("Unexpected exception during API JWT verification: {}", e.message)
-            null
+            ApiTokenVerdict.Rejected
         }
 
-    private suspend fun verifyInternal(jwtString: String): VerifiedApiToken? =
+    private suspend fun verifyInternal(jwtString: String): ApiTokenVerdict =
         when (val verdict = jwtVerifier.verify(jwtString)) {
             is JwtVerdict.Rejected -> {
                 logger.debug("API JWT rejected ({}): {}", verdict.failureKind.wire, verdict.reason)
-                null
+                ApiTokenVerdict.Rejected
             }
-            is JwtVerdict.Unavailable -> {
-                logger.warn("API JWT verification unavailable: {}", verdict.reason)
-                null
-            }
-            is JwtVerdict.Verified -> toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
+            is JwtVerdict.Unavailable -> ApiTokenVerdict.Unavailable(verdict.reason)
+            is JwtVerdict.Verified ->
+                toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
+                    ?.let { ApiTokenVerdict.Verified(it) }
+                    ?: ApiTokenVerdict.Rejected
         }
 
     private fun toVerifiedApiToken(
