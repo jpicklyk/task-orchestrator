@@ -333,6 +333,42 @@ class ItemsReadScopeTest {
         }
 
     @Test
+    fun `B1 anchor drift - a root scope listing its drifted anchor as ancestorId sees nothing of the new tree`() =
+        irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
+            val a = rig.make("Drift-anchor", id = r1)
+            val aChild = rig.make("Drift-anchor-child", a)
+            rig.make("Drift-anchor-grand", aChild)
+            val q = rig.make("Drift-newparent", id = r2)
+            rig.make("Drift-newparent-kid", q)
+            val args = list(""","ancestorId":"$r1"""")
+
+            val before = select(args, TEST_TOKEN)
+            assertEquals(200, before.status, before.raw)
+            assertEquals(listOf("Drift-anchor", "Drift-anchor-child", "Drift-anchor-grand"), before.items.titles().sorted(), "control")
+            assertEquals(3, before.total)
+
+            // Admin reparents the anchor under Q; the subtree is restamped with Q's root_id (depth delta +1).
+            val repo = rig.raw.workItemRepository()
+            val moved = repo.getById(a.id)!!
+            assertTrue(repo.update(moved.copy(parentId = q.id, depth = 1, rootId = q.id)) != null)
+            assertEquals(2, repo.restampSubtree(a.id, 1, q.id))
+
+            val after = select(args, TEST_TOKEN)
+            assertEquals(200, after.status, after.raw)
+            assertEquals(emptyList<JsonObject>(), after.items, "ancestorId = drifted anchor: ${after.raw}")
+            assertEquals(0, after.total)
+            assertFalse("Drift-" in after.raw, "no trace of the drifted or new-parent rows: ${after.raw}")
+
+            val viaQ = select(list(""","ancestorId":"$r2""""), TEST_TOKEN)
+            assertEquals(emptyList<JsonObject>(), viaQ.items, viaQ.raw)
+            assertEquals(0, viaQ.total)
+            assertFalse("Drift-" in viaQ.raw, viaQ.raw)
+
+            val plain = select(list(), TEST_TOKEN)
+            assertEquals(0, plain.total, "the plain scoped list sees nothing either: ${plain.raw}")
+        }
+
+    @Test
     fun `S11 the scoped list does not change when invisible items are deleted, the unscoped one does`() =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
