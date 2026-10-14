@@ -10,7 +10,7 @@ WORKDIR /app
 # Gradle wrapper and build configuration (cached aggressively)
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
-COPY build.gradle.kts settings.gradle.kts ./
+COPY build.gradle.kts settings.gradle.kts gradle.properties ./
 COPY version.properties ./
 COPY current/build.gradle.kts current/
 RUN sed -i 's/\r$//' gradlew && chmod +x gradlew
