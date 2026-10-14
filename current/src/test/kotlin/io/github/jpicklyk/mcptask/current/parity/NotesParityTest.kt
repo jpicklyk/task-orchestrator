@@ -41,7 +41,7 @@ internal data class SeedNote(
     val key: String,
     val role: String,
     val body: String,
-    /** The note's stored actor id (its owner); null seeds a NULL-actor note, which is unowned. */
+    /** The note's stored actor id, which this seed also stores as its owner id; null seeds an unowned (pre-4.0) note. */
     val actorId: String? = null
 )
 
@@ -472,6 +472,8 @@ internal class NotesParityRunner(
                             role = n.role,
                             body = n.body,
                             actorClaim = n.actorId?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
+                            // R21 fixture rule: a note is owned only when owner_id is set, so the seeded actor is also the owner.
+                            ownerId = n.actorId,
                             modifiedAt = PARITY_NOW
                         )
                     )

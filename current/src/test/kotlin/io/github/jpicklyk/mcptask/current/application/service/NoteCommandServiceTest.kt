@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -19,12 +20,17 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
@@ -1000,14 +1006,10 @@ class NoteCommandServiceTest {
         runBlocking {
             val item = persist(limItem())
             val svc = service(ownershipSchema())
-            db
-                .repositoryProvider()
-                .noteRepository()
-                .upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
             svc.upsert(write(item, "own", adminId)).ok()
             svc.upsert(write(item, "sh", ownerA)).ok()
 
-            for (key in listOf("legacy", "own", "sh", "fresh")) {
+            for (key in listOf("own", "sh", "fresh")) {
                 val result = svc.upsert(write(item, key, adminId, takeover = true, takeoverAllowed = true)).ok()
                 assertEquals(adminId, stored(item, key)?.actorClaim?.id, key)
                 assertTrue(result.note.version >= 1L, key)
@@ -1090,5 +1092,192 @@ class NoteCommandServiceTest {
                 .upsert(
                     write(bareItem, "pr", callerB)
                 ).assertOwnedByOther(bareItem, "pr", "no per-root declaration, the global non-shared applies")
+        }
+
+    // ---------------------------------------------------------------------------------------------
+    // R21 decision Dprime (legacy notes): C1-C8 of decision.md Ruling 7. Oracle: Rulings 3 and 4. A legacy note is a
+    // pre-4.0 row: a 3.x actor claim and a NULL owner_id. The owner is the principal of the first 4.0 write, never the actor.
+    // ---------------------------------------------------------------------------------------------
+
+    private val legacyActor = "planner:eadaaa4e"
+
+    private suspend fun seedLegacy(
+        item: WorkItem,
+        key: String = "legacy"
+    ) {
+        db.repositoryProvider().noteRepository().upsert(
+            Note(
+                itemId = item.id,
+                key = key,
+                role = "work",
+                body = "orig",
+                actorClaim = ActorClaim(id = legacyActor, kind = ActorKind.SUBAGENT),
+                ownerId = null
+            )
+        )
+        val seeded = assertNotNull(stored(item, key), "fixture: the legacy note exists")
+        assertNull(seeded.ownerId, "fixture: a legacy note has no owner")
+        assertEquals(legacyActor, seeded.actorClaim?.id, "fixture: a legacy note keeps its 3.x actor")
+    }
+
+    private suspend fun <T> eventsOf(block: suspend () -> T): Pair<T, List<EventRecord>> {
+        val events = db.repositoryProvider().eventStore()
+        val mark = events.maxSeq()
+        val result = block()
+        return result to events.readAfter(mark, null, 100_000)
+    }
+
+    private fun transferPayload(
+        item: WorkItem,
+        key: String,
+        from: String?,
+        to: String,
+        legacy: String? = null
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", item.id.toString())
+            put("key", key)
+            if (from == null) put("from", JsonNull) else put("from", from)
+            put("to", to)
+            if (from == null) {
+                if (legacy == null) put("legacyActor", JsonNull) else put("legacyActor", legacy)
+            }
+        }
+
+    @Test
+    fun `R21 C1 the first 4 0 upsert of a legacy note adopts it - owner and actor are the caller, version 2, adoption event first`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+
+            val (result, events) = eventsOf { svc.upsert(write(item, "legacy", "api:t", body = "adopted")) }
+
+            assertEquals(2L, result.ok().note.version)
+            val row = assertNotNull(stored(item, "legacy"))
+            assertEquals("api:t", row.ownerId)
+            assertEquals("api:t", row.actorClaim?.id)
+            assertEquals(2L, row.version)
+            assertEquals("adopted", row.body)
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), events.map { it.type })
+            assertEquals(transferPayload(item, "legacy", from = null, to = "api:t", legacy = legacyActor), events.first().payload())
+        }
+
+    @Test
+    fun `R21 C2 after an adoption another principal is note_owned_by_other - row unchanged, no events`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+            svc.upsert(write(item, "legacy", "api:t", body = "adopted")).ok()
+
+            val (result, events) = eventsOf { svc.upsert(write(item, "legacy", "api:u", body = "hijack")) }
+
+            result.assertOwnedByOther(item, "legacy", "second principal after adoption")
+            val row = assertNotNull(stored(item, "legacy"))
+            assertEquals(2L, row.version)
+            assertEquals("api:t", row.ownerId)
+            assertEquals("api:t", row.actorClaim?.id)
+            assertEquals("adopted", row.body)
+            assertEquals(emptyList(), events.map { it.type }, "a refusal records no event")
+        }
+
+    @Test
+    fun `R21 C3 the local principal adopts a legacy note without takeover - transfer payload from null to local`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+
+            val (result, events) = eventsOf { svc.upsert(write(item, "legacy", "local", takeover = false, takeoverAllowed = false)) }
+
+            result.ok()
+            assertEquals("local", stored(item, "legacy")?.ownerId)
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), events.map { it.type })
+            assertEquals(transferPayload(item, "legacy", from = null, to = "local", legacy = legacyActor), events.first().payload())
+        }
+
+    @Test
+    fun `R21 C4 an admin takeover of an adopted note moves the owner - payload has from and to and no legacyActor key`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+            svc.upsert(write(item, "legacy", "api:t")).ok()
+
+            val (result, events) =
+                eventsOf { svc.upsert(write(item, "legacy", "api:admin", takeover = true, takeoverAllowed = true)) }
+
+            result.ok()
+            assertEquals("api:admin", stored(item, "legacy")?.ownerId)
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), events.map { it.type })
+            assertEquals(transferPayload(item, "legacy", from = "api:t", to = "api:admin"), events.first().payload())
+            assertFalse("legacyActor" in events.first().payload(), "a takeover payload carries no legacyActor key")
+        }
+
+    @Test
+    fun `R21 C5 a shared key keeps its creator as owner across a second writer and records no ownership event`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+
+            val (results, events) =
+                eventsOf {
+                    listOf(svc.upsert(write(item, "sh", "api:a")), svc.upsert(write(item, "sh", "api:b")))
+                }
+
+            results.forEach { it.ok() }
+            val row = assertNotNull(stored(item, "sh"))
+            assertEquals("api:a", row.ownerId, "a shared-key write does not move ownership")
+            assertEquals("api:b", row.actorClaim?.id, "attribution is last-writer-wins")
+            assertEquals(listOf("note.upserted", "note.upserted"), events.map { it.type }, "no note.ownership_transferred at all")
+        }
+
+    @Test
+    fun `R21 C6 a new note is owned by its creator and records only upserted`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+
+            val (result, events) = eventsOf { svc.upsert(write(item, "fresh", "api:t")) }
+
+            assertTrue(result.ok().created)
+            assertEquals("api:t", stored(item, "fresh")?.ownerId)
+            assertEquals(listOf("note.upserted"), events.map { it.type })
+        }
+
+    @Test
+    fun `R21 C7 a delete of a legacy note by any caller removes it and records only deleted - a delete never takes ownership`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+
+            val (result, events) = eventsOf { svc.delete(item.id, "legacy", null, ClaimHolder("api:u")) }
+
+            assertEquals("legacy", result.ok().key)
+            assertNull(stored(item, "legacy"))
+            assertEquals(listOf("note.deleted"), events.map { it.type })
+        }
+
+    @Test
+    fun `R21 C8 a legacy note on an item claimed by another is fenced - not_claim_holder, owner still NULL, no events`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            seedLegacy(item)
+            db.repositoryProvider().workItemRepository().claim(item.id, "api:h", ttlSeconds = 900)
+
+            val (result, events) = eventsOf { svc.upsert(write(item, "legacy", "api:u")) }
+
+            assertEquals(ErrorCode.NOT_CLAIM_HOLDER, result.err().code)
+            val row = assertNotNull(stored(item, "legacy"))
+            assertNull(row.ownerId)
+            assertEquals(legacyActor, row.actorClaim?.id)
+            assertEquals(1L, row.version)
+            assertEquals(emptyList(), events.map { it.type })
+            // control: the claim holder passes the fence on the same note and adopts it, so the fence above is what refused api:u
+            svc.upsert(write(item, "legacy", "api:h")).ok()
+            assertEquals("api:h", stored(item, "legacy")?.ownerId)
         }
 }

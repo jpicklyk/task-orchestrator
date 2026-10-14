@@ -249,7 +249,9 @@ object BaselineDataset {
             "actor_proof_sha256" to if (proofStatus != null) PROOF_SHA256 else null,
             "actor_proof_claims" to if (proofStatus != null) PROOF_CLAIMS else null,
             // V28: a non-default version (dropped below V28, where the column does not exist yet).
-            "version" to if (key == "notes-extra") 3 else 1
+            "version" to if (key == "notes-extra") 3 else 1,
+            // V34: a non-default owner (dropped below V34, where the column does not exist yet).
+            "owner_id" to if (key == "task-scope") "api:baseline-owner" else null
         )
         note("feature", "feature-summary", "queue", "Summary of the baseline feature")
         note("feature", "notes-extra", "work", "A second note for the feature", proofStatus = "REJECTED")

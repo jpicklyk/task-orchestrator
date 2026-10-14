@@ -306,6 +306,7 @@ private object NotesMirror : Table("notes") {
     val actorProofSha256 = text("actor_proof_sha256").nullable()
     val actorProofClaims = text("actor_proof_claims").nullable()
     val version = long("version")
+    val ownerId = text("owner_id").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

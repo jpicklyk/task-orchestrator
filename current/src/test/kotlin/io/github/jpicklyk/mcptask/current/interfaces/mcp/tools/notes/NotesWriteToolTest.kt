@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -1094,11 +1096,10 @@ class NotesWriteToolTest {
         runBlocking {
             useRig(sharedConfig)
             val item = rig.seed("typed", tags = "board-type")
-            rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
             write(upsertOp(item.id, "private", body = "mine"), access = adminAccess)
             write(upsertOp(item.id, "board", body = "theirs"), access = ownerAccess)
 
-            for (key in listOf("legacy", "private", "board", "fresh")) {
+            for (key in listOf("private", "board", "fresh")) {
                 val (answer, rows) =
                     rig.written {
                         write(
@@ -1110,6 +1111,36 @@ class NotesWriteToolTest {
                 assertEquals(listOf("note.upserted"), rows.map { it.type }, "$key: a no-op takeover records no transfer")
                 assertEquals(adminId, assertNotNull(stored(item.id, key)).actorClaim?.id, key)
             }
+        }
+
+    @Test
+    fun `R21 S9 an ADMIN takeover of an unowned legacy note is an adoption - from null with the 3x actor as legacyActor`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            rig.raw.noteRepository().upsert(
+                Note(
+                    itemId = item.id,
+                    key = "legacy",
+                    role = "work",
+                    body = "orig",
+                    actorClaim = ActorClaim(id = "planner:eadaaa4e", kind = ActorKind.SUBAGENT),
+                    ownerId = null
+                )
+            )
+
+            val (answer, rows) =
+                rig.written { write(upsertOp(item.id, "legacy", body = "T", fields = takeoverField), access = adminAccess) }
+
+            assertTrue(envelopeOk(answer), "$answer")
+            assertEquals(listOf("note.ownership_transferred", "note.upserted"), rows.map { it.type })
+            val transfer = rows.first().payload()
+            assertEquals(setOf("itemId", "key", "from", "to", "legacyActor"), transfer.keys, "adoption carries legacyActor: $transfer")
+            assertEquals(JsonNull, transfer["from"], "an adoption has no previous owner: $transfer")
+            assertEquals(adminId, transfer.str("to"))
+            assertEquals("planner:eadaaa4e", transfer.str("legacyActor"))
+            // control: the admin now owns it, so another principal is refused
+            val refused = write(upsertOp(item.id, "legacy", body = "x"), access = callerAccess)
+            assertEquals("note_owned_by_other", refused.elementError(0).str("code"), "$refused")
         }
 
     @Test

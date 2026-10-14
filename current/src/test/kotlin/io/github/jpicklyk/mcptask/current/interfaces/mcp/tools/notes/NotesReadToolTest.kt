@@ -520,7 +520,10 @@ class NotesReadToolTest {
 
     private val sha = "deadbeef".repeat(8)
 
-    private suspend fun seedEvidenceNote(item: WorkItem) {
+    private suspend fun seedEvidenceNote(
+        item: WorkItem,
+        ownerId: String? = null
+    ) {
         val claims =
             ProofClaims(
                 iss = "https://issuer-s18.example",
@@ -539,6 +542,7 @@ class NotesReadToolTest {
                 role = "work",
                 body = "Evidence body",
                 actorClaim = ActorClaim(id = "agent-evidence", kind = ActorKind.ORCHESTRATOR, parent = "workflow:s18"),
+                ownerId = ownerId,
                 verification =
                     VerificationResult(
                         status = VerificationStatus.VERIFIED,
@@ -706,7 +710,7 @@ class NotesReadToolTest {
 
     // ------------------------------------------------------------------ R21 owner member (item 190f1bdd, test-author seat)
     //
-    // Oracle: frozen task-scope "What to build" 6 and AC5: NoteView.owner and NoteListEntry.owner are `NoteOwner(actorClaim.id)`
+    // Oracle: frozen task-scope "What to build" 6 and AC5: NoteView.owner and NoteListEntry.owner are `NoteOwner(ownerId)` (the stored owner, not the actor)
     // when the call may see attribution and the note has an actor, else absent; the wire member is `owner: {id, seat?}` with
     // the seat omitted while it is null (R22 fills it). Absent for unowned (NULL-actor) notes and whenever attribution is hidden.
 
@@ -714,7 +718,7 @@ class NotesReadToolTest {
     fun `R21 S12 get and list show owner id when attribution is visible and the note has an actor`(): Unit =
         runBlocking {
             val item = rig.seed("owner")
-            seedEvidenceNote(item)
+            seedEvidenceNote(item, ownerId = "agent-evidence")
 
             val get = rig.ctx.getNoteVia(item.id, "evidence")
             assertTrue(envelopeOk(get), "$get")
@@ -748,7 +752,7 @@ class NotesReadToolTest {
     fun `R21 S12 an owner is shown to an admin under the default redaction, and hidden from a non-admin`(): Unit =
         runBlocking {
             val item = rig.seed("owner")
-            seedEvidenceNote(item)
+            seedEvidenceNote(item, ownerId = "agent-evidence")
             val admin = access(ParityToken("nr-owner-admin", setOf(ApiCapability.ADMIN)), redactAttribution = true)
             val nonAdmin = access(reader, redactAttribution = true)
 
@@ -776,7 +780,7 @@ class NotesReadToolTest {
         runBlocking {
             val item = rig.seed("owner")
             rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "no actor"))
-            seedEvidenceNote(item)
+            seedEvidenceNote(item, ownerId = "agent-evidence")
 
             val get = rig.ctx.getNoteVia(item.id, "legacy")
             assertTrue(envelopeOk(get), "$get")
@@ -808,5 +812,82 @@ class NotesReadToolTest {
                     .str("id")
             )
             assertFalse("writer-agent" in rig.ctx.getNoteVia(item.id, "attributed", access(reader)).toString())
+        }
+
+    // ------------------------------------------------------------------ R21 decision D' view tests (Ruling 5 and 7)
+    //
+    // Oracle: decision.md Ruling 5/7: the owner member is the stored owner_id (never the actor) when attribution is visible,
+    // and absent for an unowned (pre-4.0) note; a pre-4.0 note keeps showing its 3.x actor until its first 4.0 write.
+
+    private suspend fun seedLegacyNote(
+        item: WorkItem,
+        key: String = "legacy"
+    ) {
+        rig.raw.noteRepository().upsert(
+            Note(
+                itemId = item.id,
+                key = key,
+                role = "work",
+                body = "3.x body",
+                actorClaim = ActorClaim(id = "planner:eadaaa4e", kind = ActorKind.SUBAGENT),
+                ownerId = null
+            )
+        )
+    }
+
+    @Test
+    fun `R21 view a legacy note shows its 3x actor and no owner, and after its first 4 0 write shows the writer as owner`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            seedLegacyNote(item)
+
+            val before = rig.ctx.getNoteVia(item.id, "legacy")
+            assertTrue(envelopeOk(before), "$before")
+            assertEquals("planner:eadaaa4e", before.data().obj("actor").str("id"))
+            assertFalse("owner" in before.data(), "a legacy note has no owner member: ${before.data()}")
+            val listedBefore =
+                rig.ctx
+                    .listNotesVia(item.id)
+                    .items()
+                    .single()
+            assertEquals("planner:eadaaa4e", listedBefore.obj("actor").str("id"))
+            assertFalse("owner" in listedBefore, "a legacy list entry has no owner member: $listedBefore")
+
+            val written = rig.ctx.upsertNoteVia(item.id, "legacy", body = "4.0 body", actor = actorArg("api:t"))
+            assertTrue(envelopeOk(written), "$written")
+
+            val after = rig.ctx.getNoteVia(item.id, "legacy")
+            assertEquals(setOf("id"), after.data().obj("owner").keys)
+            assertEquals("api:t", after.data().obj("owner").str("id"))
+            val listedAfter =
+                rig.ctx
+                    .listNotesVia(item.id)
+                    .items()
+                    .single()
+            assertEquals("api:t", listedAfter.obj("owner").str("id"))
+            assertEquals(setOf("id"), listedAfter.obj("owner").keys)
+        }
+
+    @Test
+    fun `R21 view with attribution hidden the owner is absent for a legacy note and for an adopted one`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            seedLegacyNote(item)
+            val hidden = access(reader, redactAttribution = true)
+
+            for (answer in listOf(rig.ctx.getNoteVia(item.id, "legacy", hidden), rig.ctx.listNotesVia(item.id, hidden))) {
+                assertTrue(envelopeOk(answer), "$answer")
+                assertFalse("\"owner\"" in answer.toString(), "hidden, legacy: no owner member: $answer")
+            }
+
+            assertTrue(envelopeOk(rig.ctx.upsertNoteVia(item.id, "legacy", body = "4.0 body", actor = actorArg("api:t"))))
+            // control: an unrestricted reader does see the adopted owner, so the absence below is the redaction
+            val adopted = rig.ctx.getNoteVia(item.id, "legacy")
+            assertEquals("api:t", adopted.data().obj("owner").str("id"))
+            for (answer in listOf(rig.ctx.getNoteVia(item.id, "legacy", hidden), rig.ctx.listNotesVia(item.id, hidden))) {
+                assertTrue(envelopeOk(answer), "$answer")
+                assertFalse("\"owner\"" in answer.toString(), "hidden, adopted: no owner member: $answer")
+                assertFalse("api:t" in answer.toString(), "hidden, adopted: the owner id never appears: $answer")
+            }
         }
 }

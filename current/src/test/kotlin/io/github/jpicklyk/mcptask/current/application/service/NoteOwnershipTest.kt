@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -27,11 +29,13 @@ import kotlin.test.fail
  *  (b) `takeover && caller.assignmentId != null` -> `invalid_request` at `/takeover`
  *  (c) rule 1: `entry.shared == true` -> Allowed
  *  (d) rule 2: a refusing `SeatRule` is returned as is; `takeover` is never consulted
- *  (e) rule 3: no existing note or a NULL-actor note -> Allowed; `(owner id, owner seat) == (caller principal, caller seat)`,
- *      exact and case-sensitive -> Allowed; otherwise `takeover` -> `Transferred(from, to)`; otherwise `note_owned_by_other`
- *      without `ownerSeat` when null and with the owner id in no message, detail or fix argument. A null caller against an
- *      owned note is refused (fail closed).
- *  D6: a takeover where rule 3 would already allow is a no-op (Allowed, not Transferred).
+ *  (e) rule 3 (decision.md Ruling 3, steps 5-9): no existing note -> Allowed; a note with a NULL `ownerId` -> `Adopted(its
+ *      stored actor id)` for a caller (Allowed for a null caller), whatever `takeover` says; `(ownerId, ownerSeat) ==
+ *      (caller principal, caller seat)`, exact and case-sensitive -> Allowed; otherwise `takeover` -> `Transferred(from, to)`;
+ *      otherwise `note_owned_by_other` without `ownerSeat` when null and with the owner id in no message, detail or fix
+ *      argument. A null caller against an owned note is refused (fail closed). The owner is the stored `ownerId`, never the
+ *      actor claim.
+ *  D6: a takeover where rule 3 would already allow (own note, shared key, no note) is a no-op (Allowed, not Transferred).
  *
  * Every refusal here is paired with a control that differs only in the single input the rule turns on, so each negative
  * assertion can fail without the rule (the control shows the same call shape is otherwise accepted).
@@ -45,8 +49,26 @@ class NoteOwnershipTest {
 
     private fun claim(id: String) = ActorClaim(id = id, kind = ActorKind.SUBAGENT)
 
+    /** A 4.0-owned note: the stored owner and the last writer are the same principal (decision Dprime fixture rule). */
     private fun noteOwnedBy(owner: String?) =
-        Note(itemId = itemId, key = key, role = "work", body = "body", actorClaim = owner?.let { claim(it) })
+        Note(itemId = itemId, key = key, role = "work", body = "body", actorClaim = owner?.let { claim(it) }, ownerId = owner)
+
+    /** A pre-4.0 note (decision Ruling 7 fixture `legacy(actor)`): a 3.x actor claim, noop verification, and no owner. */
+    private fun legacy(actor: String?) =
+        Note(
+            itemId = itemId,
+            key = key,
+            role = "work",
+            body = "body",
+            actorClaim = actor?.let { claim(it) },
+            verification = VerificationResult(VerificationStatus.UNCHECKED, "noop"),
+            ownerId = null
+        )
+
+    private fun Outcome<NoteOwnership.Decision>.assertAdopted(
+        legacyActor: String?,
+        label: String = ""
+    ) = assertEquals(NoteOwnership.Decision.Adopted(legacyActor), decision(), label)
 
     private fun entry(shared: Boolean) = NoteSchemaEntry(key = key, role = Role.WORK, shared = shared)
 
@@ -142,11 +164,19 @@ class NoteOwnershipTest {
     }
 
     @Test
-    fun `S5 a NULL-actor note is unowned - any caller is allowed - while the same note with an actor refuses`() {
-        decide(noteOwnedBy(null), ClaimHolder(otherId)).assertAllowed("legacy note, any caller")
-        decide(noteOwnedBy(null), ClaimHolder(ownerId)).assertAllowed("legacy note, another caller")
-        // the negative assertion's fixture condition: the only difference is the stored actor
-        decide(noteOwnedBy(ownerId), ClaimHolder(otherId)).assertOwnedByOther(label = "same note with an actor")
+    fun `S5 an unowned note is adopted by any caller, and the same note with an owner refuses`() {
+        decide(noteOwnedBy(null), ClaimHolder(otherId)).assertAdopted(null, "unowned note, any caller")
+        decide(noteOwnedBy(null), ClaimHolder(ownerId)).assertAdopted(null, "unowned note, another caller")
+        // the negative assertion's fixture condition: the only difference is the stored owner id
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId)).assertOwnedByOther(label = "same note with an owner")
+    }
+
+    @Test
+    fun `S5 probe a legacy note with a 3x actor is adopted by a 4 0 caller whatever its actor id - the actor is never the owner`() {
+        // control: the actor id alone does not make a note owned - the same note with ownerId set refuses the other caller
+        decide(legacy(ownerId), ClaimHolder(otherId)).assertAdopted(ownerId, "legacy actor, different caller")
+        decide(legacy(ownerId), ClaimHolder(ownerId)).assertAdopted(ownerId, "legacy actor, same-named caller is still an adoption")
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId)).assertOwnedByOther(label = "control: owner set")
     }
 
     @Test
@@ -272,7 +302,6 @@ class NoteOwnershipTest {
         val caller = ClaimHolder(adminId)
 
         decide(null, caller, takeover = true, takeoverAllowed = true).assertAllowed("missing note")
-        decide(noteOwnedBy(null), caller, takeover = true, takeoverAllowed = true).assertAllowed("unowned note")
         decide(noteOwnedBy(adminId), caller, takeover = true, takeoverAllowed = true).assertAllowed("own note")
         decide(noteOwnedBy(ownerId), caller, entry = entry(shared = true), takeover = true, takeoverAllowed = true)
             .assertAllowed("shared key")
@@ -280,6 +309,8 @@ class NoteOwnershipTest {
         assertIs<NoteOwnership.Decision.Transferred>(
             decide(noteOwnedBy(ownerId), caller, takeover = true, takeoverAllowed = true).decision()
         )
+        // an unowned note is not a no-op: a takeover of it is an adoption (O7), never Allowed
+        decide(noteOwnedBy(null), caller, takeover = true, takeoverAllowed = true).assertAdopted(null, "unowned note")
     }
 
     @Test
@@ -352,5 +383,82 @@ class NoteOwnershipTest {
 
         assertEquals(first.error().code, second.error().code)
         assertEquals(first.error().detail, second.error().detail)
+    }
+
+    // ------------------------------------------------------------------ decision Dprime O1-O10 (decision.md Ruling 7)
+
+    @Test
+    fun `O1 a legacy note is adopted by a 4 0 caller and carries its 3x actor as legacyActor`() {
+        decide(legacy("planner:eadaaa4e"), ClaimHolder("api:t")).assertAdopted("planner:eadaaa4e")
+        // control: the same call on a note owned by the 3.x actor id is a refusal, so adoption is about the NULL owner
+        decide(noteOwnedBy("planner:eadaaa4e"), ClaimHolder("api:t")).assertOwnedByOther(label = "control")
+    }
+
+    @Test
+    fun `O2 a legacy note with a NULL actor is adopted with a null legacyActor`() {
+        decide(legacy(null), ClaimHolder("api:t")).assertAdopted(null)
+    }
+
+    @Test
+    fun `O3 a forged 4 0 shaped legacy actor id is never an owner - the other caller adopts`() {
+        decide(legacy("api:t"), ClaimHolder("api:u")).assertAdopted("api:t")
+        // control: with ownerId api:t the same caller is refused
+        decide(noteOwnedBy("api:t"), ClaimHolder("api:u")).assertOwnedByOther(label = "control")
+    }
+
+    @Test
+    fun `O4 a legacy local actor is adopted by another principal`() {
+        decide(legacy("local"), ClaimHolder("api:u")).assertAdopted("local")
+    }
+
+    @Test
+    fun `O5 the owner comes from ownerId and never from the actor claim`() {
+        val note = Note(itemId = itemId, key = key, role = "work", body = "b", actorClaim = claim("api:b"), ownerId = "api:a")
+
+        decide(note, ClaimHolder("api:b")).assertOwnedByOther(label = "the last writer is not the owner")
+        decide(note, ClaimHolder("api:a")).assertAllowed("the owner, who is not the last writer")
+    }
+
+    @Test
+    fun `O6 an allowed takeover of an owned note is Transferred from the owner id`() {
+        val note = Note(itemId = itemId, key = key, role = "work", body = "b", actorClaim = claim("api:a"), ownerId = "api:a")
+
+        assertEquals(
+            NoteOwnership.Decision.Transferred("api:a", "api:x"),
+            decide(note, ClaimHolder("api:x"), takeover = true, takeoverAllowed = true).decision()
+        )
+    }
+
+    @Test
+    fun `O7 an allowed takeover of a legacy note is an adoption and never a Transferred`() {
+        val decision = decide(legacy("planner:eadaaa4e"), ClaimHolder("api:x"), takeover = true, takeoverAllowed = true).decision()
+
+        assertEquals(NoteOwnership.Decision.Adopted("planner:eadaaa4e"), decision)
+        assertTrue(decision !is NoteOwnership.Decision.Transferred)
+    }
+
+    @Test
+    fun `O8 takeover of a legacy note without the capability is forbidden capability admin`() {
+        val error = decide(legacy("planner:eadaaa4e"), ClaimHolder("api:x"), takeover = true, takeoverAllowed = false).error()
+
+        assertEquals(ErrorCode.FORBIDDEN, error.code)
+        assertEquals(ErrorDetail.Forbidden(ForbiddenScope.CAPABILITY, "admin"), error.detail)
+        // control: the same call without takeover is an adoption, so the refusal above is the eager capability check
+        decide(legacy("planner:eadaaa4e"), ClaimHolder("api:x"), takeover = false, takeoverAllowed = false)
+            .assertAdopted("planner:eadaaa4e")
+    }
+
+    @Test
+    fun `O9 a shared entry allows a legacy note without adopting it`() {
+        decide(legacy("planner:eadaaa4e"), ClaimHolder("api:t"), entry = entry(shared = true)).assertAllowed("shared key")
+        // control: without shared the same call adopts
+        decide(legacy("planner:eadaaa4e"), ClaimHolder("api:t"), entry = entry(shared = false)).assertAdopted("planner:eadaaa4e")
+    }
+
+    @Test
+    fun `O10 a null caller is allowed on a legacy note and refused on an owned one`() {
+        decide(legacy("planner:eadaaa4e"), caller = null).assertAllowed("legacy note, null caller")
+        val owned = Note(itemId = itemId, key = key, role = "work", body = "b", actorClaim = claim("api:a"), ownerId = "api:a")
+        decide(owned, caller = null).assertOwnedByOther(label = "owned note, null caller")
     }
 }
