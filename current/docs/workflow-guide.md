@@ -635,33 +635,17 @@ Items in `unblockedItems` are now eligible to be started.
 
 ### Actor Attribution
 
-`advance_item` transitions and `manage_notes` upserts accept an optional `actor` claim that records *who* performed the action. This enables post-mortem analysis of multi-agent workflows.
-
-```json
-advance_item(transitions=[{
-  "itemId": "abc-123",
-  "trigger": "start",
-  "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" }
-}])
-```
-
-The response echoes the actor claim. A `verification` record appears only when a real actor verifier (e.g. JWKS) is configured — with the default no-op verifier the field is omitted entirely:
-
-```json
-{
-  "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" },
-  "verification": { "status": "verified", "verifier": "jwks" }
-}
-```
+Every write records *who* performed it, and in 4.0 that is the **transport principal**, never a field the caller writes. The principal is established by how the caller reached the server: `api:<id>` for the holder of a bearer or JWT credential (REST, and `/mcp` over HTTP when the REST API runs `API_AUTH_MODE=bearer|jwks`), and the single `local` principal for stdio, `/mcp` in local mode and REST `API_AUTH_MODE=none`. A request body `actor`, on any tool, is refused as `unknown_parameter`.
 
 Key behaviors:
-- **Optional by default** — omitting `actor` produces no error and no attribution data
+- **Nothing to send** - transitions and note upserts are attributed to the principal automatically
 - **Cascade transitions** always have null actor (system-generated, not attributable)
-- **Note re-upsert** replaces the actor (last-writer-wins semantics)
+- **Note re-upsert** replaces the attribution (last-writer-wins) but not the note's owner; another principal cannot overwrite an owned note unless its key is `shared`
 - **`get_context` session resume** includes actor/verification on recent transitions
-- **`query_notes`** includes actor/verification on notes that have them
+- **`query_notes`** includes actor/verification on notes that have them (admins, or when attribution redaction is off)
+- **`local` is one principal** - every stdio or local-mode session is the same principal, so they share claims and note ownership; telling agents apart needs separate credentials
 
-Actor claims are self-reported unless `actor_authentication.verifier` is configured, in which case claims are cryptographically verified (JWKS). Requiring a claim at all on write operations is enforced client-side, by the plugin's PreToolUse hook, not by the server. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml` (set `actor_authentication.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+The `verification` record names how the principal was established (`api-jwks`, `api-bearer` or `local`). See [Actor Attribution](./api-reference.md#actor-attribution) in the API reference and [Identity Configuration](./fleet-deployment.md#identity-configuration) for the operator side.
 
 ---
 
@@ -934,7 +918,7 @@ get_next_item()                     → find an unclaimed item
 claim_item(claims=[{itemId, ttl}])  → claim it (auto-releases any prior claim by this agent)
   outcome=success → proceed with advance_item + work
   outcome=already_claimed → pick a different item (retryAfterMs available)
-advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
+advance_item(trigger="start")       → ownership enforced: caller must be the claim holder
   ... do work ...
 claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (if work > TTL/2 = 450s)
 advance_item(trigger="complete")    → ownership enforced at completion too
@@ -952,11 +936,11 @@ The two-call pattern above has an inherent race: between `get_next_item` returni
 
 ```
 claim_item(claims=[{ selector: { priority: "high", complexityMax: 4, orderBy: "oldest" }, ttlSeconds: 900 }],
-           actor={...}, requestId=<uuid>)
+           requestId=<uuid>)
   outcome=success, selectorResolved=true → proceed with advance_item + work (itemId is in the result)
   outcome=queue_empty, kind=permanent    → nothing matches these filters at all; back off or wait
   outcome=none_eligible, kind=transient  → matches exist but none is claimable now (see `excluded`); retry after `retryAfterMs`
-advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
+advance_item(trigger="start")       → ownership enforced: caller must be the claim holder
   ... do work ...
 claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (use the itemId from the selector result)
 advance_item(trigger="complete")    → ownership enforced at completion too
@@ -972,7 +956,6 @@ advance_item(trigger="complete")    → ownership enforced at completion too
     "ttlSeconds": 900,
     "claimRef": "worker-7-drain-loop"
   }],
-  "actor": { "id": "worker-agent-7", "kind": "subagent" },
   "requestId": "<fresh UUID per iteration>"
 }
 ```
@@ -1130,8 +1113,8 @@ invariant, and not fairness. Read this section before relying on it for anything
   (`apply_failed`) the same way.
 - **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
   not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
-  identity quality — it holds the same whether or not `actor_authentication` is configured, and
-  regardless of how many processes share a self-reported actor id like `"orchestrator"`.
+  identity quality - it holds regardless of how many processes share one principal (one credential, or
+  the `local` principal).
 - **A single-DB arbiter.** Admission is enforced by one SQLite transaction (count-guard + insert, or
   refresh) against the `resource_leases` table. There is no distributed coordination — this is not
   a substitute for a distributed lock service across multiple database instances.
@@ -1216,10 +1199,10 @@ pruning or retention policy in v1: the table is append-only and grows with lease
 | Cancel an item                    | `advance_item(transitions=[{itemId, trigger:"cancel"}])`        |
 | Reopen a terminal item           | `advance_item(transitions=[{itemId, trigger:"reopen"}])`        |
 | Filter by phase                   | `query_items(operation="search", role="work")`                  |
-| Claim an item (fleet, ID mode)    | `claim_item(claims=[{itemId, ttlSeconds:900}], actor={id, kind}, requestId=<uuid>)` |
-| Claim next eligible (selector)    | `claim_item(claims=[{selector:{orderBy:"oldest"}}], actor={id, kind}, requestId=<uuid>)` |
-| Release a claim                   | `claim_item(releases=[{itemId}], actor={id, kind}, requestId=<uuid>)` |
-| Heartbeat (refresh TTL)           | `claim_item(claims=[{itemId}], actor={id, kind}, requestId=<uuid>)` — same as claim, TTL refreshed |
+| Claim an item (fleet, ID mode)    | `claim_item(claims=[{itemId, ttlSeconds:900}], requestId=<uuid>)` |
+| Claim next eligible (selector)    | `claim_item(claims=[{selector:{orderBy:"oldest"}}], requestId=<uuid>)` |
+| Release a claim                   | `claim_item(releases=[{itemId}], requestId=<uuid>)` |
+| Heartbeat (refresh TTL)           | `claim_item(claims=[{itemId}], requestId=<uuid>)` — same as claim, TTL refreshed |
 | Find expired claims               | `query_items(operation="search", claimStatus="expired")` |
 | Diagnose stalled claim            | `get_context(itemId="uuid")` — returns `claimDetail` with `claimedBy` |
 | Filter next item by tag           | `get_next_item(tags="task-implementation", priority="high")` |
