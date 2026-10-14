@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.routeTemplate
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.HOST_REQUIRED
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -175,7 +176,7 @@ class SurfaceConformanceTest {
         val dispatcher = buildToolDispatcher(rig.composition.toolContext)
         val server = buildProfileServer(ToolProfile.ORCHESTRATION, "conformance", "1.0.0", registry, McpOperationAdapter(dispatcher))
         val config = appConfig()
-        installMcpStreamableHttp(server, config)
+        installMcpStreamableHttp(server, config, mcpAuth = McpAuthMode.Local)
         val auth = authConfig()
         installRestApiRoutes(
             apiConfig = auth,
@@ -471,7 +472,7 @@ class SurfaceConformanceTest {
                             JsonObject(mapOf("describe" to JsonPrimitive(true))),
                             "conf-desc",
                             CallLogRecord.SURFACE_MCP,
-                            CallAccess.UNRESTRICTED
+                            CallAccess.LOCAL
                         )
                     EnvelopeConformance.assertConforms(describe.envelope.body, "${spec.name}/${profile.wire} describe")
                     assertEquals(200, describe.envelope.httpStatus, "${spec.name}/${profile.wire} describe")
@@ -483,7 +484,7 @@ class SurfaceConformanceTest {
                             JsonObject(mapOf("bogusParameter" to JsonPrimitive(1))),
                             "conf-unknown",
                             CallLogRecord.SURFACE_MCP,
-                            CallAccess.UNRESTRICTED
+                            CallAccess.LOCAL
                         )
                     EnvelopeConformance.assertConforms(unknown.envelope.body, "${spec.name}/${profile.wire} unknown parameter")
                     assertFalse(

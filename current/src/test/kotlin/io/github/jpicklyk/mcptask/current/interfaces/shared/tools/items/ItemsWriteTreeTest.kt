@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.results
@@ -164,7 +165,7 @@ internal suspend fun IwKit.callIn(
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(rig.ctx).dispatch(spec, profile, args, "k7f3q9ab", "mcp")
+    return buildToolDispatcher(rig.ctx).dispatchAsTestActor(spec, profile, args, "k7f3q9ab", "mcp")
 }
 
 /** Row counts of every table a tree can write to (the events table included). */
@@ -1517,13 +1518,13 @@ class ItemsWriteTreeTest {
             for (type in listOf("item.created", "dependency.added", "note.upserted", "document.adopted")) {
                 for (row in of(type)) {
                     assertEquals("agent-1", row.principalId, "$type principal id")
-                    assertEquals("subagent", row.principalKind, "$type principal kind")
+                    assertEquals("external", row.principalKind, "$type principal kind: every transport principal is external")
                 }
             }
         }
 
     @Test
-    fun `S18 a rolled-back tree emits no event row, and without an actor the control tree records no principal`(): Unit =
+    fun `S18 a rolled-back tree emits no event row, and without an actor fixture the control tree records the local principal`(): Unit =
         runBlocking {
             val k = kit()
             val kids = listOf(twChild("c1"), twChild("c2"))
@@ -1546,12 +1547,13 @@ class ItemsWriteTreeTest {
                         .okResult()
                 }
             assertEquals(3, okRows.count { it.type == "item.created" }, "control: the same shape without the cycle emits")
-            assertNull(
+            assertEquals(
+                "local",
                 okRows
                     .first {
                         it.type == "item.created"
                     }.principalId,
-                "an anonymous call records no principal, so the actor assertion can fail"
+                "a fixture-less call records the local principal, so the actor assertion can fail"
             )
         }
 

@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
@@ -16,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testAccess
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -46,7 +48,7 @@ import kotlin.test.assertTrue
 /**
  * MCP-path MDC correlation (AR-78 / item b5081c9b) at the 4.0 call boundary (Q32 port of the removed 3.x adapter's
  * McpToolAdapterMdcTest): [McpOperationAdapter] runs each call inside `MDCContext` carrying `transport`, `tool`,
- * `sessionId`, `reqId` and (when an actor is supplied) `actorId`, so every log line in flight carries them -- the
+ * `sessionId`, `reqId` and `actorId` (the audited id of the call's principal), so every log line in flight carries them -- the
  * handler's own lines, after a dispatcher hop, and the dispatcher's error line. The 3.x adapter's UUID `requestId` and
  * its UUID-shaped per-call INFO line differ in 4.0 (the reqId is the call id; the 4.0 per-call INFO line is asserted in McpCallLogLineTest).
  *
@@ -94,10 +96,16 @@ class McpOperationAdapterMdcTest {
             )
         )
 
-    private suspend fun connect(hopTo: CoroutineDispatcher = Dispatchers.IO): Client {
+    private suspend fun connect(
+        hopTo: CoroutineDispatcher = Dispatchers.IO,
+        access: (String?) -> CallAccess = { CallAccess.LOCAL }
+    ): Client {
         val env = ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())
         val server = Server(serverInfo = Implementation(name = "mdc-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpOperationAdapter(buildToolDispatcher(env)).register(server, ToolRegistry(listOf(probeTool(hopTo))), ToolProfile.ORCHESTRATION)
+        McpOperationAdapter(
+            buildToolDispatcher(env),
+            access = access
+        ).register(server, ToolRegistry(listOf(probeTool(hopTo))), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val client =
             Client(
@@ -112,8 +120,7 @@ class McpOperationAdapterMdcTest {
 
     private suspend fun Client.probe(
         hop: Boolean = false,
-        fail: Boolean = false,
-        actorId: String? = null
+        fail: Boolean = false
     ) = callTool(
         buildCallToolRequest {
             name = "mdc_probe"
@@ -123,11 +130,6 @@ class McpOperationAdapterMdcTest {
                         put("select", JsonPrimitive("log"))
                         put("hop", JsonPrimitive(hop))
                         put("fail", JsonPrimitive(fail))
-                        if (actorId !=
-                            null
-                        ) {
-                            put("actor", JsonObject(mapOf("id" to JsonPrimitive(actorId), "kind" to JsonPrimitive("subagent"))))
-                        }
                     }
                 )
             )
@@ -187,18 +189,17 @@ class McpOperationAdapterMdcTest {
     }
 
     @Test
-    fun `S11 no actor supplied yields no actorId key and a supplied actor yields its id`() {
+    fun `S11 actorId is the audited id of the call principal`() {
         val (_, lines) =
             capture("mdc.probe.tool") {
                 runBlocking {
-                    val client = connect()
-                    client.probe()
-                    client.probe(actorId = "agent-mdc")
+                    connect().probe()
+                    connect(access = { testAccess("agent-mdc") }).probe()
                 }
             }
 
         assertEquals(2, lines.size, "$lines")
-        assertFalse(lines[0].mdc.containsKey("actorId"), "no actor supplied: actorId must be absent: ${lines[0].mdc}")
+        assertEquals("local", lines[0].mdc["actorId"], "the local principal: ${lines[0].mdc}")
         assertEquals("agent-mdc", lines[1].mdc["actorId"], "${lines[1].mdc}")
     }
 
@@ -210,14 +211,16 @@ class McpOperationAdapterMdcTest {
             val (_, lines) =
                 capture("mdc.probe.tool") {
                     runBlocking {
-                        val client = connect(hopTo = dispatcher)
-                        client.probe(hop = true, actorId = "leaky-actor")
+                        var current = testAccess("leaky-actor")
+                        val client = connect(hopTo = dispatcher, access = { current })
+                        client.probe(hop = true)
+                        current = CallAccess.LOCAL
                         client.probe(hop = true)
                     }
                 }
             assertEquals(2, lines.size, "$lines")
             assertEquals("leaky-actor", lines[0].mdc["actorId"], "L1: call 1's line carries its actorId on the pooled thread")
-            assertFalse(lines[1].mdc.containsKey("actorId"), "L2: call 2 supplied no actor, actorId must be absent: ${lines[1].mdc}")
+            assertEquals("local", lines[1].mdc["actorId"], "L2: call 2 ran as local, nothing leaked from call 1: ${lines[1].mdc}")
             assertTrue(lines[0].mdc["reqId"] != lines[1].mdc["reqId"], "L2: each call has its own reqId")
 
             // L3: a plain Callable on the SAME thread: any MDC value here would be leakage from the calls above.
@@ -233,7 +236,7 @@ class McpOperationAdapterMdcTest {
         val (result, lines) =
             capture(
                 ToolDispatcher::class.java.name
-            ) { runBlocking { connect().probe(fail = true, actorId = "agent-err") } }
+            ) { runBlocking { connect(access = { testAccess("agent-err") }).probe(fail = true) } }
 
         assertEquals(true, result.isError, "fixture: the handler failed: $result")
         val errorLine = lines.last { it.level == Level.ERROR }

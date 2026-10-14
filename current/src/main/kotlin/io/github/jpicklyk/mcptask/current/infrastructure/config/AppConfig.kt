@@ -68,6 +68,10 @@ data class AppConfig(
      *  default empty (loopback-only). Validation and matching semantics live in
      *  `installHostAllowlist` (interfaces.mcp). */
     val mcpAllowedHosts: List<String>,
+    /** `MCP_ALLOW_UNAUTHENTICATED` -- the V9 opt-in: with `MCP_TRANSPORT=http` and the REST API disabled, `/mcp` serves as
+     *  the local principal only when this is true; otherwise startup fails. Default false; parsed with
+     *  [EnvBoolean.require], so an unrecognized value fails startup. Ignored by stdio and by a credential API mode. */
+    val mcpAllowUnauthenticated: Boolean = false,
     // ---- Database (DatabaseManager) ----
     val databasePath: String,
     val logLevel: String,
@@ -142,6 +146,9 @@ data class AppConfig(
                 mcpHttpHost = env("MCP_HTTP_HOST") ?: "0.0.0.0",
                 mcpHttpPort = env("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001,
                 mcpAllowedHosts = parseCsv(env("MCP_ALLOWED_HOSTS")) ?: emptyList(),
+                // V9 opt-in -- fail fast on an unrecognized value (EnvBoolean.require), like API_ENABLED.
+                mcpAllowUnauthenticated =
+                    EnvBoolean.require("MCP_ALLOW_UNAUTHENTICATED", env("MCP_ALLOW_UNAUTHENTICATED"), false),
                 // Database.
                 databasePath = env("DATABASE_PATH") ?: "data/current-tasks.db",
                 logLevel = env("LOG_LEVEL") ?: "INFO",

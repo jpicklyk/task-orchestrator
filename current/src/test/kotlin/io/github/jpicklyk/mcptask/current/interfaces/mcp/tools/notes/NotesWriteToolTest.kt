@@ -156,7 +156,7 @@ class NotesWriteToolTest {
         vararg ops: JsonObject,
         atomic: Boolean? = null,
         actor: JsonObject? = null,
-        access: CallAccess = CallAccess.UNRESTRICTED
+        access: CallAccess = CallAccess.LOCAL
     ): JsonObject =
         rig.ctx.callTool(
             "notes_write",

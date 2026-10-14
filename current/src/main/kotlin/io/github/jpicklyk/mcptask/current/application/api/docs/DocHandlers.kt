@@ -259,7 +259,7 @@ object DocHandlers {
             }
         val principal = ctx.principal
         val written =
-            env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal?.claim?.id)
+            env.documentService.write(rootId, req.kind.domain, req.slug, text, req.title, expected, principal.claim.id)
         return when (written) {
             is Outcome.Err -> written
             is Outcome.Ok -> {

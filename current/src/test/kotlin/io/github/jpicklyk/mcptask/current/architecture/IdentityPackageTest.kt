@@ -321,14 +321,12 @@ class IdentityPackageTest {
     }
 
     @Test
-    fun `S7 ActorAware and ActorParseResult live in application api ActorParsing with no companion and no service copy`() {
-        val sources = GuardSupport.productionSources().associateBy { it.path }
-        val moved = assertNotNull(sources["application/api/ActorParsing.kt"], "application/api/ActorParsing.kt must exist")
-        assertEquals("io.github.jpicklyk.mcptask.current.application.api", packageOf(moved))
-        assertTrue(moved.hasCodeMatch(Regex("""\bsealed\s+class\s+ActorParseResult\b""")), "ActorParseResult must be declared")
-        assertTrue(moved.hasCodeMatch(Regex("""\binterface\s+ActorAware\b""")), "ActorAware must be declared")
-        assertFalse(moved.hasCodeMatch(Regex("""\bcompanion\s+object\b""")), "ActorAware.Companion is deleted, no shim")
-        assertFalse("application/service/ActorParsing.kt" in sources, "the old application/service/ActorParsing.kt must be gone")
+    fun `S7 ActorAware and ActorParseResult are deleted with the body actor (R14)`() {
+        val sources = GuardSupport.productionSources()
+        assertTrue(sources.isNotEmpty(), "vacuity: production sources are in scope")
+        assertTrue(sources.none { it.path.endsWith("/ActorParsing.kt") }, "no ActorParsing.kt remains")
+        val declared = Regex("""\b(sealed\s+class\s+ActorParseResult|interface\s+ActorAware)\b""")
+        assertTrue(sources.none { it.hasCodeMatch(declared) }, "ActorParseResult and ActorAware are not declared anywhere")
     }
 
     @Test

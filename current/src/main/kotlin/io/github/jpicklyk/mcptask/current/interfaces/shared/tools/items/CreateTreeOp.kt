@@ -107,8 +107,8 @@ private suspend fun WriteScope.createTree(
             docSlug = req.docRef?.slug,
             // Matched against the tree's own root, never looked up: a foreign id is invalid_request, not an existence oracle.
             docRootRef = req.docRef?.rootId?.raw,
-            actorClaim = ctx.principal?.claim,
-            verification = ctx.principal?.verification
+            actorClaim = ctx.principal.claim,
+            verification = ctx.principal.verification
         )
     val service = workTreeService(env)
     val plan =

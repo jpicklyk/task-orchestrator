@@ -180,12 +180,6 @@ class McpCallLogFollowThroughTest {
                 .toBoolean()
         }
 
-    private val actor: JsonObject =
-        buildJsonObject {
-            put("id", "agent-df10")
-            put("kind", "subagent")
-        }
-
     private fun transition(
         itemId: Any,
         trigger: String,
@@ -208,7 +202,7 @@ class McpCallLogFollowThroughTest {
         vararg ops: JsonObject,
         atomic: Boolean = false
     ): CallToolResult {
-        val args = mutableListOf<Pair<String, JsonElement>>("ops" to JsonArray(ops.toList()), "actor" to actor)
+        val args = mutableListOf<Pair<String, JsonElement>>("ops" to JsonArray(ops.toList()))
         if (atomic) args += "atomic" to JsonPrimitive(true)
         return call("advance", *args.toTypedArray())
     }

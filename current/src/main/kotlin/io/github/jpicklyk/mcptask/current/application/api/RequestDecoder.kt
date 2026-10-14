@@ -62,7 +62,7 @@ object IsoInstantSerializer : KSerializer<Instant> {
  * (`ignoreUnknownKeys = false`, `isLenient = false`, `coerceInputValues = false`) and reports EVERY
  * problem at once, as JSON-pointer paths sorted by [String.compareTo]:
  *
- * 1. Top-level [reserved] keys (the adapter lifts `actor`) are removed first and never reported.
+ * 1. Top-level [reserved] keys (the dispatcher reads them itself, e.g. `select`) are removed first and never reported.
  * 2. A descriptor-driven walk collects every unknown key at every depth (objects inside arrays and
  *    maps included); any found -> `unknown_parameter` with `detail.parameters` (it wins over value
  *    faults: fix the shape first).
@@ -100,7 +100,7 @@ class RequestDecoder {
     fun <T> decode(
         serializer: KSerializer<T>,
         input: JsonElement,
-        reserved: Set<String> = setOf("actor")
+        reserved: Set<String> = emptySet()
     ): Outcome<T> {
         val obj =
             input as? JsonObject

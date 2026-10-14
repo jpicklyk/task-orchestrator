@@ -52,7 +52,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -877,7 +876,7 @@ class DocsToolsBehaviorTest {
         }
 
     @Test
-    fun `control - a write without any actor leaves the principal null`(
+    fun `control - a write without any actor fixture runs as the local principal`(
         @TempDir dir: Path
     ): Unit =
         runBlocking {
@@ -887,11 +886,11 @@ class DocsToolsBehaviorTest {
             val created = upsert(rig, root.id, "p1", "x")
             assertFalse(created.isError, created.text)
 
-            assertNull(rig.rows().single { it.type == "document.created" }.principalId, "no actor, no principal")
+            assertEquals("local", rig.rows().single { it.type == "document.created" }.principalId, "no actor fixture, the local principal")
         }
 
     @Test
-    fun `a verified access principal replaces the body actor on the event row`(
+    fun `a body actor next to a verified access principal is unknown_parameter and writes nothing`(
         @TempDir dir: Path
     ): Unit =
         runBlocking {
@@ -908,11 +907,17 @@ class DocsToolsBehaviorTest {
                     "docs_write",
                     obj("""{"actor":{"id":"intruder","kind":"subagent"},"ops":[${scenarios.upsert(root.id, "plan", "p1", "x")}]}""")
                 )
-            assertFalse(result.isError, result.text)
-
-            val principal = rig.rows().single { it.type == "document.created" }.principalId
-            assertEquals(expected, principal)
-            assertNotEquals("intruder", principal)
+            assertTrue(result.isError, result.text)
+            assertEquals(
+                "unknown_parameter",
+                result.structured
+                    .getValue("error")
+                    .jsonObject
+                    .getValue("code")
+                    .jsonPrimitive.content
+            )
+            assertTrue(rig.rows().none { it.type == "document.created" }, "nothing is written")
+            assertNotNull(expected)
         }
 
     // ------------------------------------------------------------------ ambiguous prefix

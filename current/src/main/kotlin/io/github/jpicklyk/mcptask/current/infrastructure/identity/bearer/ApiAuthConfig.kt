@@ -48,7 +48,7 @@ sealed class ApiAuthConfig {
     ) : ApiAuthConfig()
 
     // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).
-    // Every request is attached the synthetic LOCAL_UNAUTH_PRINCIPAL (ADMIN,
+    // Every request is attached the local principal LOCAL_PRINCIPAL (ADMIN,
     // unrestricted scope) with NO credential check at all. Intended only for a loopback-bound
     // single-user local server -- see the SECURITY warn logged at startup in CurrentMcpServer.
     data object Unauthenticated : ApiAuthConfig()

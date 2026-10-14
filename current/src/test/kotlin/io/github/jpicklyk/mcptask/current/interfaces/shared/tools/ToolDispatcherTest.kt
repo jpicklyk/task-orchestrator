@@ -3,13 +3,14 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import io.github.jpicklyk.mcptask.current.test.liftTestActor
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testAccess
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -22,13 +23,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.sql.DriverManager
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -58,34 +57,31 @@ class ToolDispatcherTest {
 
     private val fx = FixtureTools()
 
-    private class RecordingVerifier : ActorVerifier {
-        val seen = CopyOnWriteArrayList<ActorClaim>()
-
-        override suspend fun verify(actor: ActorClaim): VerificationResult {
-            seen += actor
-            return VerificationResult(VerificationStatus.VERIFIED, verifier = "test-verifier")
-        }
-    }
-
-    private val verifier = RecordingVerifier()
-
     private val env: ToolExecutionContext by lazy {
         ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())
     }
 
     private val dispatcher: ToolDispatcher by lazy {
-        ToolDispatcher(RequestDecoder(), verifier, BatchRunner(env.unitOfWork, env.idempotency), env)
+        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env)
     }
 
     private val reqId = "k7f3q9ab"
 
     private fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
 
+    /**
+     * One dispatched call. With no [access], a top-level `actor` fixture selects the caller ([liftTestActor]) and the call
+     * otherwise runs as the local principal; an explicit [access] sends [text] exactly as written.
+     */
     private suspend fun call(
         spec: ToolSpec,
         text: String,
-        profile: ToolProfile = ToolProfile.ORCHESTRATION
-    ): Dispatched = dispatcher.dispatch(spec, profile, obj(text), reqId, "mcp")
+        profile: ToolProfile = ToolProfile.ORCHESTRATION,
+        access: CallAccess? = null
+    ): Dispatched {
+        val (args, effective) = if (access == null) liftTestActor(obj(text)) else obj(text) to access
+        return dispatcher.dispatch(spec, profile, args, reqId, "mcp", effective)
+    }
 
     private fun Dispatched.body(): JsonObject = envelope.body
 
@@ -203,7 +199,7 @@ class ToolDispatcherTest {
             val ctx = fx.seen.single()
             assertEquals(reqId, ctx.reqId)
             assertEquals("mcp", ctx.surface)
-            assertNull(ctx.principal, "no actor was sent")
+            assertEquals("local", ctx.principal.claim.id, "the default access is the local principal")
         }
 
     // ------------------------------------------------------------------ S8 selector
@@ -569,18 +565,14 @@ class ToolDispatcherTest {
     // ------------------------------------------------------------------ S9 idempotency
 
     @Test
-    fun `S9 an idempotencyKey without an actor fails that element and does not run it`(): Unit =
+    fun `S9 an idempotencyKey needs no actor - it is keyed under the call principal`(): Unit =
         runBlocking {
             val result = call(fx.writeTool, ops(create("K", keyOne)))
-            val failed = result.elementError(0)
-            assertEquals("invalid_request", failed.str("code"))
-            val (field, reason) = failed.fields().single()
-            assertEquals("/ops/0/idempotencyKey", field)
-            assertTrue("requires an actor" in reason, reason)
-            assertEquals(emptyList(), titles())
+            assertEquals("created:K", result.results()[0].jsonObject.str("id"), "the keyed element runs as the local principal")
+            assertEquals(listOf("K"), titles())
 
-            val withActor = call(fx.writeTool, """{$actor1,"ops":[${create("K", keyOne)}]}""")
-            assertEquals("created:K", withActor.results()[0].jsonObject.str("id"), "control: with an actor the element runs")
+            val replay = call(fx.writeTool, ops(create("K", keyOne)))
+            assertEquals("true", replay.results()[0].jsonObject.str("replayed"), "the same principal replays the key")
             assertEquals(listOf("K"), titles())
         }
 
@@ -634,77 +626,50 @@ class ToolDispatcherTest {
             assertEquals(listOf("R"), titles())
         }
 
-    // ------------------------------------------------------------------ S10 actor
+    // ------------------------------------------------------------------ S10 principal (R14: no body actor)
 
     @Test
-    fun `S10 a valid actor becomes the principal with its verification result`(): Unit =
+    fun `S10 the transport principal reaches the handler, audited as external`(): Unit =
         runBlocking {
-            call(
-                fx.readTool,
-                """{"actor":{"id":"agent-1","kind":"subagent","parent":"boss","proof":"tok"},"select":"get","id":"aaaaaaaa"}"""
-            )
-            val principal = assertNotNull(fx.seen.single().principal)
-            assertEquals(ActorClaim("agent-1", ActorKind.SUBAGENT, "boss", "tok"), principal.claim)
-            assertEquals(VerificationStatus.VERIFIED, principal.verification.status)
-            assertEquals(listOf(ActorClaim("agent-1", ActorKind.SUBAGENT, "boss", "tok")), verifier.seen.toList())
+            call(fx.readTool, """{"select":"get","id":"aaaaaaaa"}""", access = testAccess("agent-1"))
+            val principal = fx.seen.single().principal
+            assertEquals(ActorClaim("agent-1", ActorKind.EXTERNAL), principal.claim)
+            assertEquals(VerificationStatus.UNCHECKED, principal.verification.status)
         }
 
     @Test
-    fun `S10 an absent actor is a null principal and the verifier is not called`(): Unit =
+    fun `S10 an ops call runs every element under the same principal`(): Unit =
         runBlocking {
-            call(fx.readTool, """{"select":"get","id":"aaaaaaaa"}""")
-            assertNull(fx.seen.single().principal)
-            assertTrue(verifier.seen.isEmpty())
-            call(fx.readTool, """{"actor":{"id":"agent-1","kind":"user"},"select":"get","id":"aaaaaaaa"}""")
-            assertEquals(1, verifier.seen.size, "control: the verifier is wired and is called when an actor is sent")
-        }
-
-    @Test
-    fun `S10 an ops call verifies the actor once and every element sees the same principal`(): Unit =
-        runBlocking {
-            call(fx.writeTool, """{"actor":{"id":"agent-1","kind":"orchestrator"},"ops":[${create("A")},${create("B")}]}""")
-            assertEquals(1, verifier.seen.size)
+            call(fx.writeTool, """{"ops":[${create("A")},${create("B")}]}""", access = testAccess("agent-1"))
             assertEquals(2, fx.seen.size)
-            assertEquals(setOf("agent-1"), fx.seen.map { it.principal?.claim?.id }.toSet())
+            assertEquals(setOf("agent-1"), fx.seen.map { it.principal.claim.id }.toSet())
         }
 
     @Test
-    fun `S10 an unknown actor key is unknown_parameter at the actor pointer`(): Unit =
+    fun `S10 a body actor is unknown_parameter on a select call and nothing runs`(): Unit =
         runBlocking {
-            val result = call(fx.readTool, """{"actor":{"id":"a","kind":"user","x":1},"select":"get","id":"aaaaaaaa"}""")
-            assertEquals("unknown_parameter", result.code())
-            assertEquals(listOf("/actor/x"), result.error().parameters())
-            assertTrue(fx.seen.isEmpty())
-        }
-
-    @Test
-    fun `S10 a malformed actor is invalid_request at an actor pointer and nothing runs`(): Unit =
-        runBlocking {
-            val cases =
-                mapOf(
-                    "\"just-a-string\"" to "/actor",
-                    """{"kind":"user"}""" to "/actor/id",
-                    """{"id":"a"}""" to "/actor/kind",
-                    """{"id":"a","kind":"robot"}""" to "/actor/kind"
-                )
-            for ((actor, pointer) in cases) {
-                val result = call(fx.readTool, """{"actor":$actor,"select":"get","id":"aaaaaaaa"}""")
-                assertEquals("invalid_request", result.code(), actor)
-                assertTrue(result.error().fields().any { it.first == pointer }, "$actor: expected $pointer in ${result.error().fields()}")
+            for (actor in listOf("""{"id":"a","kind":"user"}""", "\"just-a-string\"", "null")) {
+                val result = call(fx.readTool, """{"actor":$actor,"select":"get","id":"aaaaaaaa"}""", access = CallAccess.LOCAL)
+                assertEquals("unknown_parameter", result.code(), actor)
+                assertEquals(listOf("/actor"), result.error().parameters(), actor)
             }
             assertTrue(fx.seen.isEmpty())
-            assertTrue(verifier.seen.isEmpty(), "a malformed actor is never verified")
         }
 
     @Test
-    fun `S10 the actor is lifted before the selector, so a bad actor beats a bad select`(): Unit =
+    fun `S10 a body actor is unknown_parameter at the top level and inside an element of an ops call`(): Unit =
         runBlocking {
-            val result = call(fx.readTool, """{"actor":"bad","select":"nope"}""")
-            assertEquals("invalid_request", result.code())
-            assertTrue(result.error().fields().any { it.first.startsWith("/actor") }, "${result.error().fields()}")
-            assertFalse(result.error().fields().any { it.first == "/select" }, "the selector is not reached: ${result.error().fields()}")
-        }
+            val top = call(fx.writeTool, """{"actor":{"id":"a","kind":"user"},"ops":[${create("A")}]}""", access = CallAccess.LOCAL)
+            assertEquals("unknown_parameter", top.code())
+            assertEquals(listOf("/actor"), top.error().parameters())
 
+            val element =
+                call(fx.writeTool, """{"ops":[{"op":"create","title":"B","actor":{"id":"a","kind":"user"}}]}""", access = CallAccess.LOCAL)
+            val failed = element.elementError(0)
+            assertEquals("unknown_parameter", failed.str("code"))
+            assertEquals(listOf("/ops/0/actor"), failed.parameters())
+            assertEquals(emptyList(), titles(), "neither call created anything")
+        }
     // ------------------------------------------------------------------ S13 escaping exceptions
 
     @Test

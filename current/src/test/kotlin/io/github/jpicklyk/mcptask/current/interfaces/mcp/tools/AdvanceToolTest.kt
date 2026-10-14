@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.AdvanceParityScenarios
@@ -46,7 +47,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -659,55 +659,50 @@ work_item_schemas:
     // ------------------------------------------------------------------ S14 / S20 request validation
 
     @Test
-    fun `S14 claim release and heartbeat without an actor fail invalid_request on the actor field and a supplied actor is accepted`() {
+    fun `S14 claim release and heartbeat run as the call principal, and a body actor is unknown_parameter`() {
         val item = uid(140)
         val plain = uid(141)
         AdvanceTwin(
             seed = {
-                addItem(item, "Needs an actor")
+                addItem(item, "Claimed by the principal")
                 addItem(plain, "Transition without actor")
             }
         ).use { twin ->
             val registry = ToolRegistry(listOf(advanceTool()))
 
-            fun mcp(args: String): JsonObject =
+            fun mcp(
+                args: String,
+                access: ((String?) -> CallAccess)? = { CallAccess.LOCAL }
+            ): JsonObject =
                 runBlocking {
                     callMcp(
                         twin.rig.composition.toolContext,
                         registry,
-                        null,
+                        access,
                         ADVANCE_TOOL,
                         Json.parseToJsonElement(args).jsonObject
                     )
                 }.structured
 
-            val bare = mcp(ops(claim(item), release(item), heartbeat(item)))
+            // R14: no actor is needed (or accepted); the holder is the call's principal, here the local principal.
+            val bare = mcp(ops(claim(item), heartbeat(item), release(item)))
             val results = bare.obj("data").arr("results")
-            for (i in 0..2) {
-                val error = results[i].jsonObject.obj("error")
-                assertEquals("invalid_request", error.str("code"), "element $i")
-                val violation =
-                    error
-                        .obj("detail")
-                        .arr("fields")
-                        .single()
-                        .jsonObject
-                assertTrue(violation.str("field").endsWith("/actor"), "element $i: ${violation.str("field")}")
-                assertTrue("required" in violation.str("reason"), violation.str("reason"))
-            }
-            assertNull(twin.load(item).claimedBy)
+            for (i in 0..2) assertEquals("true", results[i].jsonObject.str("ok"), "element $i: $bare")
+            assertNull(twin.load(item).claimedBy, "released again")
 
             val withActor = mcp("""{"actor":{"id":"agent-1","kind":"subagent"},"ops":[${claim(item)}]}""")
+            assertEquals("unknown_parameter", withActor.obj("error").str("code"), "$withActor")
+            assertNull(twin.load(item).claimedBy, "a refused call claims nothing")
+
             assertEquals(
                 "true",
-                withActor
+                mcp(ops(claim(item)))
                     .obj("data")
                     .arr("results")[0]
                     .jsonObject
                     .str("claimed")
             )
-            assertNotNull(twin.load(item).claimedBy, "the supplied actor became the holder")
-
+            assertEquals("local", twin.load(item).claimedBy, "the principal became the holder")
             val transitionOnly = mcp(ops(transition(plain, "start")))
             assertEquals(
                 "work",

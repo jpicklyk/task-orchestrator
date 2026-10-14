@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.treeItem
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.twComplete
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.twIds
 import io.github.jpicklyk.mcptask.current.test.blocksDep
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.serialization.json.Json
@@ -108,7 +109,7 @@ class LifecycleFreeExclusionsTest {
     ): JsonObject {
         val spec = checkNotNull(EXCLUSIONS_REGISTRY[tool]) { "$tool is not registered" }
         return buildToolDispatcher(ctx)
-            .dispatch(spec, ToolProfile.ORCHESTRATION, Json.parseToJsonElement(body).jsonObject, "k7f3q9ab", "mcp")
+            .dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, Json.parseToJsonElement(body).jsonObject, "k7f3q9ab", "mcp")
             .envelope.body
     }
 
