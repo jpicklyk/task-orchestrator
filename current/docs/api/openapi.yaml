@@ -874,7 +874,7 @@ paths:
         signals (`redundantReads`, `overFetch`, `readsWithoutLaterWrite`, `emptyNext`, `relatedFollowThrough`,
         `lifecycleFreeRejections`, each `{value?, numerator, denominator, basis?}`), with no grouping and no page.
         `rollup` takes a required `anchorId` and answers one object for the anchor's subtree (inclusive):
-        `{scope: {anchorId, rootId}, window: {since, until, clamped?}, items: {total, byRole}, blocked: {total},
+        `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
         transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes,
         responseTokensEst, basis: targets}}`, short ids only; with neither `since` nor `until` the window runs from the
         subtree's first event to its last plus 1 ms, clamped to 31 days (`window.clamped`). Its cost is a lower bound

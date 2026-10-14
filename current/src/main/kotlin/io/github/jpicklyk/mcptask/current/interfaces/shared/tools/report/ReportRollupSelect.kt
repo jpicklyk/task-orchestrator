@@ -15,14 +15,14 @@ import kotlinx.serialization.serializer
 
 /**
  * `report rollup` (plan R16): one object, no page, pointers and counts only (short ids, never note bodies). `data` is
- * `{scope, window, items, blocked, transitions, notes, cost}` on an anchor; the run-only sections (`run`, `decisions`,
+ * `{scope, window, itemCounts, blocked, transitions, notes, cost}` on an anchor; the run-only sections (`run`, `decisions`,
  * `seats`, `attempts`, `budget`, `blocked.byReason`) are written only when the rollup carries them (R28).
  */
 internal val reportRollupSelect =
     SelectSpec.Single<ReportRollupRequest, RollupReport>(
         name = "rollup",
         doc =
-            "One subtree as one object: anchorId and every descendant, any depth. items: total and byRole (current state; " +
+            "One subtree as one object: anchorId and every descendant, any depth. itemCounts: total and byRole (current state; " +
                 "lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions " +
                 "{total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not " +
                 "counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, " +
@@ -70,7 +70,7 @@ internal fun rollupJson(report: RollupReport): JsonObject =
             )
         }
         put(
-            "items",
+            "itemCounts",
             buildJsonObject {
                 put("total", report.items.total)
                 put("byRole", buildJsonObject { report.items.byRole.forEach { (role, count) -> put(role, count) } })

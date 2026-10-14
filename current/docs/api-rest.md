@@ -920,7 +920,7 @@ page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `k
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
 field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes a required
 `anchorId` (any item, any depth; absent is `400 invalid_request` on `/anchorId`) and answers one object for the anchor's
-subtree, inclusive: `{scope: {anchorId, rootId}, window: {since, until, clamped?}, items: {total, byRole}, blocked: {total},
+subtree, inclusive: `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
 transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst,
 basis: "targets"}}`, short ids only. Items are current state (lifecycle-free items not counted); transitions and notes come
 from the subtree's events in the window; cost counts the distinct calls in the window that named a subtree item or wrote

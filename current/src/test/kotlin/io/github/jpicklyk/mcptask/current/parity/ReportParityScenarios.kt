@@ -683,7 +683,7 @@ internal object ReportParityScenarios {
                 expectContains =
                     listOf(
                         "\"anchorId\":\"a1000001\"",
-                        "\"items\":{\"total\":2,\"byRole\":{\"queue\":2}}",
+                        "\"itemCounts\":{\"total\":2,\"byRole\":{\"queue\":2}}",
                         "\"blocked\":{\"total\":0}",
                         "\"basis\":\"targets\""
                     ),

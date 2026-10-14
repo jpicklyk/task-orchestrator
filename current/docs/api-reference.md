@@ -1832,7 +1832,7 @@ the `events` table, windows up to 31 days), `waste` (call-pattern waste signals,
 | `gates` | `{items: [{key: {<groupBy>?: value}, blocks, items}], page, window}` |
 | `contention` | `{items: [{key: {resource?: value}, kind, acquired, rejected, expired, released, forceReleased, contentionRate?, expiryRate?, forceReleaseRate?}], page, window}` |
 | `waste` | `{window: {...as usage}, signals: {redundantReads, overFetch, readsWithoutLaterWrite, emptyNext, relatedFollowThrough: {edges, links, tags, text}, lifecycleFreeRejections}}`, each signal `{value?, numerator, denominator, basis?}` |
-| `rollup` | `{scope: {anchorId, rootId}, window: {since, until, clamped?}, items: {total, byRole}, blocked: {total}, transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst, basis}}` |
+| `rollup` | `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total}, transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst, basis}}` |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
@@ -1895,7 +1895,7 @@ ids, never a note body). `anchorId` is required (absent is `invalid_request` on 
 item id (a hex prefix of 8 to 32 characters; outside the caller's scope `forbidden`; unknown `not_found`); any depth
 is allowed. The subtree is the anchor plus every descendant.
 
-- **Items.** `items.total` and `items.byRole` count the subtree's items by their current role (not windowed); a
+- **Items.** `itemCounts.total` and `itemCounts.byRole` count the subtree's items by their current role (not windowed); a
   lifecycle-free item (no role) is not counted, but its descendants are. Zero roles are omitted. `blocked.total` is the
   number of items in the `blocked` role.
 - **Events.** `transitions.total` counts `item.transitioned` events of subtree items in the window, `cascades` those
@@ -1976,7 +1976,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `rollup`** (director profile only; capability `read`): One subtree as one object: anchorId and every descendant, any depth. items: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots.
+**`report` select `rollup`** (director profile only; capability `read`): One subtree as one object: anchorId and every descendant, any depth. itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
