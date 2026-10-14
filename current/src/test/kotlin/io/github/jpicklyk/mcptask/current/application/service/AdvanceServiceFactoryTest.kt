@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
@@ -120,8 +119,6 @@ class AdvanceServiceFactoryTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
             val prSuccess = assertIs<AdvanceOutcome.Success>(prOutcome)
             assertEquals("pr-s", prSuccess.result.statusLabel, "a rooted item must see the per-root status label, not the global one")
@@ -136,8 +133,6 @@ class AdvanceServiceFactoryTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                 )
             val rootlessSuccess = assertIs<AdvanceOutcome.Success>(rootlessOutcome)
             assertEquals("g-s", rootlessSuccess.result.statusLabel, "a rootless item must fall through to the global status label")

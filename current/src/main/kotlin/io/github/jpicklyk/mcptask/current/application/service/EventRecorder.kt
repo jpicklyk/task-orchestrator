@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.proofWire
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -94,7 +95,7 @@ class EventRecorder(
             type = event.type,
             principalId = actor?.id,
             principalKind = actor?.kind?.toJsonString(),
-            proofStatus = event.entityVerification?.status?.toJsonString(),
+            proofStatus = event.entityVerification?.proofWire(),
             reqId = call?.reqId,
             host = call?.host,
             sessionId = call?.sessionId,

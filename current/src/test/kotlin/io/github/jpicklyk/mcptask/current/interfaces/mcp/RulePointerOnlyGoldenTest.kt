@@ -87,7 +87,6 @@ class RulePointerOnlyGoldenTest {
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
         val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
-        val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
     )
 
     /** Reuses the A1 golden fixture verbatim, then stashes two rule/ documents at ROOT_ID (this item's addition). */
@@ -154,7 +153,6 @@ class RulePointerOnlyGoldenTest {
             toolContext = composition.toolContext,
             repositoryProvider = repo,
             serverConfig = composition.serverConfig,
-            degradedModePolicy = composition.degradedModePolicy,
         )
     }
 

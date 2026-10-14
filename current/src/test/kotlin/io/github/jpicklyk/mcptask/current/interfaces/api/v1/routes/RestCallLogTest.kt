@@ -96,7 +96,6 @@ class RestCallLogTest {
             actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy,
             callLog = writer,
             appConfig = AppConfig.fromEnv(),
         )
@@ -389,7 +388,6 @@ class RestCallLogTest {
                     actorAuthEnabled = rig.composition.actorAuthEnabled,
                     serverConfig = rig.composition.serverConfig,
                     toolContext = rig.composition.toolContext,
-                    degradedModePolicy = rig.composition.degradedModePolicy,
                     callLog = writer,
                     appConfig = AppConfig.fromEnv(),
                 )

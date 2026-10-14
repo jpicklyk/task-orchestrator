@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -26,7 +25,7 @@ import kotlin.test.assertTrue
  * (queue phase), written before this fix's implementation existed -- never this file's own reading
  * of the fixed source. All scenarios here are EXISTING-SURFACE per the test-plan: every type and
  * method touched ([YamlActorAuthenticationConfigService], [YamlWorkItemSchemaService],
- * [ActorAuthenticationConfig], [VerifierConfig], [DegradedModePolicy]) was already public before
+ * [ActorAuthenticationConfig], [VerifierConfig]) was already public before
  * this fix -- only the loaders' behavior on bad or absent input changes, from a defaulted,
  * warning-only fallback to a thrown [IllegalArgumentException] naming the config path. A plain
  * revert of the fix therefore yields behavioral red directly; no narrowest-revert recipe is needed.
@@ -231,7 +230,7 @@ class GlobalConfigFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8 invalid YAML degraded_mode_policy throws IAE even with a valid env override`() {
+    fun `S8 a set DEGRADED_MODE_POLICY env throws IAE naming the variable even with an invalid YAML key`() {
         val file =
             writeConfig(
                 "s8",
@@ -248,7 +247,7 @@ class GlobalConfigFailClosedTest {
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "reject" else null }
             )
         val ex = assertFailsWith<IllegalArgumentException> { service.getConfig() }
-        assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
+        assertTrue(ex.message?.contains("DEGRADED_MODE_POLICY") == true, "Expected the variable in: ${ex.message}")
     }
 
     // -------------------------------------------------------------------------
@@ -324,16 +323,14 @@ class GlobalConfigFailClosedTest {
     }
 
     @Test
-    fun `S12 explicit null degraded_mode_policy yields ACCEPT_CACHED`() {
+    fun `S12 explicit null degraded_mode_policy fails closed`() {
         val file =
             writeConfig(
                 "s12-policy-null",
                 "actor_authentication:\n  degraded_mode_policy: null\n  verifier:\n    type: noop"
             )
-        assertEquals(
-            DegradedModePolicy.ACCEPT_CACHED,
-            YamlActorAuthenticationConfigService(file).getConfig().degradedModePolicy
-        )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
     }
 
     @Test
@@ -347,27 +344,25 @@ class GlobalConfigFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S15 degraded_mode_policy REJECT (uppercase) parses without throwing`() {
+    fun `S15 degraded_mode_policy REJECT (uppercase) fails closed`() {
         val file =
             writeConfig(
                 "s15-upper",
                 "actor_authentication:\n  degraded_mode_policy: REJECT\n  verifier:\n    type: noop"
             )
-        val service = YamlActorAuthenticationConfigService(file)
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isEmpty())
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
     }
 
     @Test
-    fun `S15 degraded_mode_policy accept_cached (underscore variant) parses without throwing`() {
+    fun `S15 degraded_mode_policy accept_cached (underscore variant) fails closed`() {
         val file =
             writeConfig(
                 "s15-underscore",
                 "actor_authentication:\n  degraded_mode_policy: accept_cached\n  verifier:\n    type: noop"
             )
-        val service = YamlActorAuthenticationConfigService(file)
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isEmpty())
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
     }
 
     // -------------------------------------------------------------------------
@@ -405,7 +400,7 @@ class GlobalConfigFailClosedTest {
                 "actor_authentication:\n  degraded_mode_policy: \"\"\n  verifier:\n    type: noop"
             )
         val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
-        assertTrue(ex.message?.contains("Unknown") == true, "Expected 'Unknown' in: ${ex.message}")
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
         assertTrue(ex.message?.contains(file.toString()) == true)
     }
 
@@ -425,7 +420,7 @@ class GlobalConfigFailClosedTest {
                 "actor_authentication:\n  degraded_mode_policy: true\n  verifier:\n    type: noop"
             )
         val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
-        assertTrue(ex.message?.contains("must be a string") == true, "Expected 'must be a string' in: ${ex.message}")
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
     }
 
     @Test

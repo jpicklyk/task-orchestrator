@@ -36,7 +36,6 @@ class ServerCompositionTest {
 
         assertNotNull(composition.toolContext, "ToolExecutionContext must be wired")
         assertNotNull(composition.serverConfig)
-        assertNotNull(composition.degradedModePolicy)
     }
 
     @Test

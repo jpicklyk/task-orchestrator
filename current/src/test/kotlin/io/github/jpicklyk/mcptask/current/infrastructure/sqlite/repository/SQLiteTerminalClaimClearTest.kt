@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
@@ -85,7 +84,7 @@ class SQLiteTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                advanceService().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
+                advanceService().advance(item, "complete", null, actor, verification)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
 
@@ -112,11 +111,11 @@ class SQLiteTerminalClaimClearTest {
             val item = createClaimedItem(claimedBy = "agent-legacy", role = Role.TERMINAL)
             assertNotNull(item.claimedBy, "fixture must model a pre-fix terminal-and-claimed row")
 
-            // enforceOwnership = false: reopening a legacy stale-claimed row is a system
-            // reconciliation action, not the original holder acting — mirrors the REST route's
-            // setting and keeps ownership orthogonal to the previousRole == TERMINAL clause here.
+            // Ownership is always enforced, so the reopen is made as the claim's holder: ownership is
+            // orthogonal to the previousRole == TERMINAL clause here.
+            val holder = ActorClaim(id = "agent-legacy", kind = ActorKind.EXTERNAL)
             val outcome =
-                advanceService().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, false)
+                advanceService().advance(item, "reopen", null, holder, null)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
 

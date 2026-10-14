@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.requireHttpsOrLoopbackKeySource
@@ -34,7 +33,6 @@ private const val DEFAULT_MAX_STALE_SECONDS = 3600L
  * Expected YAML structure:
  * ```yaml
  * actor_authentication:
- *   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
  *   verifier:
  *     type: jwks          # "jwks" or "noop" (default: noop)
  *     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
@@ -56,23 +54,23 @@ private const val DEFAULT_MAX_STALE_SECONDS = 3600L
  *
  * If the config file is missing, empty, or comment-only, or the `actor_authentication:` section is
  * absent (or explicitly `null`), [ActorAuthenticationConfig] defaults are returned
- * ([VerifierConfig.Noop], default degraded-mode policy).
+ * ([VerifierConfig.Noop]).
  *
  * **FAILS CLOSED**: if the file exists but cannot be read or parsed (YAML syntax error, non-mapping
  * root document), or a present, non-null field fails to parse (an unrecognized
- * `degraded_mode_policy`, an unrecognized `verifier.type`, a non-map `verifier` or
+ * `verifier.type`, a non-map `verifier` or
  * `actor_authentication` value, or `type: jwks` with no configured key source),
  * [IllegalArgumentException] is thrown naming the config path rather than silently substituting a
  * default. A malformed field being silently ignored could otherwise turn a security-relevant
  * misconfiguration into unverified access without any startup signal.
  *
- * ## `DEGRADED_MODE_POLICY` environment variable
+ * ## Removed `degraded_mode_policy` / `DEGRADED_MODE_POLICY`
  *
- * When the `DEGRADED_MODE_POLICY` environment variable is set it overrides the YAML value:
- * - Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`
- * - If set to an invalid value a [IllegalArgumentException] is thrown at construction time so the
- *   misconfiguration is surfaced immediately rather than silently falling back to a default.
- * - If unset, the YAML value is used (then the coded default [DegradedModePolicy.ACCEPT_CACHED]).
+ * Verification fails closed, so there is no degraded-mode policy. A leftover
+ * `actor_authentication.degraded_mode_policy` key (any value, `null` included) or a set
+ * `DEGRADED_MODE_POLICY` environment variable (any value) is an [IllegalArgumentException] naming the key
+ * or variable at construction time: silently ignoring a security setting an operator believes is in force
+ * would be worse than refusing to start.
  *
  * @param configPath Path to the `.taskorchestrator/config.yaml` file (path-based constructor only).
  * @param globalConfig Shared, already-parsed global config document (document-based constructor).
@@ -99,6 +97,11 @@ class YamlActorAuthenticationConfigService private constructor(
 
     private val logger = LoggerFactory.getLogger(YamlActorAuthenticationConfigService::class.java)
 
+    private companion object {
+        const val REMOVED_POLICY_KEY = "degraded_mode_policy"
+        const val REMOVED_POLICY_ENV_VAR = "DEGRADED_MODE_POLICY"
+    }
+
     private data class LoadResult(
         val config: ActorAuthenticationConfig,
         val warnings: List<String>
@@ -114,35 +117,14 @@ class YamlActorAuthenticationConfigService private constructor(
     fun getWarnings(): List<String> = loadResult.warnings
 
     private fun loadConfig(): LoadResult {
-        // --- Env-var override (evaluated eagerly so invalid values fail at startup) ---
-        val envPolicy = resolveEnvDegradedModePolicy()
-
-        val yamlResult = loadYamlConfig()
-
-        val finalConfig =
-            if (envPolicy != null) {
-                logger.info("DEGRADED_MODE_POLICY env var overrides YAML: {}", envPolicy.toConfigString())
-                yamlResult.config.copy(degradedModePolicy = envPolicy)
-            } else {
-                yamlResult.config
-            }
-
-        return LoadResult(finalConfig, yamlResult.warnings)
-    }
-
-    /**
-     * Reads and validates the `DEGRADED_MODE_POLICY` environment variable.
-     *
-     * @return the parsed [DegradedModePolicy] if the env var is set, or `null` if unset.
-     * @throws IllegalArgumentException if the env var is set but not a recognised value.
-     */
-    private fun resolveEnvDegradedModePolicy(): DegradedModePolicy? {
-        val raw = envResolver("DEGRADED_MODE_POLICY") ?: return null
-        return DegradedModePolicy.fromConfigString(raw)
-            ?: throw IllegalArgumentException(
-                "DEGRADED_MODE_POLICY env var must be one of: " +
-                    "accept-cached, accept-self-reported, reject. Got: '$raw'"
+        // Evaluated eagerly so a leftover variable fails at startup.
+        if (envResolver(REMOVED_POLICY_ENV_VAR) != null) {
+            throw IllegalArgumentException(
+                "$REMOVED_POLICY_ENV_VAR is no longer supported: verification fails closed and there is no " +
+                    "degraded-mode policy. Unset the environment variable."
             )
+        }
+        return loadYamlConfig()
     }
 
     /** Dispatches to the path-based or document-based load, depending on which was constructed. */
@@ -180,7 +162,7 @@ class YamlActorAuthenticationConfigService private constructor(
      *
      * An absent file, an empty/comment-only file (parses to `null`), an absent
      * `actor_authentication:` key, or an explicit `actor_authentication: null` all keep the coded
-     * defaults ([VerifierConfig.Noop], default degraded-mode policy) — these are legitimate "nothing configured"
+     * defaults ([VerifierConfig.Noop], coded defaults) — these are legitimate "nothing configured"
      * states, not errors. Everything else that prevents a well-formed [ActorAuthenticationConfig]
      * from being produced — a YAML syntax error, a root document that is not a mapping, or a
      * present-and-non-null field that fails to parse — throws [IllegalArgumentException] naming
@@ -263,26 +245,15 @@ class YamlActorAuthenticationConfigService private constructor(
                     )
             }
 
-        val degradedModePolicy = parseDegradedModePolicy(actorAuthSection)
-
-        return ActorAuthenticationConfig(
-            verifier = verifier,
-            degradedModePolicy = degradedModePolicy
-        )
-    }
-
-    private fun parseDegradedModePolicy(actorAuthSection: Map<String, Any>): DegradedModePolicy {
-        val raw = actorAuthSection["degraded_mode_policy"] ?: return DegradedModePolicy.ACCEPT_CACHED
-        val rawStr =
-            raw as? String
-                ?: throw IllegalArgumentException(
-                    "actor_authentication.degraded_mode_policy in '$configPath' must be a string; got '$raw'"
-                )
-        return DegradedModePolicy.fromConfigString(rawStr)
-            ?: throw IllegalArgumentException(
-                "Unknown actor_authentication.degraded_mode_policy '$rawStr' in '$configPath'; " +
-                    "valid values: accept-cached, accept-self-reported, reject"
+        if (actorAuthSection.containsKey(REMOVED_POLICY_KEY)) {
+            throw IllegalArgumentException(
+                "actor_authentication.$REMOVED_POLICY_KEY in '$configPath' is no longer supported " +
+                    "(got '${actorAuthSection[REMOVED_POLICY_KEY]}'): verification fails closed and there is " +
+                    "no degraded-mode policy. Remove the key."
             )
+        }
+
+        return ActorAuthenticationConfig(verifier = verifier)
     }
 
     private fun wrongVerifierFieldType(

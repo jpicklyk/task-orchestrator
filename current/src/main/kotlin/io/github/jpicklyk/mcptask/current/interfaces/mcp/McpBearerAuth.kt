@@ -2,9 +2,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.directorOnlyForbidden
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.isDirectorOnly
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.keySetUnavailable
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.withHostOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
@@ -104,13 +106,20 @@ private suspend fun credentialPrincipal(
         call.respondEnvelopeError(unauthenticated(if (token == null) "Missing Authorization header." else "Empty token."))
         return null
     }
-    val resolved = mode.resolver?.resolve(token)
-    if (resolved == null) {
-        if (mode.resolver == null) logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
-        call.response.header(HttpHeaders.WWWAuthenticate, "Bearer error=\"invalid_token\"")
-        call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
-        return null
-    }
+    val resolved =
+        when (val decision = mode.resolver?.resolve(token) ?: TrustDecision.Unauthenticated) {
+            is TrustDecision.Trusted -> decision.resolved
+            is TrustDecision.Unavailable -> {
+                call.respondEnvelopeError(keySetUnavailable(decision, logger))
+                return null
+            }
+            is TrustDecision.Unauthenticated -> {
+                if (mode.resolver == null) logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
+                call.response.header(HttpHeaders.WWWAuthenticate, "Bearer error=\"invalid_token\"")
+                call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
+                return null
+            }
+        }
     if (resolved.isDirectorOnly() && call.request.path() != directorPath) {
         logger.debug("Director-profile credential '{}' refused outside the director MCP path", resolved.principal.id)
         call.respondEnvelopeError(directorOnlyForbidden())

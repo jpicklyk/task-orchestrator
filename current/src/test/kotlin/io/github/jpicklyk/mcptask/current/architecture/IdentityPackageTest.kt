@@ -272,7 +272,7 @@ class IdentityPackageTest {
 
     // endregion
 
-    // region S7 ActorTrustPolicy extraction
+    // region S7 application service stays below application api
 
     private val currentRoot = "io\\.github\\.jpicklyk\\.mcptask\\.current"
     private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.application\.api\b""")
@@ -282,16 +282,6 @@ class IdentityPackageTest {
             .filter { GuardSupport.normalizedPath(it.path).startsWith("application/service/") }
             .filter { it.hasCodeMatch(applicationApi) }
             .map { it.path }
-
-    @Test
-    fun `S7 ActorTrustPolicy and PolicyResolution are declared in application service ActorTrustPolicy`() {
-        val sources = GuardSupport.productionSources().associateBy { it.path }
-        val file =
-            assertNotNull(sources["application/service/ActorTrustPolicy.kt"], "ActorTrustPolicy.kt must exist under application/service/")
-        assertTrue(file.hasCodeMatch(Regex("""\bobject\s+ActorTrustPolicy\b""")), "object ActorTrustPolicy must be declared")
-        assertTrue(file.hasCodeMatch(Regex("""\bsealed\s+class\s+PolicyResolution\b""")), "sealed class PolicyResolution must be declared")
-        assertTrue(file.hasCodeMatch(Regex("""\bfun\s+resolveTrustedActorId\s*\(""")), "resolveTrustedActorId must be declared")
-    }
 
     @Test
     fun `S7 no application service file imports or references application api`() {

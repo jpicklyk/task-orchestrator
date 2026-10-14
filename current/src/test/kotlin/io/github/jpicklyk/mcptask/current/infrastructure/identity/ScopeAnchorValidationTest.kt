@@ -22,7 +22,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -33,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVer
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -280,18 +280,21 @@ class ScopeAnchorValidationTest {
         runBlocking {
             seedTree()
             val resolver = resolver()
-            assertNull(resolver.resolve(jwt(newSub(), listOf(childC.toString()))), "a depth-1 anchor is rejected")
-            assertNull(resolver.resolve(jwt(newSub(), listOf(grandG.toString()))), "a depth-2 anchor is rejected")
+            assertNull(resolver.resolveOrNull(jwt(newSub(), listOf(childC.toString()))), "a depth-1 anchor is rejected")
+            assertNull(resolver.resolveOrNull(jwt(newSub(), listOf(grandG.toString()))), "a depth-2 anchor is rejected")
             assertNull(
-                resolver.resolve(jwt(newSub(), listOf(rootR.toString(), childC.toString()))),
+                resolver.resolveOrNull(jwt(newSub(), listOf(rootR.toString(), childC.toString()))),
                 "one non-root rejects the whole credential"
             )
-            assertNull(resolver.resolve(jwt(newSub(), listOf(orphan.toString()))), "D1: an unstamped depth-0 row is not a stamped root")
+            assertNull(
+                resolver.resolveOrNull(jwt(newSub(), listOf(orphan.toString()))),
+                "D1: an unstamped depth-0 row is not a stamped root"
+            )
 
-            val ok = resolver.resolve(jwt(newSub(), listOf(rootR.toString())))
+            val ok = resolver.resolveOrNull(jwt(newSub(), listOf(rootR.toString())))
             assertNotNull(ok, "control: the same credential shape with a root anchor resolves")
             assertEquals(setOf(rootR), ok.principal.scope.rootIds)
-            val two = resolver.resolve(jwt(newSub(), listOf(rootR.toString(), rootB.toString())))
+            val two = resolver.resolveOrNull(jwt(newSub(), listOf(rootR.toString(), rootB.toString())))
             assertEquals(setOf(rootR, rootB), assertNotNull(two).principal.scope.rootIds)
         }
 
@@ -300,7 +303,7 @@ class ScopeAnchorValidationTest {
         runBlocking {
             seedTree()
             val resolver = resolver()
-            val none = assertNotNull(resolver.resolve(jwt(newSub(), null)))
+            val none = assertNotNull(resolver.resolveOrNull(jwt(newSub(), null)))
             assertNull(none.principal.scope.rootIds)
         }
 
@@ -308,13 +311,13 @@ class ScopeAnchorValidationTest {
     fun `S12 a JWT whose root_ids names an unknown id resolves to a principal that is forbidden everywhere`(): Unit =
         runBlocking {
             seedTree()
-            val principal = assertNotNull(resolver().resolve(jwt(newSub(), listOf(unknown.toString())))).principal
+            val principal = assertNotNull(resolver().resolveOrNull(jwt(newSub(), listOf(unknown.toString())))).principal
             assertEquals(setOf(unknown), principal.scope.rootIds)
             for (id in listOf(rootR, childC, grandG, rootB, orphan, unknown)) {
                 ScopeGuard.check(principal.scope, id, repo).assertForbiddenRoot()
             }
             // control: a principal anchored on a real root is admitted on its own tree
-            val anchored = assertNotNull(resolver().resolve(jwt(newSub(), listOf(rootR.toString())))).principal
+            val anchored = assertNotNull(resolver().resolveOrNull(jwt(newSub(), listOf(rootR.toString())))).principal
             assertTrue(ScopeGuard.check(anchored.scope, grandG, repo) is Outcome.Ok)
             assertTrue(ScopeGuard.check(anchored.scope, rootB, repo) is Outcome.Err)
         }
@@ -324,10 +327,10 @@ class ScopeAnchorValidationTest {
         runBlocking {
             seedTree()
             val resolver = resolver()
-            assertNull(resolver.resolve(jwt(newSub(), listOf(childC.toString().uppercase()))))
+            assertNull(resolver.resolveOrNull(jwt(newSub(), listOf(childC.toString().uppercase()))))
             // the 8-hex prefix is not a UUID: the claim parser rejects it before any anchor check
-            assertNull(resolver.resolve(jwt(newSub(), listOf(childC.toString().take(8)))))
-            assertNotNull(resolver.resolve(jwt(newSub(), listOf(rootR.toString().uppercase()))), "control: upper-case root resolves")
+            assertNull(resolver.resolveOrNull(jwt(newSub(), listOf(childC.toString().take(8)))))
+            assertNotNull(resolver.resolveOrNull(jwt(newSub(), listOf(rootR.toString().uppercase()))), "control: upper-case root resolves")
         }
 
     @Test
@@ -344,10 +347,10 @@ class ScopeAnchorValidationTest {
             val (results, warns) =
                 withWarns {
                     listOf(
-                        resolver.resolve(tokenA1),
-                        resolver.resolve(tokenA2),
-                        resolver.resolve(tokenA1),
-                        resolver.resolve(tokenB)
+                        resolver.resolveOrNull(tokenA1),
+                        resolver.resolveOrNull(tokenA2),
+                        resolver.resolveOrNull(tokenA1),
+                        resolver.resolveOrNull(tokenB)
                     )
                 }
             assertTrue(results.all { it == null }, "every credential is rejected")
@@ -366,7 +369,7 @@ class ScopeAnchorValidationTest {
         runBlocking {
             seedTree()
             val sub = newSub()
-            val (principal, warns) = withWarns { resolver().resolve(jwt(sub, listOf(rootR.toString()))) }
+            val (principal, warns) = withWarns { resolver().resolveOrNull(jwt(sub, listOf(rootR.toString()))) }
             assertNotNull(principal)
             assertTrue(warns.none { sub in it }, "no anchor WARN for a valid credential: $warns")
         }
@@ -399,7 +402,6 @@ class ScopeAnchorValidationTest {
                     perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier(),
             appConfig = AppConfig.fromEnv()
         )

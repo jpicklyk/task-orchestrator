@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.domain.model.ProofVocabulary
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 
 /**
  * Who a caller is, as established by a credential: the request-scoped identity of an authenticated REST caller.
@@ -59,5 +61,36 @@ enum class ProofStatus(
     ISSUED("issued"),
 
     /** No credential at all (unauthenticated mode). */
-    NONE("none")
+    NONE("none"),
+
+    /**
+     * A proof that was presented and failed. HISTORY ONLY: the pipeline never produces it and it is never a
+     * [Principal]'s value (a rejected credential yields no principal at all, it is answered 401); it exists so a stored
+     * `failed` row can still be read back as what it was.
+     */
+    REJECTED("rejected");
+
+    companion object {
+        /**
+         * The typed face of the one read mapping from a stored verification (`notes.verification_status` /
+         * `events.proof_status` / `call_log.proof_status`) to the proof vocabulary ([ProofVocabulary.fromStored]).
+         * [status] is trimmed and case-insensitive.
+         *
+         * `verified`, `verified_stale`, `issued`, `none` and `rejected` map to themselves; `unchecked` is [ISSUED] when
+         * [verifier] is `api-bearer` (case-insensitive) and [NONE] for any other verifier (the local principal, a noop
+         * verifier, null); the legacy `absent`, `unverified` and `unavailable` are [NONE]; the legacy `failed` is
+         * [REJECTED]. An unknown value is null (the caller skips the verification).
+         */
+        fun fromStored(
+            status: String,
+            verifier: String?
+        ): ProofStatus? = ProofVocabulary.fromStored(status, verifier)?.let { wire -> entries.firstOrNull { it.wire == wire } }
+    }
 }
+
+/**
+ * This stored verification in the proof vocabulary ([ProofStatus.fromStored] over its status and verifier), or null for
+ * a status the vocabulary does not know. The one mapping every wire and gate reads through.
+ */
+val VerificationResult.proofStatus: ProofStatus?
+    get() = ProofStatus.fromStored(status.toJsonString(), verifier)

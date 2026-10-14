@@ -36,6 +36,9 @@ import kotlinx.serialization.json.Json
  * @param serverName The server name as returned in [ServiceInfoDto.serverName].
  * @param serverVersion The server version as returned in [ServiceInfoDto.version].
  * @param actorAuthEnabled Whether the actor_authentication feature is enabled in the runtime config.
+ * @param verifier The REST API credential verifier in force: `none` (unauthenticated mode), `bearer` or `jwks`.
+ * @param maxStale With `jwks`, the oldest a cached key set may be, in seconds, and still be served after a failed
+ *   refresh ([ServiceInfoDto.maxStale]); null otherwise.
  * @param configService When given, `/info` reports the stored server config head's warnings as
  *   [ServiceInfoDto.configWarnings] (the reasons recorded when the global file was imported at boot). A server-head read
  *   fault answers 503 `unavailable`, an unloadable head 422 `config_invalid`; `/health` never reads it.
@@ -46,6 +49,8 @@ fun Route.serviceRoutes(
     serverVersion: String = "unknown",
     actorAuthEnabled: Boolean = false,
     configService: ConfigService? = null,
+    verifier: String = "none",
+    maxStale: Long? = null,
 ) {
     // GET /api/v1/info — requires auth (auth plugin is installed on the parent route block)
     get("/info") {
@@ -69,6 +74,8 @@ fun Route.serviceRoutes(
                 capabilities = capabilities,
                 claimModeAvailable = true,
                 actorAuthenticationEnabled = actorAuthEnabled,
+                verifier = verifier,
+                maxStale = maxStale,
                 features = ServerFeatures.ADVERTISED,
                 configWarnings = configWarnings,
             )
@@ -120,6 +127,10 @@ data class ServiceInfoDto(
     val capabilities: List<String>,
     val claimModeAvailable: Boolean,
     val actorAuthenticationEnabled: Boolean,
+    // The REST API credential verifier in force: "none" | "bearer" | "jwks".
+    val verifier: String = "none",
+    // With the jwks verifier: max_stale_seconds, the oldest a cached key set may be and still be served; omitted otherwise.
+    val maxStale: Long? = null,
     // A1c: advertises server-wide optional-response features (e.g. "seats", "dispatchBySeat") a
     // client can look for regardless of whether any config on this server currently uses them —
     // see ServerFeatures.ADVERTISED.

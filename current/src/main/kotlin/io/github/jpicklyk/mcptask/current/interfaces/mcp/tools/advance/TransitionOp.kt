@@ -92,8 +92,6 @@ private suspend fun WriteScope.runTransition(
                 summary = req.summary?.takeIf { it.isNotBlank() },
                 actorClaim = claim,
                 verification = ctx.principal.verification,
-                degradedModePolicy = env.degradedModePolicy,
-                enforceOwnership = true,
                 credentialRefs = refs,
                 enforceResourceLeases = true
             )

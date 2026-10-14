@@ -166,9 +166,14 @@ resolves to nothing), then JWT verification in JWKS mode.
 **Failing requests receive** (bodies are the 4.0 error envelope, §6):
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
+- `503 unavailable` (no `WWW-Authenticate`, `error.detail.retryAfterMs` 15000) — a JWT arrived while the JWKS key set is unavailable (never fetched, or older than `max_stale_seconds`): the token is neither accepted nor called invalid. The same answer applies to `/mcp` and to the SSE `?token=` path; retry after the hint. A key set older than its TTL but younger than `max_stale_seconds` is still served (the principal's proof is `verified_stale`)
 - `403 forbidden` with `detail: {scope: "capability", required: "<capability>"}` -- token valid but lacks the required capability
 
-**`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
+**Verification fails closed.** There is no degraded-mode policy (`actor_authentication.degraded_mode_policy` and
+`DEGRADED_MODE_POLICY` were removed in 4.0 and fail startup if still set). A JWT is accepted, rejected (`401`) or, when
+the key set cannot be had, answered `503 unavailable`; no request is ever served under a guessed or self-reported
+identity. `proofStatus` is the whole vocabulary of how a principal was proven: `verified`, `verified_stale`, `issued`
+and `none`; `rejected` appears only in stored history (a rejected credential yields no principal).
 
 ### Unauthenticated Mode (`API_AUTH_MODE=none`, opt-in)
 
@@ -815,10 +820,16 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "actorAuthenticationEnabled": false,
+  "verifier": "bearer",
   "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
   "configWarnings": []
 }
 ```
+
+`verifier` is the API credential verifier in force: `none` (unauthenticated mode), `bearer` (token file) or `jwks`.
+With `jwks`, `maxStale` (integer seconds) is also present: the `max_stale_seconds` of the key set, the oldest a cached
+key set may be and still be served after a failed refresh. `actorAuthenticationEnabled` is the separate
+`actor_authentication.verifier` setting and is unchanged.
 
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the
@@ -1134,14 +1145,16 @@ Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authe
 - `kind` = `"external"` for every REST principal, whatever its own kind (`human`, `agent`, `service`; §1), which
   travels with the call instead of the audit actor
 - `parent` = `null`
-- `verification` = `verified` (verifier `api-jwks`) for a JWT, fresh or stale; `unchecked` for a token-file token
-  (`api-bearer`) and for unauthenticated mode (`api-unauthenticated`)
+- `verification` = stored as `verified` (verifier `api-jwks`) for a JWT, fresh or stale; `unchecked` for a token-file
+  token (`api-bearer`) and for the local principal (`local`). Every wire reads it as a proof status: a token-file token
+  is `issued`, the local principal `none`, and a JWT `verified` (`verified_stale` on the call log and the call's
+  provenance, where the principal's own proof is known)
 
 **Attribution redaction (applies to notes and the `items_read` `history` select):**
 - Non-admin callers: `actor` and `verification` fields are omitted from responses
 - Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION`
 - Proof evidence (a SHA-256 hash of the proof, and the verified JWT claims `iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`
-  when the proof was `verified`) is stored but never returned: `verification` is `{status, verifier?, reason?}` for every
+  when the proof was `verified`) is stored but never returned: `verification` is `{proofStatus, verifier?, reason?}` for every
   caller, `ADMIN` included (3.x showed `verification.proof` to `ADMIN`).
 
 **Redaction env vars:**

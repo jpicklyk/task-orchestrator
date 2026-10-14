@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.NoteRef
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
@@ -314,6 +315,8 @@ class SQLiteNoteRepository(
     ): VerificationResult? =
         row[NotesTable.verificationStatus]?.let { status ->
             try {
+                // A status the proof vocabulary does not know is skipped, like one the enum does not know.
+                requireNotNull(ProofStatus.fromStored(status, row[NotesTable.verificationVerifier])) { "unknown status" }
                 VerificationResult(
                     status = VerificationStatus.fromString(status),
                     verifier = row[NotesTable.verificationVerifier],

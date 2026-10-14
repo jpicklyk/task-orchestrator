@@ -180,7 +180,6 @@ internal class McpAuthHttpFixture(
                 actorAuthEnabled = rig.composition.actorAuthEnabled,
                 serverConfig = rig.composition.serverConfig,
                 toolContext = rig.ctx,
-                degradedModePolicy = rig.composition.degradedModePolicy,
                 appConfig = appConfig
             )
         }

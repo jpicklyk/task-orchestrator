@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -104,8 +103,6 @@ suspend fun AdvanceService.advanceSeeded(
     summary: String?,
     actorClaim: ActorClaim?,
     verification: VerificationResult?,
-    degradedModePolicy: DegradedModePolicy,
-    enforceOwnership: Boolean,
     credentialRefs: List<String> = emptyList(),
     enforceResourceLeases: Boolean = true
 ): AdvanceOutcome {
@@ -116,8 +113,6 @@ suspend fun AdvanceService.advanceSeeded(
         summary,
         actorClaim,
         verification,
-        degradedModePolicy,
-        enforceOwnership,
         credentialRefs,
         enforceResourceLeases
     )

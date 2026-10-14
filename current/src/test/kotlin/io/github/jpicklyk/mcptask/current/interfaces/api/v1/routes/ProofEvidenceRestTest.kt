@@ -113,7 +113,7 @@ class ProofEvidenceRestTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"actor\":{\"id\":\"agent-evidence\""), "an admin sees the note's actor: $body")
-            assertTrue(body.contains("\"verification\":{\"status\":\"verified\""), "an admin sees the verification status: $body")
+            assertTrue(body.contains("\"verification\":{\"proofStatus\":\"verified\""), "an admin sees the verification status: $body")
             // Proof evidence (hash + verified claims) is never emitted by the note views, even to an admin (Q11 D10).
             for (evidence in listOf(sha, "jti-s5", "kid-s5", "RS256", "test-issuer", "\"sha256\"", "\"proof\"")) {
                 assertFalse(body.contains(evidence), "note views carry no proof evidence ($evidence): $body")

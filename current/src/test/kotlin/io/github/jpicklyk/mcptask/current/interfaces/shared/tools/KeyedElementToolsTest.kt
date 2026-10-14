@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -81,21 +80,12 @@ class KeyedElementToolsTest {
     private val gateSchema: EffectiveConfigResolver
         get() = TestConfigResolver.forSchemas(mapOf("feature-task" to gateEntries))
 
-    private fun context(
-        schema: EffectiveConfigResolver? = null,
-        policy: DegradedModePolicy? = null
-    ): ToolExecutionContext =
+    private fun context(schema: EffectiveConfigResolver? = null): ToolExecutionContext =
         when {
             schema != null ->
                 ToolExecutionContext(
                     repositoryProvider = db.repositoryProvider(),
                     configResolver = schema,
-                    unitOfWork = db.unitOfWork()
-                )
-            policy != null ->
-                ToolExecutionContext(
-                    repositoryProvider = db.repositoryProvider(),
-                    degradedModePolicy = policy,
                     unitOfWork = db.unitOfWork()
                 )
             else -> ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())

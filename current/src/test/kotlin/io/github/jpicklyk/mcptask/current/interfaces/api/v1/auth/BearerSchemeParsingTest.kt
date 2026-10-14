@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.ApiTokenVerdict
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.VerifiedApiToken
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
@@ -175,7 +176,7 @@ class BearerSchemeParsingTest {
         testApplication {
             val verifier = mockk<JwksApiVerifier>()
             coEvery { verifier.verifyWithExpiry("valid.jwt.token") } returns
-                VerifiedApiToken(jwksPrincipal(), Instant.now().plusSeconds(300))
+                ApiTokenVerdict.Verified(VerifiedApiToken(jwksPrincipal(), Instant.now().plusSeconds(300)))
             application { wireJwksProbe(verifier) }
 
             val response = client.get("/api/v1/items") { header(HttpHeaders.Authorization, "BEARER valid.jwt.token") }
@@ -345,7 +346,7 @@ class BearerSchemeParsingTest {
     fun `S8 - Bearer bearer T strips only once and 401s invalid_token, never authenticating as T`() =
         testApplication {
             val verifier = mockk<JwksApiVerifier>()
-            coEvery { verifier.verifyWithExpiry(any()) } returns null
+            coEvery { verifier.verifyWithExpiry(any()) } returns ApiTokenVerdict.Rejected
             application { wireJwksProbe(verifier) }
 
             val response =

@@ -84,7 +84,6 @@ class FailPolicyWritePathsTest {
             actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy,
             appConfig = AppConfig.fromEnv(),
         )
     }

@@ -11,11 +11,8 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy
-import io.github.jpicklyk.mcptask.current.application.service.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
@@ -167,8 +164,8 @@ class DidTrustSubjectBindingTest {
             assertEquals(A_DID, result.verifiedSubject)
         }
 
-    // S2: JWT {A,A}, requireSubMatch=false, actor.id "planner" -> VERIFIED; resolveTrustedActorId
-    // (REJECT, ACCEPT_CACHED) -> Trusted(A). D2, fleet-deployment.md:659-662
+    // S2: JWT {A,A}, requireSubMatch=false, actor.id "planner" -> VERIFIED
+    // (the verified subject is A). D2, fleet-deployment.md:659-662
     @Test
     fun `S2 verified DID subject is trusted over an unrelated self-reported actor id`() =
         runTest {
@@ -183,17 +180,6 @@ class DidTrustSubjectBindingTest {
 
             assertEquals(VerificationStatus.VERIFIED, verification.status)
             assertEquals(A_DID, verification.verifiedSubject)
-
-            val claim = actor(id = "planner", proof = jwt)
-
-            val rejectResolution = ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.REJECT)
-            assertTrue(rejectResolution is PolicyResolution.Trusted)
-            assertEquals(A_DID, (rejectResolution as PolicyResolution.Trusted).trustedId)
-
-            val cachedResolution =
-                ActorTrustPolicy.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
-            assertTrue(cachedResolution is PolicyResolution.Trusted)
-            assertEquals(A_DID, (cachedResolution as PolicyResolution.Trusted).trustedId)
         }
 
     // -------------------------------------------------------------------------
@@ -221,14 +207,6 @@ class DidTrustSubjectBindingTest {
                 "reason: ${verification.reason}"
             )
             assertNull(verification.verifiedSubject)
-
-            val resolution =
-                ActorTrustPolicy.resolveTrustedActorId(
-                    actor(id = V_DID, proof = jwt),
-                    verification,
-                    DegradedModePolicy.REJECT
-                )
-            assertTrue(resolution is PolicyResolution.Rejected)
         }
 
     // S7: S6 with requireSubMatch=false -> same. D1
@@ -378,14 +356,5 @@ class DidTrustSubjectBindingTest {
 
             assertEquals(VerificationStatus.VERIFIED, verification.status)
             assertNull(verification.verifiedSubject)
-
-            val resolution =
-                ActorTrustPolicy.resolveTrustedActorId(
-                    actor(id = "agent-1", proof = jwtStr),
-                    verification,
-                    DegradedModePolicy.REJECT
-                )
-            assertTrue(resolution is PolicyResolution.Trusted)
-            assertEquals("agent-1", (resolution as PolicyResolution.Trusted).trustedId)
         }
 }

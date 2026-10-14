@@ -568,7 +568,7 @@ class NotesReadToolTest {
             assertEquals("agent-evidence", actor.str("id"))
             assertEquals("orchestrator", actor.str("kind"))
             assertEquals("workflow:s18", actor.str("parent"))
-            assertEquals("verified", get.data().obj("verification").str("status"))
+            assertEquals("verified", get.data().obj("verification").str("proofStatus"))
             assertNoProofEvidence(get)
 
             val list = rig.ctx.listNotesVia(item.id)
@@ -587,7 +587,7 @@ class NotesReadToolTest {
                     .items()
                     .single()
                     .obj("verification")
-                    .str("status")
+                    .str("proofStatus")
             )
             assertNoProofEvidence(list)
         }
@@ -626,7 +626,7 @@ class NotesReadToolTest {
                 val get = rig.ctx.getNoteVia(item.id, "evidence", caller)
                 assertTrue(envelopeOk(get), "$get")
                 assertEquals("agent-evidence", get.data().obj("actor").str("id"))
-                assertEquals("verified", get.data().obj("verification").str("status"))
+                assertEquals("verified", get.data().obj("verification").str("proofStatus"))
                 assertNoProofEvidence(get)
                 val list = rig.ctx.listNotesVia(item.id, caller)
                 assertEquals(

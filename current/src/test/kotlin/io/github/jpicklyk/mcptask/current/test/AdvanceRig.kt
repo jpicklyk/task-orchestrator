@@ -199,8 +199,6 @@ internal suspend fun ToolExecutionContext.advanceDirect(
             summary = summary,
             actorClaim = actor,
             verification = verified,
-            degradedModePolicy = degradedModePolicy,
-            enforceOwnership = true,
             credentialRefs = credentialRefs,
             enforceResourceLeases = true
         )

@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -20,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Defau
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -131,7 +131,7 @@ class JwksApiVerifierExpiryTest {
     }
 
     // -------------------------------------------------------------------------
-    // S1 / S6 — exp-less JWT rejected by both verify() and verifyWithExpiry()
+    // S1 / S6 — exp-less JWT rejected by both verify() and verifyWithExpiryOrNull()
     // -------------------------------------------------------------------------
 
     @Test
@@ -146,7 +146,7 @@ class JwksApiVerifierExpiryTest {
     fun `verifyWithExpiry returns null for a JWT with no exp claim`() =
         runTest {
             val claims = buildClaims(expiry = null)
-            val result = verifier().verifyWithExpiry(signRsa(claims))
+            val result = verifier().verifyWithExpiryOrNull(signRsa(claims))
             assertNull(result, "verifyWithExpiry must reject an exp-less JWT the same way verify() does")
         }
 
@@ -209,7 +209,7 @@ class JwksApiVerifierExpiryTest {
     fun `verifyWithExpiry returns VerifiedApiToken with expiresAt truncated to whole seconds`() =
         runTest {
             val mintedExpiry = Instant.now().plusSeconds(300)
-            val result = verifier().verifyWithExpiry(signRsa(buildClaims(expiry = mintedExpiry)))
+            val result = verifier().verifyWithExpiryOrNull(signRsa(buildClaims(expiry = mintedExpiry)))
             assertNotNull(result, "Valid JWT must verify")
             assertEquals("api-caller-1", result!!.principal.id)
             assertEquals(
@@ -268,7 +268,6 @@ class JwksApiVerifierExpiryTest {
                     perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,
             appConfig = AppConfig.fromEnv(),
         )

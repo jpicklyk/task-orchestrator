@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -43,16 +44,14 @@ class TerminalEntryClearsClaimTest {
                     unitOfWork = sqliteDb.unitOfWork(),
                     claimService = testClaimService(repository, null, sqliteDb.unitOfWork())
                 )
-            // REST-style (ownership not enforced): the late claim does not block the operator's complete.
+            // Ownership is always enforced: the complete is made as the late claimer, whose claim it clears.
             val outcome =
                 service.advance(
                     snapshot,
                     "complete",
                     null,
+                    ActorClaim(id = "late-claimer", kind = ActorKind.EXTERNAL),
                     null,
-                    null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = false
                 )
             assertIs<AdvanceOutcome.Success>(outcome, "transition failed: $outcome")
 

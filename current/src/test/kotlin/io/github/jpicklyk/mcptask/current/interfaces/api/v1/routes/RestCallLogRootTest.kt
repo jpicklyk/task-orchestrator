@@ -93,7 +93,6 @@ class RestCallLogRootTest {
             actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy,
             callLog = writer,
             appConfig = AppConfig.fromEnv(),
         )

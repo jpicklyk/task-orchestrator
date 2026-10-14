@@ -1,7 +1,7 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Also manages the actor_authentication config block: set actor authentication policy, configure degraded mode, show actor_authentication config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
-argument-hint: "[optional: action + schema name, workflow description, or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate', 'set degradedModePolicy reject']"
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Also manages the actor_authentication config block: show actor_authentication config, set the verifier, remove a leftover degraded_mode_policy key. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+argument-hint: "[optional: action + schema name, workflow description, or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate', 'show actor_authentication']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
@@ -214,30 +214,26 @@ The `.taskorchestrator/config.yaml` file also has an `actor_authentication:` blo
 
 ```yaml
 actor_authentication:
-  degraded_mode_policy: accept-cached  # accept-cached | accept-self-reported | reject
-  # ... other actor_authentication settings (enabled, verifier)
+  # enabled: read by the plugin hook, not the server
+  # verifier: { type: jwks | noop, ... }   (read by the server from the global file)
 ```
 
-When the user wants to view, set, or change `degradedModePolicy`:
+There is no degraded-mode policy: verification fails closed, and `actor_authentication.degraded_mode_policy` and the
+`DEGRADED_MODE_POLICY` environment variable were removed in 4.0. A leftover key (any value) or a set variable (any value)
+stops the server at startup with an error naming it, so this skill never writes the key.
+
+When the user wants to view or change the `actor_authentication` block:
 1. Read `.taskorchestrator/config.yaml`
-2. Locate the `actor_authentication:` block (create it if absent)
-3. For **view**: display the current value (default `accept-cached` if key is absent)
-4. For **changes**: update the `degraded_mode_policy:` field (preserving all other actor_authentication keys)
-5. Validate the new value is one of: `accept-cached`, `accept-self-reported`, `reject`
+2. Locate the `actor_authentication:` block (create it only to add a `verifier`)
+3. For **view**: display the block (`enabled`, verifier type)
+4. For **changes**: update the requested field, preserving all other `actor_authentication` keys
+5. If the block still carries `degraded_mode_policy`, tell the user it must be deleted (the server refuses to start with it) and offer to remove the key
 6. Write back
 
-**Note:** If the `DEGRADED_MODE_POLICY` environment variable is set on the server, it overrides the YAML value. To check whether an override is in effect:
+**Note:** If the `DEGRADED_MODE_POLICY` environment variable is still set on the server, startup fails naming it. To check:
 ```bash
 echo $DEGRADED_MODE_POLICY
 ```
-Tell the user when the env-var override is active — the YAML change will be shadowed until the env var is unset or the server is restarted without it.
+Unset it (remove the `-e DEGRADED_MODE_POLICY=...` from the container launch) before restarting.
 
-**Recommended:** Use `reject` for cross-org or multi-tenant fleet deployments where agents from different organizations share a single Task Orchestrator instance. See `current/docs/fleet-deployment.md` for the full security rationale.
-
-### `degradedModePolicy` values
-
-| Value | Behavior | When to use |
-|---|---|---|
-| `accept-cached` | *(default)* Trust JWKS-verified identity from stale cache on `UNAVAILABLE`; self-reported otherwise | Single-org; occasional JWKS outages |
-| `accept-self-reported` | Always trust the caller-supplied `actor.id` | Local dev; no JWKS; explicit opt-out |
-| `reject` | Reject any unverified operation (`rejected_by_policy`) | Cross-org `did:web` fleets; maximum assurance |
+An unavailable JWKS key set is answered `503 unavailable` (never a guessed identity); `max_stale_seconds` bounds how old a cached key set may be and still be served. See `current/docs/fleet-deployment.md` for the security rationale.

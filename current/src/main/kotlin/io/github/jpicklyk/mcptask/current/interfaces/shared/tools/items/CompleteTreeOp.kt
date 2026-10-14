@@ -116,7 +116,7 @@ private suspend fun WriteScope.completeTree(
 
 /** The completion service over the call's composed services. */
 internal fun treeCompletionService(env: ToolExecutionContext): TreeCompletionService =
-    TreeCompletionService(env.repositoryProvider, env.advanceServiceFactory(), env.degradedModePolicy)
+    TreeCompletionService(env.repositoryProvider, env.advanceServiceFactory())
 
 /** `{trigger, items, summary}`: every item's outcome in processing order, and the counts (total = the sum of the rest). */
 private fun payload(

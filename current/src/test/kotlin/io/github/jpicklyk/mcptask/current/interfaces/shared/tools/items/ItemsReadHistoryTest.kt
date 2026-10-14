@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
@@ -187,8 +186,6 @@ class ItemsReadHistoryTest {
                 summary,
                 actor,
                 verification,
-                DegradedModePolicy.ACCEPT_CACHED,
-                enforceOwnership = false,
                 credentialRefs = refs
             )
         val success = assertIs<AdvanceOutcome.Success>(outcome, "the advance must apply: $outcome")
@@ -249,7 +246,7 @@ class ItemsReadHistoryTest {
             assertEquals("subagent", actor.str("kind"))
             assertEquals("parent-q28b", actor.str("parent"))
             val verification = oldest.sub("verification")
-            assertEquals("verified", verification.str("status"))
+            assertEquals("verified", verification.str("proofStatus"))
             assertEquals("jwks", verification.str("verifier"))
             assertEquals("reason-q28b", verification.str("reason"))
 
@@ -582,7 +579,7 @@ class ItemsReadHistoryTest {
 
             val admin = select(forItem(item.id)).items.single()
             assertEquals("agent-q28b", admin.sub("actor").str("id"))
-            assertEquals("verified", admin.sub("verification").str("status"))
+            assertEquals("verified", admin.sub("verification").str("proofStatus"))
 
             val reader = select(forItem(item.id), TEST_TOKEN)
             assertEquals(200, reader.status, reader.raw)
@@ -657,7 +654,7 @@ class ItemsReadHistoryTest {
             assertEquals("subagent", actor.str("kind"))
             assertEquals("orchestrator-one", actor.str("parent"))
             val verification = entry.sub("verification")
-            assertEquals("rejected", verification.str("status"))
+            assertEquals("rejected", verification.str("proofStatus"))
             assertEquals("jwks", verification.str("verifier"))
             assertEquals("audience-mismatch", verification.str("reason"))
             assertFalse(

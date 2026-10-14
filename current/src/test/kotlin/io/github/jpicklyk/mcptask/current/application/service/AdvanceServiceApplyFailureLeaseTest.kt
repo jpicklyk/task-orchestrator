@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -190,8 +189,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -221,8 +218,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -246,8 +241,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -265,7 +258,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             failApplyFor(item.id)
 
             val outcome =
-                serviceWith().advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "start", null, null, null)
 
             assertIs<AdvanceOutcome.Failure>(outcome)
             verify { leaseRepo wasNot Called }
@@ -291,8 +284,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -313,8 +304,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -336,8 +325,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                     enforceResourceLeases = false,
                 )
 
@@ -364,7 +351,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             val outcome =
                 serviceWith(
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db"))),
-                ).advanceSeeded(advanceStores, child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -390,7 +377,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             val outcome =
                 serviceWith(
                     schemaResolver = { it -> if (it.id == parentId) parentSchema else null },
-                ).advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, child, "complete", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -420,8 +407,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -444,8 +429,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Failure>(outcome)
@@ -467,8 +450,6 @@ class AdvanceServiceApplyFailureLeaseTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                 )
 
             assertIs<AdvanceOutcome.Success>(outcome)

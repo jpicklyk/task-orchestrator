@@ -270,7 +270,7 @@ components:
     ServiceInfoDto:
       type: object
       required: [serverName, version, apiVersion, capabilities, claimModeAvailable,
-                 actorAuthenticationEnabled, features, configWarnings]
+                 actorAuthenticationEnabled, verifier, features, configWarnings]
       properties:
         serverName:
           type: string
@@ -286,6 +286,18 @@ components:
           type: boolean
         actorAuthenticationEnabled:
           type: boolean
+        verifier:
+          type: string
+          enum: [none, bearer, jwks]
+          description: >-
+            The API credential verifier in force: none (unauthenticated mode), bearer (token file) or jwks
+            (JWTs against a key set). Always present.
+        maxStale:
+          type: integer
+          format: int64
+          description: >-
+            With the jwks verifier, max_stale_seconds: the oldest a cached key set may be, in seconds, and still be
+            served after a failed refresh; past it a JWT is answered 503 unavailable. Omitted for the other verifiers.
         features:
           type: array
           items:
@@ -481,12 +493,23 @@ components:
       description: >-
         Missing or invalid bearer token: the unauthenticated error envelope (Q32). The RFC 6750
         WWW-Authenticate challenge names the reason: error="invalid_request" (missing, non-Bearer or
-        empty credential) or error="invalid_token" (unknown, expired or invalid token).
+        empty credential) or error="invalid_token" (unknown, expired or invalid token). A JWT whose key set is
+        unavailable is not "invalid": see KeySetUnavailable.
       headers:
         WWW-Authenticate:
           description: Bearer challenge, e.g. Bearer error="invalid_token"
           schema:
             type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpsEnvelope"
+    KeySetUnavailable:
+      description: >-
+        The unavailable error envelope (retryable): a JWT was presented while the JWKS key set cannot be had (never
+        fetched, or older than max_stale_seconds), so the credential could be neither accepted nor rejected. Verification
+        fails closed: no identity is guessed. error.detail.retryAfterMs is 15000. There is NO WWW-Authenticate header.
+        Any route behind the jwks verifier can answer it, as can /mcp and GET /events with ?token=.
       content:
         application/json:
           schema:
@@ -656,7 +679,8 @@ paths:
         `POST /ops/notes_read` for the same arguments apart from `meta.reqId`. `data.items[]` are note summaries
         `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?}` ordered by key
         and never carry a body (read one with the single-note route). `actor` and `verification` are present only when
-        the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); proof evidence is never
+        the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); `verification` is
+        `{proofStatus (verified | verified_stale | issued | none | rejected), verifier?, reason?}`; proof evidence is never
         shown. `data.page` is `{total, truncated, next?}` with an opaque cursor (envelope amendment U22): `total` is the
         full count on every page, `truncated` is true exactly when notes exist after this page, and `next` is present
         exactly when `truncated`. A query parameter other than the four below is `invalid_request` (400).
@@ -1209,7 +1233,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
         "503":
-          description: unavailable envelope (the server config head cannot be read; retry after error.retryAfterMs)
+          description: >-
+            unavailable envelope: the server config head cannot be read, or (jwks verifier) the credential's key set is
+            unavailable (no WWW-Authenticate); retry after error.retryAfterMs
           content:
             application/json:
               schema:

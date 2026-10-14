@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -162,8 +161,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -205,8 +202,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -239,8 +234,6 @@ class AdvanceServiceStartCascadeGateTest {
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -275,8 +268,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -316,8 +307,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -364,8 +353,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -397,8 +384,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -434,8 +419,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -471,8 +454,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -517,8 +498,6 @@ class AdvanceServiceStartCascadeGateTest {
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        enforceOwnership = true
                     )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -546,7 +525,7 @@ class AdvanceServiceStartCascadeGateTest {
                 serviceWith(
                     schemasById = mapOf(parentId to schema),
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advanceSeeded(advanceStores, child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
