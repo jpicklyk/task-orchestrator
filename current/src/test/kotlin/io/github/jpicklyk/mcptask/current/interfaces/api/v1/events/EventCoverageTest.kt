@@ -459,7 +459,7 @@ class EventCoverageTest {
                         "a",
                         "b",
                         "c"
-                    ).forEach { (rig.ctx.noteCommandService.delete(item.id, it) as Outcome.Ok).value }
+                    ).forEach { (rig.ctx.noteCommandService.delete(item.id, it, caller = null) as Outcome.Ok).value }
                 }
 
             assertEquals(List(3) { "note.deleted" }, rows.types())
@@ -485,7 +485,12 @@ class EventCoverageTest {
 
             val (_, added) =
                 rig.written {
-                    (rig.ctx.dependencyCommandService.create(listOf(Dependency(fromItemId = a.id, toItemId = b.id))) as Outcome.Ok).value
+                    (
+                        rig.ctx.dependencyCommandService.create(
+                            listOf(Dependency(fromItemId = a.id, toItemId = b.id)),
+                            caller = null
+                        ) as Outcome.Ok
+                    ).value
                 }
             val add = added.single()
             assertEquals("dependency.added", add.type)
@@ -496,7 +501,7 @@ class EventCoverageTest {
 
             val (_, removed) =
                 rig.written {
-                    (rig.ctx.dependencyCommandService.deleteByRelationship(a.id, b.id, null) as Outcome.Ok).value
+                    (rig.ctx.dependencyCommandService.deleteByRelationship(a.id, b.id, null, caller = null) as Outcome.Ok).value
                 }
             val rem = removed.single()
             assertEquals("dependency.removed", rem.type)

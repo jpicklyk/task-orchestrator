@@ -37,6 +37,11 @@ data class NoteUpsertCommand(
     val body: String,
     val actorClaim: ActorClaim?,
     val verification: VerificationResult?,
+    /**
+     * Who makes the write, for the claim fence ([FenceGuard]): while the item carries an active claim, only its holder
+     * may write. Null fences on any active claim (fail closed). No default: every call site states its caller.
+     */
+    val caller: ClaimHolder?,
     val bodyFromFile: String? = null,
     /**
      * Optimistic-concurrency guard, mirroring `DocumentService`: null writes unconditionally; 0 means "must create"
@@ -195,6 +200,7 @@ class NoteCommandService(
                         ?: return@writeUnit UnitResult.Rollback(
                             Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
                         )
+                FenceGuard.check(item, cmd.caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
                 val prepared =
                     try {
                         when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
@@ -241,12 +247,14 @@ class NoteCommandService(
     /**
      * Deletes the note `(itemId, key)` and returns it. The item must exist (`not_found` kind item) and so must the note
      * (`not_found` kind note, id `<itemId>/<key>`). A non-null [expectedVersion] must equal the note's current version
-     * (`version_conflict` otherwise, the note kept); the compare shares the delete's write unit.
+     * (`version_conflict` otherwise, the note kept); the compare shares the delete's write unit. An item with an active
+     * claim held by someone other than [caller] is `not_claim_holder` ([FenceGuard]), checked right after the item lookup.
      */
     suspend fun delete(
         itemId: UUID,
         key: String,
-        expectedVersion: Long? = null
+        expectedVersion: Long? = null,
+        caller: ClaimHolder?
     ): Outcome<Note> =
         unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
             val workItems = repositoryProvider.workItemRepository()
@@ -255,6 +263,7 @@ class NoteCommandService(
                     ?: return@writeUnit UnitResult.Rollback(
                         Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "WorkItem '$itemId' not found"))
                     )
+            FenceGuard.check(item, caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
             val noteRepo = repositoryProvider.noteRepository()
             val existing =
                 noteRepo.findByItemIdAndKey(itemId, key)

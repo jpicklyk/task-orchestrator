@@ -271,7 +271,9 @@ class DocsToolsBehaviorTest {
             assertFalse(upsert(rig, root.id, "pg", "page body", kind = "page").isError)
             val noteId =
                 (
-                    rig.ctx.noteCommandService.upsert(NoteUpsertCommand(child.id, "k", "work", "see [[page:pg]]", null, null))
+                    rig.ctx.noteCommandService.upsert(
+                        NoteUpsertCommand(child.id, "k", "work", "see [[page:pg]]", null, null, caller = null)
+                    )
                         as Outcome.Ok
                 ).value.note.id
             val before =
@@ -317,13 +319,13 @@ class DocsToolsBehaviorTest {
         val alphaNote =
             (
                 rig.ctx.noteCommandService.upsert(
-                    NoteUpsertCommand(alphaChild.id, "k1", "work", "see [[plan:alpha-plan]]", null, null)
+                    NoteUpsertCommand(alphaChild.id, "k1", "work", "see [[plan:alpha-plan]]", null, null, caller = null)
                 ) as Outcome.Ok
             ).value.note.id
         val plainNote =
             (
                 rig.ctx.noteCommandService.upsert(
-                    NoteUpsertCommand(plainChild.id, "k2", "work", "also [[plan:alpha-plan]]", null, null)
+                    NoteUpsertCommand(plainChild.id, "k2", "work", "also [[plan:alpha-plan]]", null, null, caller = null)
                 ) as Outcome.Ok
             ).value.note.id
         val attached = write(rig, scenarios.ops(scenarios.attach("attach", root.id, "plan", "alpha-plan", plainChild.id)))

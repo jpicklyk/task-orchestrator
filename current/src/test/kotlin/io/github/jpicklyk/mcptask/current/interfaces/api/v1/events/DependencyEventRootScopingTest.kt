@@ -130,6 +130,7 @@ class DependencyEventRootScopingTest {
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
                 ).orThrow()
                 .single()
 
@@ -157,6 +158,7 @@ class DependencyEventRootScopingTest {
                 provider.dependencyCommandService
                     .create(
                         listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
                     ).orThrow()
                     .single()
             assertEquals(0, bus.subscriberCount(), "precondition: still cold, no listener during setup")
@@ -165,7 +167,7 @@ class DependencyEventRootScopingTest {
             val received = async { withTimeout(5.seconds) { flowR.take(1).toList() } }
             awaitSubscriberCount(bus, 1)
 
-            val deleted = provider.dependencyCommandService.deleteById(dep.id).orThrow()
+            val deleted = provider.dependencyCommandService.deleteById(dep.id, caller = null).orThrow()
             assertTrue(deleted, "delete of an existing dependency must report success")
 
             val events = received.await()
@@ -198,6 +200,7 @@ class DependencyEventRootScopingTest {
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
                 ).orThrow()
                 .single()
 
@@ -231,6 +234,7 @@ class DependencyEventRootScopingTest {
                     provider.dependencyCommandService
                         .create(
                             listOf(Dependency(id = depId, fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                            caller = null,
                         ).orThrow()
                         .single()
                     throw IllegalStateException("boom")
@@ -267,6 +271,7 @@ class DependencyEventRootScopingTest {
                 provider.dependencyCommandService
                     .create(
                         listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
                     ).orThrow()
                     .single()
                 assertEquals(
@@ -274,7 +279,7 @@ class DependencyEventRootScopingTest {
                     bus.projectedEvents().size,
                     "the dependency event must not be visible before the enclosing transaction commits",
                 )
-                provider.itemCommandService.patch(renamed(itemA, "S5 A renamed")).orThrow()
+                provider.itemCommandService.patch(renamed(itemA, "S5 A renamed"), caller = null).orThrow()
             }
 
             val events = bus.projectedEvents().drop(baselineCount)
@@ -305,6 +310,7 @@ class DependencyEventRootScopingTest {
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
                 ).orThrow()
                 .single()
 
@@ -336,6 +342,7 @@ class DependencyEventRootScopingTest {
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
                 ).orThrow()
                 .single()
             assertEquals(1, bus.projectedEvents().drop(baselineCount).size, "first create publishes exactly one event")
@@ -344,6 +351,7 @@ class DependencyEventRootScopingTest {
                 provider.dependencyCommandService
                     .create(
                         listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
                     ).orThrow()
                     .single()
             }
@@ -380,11 +388,13 @@ class DependencyEventRootScopingTest {
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.RELATES_TO)),
+                    caller = null,
                 ).orThrow()
                 .single()
             provider.dependencyCommandService
                 .create(
                     listOf(Dependency(fromItemId = itemB.id, toItemId = itemA.id, type = DependencyType.RELATES_TO)),
+                    caller = null,
                 ).orThrow()
                 .single()
 
@@ -402,7 +412,7 @@ class DependencyEventRootScopingTest {
             val provider = eventWiredContext(db.databaseManager, delegate, bus)
             val baselineCount = bus.projectedEvents().size
 
-            val result = provider.dependencyCommandService.deleteById(UUID.randomUUID()).orThrow()
+            val result = provider.dependencyCommandService.deleteById(UUID.randomUUID(), caller = null).orThrow()
 
             assertFalse(result, "deleting an id that was never created must return false")
             assertEquals(baselineCount, bus.projectedEvents().size, "no dependency.removed event for an unknown id")
@@ -435,11 +445,13 @@ class DependencyEventRootScopingTest {
                 provider.dependencyCommandService
                     .create(
                         listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
                     ).orThrow()
                     .single()
                 provider.dependencyCommandService
                     .create(
                         listOf(Dependency(fromItemId = itemB.id, toItemId = itemC.id, type = DependencyType.BLOCKS)),
+                        caller = null,
                     ).orThrow()
                     .single()
             }

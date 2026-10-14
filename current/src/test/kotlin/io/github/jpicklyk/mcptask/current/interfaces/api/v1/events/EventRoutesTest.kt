@@ -268,7 +268,12 @@ class EventRoutesTest {
                     .orFail()
             assertNotNull(createResult, "Item creation should succeed: $createResult")
 
-            val updateResult = context.itemCommandService.patch(patchOf(createResult, title = "MCP-path test item updated")).orFail()
+            val updateResult =
+                context.itemCommandService
+                    .patch(
+                        patchOf(createResult, title = "MCP-path test item updated"),
+                        caller = null
+                    ).orFail()
             assertNotNull(updateResult, "Item update should succeed: $updateResult")
 
             val collectedEvents = collectorDeferred.await()
@@ -653,7 +658,7 @@ class EventRoutesTest {
             delay(100)
 
             // Reparent child from root1 → root2.
-            items.patch(patchOf(child, parent = ParentChange.MoveUnder(root2.id))).orFail()
+            items.patch(patchOf(child, parent = ParentChange.MoveUnder(root2.id)), caller = null).orFail()
 
             // Await the single event each subscriber should receive (bounded by withTimeout above).
             val root1Events = root1Deferred.await()

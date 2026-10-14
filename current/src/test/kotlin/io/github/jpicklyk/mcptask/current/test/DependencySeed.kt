@@ -26,7 +26,7 @@ suspend fun ToolExecutionContext.seedDependencies(specs: JsonArray): List<Depend
                 unblockAt = spec["unblockAt"]?.jsonPrimitive?.content
             )
         }
-    return when (val outcome = dependencyCommandService.create(deps)) {
+    return when (val outcome = dependencyCommandService.create(deps, caller = null)) {
         is Outcome.Ok -> outcome.value
         is Outcome.Err -> throw AssertionError("dependency setup failed: ${outcome.error}")
     }

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -31,14 +32,24 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.util.UUID
 
-/** One cascade the old parent of a moved or deleted item ran: [from] and [to] are role names, [reason] the blocking code. */
+/**
+ * One cascade the old parent of a moved or deleted item ran: [from] and [to] are role names, [reason] the blocking code.
+ * [redacted] marks a parent outside the call's scope: only [itemId] reaches the wire ([from] and [to] are empty and
+ * [applied] false, carrying nothing).
+ */
 data class CascadeSummary(
     val itemId: UUID,
     val from: String,
     val to: String,
     val applied: Boolean,
-    val reason: String? = null
-)
+    val reason: String? = null,
+    val redacted: Boolean = false
+) {
+    companion object {
+        /** The `{itemId}`-only entry of a cascade into a parent outside the call's scope. */
+        fun redacted(itemId: UUID): CascadeSummary = CascadeSummary(itemId, from = "", to = "", applied = false, redacted = true)
+    }
+}
 
 /**
  * The result of one `items_write` element. [id] is the item the element wrote (the tree root for `create_tree`, the
@@ -127,10 +138,12 @@ internal fun itemWriteElement(result: ItemWriteResult): JsonObject =
                     result.cascade.map { c ->
                         buildJsonObject {
                             put("itemId", c.itemId.toString())
-                            put("from", c.from)
-                            put("to", c.to)
-                            put("applied", c.applied)
-                            c.reason?.let { put("reason", it) }
+                            if (!c.redacted) {
+                                put("from", c.from)
+                                put("to", c.to)
+                                put("applied", c.applied)
+                                c.reason?.let { put("reason", it) }
+                            }
                         }
                     }
                 )
@@ -155,22 +168,38 @@ internal object ItemWriteCodec : IdempotencyCodec<ItemWriteResult> {
             cascade =
                 (obj["cascade"] as? JsonArray).orEmpty().map { element ->
                     val c = element.jsonObject
-                    CascadeSummary(
-                        itemId = UUID.fromString(c.getValue("itemId").jsonPrimitive.content),
-                        from = c.getValue("from").jsonPrimitive.content,
-                        to = c.getValue("to").jsonPrimitive.content,
-                        applied = c.getValue("applied").jsonPrimitive.booleanOrNull ?: false,
-                        reason = c["reason"]?.jsonPrimitive?.contentOrNull
-                    )
+                    val itemId = UUID.fromString(c.getValue("itemId").jsonPrimitive.content)
+                    if ("from" !in c) {
+                        CascadeSummary.redacted(itemId)
+                    } else {
+                        CascadeSummary(
+                            itemId = itemId,
+                            from = c.getValue("from").jsonPrimitive.content,
+                            to = c.getValue("to").jsonPrimitive.content,
+                            applied = c.getValue("applied").jsonPrimitive.booleanOrNull ?: false,
+                            reason = c["reason"]?.jsonPrimitive?.contentOrNull
+                        )
+                    }
                 },
             payload = JsonObject(obj.filterKeys { it !in RESULT_MEMBERS })
         )
     }
 }
 
-/** The cascades an old parent ran; an unapplied one carries the catalog code that blocked it. */
-internal fun cascadeSummaries(events: List<AdvanceCascadeEvent>): List<CascadeSummary> =
-    events.map { event ->
+/**
+ * The cascades an old parent ran; an unapplied one carries the catalog code that blocked it (`not_claim_holder` for a
+ * parent another principal holds, checked first). Under a restricted scope a parent the scope does not admit is
+ * reduced to `{itemId}` (one [ScopeGuard.admitted] read); an unrestricted scope reads nothing.
+ */
+internal suspend fun cascadeSummaries(
+    events: List<AdvanceCascadeEvent>,
+    ctx: CallContext,
+    repo: WorkItemRepository
+): List<CascadeSummary> {
+    if (events.isEmpty()) return emptyList()
+    val admitted = if (ctx.scope.isUnrestricted) null else ScopeGuard.admitted(ctx.scope, events.mapTo(LinkedHashSet()) { it.itemId }, repo)
+    return events.map { event ->
+        if (admitted != null && event.itemId !in admitted) return@map CascadeSummary.redacted(event.itemId)
         CascadeSummary(
             itemId = event.itemId,
             from = event.previousRole.name.lowercase(),
@@ -179,6 +208,7 @@ internal fun cascadeSummaries(events: List<AdvanceCascadeEvent>): List<CascadeSu
             reason =
                 when {
                     event.applied -> null
+                    event.ownershipBlocked -> ErrorCode.NOT_CLAIM_HOLDER.wire
                     event.gateBlocked -> ErrorCode.GATE_BLOCKED.wire
                     event.resourceBlocked -> ErrorCode.RESOURCE_UNAVAILABLE.wire
                     event.dependencyBlocked -> ErrorCode.DEPENDENCY_UNMET.wire
@@ -186,6 +216,7 @@ internal fun cascadeSummaries(events: List<AdvanceCascadeEvent>): List<CascadeSu
                 }
         )
     }
+}
 
 /**
  * Runs [block] as the element's body (the dispatcher has already installed the caller as the event actor): a per-root

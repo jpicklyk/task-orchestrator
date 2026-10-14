@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -29,7 +30,15 @@ import kotlinx.serialization.serializer
 import java.util.UUID
 
 private val CREATE_ERRORS =
-    setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.DUPLICATE, ErrorCode.CYCLE_DETECTED)
+    setOf(
+        ErrorCode.NOT_FOUND,
+        ErrorCode.AMBIGUOUS_ID,
+        ErrorCode.FORBIDDEN,
+        ErrorCode.DUPLICATE,
+        ErrorCode.CYCLE_DETECTED,
+        ErrorCode.NOT_CLAIM_HOLDER,
+        ErrorCode.UNAUTHENTICATED
+    )
 
 /** deps_write create: one edge. */
 internal val depsCreateOp =
@@ -161,7 +170,8 @@ private fun shapeFaults(
 
 /**
  * Steps c to e of the per-element check order: scope over every named item, then existence, then ONE
- * createInUnit over all edges, which is what makes a pattern atomic.
+ * createInUnit over all edges, which is what makes a pattern atomic. The service fences every endpoint for the call's
+ * caller ([ClaimHolder.resolve]).
  */
 private suspend fun WriteScope.createEdges(
     env: ToolExecutionContext,
@@ -174,6 +184,7 @@ private suspend fun WriteScope.createEdges(
     val items = stores.workItemRepository()
     DepsSupport.forbiddenIfAny(ctx, ids, items)?.let { return Outcome.Err(it) }
     DepsSupport.missingItem(ids, items)?.let { return Outcome.Err(it) }
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
     val deps =
         edges.map { (from, to) ->
             Dependency(
@@ -183,7 +194,7 @@ private suspend fun WriteScope.createEdges(
                 unblockAt = unblockAt?.wire
             )
         }
-    return when (val r = env.dependencyCommandService.createInUnit(deps)) {
+    return when (val r = env.dependencyCommandService.createInUnit(deps, caller)) {
         is Outcome.Ok -> r
         is Outcome.Err -> Outcome.Err(redactCyclePath(ctx, r.error, ids.toSet(), items))
     }

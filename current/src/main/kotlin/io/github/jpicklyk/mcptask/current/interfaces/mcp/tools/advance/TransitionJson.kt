@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceUnblockedItem
 import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
@@ -10,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.UUID
 
 /**
  * The wire shapes of one applied transition's parts, shared by the `advance` `transition` op and the `items_write`
@@ -19,24 +23,52 @@ internal object TransitionJson {
     /** A role on the wire: lowercase. */
     fun role(role: Role): String = role.name.lowercase()
 
-    /** The `cascades` array, or null when there is none. */
-    fun cascades(events: List<AdvanceCascadeEvent>): JsonArray? =
-        events.takeIf { it.isNotEmpty() }?.let { list -> JsonArray(list.map(::cascade)) }
+    /**
+     * The ids among [events] and [unblocked] the call's [scope] admits, in ONE [ScopeGuard.admitted] read; null for an
+     * unrestricted scope (everything visible, no read). An entry whose id is not admitted is echoed as `{itemId}` only.
+     */
+    suspend fun admitted(
+        scope: AccessScope,
+        events: List<AdvanceCascadeEvent>,
+        unblocked: List<AdvanceUnblockedItem>,
+        repo: WorkItemRepository
+    ): Set<UUID>? {
+        if (scope.isUnrestricted) return null
+        val ids = LinkedHashSet<UUID>()
+        events.mapTo(ids) { it.itemId }
+        unblocked.mapTo(ids) { it.itemId }
+        return ScopeGuard.admitted(scope, ids, repo)
+    }
 
-    /** The `unblocked` array, or null when there is none. */
-    fun unblocked(items: List<AdvanceUnblockedItem>): JsonArray? =
+    /** The `cascades` array, or null when there is none; an entry not in [admitted] (when non-null) is `{itemId}`. */
+    fun cascades(
+        events: List<AdvanceCascadeEvent>,
+        admitted: Set<UUID>?
+    ): JsonArray? =
+        events.takeIf { it.isNotEmpty() }?.let { list ->
+            JsonArray(list.map { if (admitted != null && it.itemId !in admitted) idOnly(it.itemId) else cascade(it) })
+        }
+
+    /** The `unblocked` array, or null when there is none; an entry not in [admitted] (when non-null) is `{itemId}`. */
+    fun unblocked(
+        items: List<AdvanceUnblockedItem>,
+        admitted: Set<UUID>?
+    ): JsonArray? =
         items.takeIf { it.isNotEmpty() }?.let { list ->
             buildJsonArray {
                 list.forEach {
                     add(
                         buildJsonObject {
                             put("itemId", it.itemId.toString())
-                            put("title", it.title)
+                            if (admitted == null || it.itemId in admitted) put("title", it.title)
                         }
                     )
                 }
             }
         }
+
+    /** The echo of an entry outside the call's scope: its id and nothing else. */
+    private fun idOnly(itemId: UUID): JsonObject = buildJsonObject { put("itemId", itemId.toString()) }
 
     /** One cascade: the parent, its roles, whether it applied, and what blocked it when it did not. */
     fun cascade(event: AdvanceCascadeEvent): JsonObject =
@@ -47,6 +79,7 @@ internal object TransitionJson {
             put("applied", event.applied)
             val blocked =
                 when {
+                    event.ownershipBlocked -> "ownership"
                     event.gateBlocked -> "gate"
                     event.resourceBlocked -> "resource"
                     event.roleBlocked -> "role"

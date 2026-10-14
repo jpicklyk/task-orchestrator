@@ -4,15 +4,22 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
+import java.util.UUID
 
 /** An `items_write` `delete` element: one item, or with [recursive] its whole subtree. */
 @Serializable
@@ -42,7 +49,9 @@ internal fun deleteItemOp(): OpSpec<DeleteItemRequest, ItemWriteResult> =
                 ErrorCode.VERSION_CONFLICT,
                 ErrorCode.INVALID_TRANSITION,
                 ErrorCode.FORBIDDEN,
-                ErrorCode.UNAVAILABLE
+                ErrorCode.UNAVAILABLE,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> itemWriteBody(ctx) { deleteItem(env, ctx, req) } }
     )
@@ -59,20 +68,45 @@ private suspend fun WriteScope.deleteItem(
         }
     (checkItemScope(env, ctx, id) as? Outcome.Err)?.let { return it }
 
-    val existing = env.workItemRepository().getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id))
+    val repo = env.workItemRepository()
+    val existing = repo.getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id))
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    // The fence precedes the version compare (lookup -> fence -> version): a non-holder learns nothing from a conflict.
+    // The service re-checks it, with the subtree, in the same unit.
+    FenceGuard.check(existing, caller, now).let { if (it is Outcome.Err) return it }
     val expected = req.expectedVersion
     if (expected != null && expected != existing.version) {
         return Outcome.Err(ItemCommandErrors.versionConflict(existing.id, expected, existing.version))
     }
-    return when (val deleted = env.itemCommandService.delete(id, req.recursive)) {
-        is Outcome.Err -> deleted
+    return when (val deleted = env.itemCommandService.delete(id, req.recursive, caller)) {
+        is Outcome.Err -> Outcome.Err(scopedHeldRefusal(deleted.error, id, ctx, repo))
         is Outcome.Ok ->
             Outcome.Ok(
                 ItemWriteResult(
                     id = deleted.value.id,
                     deleted = 1 + deleted.value.descendantsDeleted,
-                    cascade = cascadeSummaries(deleted.value.cascadeEvents)
+                    cascade = cascadeSummaries(deleted.value.cascadeEvents, ctx, repo)
                 )
             )
+    }
+}
+
+/**
+ * A recursive delete refused on a held DESCENDANT names that descendant only when the call's scope admits it
+ * ([ScopeGuard]): a tag scope can admit an item without admitting its descendants, and the refusal must not name an
+ * item the caller cannot read. Otherwise it is the same `not_claim_holder` naming the deleted item [id] itself (the
+ * detail's `itemId` is required, so it is never omitted). Any other error passes through unchanged.
+ */
+private suspend fun scopedHeldRefusal(
+    error: DomainError,
+    id: UUID,
+    ctx: CallContext,
+    repo: WorkItemRepository
+): DomainError {
+    val held = (error.detail as? ErrorDetail.NotClaimHolder)?.itemId ?: return error
+    if (held == id) return error
+    return when (ScopeGuard.check(ctx.scope, held, repo)) {
+        is Outcome.Ok -> error
+        is Outcome.Err -> FenceGuard.notClaimHolder(id)
     }
 }

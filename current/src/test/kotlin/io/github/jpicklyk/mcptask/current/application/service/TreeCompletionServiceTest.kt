@@ -42,7 +42,8 @@ class TreeCompletionServiceTest {
     ) {
         val out =
             ctx.dependencyCommandService.create(
-                listOf(Dependency(fromItemId = blocker.id, toItemId = blocked.id, type = DependencyType.BLOCKS))
+                listOf(Dependency(fromItemId = blocker.id, toItemId = blocked.id, type = DependencyType.BLOCKS)),
+                caller = null
             )
         check(out is Outcome.Ok) { "fixture dependency failed: $out" }
     }

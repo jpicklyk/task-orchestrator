@@ -162,7 +162,7 @@ class RootDeleteDocumentEventsTest {
             assertTrue(scalar("SELECT count(*) FROM links") >= 1, "control: the adoption link exists")
             val mark = mark()
 
-            val result = items.delete(r.id, recursive = true).value()
+            val result = items.delete(r.id, recursive = true, caller = null).value()
 
             assertEquals(1, result.descendantsDeleted)
             val rows = eventsAfter(mark)
@@ -189,7 +189,7 @@ class RootDeleteDocumentEventsTest {
             doc(r, DocumentKind.PLAN, "only-plan")
             val mark = mark()
 
-            items.delete(r.id, recursive = true).value()
+            items.delete(r.id, recursive = true, caller = null).value()
 
             val rows = eventsAfter(mark)
             assertEquals(1, rows.ofType("document.deleted").size, "exactly one row for the one document: ${rows.map { it.type }}")
@@ -213,7 +213,7 @@ class RootDeleteDocumentEventsTest {
             val documentsBefore = scalar("SELECT count(*) FROM documents")
             val versionsBefore = scalar("SELECT count(*) FROM document_versions")
 
-            val code = items.delete(r.id, recursive = false).errorCode()
+            val code = items.delete(r.id, recursive = false, caller = null).errorCode()
 
             assertEquals(ErrorCode.INVALID_REQUEST, code)
             assertEquals(0, eventsAfter(mark).ofType("document.deleted").size, "no document row")
@@ -235,7 +235,7 @@ class RootDeleteDocumentEventsTest {
             assertTrue(linksBefore >= 1, "control: the adoption link exists")
             exec("CREATE TRIGGER s9_fault BEFORE DELETE ON work_items WHEN OLD.title = 'doomed' BEGIN SELECT RAISE(ABORT, 'inj'); END")
 
-            val outcome = runCatching { items.delete(r.id, recursive = true) }
+            val outcome = runCatching { items.delete(r.id, recursive = true, caller = null) }
             val failed = outcome.isFailure || outcome.getOrNull() is Outcome.Err
 
             assertTrue(failed, "the injected store fault must fail the delete, got: $outcome")
@@ -243,7 +243,7 @@ class RootDeleteDocumentEventsTest {
             assertEquals(2, scalar("SELECT count(*) FROM documents"), "the documents are still there")
             assertEquals(linksBefore, scalar("SELECT count(*) FROM links"), "and the link cleanup was rolled back")
             exec("DROP TRIGGER s9_fault")
-            items.delete(r.id, recursive = true).value()
+            items.delete(r.id, recursive = true, caller = null).value()
             assertEquals(
                 2,
                 eventsAfter(mark).ofType("document.deleted").size,
@@ -260,7 +260,7 @@ class RootDeleteDocumentEventsTest {
             newItem(r, "C")
             val mark = mark()
 
-            items.delete(r.id, recursive = true).value()
+            items.delete(r.id, recursive = true, caller = null).value()
 
             val rows = eventsAfter(mark)
             assertEquals(0, rows.ofType("document.deleted").size)
@@ -275,12 +275,16 @@ class RootDeleteDocumentEventsTest {
             val xPlan = doc(x, DocumentKind.PLAN, "x-plan")
             val xPage = doc(x, DocumentKind.PAGE, "x-page")
             val bPlan = doc(b, DocumentKind.PLAN, "b-plan")
-            items.patch(patchOf(checkNotNull(provider.workItemRepository().getById(x.id)), parent = ParentChange.MoveUnder(b.id))).value()
+            items
+                .patch(
+                    patchOf(checkNotNull(provider.workItemRepository().getById(x.id)), parent = ParentChange.MoveUnder(b.id)),
+                    caller = null
+                ).value()
             assertEquals(b.id, provider.workItemRepository().getById(x.id)!!.rootId, "control: X now lives under B")
             assertNotNull(provider.documentStore().get(x.id, DocumentKind.PLAN, "x-plan"), "the move keeps the former root's documents")
             val mark = mark()
 
-            items.delete(x.id, recursive = false).value()
+            items.delete(x.id, recursive = false, caller = null).value()
 
             val rows = eventsAfter(mark)
             assertEquals(setOf(xPlan.id, xPage.id), rows.ofType("document.deleted").map { it.entityId }.toSet(), "only X's documents")
@@ -299,10 +303,14 @@ class RootDeleteDocumentEventsTest {
             val b = newRoot("B")
             val xPlan = doc(x, DocumentKind.PLAN, "x-plan")
             val bPlan = doc(b, DocumentKind.PLAN, "b-plan")
-            items.patch(patchOf(checkNotNull(provider.workItemRepository().getById(x.id)), parent = ParentChange.MoveUnder(b.id))).value()
+            items
+                .patch(
+                    patchOf(checkNotNull(provider.workItemRepository().getById(x.id)), parent = ParentChange.MoveUnder(b.id)),
+                    caller = null
+                ).value()
             val mark = mark()
 
-            items.delete(b.id, recursive = true).value()
+            items.delete(b.id, recursive = true, caller = null).value()
 
             val rows = eventsAfter(mark)
             assertEquals(setOf(xPlan.id, bPlan.id), rows.ofType("document.deleted").map { it.entityId }.toSet(), "both anchors' documents")
@@ -317,10 +325,10 @@ class RootDeleteDocumentEventsTest {
         runBlocking {
             val r = newRoot("R")
             doc(r, DocumentKind.PLAN, "plan-live")
-            items.delete(r.id, recursive = true).value()
+            items.delete(r.id, recursive = true, caller = null).value()
             val mark = mark()
 
-            val code = items.delete(r.id, recursive = true).errorCode()
+            val code = items.delete(r.id, recursive = true, caller = null).errorCode()
 
             assertEquals(ErrorCode.NOT_FOUND, code)
             assertEquals(0, eventsAfter(mark).ofType("document.deleted").size)

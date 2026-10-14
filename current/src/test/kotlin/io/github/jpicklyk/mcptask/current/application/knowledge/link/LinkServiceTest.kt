@@ -123,7 +123,7 @@ class LinkServiceTest {
         body: String
     ): UUID =
         notes
-            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null))
+            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null, caller = null))
             .value()
             .note.id
 
@@ -601,7 +601,7 @@ class LinkServiceTest {
             insertLink(noteRef(gone), docRef(d), "plan:plan-a", LinkRelation.DERIVED_FROM, anchor = "a")
             assertEquals(3, from(noteRef(gone)).size)
 
-            notes.delete(childId, "gone").value()
+            notes.delete(childId, "gone", caller = null).value()
 
             assertEquals(emptyList(), from(noteRef(gone)))
             assertEquals(docRef(d), refs(noteRef(stays)).single().to)

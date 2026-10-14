@@ -36,25 +36,38 @@ import java.util.UUID
  *
  * Every write records its own `events` rows through the unit's sink, in the same unit: `dependency.added` per stored
  * row and `dependency.removed` (cause `explicit`) per deleted row, under the from item's root ([eventRootOf]).
+ *
+ * Every write is fenced ([FenceGuard]) for its `caller`, first thing in its unit: an item the write names that carries
+ * an active claim another holder holds is `not_claim_holder` and nothing is written. The named items are the endpoints
+ * of every requested edge (create), both ends (delete by relationship), the stored edge's two endpoints (delete by
+ * id: naming the edge names its items), and the item itself, never its counterparties (delete by item).
  */
 class DependencyCommandService(
     private val repositoryProvider: RepositoryProvider,
     private val unitOfWork: UnitOfWork
 ) {
     /** Applies the write policy to [deps] and stores them in one write unit, returning the stored rows in request order. */
-    suspend fun create(deps: List<Dependency>): Outcome<List<Dependency>> =
-        unitOfWork.write("DependencyCommandService.create") { createBody(deps) }
+    suspend fun create(
+        deps: List<Dependency>,
+        caller: ClaimHolder?
+    ): Outcome<List<Dependency>> = unitOfWork.write("DependencyCommandService.create") { createBody(deps, caller) }
 
     /**
      * The same policy as [create], for a caller that already holds a write unit (an atomic composite). It
      * joins the caller's unit: the caller's unit decides commit, and an [Outcome.Err] returned from the
      * caller's block rolls it back.
      */
-    suspend fun createInUnit(deps: List<Dependency>): Outcome<List<Dependency>> =
-        unitOfWork.write("DependencyCommandService.createInUnit") { createBody(deps) }
+    suspend fun createInUnit(
+        deps: List<Dependency>,
+        caller: ClaimHolder?
+    ): Outcome<List<Dependency>> = unitOfWork.write("DependencyCommandService.createInUnit") { createBody(deps, caller) }
 
-    private suspend fun WriteScope.createBody(deps: List<Dependency>): Outcome<List<Dependency>> {
+    private suspend fun WriteScope.createBody(
+        deps: List<Dependency>,
+        caller: ClaimHolder?
+    ): Outcome<List<Dependency>> {
         if (deps.isEmpty()) return Outcome.Ok(emptyList())
+        fence(deps.flatMap { listOf(it.fromItemId, it.toItemId) }, caller)?.let { return Outcome.Err(it) }
         val normalized =
             when (val checked = checkRequest(deps)) {
                 is Outcome.Ok -> checked.value
@@ -126,9 +139,11 @@ class DependencyCommandService(
     suspend fun deleteByRelationship(
         fromItemId: UUID,
         toItemId: UUID,
-        type: DependencyType?
+        type: DependencyType?,
+        caller: ClaimHolder?
     ): Outcome<Int> =
         unitOfWork.write("DependencyCommandService.deleteByRelationship") {
+            fence(listOf(fromItemId, toItemId), caller)?.let { return@write Outcome.Err(it) }
             val depRepo = repositoryProvider.dependencyRepository()
             val matches =
                 if (type == DependencyType.IS_BLOCKED_BY) {
@@ -146,25 +161,53 @@ class DependencyCommandService(
             Outcome.Ok(deleted)
         }
 
-    /** Deletes the dependency [id] in one write unit; `Ok(false)` when it does not exist. */
-    suspend fun deleteById(id: UUID): Outcome<Boolean> =
+    /** Deletes the dependency [id] in one write unit; `Ok(false)` when it does not exist. Fences its two endpoints. */
+    suspend fun deleteById(
+        id: UUID,
+        caller: ClaimHolder?
+    ): Outcome<Boolean> =
         unitOfWork.write("DependencyCommandService.deleteById") {
             val depRepo = repositoryProvider.dependencyRepository()
             val dep = depRepo.findById(id)
+            if (dep != null) fence(listOf(dep.fromItemId, dep.toItemId), caller)?.let { return@write Outcome.Err(it) }
             val deleted = depRepo.delete(id)
             if (deleted && dep != null) events.record(dependencyRemovedEvent(dep, rootOfItem(dep.fromItemId), DeleteCause.EXPLICIT))
             Outcome.Ok(deleted)
         }
 
-    /** Deletes every dependency touching [itemId] (either end) in one write unit, returning how many were removed. */
-    suspend fun deleteByItemId(itemId: UUID): Outcome<Int> =
+    /**
+     * Deletes every dependency touching [itemId] (either end) in one write unit, returning how many were removed. Fences
+     * [itemId] only: the counterparties of its edges are not named by the request.
+     */
+    suspend fun deleteByItemId(
+        itemId: UUID,
+        caller: ClaimHolder?
+    ): Outcome<Int> =
         unitOfWork.write("DependencyCommandService.deleteByItemId") {
+            fence(listOf(itemId), caller)?.let { return@write Outcome.Err(it) }
             val depRepo = repositoryProvider.dependencyRepository()
             val edges = depRepo.findByItemId(itemId)
             val count = depRepo.deleteByItemId(itemId)
             if (count > 0) events.record(edges.map { dependencyRemovedEvent(it, rootOfItem(it.fromItemId), DeleteCause.EXPLICIT) })
             Outcome.Ok(count)
         }
+
+    /**
+     * The `not_claim_holder` of the first of [itemIds] (in the given order, each id once) whose row carries an active
+     * claim [caller] does not hold, or null. An id with no row is not judged here (the write's own policy answers it).
+     */
+    private suspend fun WriteScope.fence(
+        itemIds: List<UUID>,
+        caller: ClaimHolder?
+    ): DomainError? {
+        val repo = repositoryProvider.workItemRepository()
+        for (id in LinkedHashSet(itemIds)) {
+            val item = repo.getById(id) ?: continue
+            val checked = FenceGuard.check(item, caller, now)
+            if (checked is Outcome.Err) return checked.error
+        }
+        return null
+    }
 
     /** The root of the item [itemId] as it is NOW ([eventRootOf]; its own id when it cannot be resolved). */
     private suspend fun rootOfItem(itemId: UUID): UUID {

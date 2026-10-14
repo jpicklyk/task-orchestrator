@@ -30,7 +30,7 @@ class WorkItemDeletionEventsTest {
             val c = repo.create(WorkItem(parentId = a.id, title = "c", depth = 2))
 
             val flow = bus.subscribe("t6", emptySet(), lastEventId = null)
-            val outcome = context.itemCommandService.delete(root.id, recursive = true)
+            val outcome = context.itemCommandService.delete(root.id, recursive = true, caller = null)
             val deleted = (outcome as Outcome.Ok).value
             assertEquals(root.id to 3, deleted.id to deleted.descendantsDeleted)
 
@@ -46,7 +46,7 @@ class WorkItemDeletionEventsTest {
             val context = eventWiredContext(db.databaseManager, repositoryProvider, bus)
             val flow = bus.subscribe("t6b", emptySet(), lastEventId = null)
 
-            val outcome = context.itemCommandService.delete(UUID.randomUUID(), recursive = true)
+            val outcome = context.itemCommandService.delete(UUID.randomUUID(), recursive = true, caller = null)
             assertTrue(outcome is Outcome.Err && outcome.error.code == ErrorCode.NOT_FOUND)
 
             assertEquals(0, bus.drainDelivered("t6b", flow).size)

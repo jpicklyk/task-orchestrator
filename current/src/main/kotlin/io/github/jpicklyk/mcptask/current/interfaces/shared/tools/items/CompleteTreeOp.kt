@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionResult
@@ -111,21 +112,29 @@ private suspend fun WriteScope.completeTree(
             is Outcome.Err -> return run
             is Outcome.Ok -> run.value
         }
-    return Outcome.Ok(ItemWriteResult(id = treeRootId, payload = payload(req.trigger.wire, completion)))
+    return Outcome.Ok(ItemWriteResult(id = treeRootId, payload = payload(req.trigger.wire, completion, ctx, items)))
 }
 
 /** The completion service over the call's composed services. */
 internal fun treeCompletionService(env: ToolExecutionContext): TreeCompletionService =
     TreeCompletionService(env.repositoryProvider, env.advanceServiceFactory())
 
-/** `{trigger, items, summary}`: every item's outcome in processing order, and the counts (total = the sum of the rest). */
-private fun payload(
+/**
+ * `{trigger, items, summary}`: every item's outcome in processing order, and the counts (total = the sum of the rest).
+ * Under a restricted scope, cascade and unblocked entries the scope does not admit are `{itemId}` only (one
+ * [ScopeGuard.admitted] read over every item's entries); an unrestricted scope reads nothing.
+ */
+private suspend fun payload(
     trigger: String,
-    completion: TreeCompletionResult
+    completion: TreeCompletionResult,
+    ctx: CallContext,
+    repo: WorkItemRepository
 ): JsonObject {
     var applied = 0
     var skipped = 0
     var failed = 0
+    val results = completion.outcomes.filterIsInstance<TreeItemOutcome.Applied>().map { it.result }
+    val admitted = TransitionJson.admitted(ctx.scope, results.flatMap { it.cascadeEvents }, results.flatMap { it.unblockedItems }, repo)
     val entries =
         completion.outcomes.map { outcome ->
             buildJsonObject {
@@ -138,8 +147,8 @@ private fun payload(
                         put("previousRole", TransitionJson.role(result.previousRole))
                         put("newRole", TransitionJson.role(result.newRole))
                         result.statusLabel?.let { put("statusLabel", it) }
-                        TransitionJson.cascades(result.cascadeEvents)?.let { put("cascades", it) }
-                        TransitionJson.unblocked(result.unblockedItems)?.let { put("unblocked", it) }
+                        TransitionJson.cascades(result.cascadeEvents, admitted)?.let { put("cascades", it) }
+                        TransitionJson.unblocked(result.unblockedItems, admitted)?.let { put("unblocked", it) }
                         NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
                     }
                     is TreeItemOutcome.AlreadyTerminal -> {

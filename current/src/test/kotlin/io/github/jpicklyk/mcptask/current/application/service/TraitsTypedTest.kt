@@ -201,7 +201,7 @@ class TraitsTypedTest {
 
             item =
                 r.svc
-                    .patch(patchOf(r.reload(item)).copy(traits = listOf("gamma-trait")))
+                    .patch(patchOf(r.reload(item)).copy(traits = listOf("gamma-trait")), caller = null)
                     .orFail()
                     .item
             assertEquals(listOf("gamma-trait"), r.reload(item).traits)
@@ -209,28 +209,28 @@ class TraitsTypedTest {
 
             item =
                 r.svc
-                    .patch(patchOf(r.reload(item)).copy(traits = listOf("beta-trait", "alpha-trait")))
+                    .patch(patchOf(r.reload(item)).copy(traits = listOf("beta-trait", "alpha-trait")), caller = null)
                     .orFail()
                     .item
             assertEquals(ordered("beta-trait", "alpha-trait"), rawTraits(item.id))
 
             item =
                 r.svc
-                    .patch(patchOf(r.reload(item)).copy(traits = listOf("alpha-trait", "beta-trait")))
+                    .patch(patchOf(r.reload(item)).copy(traits = listOf("alpha-trait", "beta-trait")), caller = null)
                     .orFail()
                     .item
             assertEquals(ordered("alpha-trait", "beta-trait"), rawTraits(item.id), "a reorder is a change")
 
             item =
                 r.svc
-                    .patch(patchOf(r.reload(item), title = "renamed"))
+                    .patch(patchOf(r.reload(item), title = "renamed"), caller = null)
                     .orFail()
                     .item
             assertEquals(ordered("alpha-trait", "beta-trait"), rawTraits(item.id), "a patch that keeps the list keeps the rows")
 
             item =
                 r.svc
-                    .patch(patchOf(r.reload(item)).copy(traits = emptyList()))
+                    .patch(patchOf(r.reload(item)).copy(traits = emptyList()), caller = null)
                     .orFail()
                     .item
             assertEquals(emptyList(), rawTraits(item.id))
@@ -294,7 +294,7 @@ class TraitsTypedTest {
             for ((label, traits) in badShapes) {
                 val seq = r.maxSeq()
 
-                val err = r.svc.patch(patchOf(before, title = "renamed").copy(traits = traits)).errorOrFail()
+                val err = r.svc.patch(patchOf(before, title = "renamed").copy(traits = traits), caller = null).errorOrFail()
 
                 assertEquals(ErrorCode.INVALID_REQUEST, err.code, label)
                 assertEquals(before, r.reload(item), "$label: version, modifiedAt, title and traits are untouched")
@@ -366,22 +366,27 @@ class TraitsTypedTest {
             val before = r.reload(item)
             val stale = r.raw.workItemRepository().create(WorkItem(title = "stale", type = TEST_ITEM_TYPE, traits = listOf("gone-trait")))
 
-            val err = r.svc.patch(patchOf(before).copy(traits = listOf("nope"))).errorOrFail()
+            val err = r.svc.patch(patchOf(before).copy(traits = listOf("nope")), caller = null).errorOrFail()
             assertEquals(ErrorCode.SCHEMA_VIOLATION, err.code)
             assertEquals("trait 'nope' is not declared", err.violation().reason)
             assertEquals(declared, err.violation().availableTraits)
             assertEquals(before, r.reload(item), "version and modifiedAt are untouched by the rejection")
 
-            r.svc.patch(patchOf(before).copy(traits = listOf("beta-trait"))).orFail()
+            r.svc.patch(patchOf(before).copy(traits = listOf("beta-trait")), caller = null).orFail()
             assertEquals(listOf("beta-trait"), r.reload(item).traits)
 
             // a stale (since undeclared) list is editable while it stays unchanged ...
-            r.svc.patch(patchOf(stale, title = "stale renamed")).orFail()
+            r.svc.patch(patchOf(stale, title = "stale renamed"), caller = null).orFail()
             assertEquals("stale renamed", r.reload(stale).title)
             assertEquals(listOf("gone-trait"), r.reload(stale).traits)
-            r.svc.patch(patchOf(r.reload(stale)).copy(traits = listOf("gone-trait"))).orFail()
+            r.svc.patch(patchOf(r.reload(stale)).copy(traits = listOf("gone-trait")), caller = null).orFail()
             // ... and checked as soon as the list changes
-            val changed = r.svc.patch(patchOf(r.reload(stale)).copy(traits = listOf("gone-trait", "alpha-trait"))).errorOrFail()
+            val changed =
+                r.svc
+                    .patch(
+                        patchOf(r.reload(stale)).copy(traits = listOf("gone-trait", "alpha-trait")),
+                        caller = null
+                    ).errorOrFail()
             assertEquals(ErrorCode.SCHEMA_VIOLATION, changed.code)
             assertEquals(listOf("gone-trait"), r.reload(stale).traits, "the rejected change left the stale list")
         }
@@ -478,14 +483,14 @@ class TraitsTypedTest {
             for (props in propertiesWithTraits) {
                 val seq = r.maxSeq()
 
-                val err = r.svc.patch(patchOf(before, title = "renamed").copy(properties = props)).errorOrFail()
+                val err = r.svc.patch(patchOf(before, title = "renamed").copy(properties = props), caller = null).errorOrFail()
 
                 assertEquals(ErrorCode.INVALID_REQUEST, err.code, props)
                 assertTrue(assertIs<ErrorDetail.InvalidRequest>(err.detail).fields.any { it.field == "properties" }, props)
                 assertEquals(before, r.reload(item), "$props: untouched")
                 assertEquals(seq, r.maxSeq(), "$props: no event recorded")
             }
-            r.svc.patch(patchOf(before).copy(properties = """{"custom":2}""")).orFail()
+            r.svc.patch(patchOf(before).copy(properties = """{"custom":2}"""), caller = null).orFail()
             assertEquals("""{"custom":2}""", r.reload(item).properties)
             assertEquals(listOf("kept"), r.reload(item).traits, "control: a clean properties patch leaves the traits alone")
         }
@@ -502,26 +507,34 @@ class TraitsTypedTest {
             val r = typedRig(dir)
             val item = r.make("subject", listOf("alpha-trait", "beta-trait"))
 
-            val (_, changedRows) = r.written { r.svc.patch(patchOf(r.reload(item)).copy(traits = listOf("gamma-trait"))).orFail() }
+            val (_, changedRows) =
+                r.written {
+                    r.svc
+                        .patch(
+                            patchOf(r.reload(item)).copy(traits = listOf("gamma-trait")),
+                            caller = null
+                        ).orFail()
+                }
             val updated = changedRows.single { it.type == "item.updated" }
             assertEquals(item.id, updated.entityId)
             assertEquals(setOf("traits"), updated.changed(), "only traits changed")
 
-            val (_, titleRows) = r.written { r.svc.patch(patchOf(r.reload(item), title = "renamed")).orFail() }
+            val (_, titleRows) = r.written { r.svc.patch(patchOf(r.reload(item), title = "renamed"), caller = null).orFail() }
             assertEquals(
                 setOf("title"),
                 titleRows.single { it.type == "item.updated" }.changed(),
                 "traits did not change, so it is not listed"
             )
 
-            val (_, noop) = r.written { r.svc.patch(patchOf(r.reload(item))).orFail() }
+            val (_, noop) = r.written { r.svc.patch(patchOf(r.reload(item)), caller = null).orFail() }
             assertEquals(emptyList(), noop, "a patch that changes nothing records no row: $noop")
 
             val (_, grownRows) =
                 r.written {
                     r.svc
                         .patch(
-                            patchOf(r.reload(item)).copy(traits = listOf("gamma-trait", "alpha-trait"))
+                            patchOf(r.reload(item)).copy(traits = listOf("gamma-trait", "alpha-trait")),
+                            caller = null
                         ).orFail()
                 }
             assertTrue("traits" in grownRows.single { it.type == "item.updated" }.changed(), "a longer list is a change")
@@ -529,13 +542,14 @@ class TraitsTypedTest {
                 r.written {
                     r.svc
                         .patch(
-                            patchOf(r.reload(item)).copy(traits = listOf("alpha-trait", "gamma-trait"))
+                            patchOf(r.reload(item)).copy(traits = listOf("alpha-trait", "gamma-trait")),
+                            caller = null
                         ).orFail()
                 }
             assertTrue("traits" in swapRows.single { it.type == "item.updated" }.changed(), "a reorder is a change")
-            val (_, clearRows) = r.written { r.svc.patch(patchOf(r.reload(item)).copy(traits = emptyList())).orFail() }
+            val (_, clearRows) = r.written { r.svc.patch(patchOf(r.reload(item)).copy(traits = emptyList()), caller = null).orFail() }
             assertEquals(setOf("traits"), clearRows.single { it.type == "item.updated" }.changed(), "clearing is a change")
-            val (_, again) = r.written { r.svc.patch(patchOf(r.reload(item)).copy(traits = emptyList())).orFail() }
+            val (_, again) = r.written { r.svc.patch(patchOf(r.reload(item)).copy(traits = emptyList()), caller = null).orFail() }
             assertEquals(emptyList(), again, "clearing an already empty list records nothing")
         }
 

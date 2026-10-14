@@ -120,7 +120,8 @@ class DepsToolsBehaviorTest {
         val declared = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN)
         assertEquals(declared, read.selects.single { it.name == "list" }.errors)
         assertEquals(declared, read.selects.single { it.name == "graph" }.errors)
-        assertEquals(declared, write.ops.single { it.name == "delete" }.errors)
+        // R19: the write is fenced for the caller (not_claim_holder) whose principal must resolve (unauthenticated).
+        assertEquals(declared + ErrorCode.NOT_CLAIM_HOLDER + ErrorCode.UNAUTHENTICATED, write.ops.single { it.name == "delete" }.errors)
     }
 
     // ------------------------------------------------------------------ S23 attribution

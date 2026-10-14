@@ -147,7 +147,7 @@ class DocsAdoptedByDeletedAdopterTest {
             .value()
         if (deleteAdopter) {
             rig.ctx.itemCommandService
-                .delete(adopter.id, recursive = false)
+                .delete(adopter.id, recursive = false, caller = null)
                 .value()
         }
         return World(root, adopter, plan)

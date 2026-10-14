@@ -319,6 +319,7 @@ class SseRootScopeFailClosedTest {
             delay(50)
             provider.dependencyCommandService.create(
                 listOf(Dependency(fromItemId = uncachedFromId, toItemId = uncachedToId, type = DependencyType.BLOCKS)),
+                caller = null,
             )
 
             val rootScoped = rootScopedResult.await()

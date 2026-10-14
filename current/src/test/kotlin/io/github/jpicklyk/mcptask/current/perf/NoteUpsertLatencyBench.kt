@@ -108,7 +108,7 @@ class NoteUpsertLatencyBench {
         key: String,
         body: String
     ) {
-        val outcome = notes.upsert(NoteUpsertCommand(itemId, key, "work", body, null, null))
+        val outcome = notes.upsert(NoteUpsertCommand(itemId, key, "work", body, null, null, caller = null))
         check(outcome is Outcome.Ok) { "bench upsert failed: $outcome" }
     }
 

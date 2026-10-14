@@ -103,16 +103,21 @@ private suspend fun WriteScope.runTransition(
 
     return when (outcome) {
         is AdvanceOutcome.Failure -> Outcome.Err(AdvanceSupport.rooted(outcome.failure.error))
-        is AdvanceOutcome.Success -> Outcome.Ok(element(env, item, outcome.result))
+        is AdvanceOutcome.Success -> Outcome.Ok(element(env, ctx, item, outcome.result))
     }
 }
 
-/** The `transition` result element, in the documented key order; empty and null members are omitted. */
+/**
+ * The `transition` result element, in the documented key order; empty and null members are omitted. Cascade and
+ * unblocked entries outside the call's scope are echoed as `{itemId}` only.
+ */
 private suspend fun WriteScope.element(
     env: ToolExecutionContext,
+    ctx: CallContext,
     item: WorkItem,
     result: AdvanceResult
 ): JsonObject {
+    val admitted = TransitionJson.admitted(ctx.scope, result.cascadeEvents, result.unblockedItems, stores.workItemRepository())
     val schema = result.resolvedSchema
     val notesByKey = if (schema == null) emptyMap() else stores.noteRepository().findByItemId(item.id).associateBy { it.key }
     val phase = schema?.let { computePhaseNoteContext(result.newRole, it, notesByKey) }
@@ -134,8 +139,8 @@ private suspend fun WriteScope.element(
         put("newRole", TransitionJson.role(result.newRole))
         put("trigger", result.trigger)
         result.statusLabel?.let { put("statusLabel", it) }
-        TransitionJson.cascades(result.cascadeEvents)?.let { put("cascades", it) }
-        TransitionJson.unblocked(result.unblockedItems)?.let { put("unblocked", it) }
+        TransitionJson.cascades(result.cascadeEvents, admitted)?.let { put("cascades", it) }
+        TransitionJson.unblocked(result.unblockedItems, admitted)?.let { put("unblocked", it) }
         if (expectedKeys.isNotEmpty()) put("expectedNotes", JsonArray(expectedKeys.map { JsonPrimitive(it) }))
         phase?.guidanceKey?.let { put("guidanceKey", it) }
         phase?.skillPointer?.let { put("skillPointer", it) }

@@ -1197,7 +1197,8 @@ The server intentionally restricts where `claimedBy` identity is visible. This d
 | Surface | Claim data exposed |
 |---|---|
 | `items_read` `context` with an `itemId` | Full claim detail (`claimDetail`): `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired` |
-| `advance` `claim` op success result | Own claim metadata only: `claimedAt`, `expiresAt`, `originalClaimedAt` |
+| `advance` `claim` / `heartbeat` op success result | Own claim metadata only: `version` (the item row version), `claimedAt`, `expiresAt`, `originalClaimedAt`, and `released` (the caller's own other items the claim auto-released; omitted when none) |
+| `not_claim_holder` on a fenced write, and an `ownership`-blocked cascade | `itemId` only - the holder is never named |
 | `advance` `claim` op `claim_held` error | `detail.expiresAt` and `retryAfterMs` only - competing agent identity never disclosed |
 | `items_read` `next` with `includeClaimed: true` | `isClaimed: boolean` per item only - no identity |
 | `items_read` `list` with `claimStatus` | The filter only: entries carry no claim data |

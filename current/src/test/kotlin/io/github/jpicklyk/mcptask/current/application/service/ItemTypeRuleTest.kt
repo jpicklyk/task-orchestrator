@@ -212,12 +212,12 @@ class ItemTypeRuleTest {
 
             val patchedResidue =
                 r.svc
-                    .patch(patchOf(residue, title = "residue renamed"))
+                    .patch(patchOf(residue, title = "residue renamed"), caller = null)
                     .orFail()
                     .item
             val patchedStale =
                 r.svc
-                    .patch(patchOf(stale, title = "stale renamed"))
+                    .patch(patchOf(stale, title = "stale renamed"), caller = null)
                     .orFail()
                     .item
 
@@ -237,10 +237,10 @@ class ItemTypeRuleTest {
             val r = rig(dir)
             val residue = r.raw.workItemRepository().create(WorkItem(title = "residue", type = "untyped"))
 
-            val rejected = r.svc.patch(patchOf(residue).copy(type = "nope")).errorOrFail()
+            val rejected = r.svc.patch(patchOf(residue).copy(type = "nope"), caller = null).errorOrFail()
             assertEquals("untyped", r.reload(residue).type, "a rejected change leaves the residue value")
 
-            r.svc.patch(patchOf(residue).copy(type = "alpha-type")).orFail()
+            r.svc.patch(patchOf(residue).copy(type = "alpha-type"), caller = null).orFail()
 
             assertEquals(ErrorCode.SCHEMA_VIOLATION, rejected.code)
             assertEquals("alpha-type", r.reload(residue).type)
@@ -355,7 +355,7 @@ class ItemTypeRuleTest {
             val seq = r.maxSeq()
 
             for (blank in listOf(null, "", "   ")) {
-                val err = r.svc.patch(patchOf(item, title = "renamed").copy(type = blank)).errorOrFail()
+                val err = r.svc.patch(patchOf(item, title = "renamed").copy(type = blank), caller = null).errorOrFail()
 
                 val label = "type=${blank?.let { "'$it'" }}"
                 assertEquals(ErrorCode.SCHEMA_VIOLATION, err.code, label)
@@ -376,7 +376,7 @@ class ItemTypeRuleTest {
             val item = r.make("item", "alpha-type")
             val before = r.reload(item)
 
-            val err = r.svc.patch(patchOf(item).copy(type = "nope")).errorOrFail()
+            val err = r.svc.patch(patchOf(item).copy(type = "nope"), caller = null).errorOrFail()
 
             assertEquals(ErrorCode.SCHEMA_VIOLATION, err.code)
             assertEquals("nope", err.violation().type)
@@ -386,7 +386,7 @@ class ItemTypeRuleTest {
 
             val applied =
                 r.svc
-                    .patch(patchOf(item).copy(type = "gamma-type"))
+                    .patch(patchOf(item).copy(type = "gamma-type"), caller = null)
                     .orFail()
                     .item
             assertEquals("gamma-type", applied.type)
@@ -405,19 +405,24 @@ class ItemTypeRuleTest {
             val x = r.make("X", "gamma-type", rootA.id)
 
             // Changing the type while moving into root B: "only-a-type" is declared nowhere for root B.
-            val err = r.svc.patch(patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "only-a-type")).errorOrFail()
+            val err =
+                r.svc
+                    .patch(
+                        patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "only-a-type"),
+                        caller = null
+                    ).errorOrFail()
             assertEquals(listOf("alpha-type", "default", "gamma-type", "only-b"), err.violation().availableTypes)
             assertEquals(rootA.id, r.reload(x).parentId, "the rejected move left X where it was")
             assertEquals("gamma-type", r.reload(x).type)
 
             // The type valid in the destination, supplied with the move, is accepted.
-            r.svc.patch(patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "only-b")).orFail()
+            r.svc.patch(patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "only-b"), caller = null).orFail()
             assertEquals("only-b", r.reload(x).type)
             assertEquals(rootB.id, r.reload(x).parentId)
 
             // An unchanged type (stale for the new root) is never re-checked on a move.
             val y = r.make("Y", "gamma-type", rootA.id)
-            r.svc.patch(patchOf(y, parent = ParentChange.MoveUnder(rootB.id))).orFail()
+            r.svc.patch(patchOf(y, parent = ParentChange.MoveUnder(rootB.id)), caller = null).orFail()
             assertEquals("gamma-type", r.reload(y).type)
             assertEquals(rootB.id, r.reload(y).parentId)
         }

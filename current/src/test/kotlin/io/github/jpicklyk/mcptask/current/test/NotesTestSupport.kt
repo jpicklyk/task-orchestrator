@@ -41,7 +41,17 @@ suspend fun ToolExecutionContext.putNote(
     when (
         val written =
             noteCommandService.upsert(
-                NoteUpsertCommand(itemId, key, role, body, actor, verification, bodyFromFile, expectedVersion)
+                NoteUpsertCommand(
+                    itemId,
+                    key,
+                    role,
+                    body,
+                    actor,
+                    verification,
+                    caller = null,
+                    bodyFromFile = bodyFromFile,
+                    expectedVersion = expectedVersion
+                )
             )
     ) {
         is Outcome.Ok -> written.value.note

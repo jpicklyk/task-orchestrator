@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
@@ -65,7 +66,9 @@ internal fun updateItemOp(): OpSpec<UpdateItemRequest, ItemWriteResult> =
                 ErrorCode.SCHEMA_VIOLATION,
                 ErrorCode.INVALID_TRANSITION,
                 ErrorCode.FORBIDDEN,
-                ErrorCode.UNAVAILABLE
+                ErrorCode.UNAVAILABLE,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> itemWriteBody(ctx) { updateItem(env, ctx, req) } }
     )
@@ -161,14 +164,15 @@ private suspend fun WriteScope.updateItem(
             properties = if (ClearField.PROPERTIES in req.clear) null else req.properties?.toString() ?: existing.properties,
             traits = req.traits ?: existing.traits
         )
-    return when (val patched = env.itemCommandService.patch(command)) {
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    return when (val patched = env.itemCommandService.patch(command, caller)) {
         is Outcome.Err -> patched
         is Outcome.Ok ->
             Outcome.Ok(
                 ItemWriteResult(
                     id = patched.value.item.id,
                     version = patched.value.item.version,
-                    cascade = cascadeSummaries(patched.value.cascadeEvents)
+                    cascade = cascadeSummaries(patched.value.cascadeEvents, ctx, repo)
                 )
             )
     }

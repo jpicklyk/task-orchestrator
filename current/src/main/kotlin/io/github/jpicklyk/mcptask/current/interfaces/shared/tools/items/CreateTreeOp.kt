@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepInput
@@ -57,7 +58,9 @@ internal fun createTreeOp(): OpSpec<CreateTreeRequest, ItemWriteResult> =
                 ErrorCode.DUPLICATE,
                 ErrorCode.PAYLOAD_TOO_LARGE,
                 ErrorCode.NOTE_TOO_LONG,
-                ErrorCode.UNAVAILABLE
+                ErrorCode.UNAVAILABLE,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> itemWriteBody(ctx) { createTree(env, ctx, req) } }
     )
@@ -92,6 +95,7 @@ private suspend fun WriteScope.createTree(
             if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
     }
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
     val request =
         WorkTreeRequest(
             root =
@@ -108,7 +112,8 @@ private suspend fun WriteScope.createTree(
             // Matched against the tree's own root, never looked up: a foreign id is invalid_request, not an existence oracle.
             docRootRef = req.docRef?.rootId?.raw,
             actorClaim = ctx.principal.claim,
-            verification = ctx.principal.verification
+            verification = ctx.principal.verification,
+            caller = caller
         )
     val service = workTreeService(env)
     val plan =

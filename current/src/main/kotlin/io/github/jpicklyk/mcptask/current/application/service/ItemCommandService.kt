@@ -190,18 +190,29 @@ class ItemCommandService(
      */
     suspend fun createInUnit(cmd: ItemCreateCommand): Outcome<WorkItem> = unitOfWork.write(CREATE_OP) { createBody(cmd) }
 
-    /** Patches one item (fields, and optionally its parent) in one write unit. */
-    suspend fun patch(cmd: ItemPatchCommand): Outcome<ItemPatchResult> = guarded(PATCH_OP) { patchBody(cmd) }
+    /**
+     * Patches one item (fields, and optionally its parent) in one write unit, made by [caller]. An item with an active
+     * claim another holder holds is `not_claim_holder` ([FenceGuard]), checked right after the lookup and before the
+     * version compare; [caller] also fences the structural cascade into the old parent.
+     */
+    suspend fun patch(
+        cmd: ItemPatchCommand,
+        caller: ClaimHolder?
+    ): Outcome<ItemPatchResult> = guarded(PATCH_OP) { patchBody(cmd, caller) }
 
     /**
-     * Deletes [itemId] in one write unit. Non-recursive with direct children fails with `invalid_request`
-     * ([ItemCommandErrors.childCount]) and writes nothing. Recursive deletes the whole subtree deepest level first;
-     * a fault anywhere rolls every row back.
+     * Deletes [itemId] in one write unit, made by [caller]. Non-recursive with direct children fails with
+     * `invalid_request` ([ItemCommandErrors.childCount]) and writes nothing. Recursive deletes the whole subtree deepest
+     * level first; a fault anywhere rolls every row back.
+     *
+     * Fenced ([FenceGuard]): the item, and when [recursive] every descendant; the first fenced descendant in `id` order
+     * is the `not_claim_holder` and nothing is deleted.
      */
     suspend fun delete(
         itemId: UUID,
-        recursive: Boolean
-    ): Outcome<ItemDeleteResult> = guarded(DELETE_OP) { deleteBody(itemId, recursive) }
+        recursive: Boolean,
+        caller: ClaimHolder?
+    ): Outcome<ItemDeleteResult> = guarded(DELETE_OP) { deleteBody(itemId, recursive, caller) }
 
     /**
      * Re-pins [itemId] to the current config heads in one write unit (the `repin` pin point). A non-null
@@ -326,8 +337,12 @@ class ItemCommandService(
     // patch
     // -------------------------------------------------------------------------
 
-    private suspend fun WriteScope.patchBody(cmd: ItemPatchCommand): Outcome<ItemPatchResult> {
+    private suspend fun WriteScope.patchBody(
+        cmd: ItemPatchCommand,
+        caller: ClaimHolder?
+    ): Outcome<ItemPatchResult> {
         val existing = items.getById(cmd.itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(cmd.itemId))
+        FenceGuard.check(existing, caller, now).let { if (it is Outcome.Err) return it }
         val expected = cmd.expectedVersion
         if (expected != null && expected != existing.version) {
             return Outcome.Err(ItemCommandErrors.versionConflict(existing.id, expected, existing.version))
@@ -504,7 +519,7 @@ class ItemCommandService(
         }
         if (newRoot != oldRoot) restampLinkRoots(listOf(stored.id) + descendants.map { it.id }, newRoot)
 
-        val cascades = cascade(existing.parentId, followUps)
+        val cascades = cascade(existing.parentId, followUps, caller)
         return Outcome.Ok(ItemPatchResult(stored, reparented = true, descendantsRestamped = restamped, cascadeEvents = cascades))
     }
 
@@ -685,8 +700,12 @@ class ItemCommandService(
 
     private suspend fun WriteScope.deleteBody(
         itemId: UUID,
-        recursive: Boolean
+        recursive: Boolean,
+        caller: ClaimHolder?
     ): Outcome<ItemDeleteResult> {
+        // Lookup, then the fence, before anything else: a non-holder learns nothing about the item's children.
+        val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
+        FenceGuard.check(root, caller, now).let { if (it is Outcome.Err) return it }
         if (!recursive) {
             val children =
                 try {
@@ -697,7 +716,6 @@ class ItemCommandService(
                 }
             if (children.isNotEmpty()) return Outcome.Err(ItemCommandErrors.hasChildren(itemId, children.size))
         }
-        val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
         if (root.parentId == null) {
             val openRuns = openRunsOnRoot(itemId)
             if (openRuns > 0) return Outcome.Err(ItemCommandErrors.rootHasOpenRuns(itemId, openRuns))
@@ -713,6 +731,10 @@ class ItemCommandService(
                     e.rethrowIfCancellation()
                     return fault("Failed to find descendants: ${LegacyFaults.message(e)}")
                 }
+            // A held descendant blocks the whole delete: the first fenced one in id order is reported.
+            for (descendant in descendants.sortedBy { it.id }) {
+                FenceGuard.check(descendant, caller, now).let { if (it is Outcome.Err) return it }
+            }
         }
         repointSurvivingPins(descendants.mapTo(HashSet()) { it.id } + itemId)?.let { return Outcome.Err(it) }
         if (recursive) {
@@ -770,7 +792,7 @@ class ItemCommandService(
                 is Decision.Allow -> decision.followUps
                 else -> emptyList()
             }
-        val cascades = cascade(root.parentId, followUps)
+        val cascades = cascade(root.parentId, followUps, caller)
         return Outcome.Ok(ItemDeleteResult(itemId, descendantsDeleted, cascades))
     }
 
@@ -855,14 +877,18 @@ class ItemCommandService(
     // shared
     // -------------------------------------------------------------------------
 
-    /** Runs the structural [followUps] (the OLD parent [oldParentId]'s re-evaluation) in the current unit. */
+    /**
+     * Runs the structural [followUps] (the OLD parent [oldParentId]'s re-evaluation) in the current unit, fenced for
+     * [caller] (the patch or delete's own caller).
+     */
     private suspend fun cascade(
         oldParentId: UUID?,
-        followUps: List<FollowUp>
+        followUps: List<FollowUp>,
+        caller: ClaimHolder?
     ): List<AdvanceCascadeEvent> {
         if (oldParentId == null || followUps.isEmpty()) return emptyList()
         val oldParent = items.getById(oldParentId) ?: return emptyList()
-        return advanceServiceFactory.forItem(oldParent).cascadeInUnit(followUps)
+        return advanceServiceFactory.forItem(oldParent).cascadeInUnit(followUps, caller)
     }
 
     /**
