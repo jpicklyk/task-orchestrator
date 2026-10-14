@@ -19,6 +19,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
+import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
@@ -71,11 +73,20 @@ class McpOperationAdapter(
         for (spec in registry.tools) {
             val tool = toolFor(spec, profile) ?: continue
             server.addTool(tool) { request ->
-                handle(spec, profile, request.arguments, sessionId, server.sessions[sessionId]?.clientVersion?.name)
+                val session = server.sessions[sessionId]
+                handle(spec, profile, request.arguments, transportSessionId(session) ?: sessionId, session?.clientVersion?.name)
             }
             logger.debug("Registered 4.0 tool '{}' ({} profile)", spec.name, profile.wire)
         }
     }
+
+    /**
+     * The session id the client sees: over Streamable HTTP, the transport's id, the one the SDK echoes in
+     * `Mcp-Session-Id` and the one [McpBearerAuth] binds the principal under. The SDK's own `ServerSession.sessionId`
+     * (the `ClientConnection.sessionId` a tool handler receives) is an unrelated random UUID, so looking the binding up
+     * by it never finds one. Null for a transport without a session id (stdio); the caller then keeps the SDK's id.
+     */
+    private fun transportSessionId(session: ServerSession?): String? = (session?.transport as? StreamableHttpServerTransport)?.sessionId
 
     private suspend fun handle(
         spec: ToolSpec,
