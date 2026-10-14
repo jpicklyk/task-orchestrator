@@ -15,7 +15,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the usage `report` only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
 
 This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
 
@@ -236,7 +236,8 @@ Two columns added by migration V30 serve follow-through and rejection reports:
   `invalid_transition` with `detail.fromRole` `"none"` (an advance trigger, claim, heartbeat or flip refused for a
   lifecycle-free item) or the `invalid_request` refusing a BLOCKS dependency with a lifecycle-free endpoint. NULL
   when there were none, never 0. Both surfaces fill it (REST from `POST /api/v1/ops/{tool}` bodies; the other REST
-  routes are reads).
+  routes are reads). An idempotent replay row (`replayed = 1`) repeats the stored response and so carries the same
+  count, but it is not a new rejection: `report` `waste` leaves replayed rows out of `lifecycleFreeRejections`.
 
 Rows written before V30 read NULL in both columns.
 

@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
 import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
@@ -16,6 +17,8 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
 import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
+import io.github.jpicklyk.mcptask.current.application.port.WasteCount
+import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
 import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -25,6 +28,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -68,10 +73,82 @@ data class ContentionReport(
 )
 
 /**
+ * The `waste` row classes (plan R12): every MCP tool name is in exactly one of [READ], [WRITE] and [EXCLUDED] (a guard
+ * test checks the registry). They are data bound as SQL parameters, never spliced into a statement. Non-ops REST rows
+ * record a route template as `tool`, so they never match a class.
+ */
+object WasteToolClasses {
+    /** Tools whose calls read: the `readsWithoutLaterWrite` and `redundantReads` reads. */
+    val READ: Set<String> = setOf("items_read", "notes_read", "docs_read", "deps_read")
+
+    /** Tools whose calls write: the later write of `readsWithoutLaterWrite`, and the `lifecycleFreeRejections` calls. */
+    val WRITE: Set<String> = setOf("items_write", "notes_write", "deps_write", "docs_write", "advance")
+
+    /** Tools in no class: the reports themselves and config. */
+    val EXCLUDED: Set<String> = setOf("report", "config")
+
+    /** The tool whose selects feed `overFetch`, `emptyNext` and `relatedFollowThrough`. */
+    const val ITEMS_READ = "items_read"
+
+    /** The `items_read` selects `overFetch` measures: those that accept `fields`. */
+    val FETCH_OPERATIONS: Set<String> = setOf("get", "list", "schema", "context", "next", "blocked")
+
+    const val NEXT_OPERATION = "next"
+    const val RELATED_OPERATION = "related"
+
+    /** Selects answering hit lists, not bodies: never a redundant read, never a follow-through target. */
+    val HIT_LIST_OPERATIONS: Set<String> = setOf("related", "search")
+
+    /** The `relatedFollowThrough` signals, in wire order; each is always present. */
+    val FOLLOW_THROUGH_SIGNALS: List<String> = listOf("edges", "links", "tags", "text")
+}
+
+/**
+ * One `waste` signal: [numerator] out of [denominator], with [value] their ratio rounded half up to 4 decimals (null when
+ * [denominator] is 0). [basis] is [ReportService.BASIS_MCP_SESSIONS] on a session signal, else null.
+ */
+data class WasteSignal(
+    val numerator: Long,
+    val denominator: Long,
+    val basis: String?
+) {
+    val value: BigDecimal?
+        get() =
+            if (denominator == 0L) {
+                null
+            } else {
+                BigDecimal.valueOf(numerator).divide(BigDecimal.valueOf(denominator), VALUE_SCALE, RoundingMode.HALF_UP)
+            }
+
+    companion object {
+        const val VALUE_SCALE = 4
+
+        fun of(
+            count: WasteCount,
+            basis: String? = null
+        ): WasteSignal = WasteSignal(count.numerator, count.denominator, basis)
+    }
+}
+
+/**
+ * The `waste` report: every signal is always present, and [relatedFollowThrough] always holds every
+ * [WasteToolClasses.FOLLOW_THROUGH_SIGNALS] key, in that order.
+ */
+data class WasteReport(
+    val window: ReportWindow,
+    val redundantReads: WasteSignal,
+    val overFetch: WasteSignal,
+    val readsWithoutLaterWrite: WasteSignal,
+    val emptyNext: WasteSignal,
+    val relatedFollowThrough: Map<String, WasteSignal>,
+    val lifecycleFreeRejections: WasteSignal
+)
+
+/**
  * The `report` selects (plan R9, W6 brief section 3.1): window rules, the accepted `groupBy` subset, visibility, and ONE
  * read unit per call over [io.github.jpicklyk.mcptask.current.application.port.ReportQueries].
  *
- * Visibility (W6 decision 10): for `usage` a tag-scoped caller is `forbidden` (scope tag) before any read, since
+ * Visibility (W6 decision 10): for `usage` and `waste` a tag-scoped caller is `forbidden` (scope tag) before any read, since
  * `call_log` rows carry no tags; a root-scoped caller sees only rows whose `root_id` is one of its roots (rows without a
  * root never); the `principal` grouping needs [CallContext.principalsVisible] (else `forbidden`, scope capability,
  * required `admin`). `gates` and `contention` read events instead: a tag-scoped caller is filtered, not refused.
@@ -297,6 +374,63 @@ class ReportService(
         }
     }
 
+    /**
+     * `report waste` (plan R12): the waste signals over a window of at most [MAX_WASTE_WINDOW] (the session-join bound),
+     * computed in ONE read unit with the same visibility as [usage], applied to both sides of every session join.
+     */
+    suspend fun waste(
+        ctx: CallContext,
+        req: ReportWasteRequest
+    ): Outcome<WasteReport> {
+        if (ctx.scope.tagsInclude.isNotEmpty()) return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.TAG, ctx.scope.tagsInclude))
+        val window =
+            when (val w = window(req.since, req.until, MAX_WASTE_WINDOW)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+
+        return unitOfWork.read<Outcome<WasteReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val queries = stores.reportQueries()
+            val counts =
+                queries.waste(
+                    WasteQuery(
+                        since = window.first,
+                        until = window.second,
+                        scopeRootIds = ctx.scope.rootIds,
+                        rootId = rootId,
+                        readTools = WasteToolClasses.READ,
+                        writeTools = WasteToolClasses.WRITE,
+                        itemsReadTool = WasteToolClasses.ITEMS_READ,
+                        fetchOperations = WasteToolClasses.FETCH_OPERATIONS,
+                        nextOperation = WasteToolClasses.NEXT_OPERATION,
+                        relatedOperation = WasteToolClasses.RELATED_OPERATION,
+                        hitListOperations = WasteToolClasses.HIT_LIST_OPERATIONS,
+                        sessionSurface = CallLogRecord.SURFACE_MCP
+                    )
+                )
+            Outcome.Ok(
+                WasteReport(
+                    window = reportWindow(window, queries.retainedSince()),
+                    redundantReads = WasteSignal.of(counts.redundantReads, BASIS_MCP_SESSIONS),
+                    overFetch = WasteSignal.of(counts.overFetch),
+                    readsWithoutLaterWrite = WasteSignal.of(counts.readsWithoutLaterWrite, BASIS_MCP_SESSIONS),
+                    emptyNext = WasteSignal.of(counts.emptyNext),
+                    relatedFollowThrough =
+                        WasteToolClasses.FOLLOW_THROUGH_SIGNALS.associateWith { signal ->
+                            WasteSignal.of(counts.relatedFollowThrough[signal] ?: WasteCount.ZERO, BASIS_MCP_SESSIONS)
+                        },
+                    lifecycleFreeRejections = WasteSignal.of(counts.lifecycleFreeRejections)
+                )
+            )
+        }
+    }
+
     private fun reportWindow(
         window: Pair<Instant, Instant>,
         retainedSince: Instant?
@@ -347,7 +481,8 @@ class ReportService(
      * ISO 8601 instants with `Z` or an offset (truncated to milliseconds, the precision `call_log.at` keeps), since must
      * be before until, and the window must span at most [max]: [MAX_DAILY_WINDOW] (400 days) for `usage`, where a window
      * of at most 31 days that the raw table fully holds reads the raw basis and anything else reads the daily basis (D6);
-     * [MAX_RAW_WINDOW] (31 days, the raw-table cap) for the event selects `gates` and `contention`, which have no daily basis.
+     * [MAX_RAW_WINDOW] (31 days, the raw-table cap) for the event selects `gates` and `contention`, which have no daily basis;
+     * [MAX_WASTE_WINDOW] (7 days, the session-join bound) for `waste`.
      */
     private fun window(
         sinceRaw: String?,
@@ -410,6 +545,12 @@ class ReportService(
 
         /** The longest window the raw table serves. */
         val MAX_RAW_WINDOW: Duration = Duration.ofDays(31)
+
+        /** The longest `waste` window: the session-join bound (joins never look past until). */
+        val MAX_WASTE_WINDOW: Duration = Duration.ofDays(7)
+
+        /** `basis` of a `waste` signal computed over MCP session rows only. */
+        const val BASIS_MCP_SESSIONS = "mcp_sessions"
 
         /** The longest window a report serves (the daily basis). */
         val MAX_DAILY_WINDOW: Duration = Duration.ofDays(400)

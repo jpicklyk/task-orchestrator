@@ -87,14 +87,14 @@ class ProfileVisibilityAllowlistTest {
 
     private companion object {
         /**
-         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9's report usage (aggregates only). Nothing that
+         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9 report usage and R12 report waste (aggregates only). Nothing that
          * can carry a note, document or transition body.
          */
         val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
             mapOf(
                 "items_read" to setOf("get", "list", "overview", "blocked"),
                 "deps_read" to setOf("list", "graph"),
-                "report" to setOf("usage", "gates", "contention")
+                "report" to setOf("usage", "gates", "contention", "waste")
             )
 
         /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */

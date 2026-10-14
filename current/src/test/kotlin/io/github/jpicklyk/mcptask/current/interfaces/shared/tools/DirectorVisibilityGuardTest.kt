@@ -31,12 +31,12 @@ import kotlin.test.assertTrue
  * field carries a `@Doc`; no member touches the database.
  */
 class DirectorVisibilityGuardTest {
-    /** The AC3 allow-list: tool name to member names. R9 added `report usage` (aggregates only, no note or document body). */
+    /** The AC3 allow-list: tool name to member names. R9 added `report usage` and R12 `report waste` (aggregates only, no note or document body). */
     private val allowed: Map<String, Set<String>> =
         mapOf(
             "items_read" to setOf("get", "list", "overview", "blocked"),
             "deps_read" to setOf("list", "graph"),
-            "report" to setOf("usage", "gates", "contention")
+            "report" to setOf("usage", "gates", "contention", "waste")
         )
 
     @Serializable
