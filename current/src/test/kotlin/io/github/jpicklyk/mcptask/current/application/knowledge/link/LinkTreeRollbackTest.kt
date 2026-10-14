@@ -134,7 +134,8 @@ class LinkTreeRollbackTest {
                         anchors = listOf(TreeAnchorInput("task-scope", "queue", "task-1"))
                     )
                 ),
-            docSlug = "my-plan"
+            docSlug = "my-plan",
+            caller = null
         )
 
     /** The tree service over [provider], as the `create_tree` op composes it. */

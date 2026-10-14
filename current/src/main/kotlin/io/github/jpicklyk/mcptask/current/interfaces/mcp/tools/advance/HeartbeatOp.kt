@@ -46,7 +46,7 @@ private suspend fun WriteScope.runHeartbeat(
     req: HeartbeatRequest
 ): Outcome<JsonElement> {
     val holder =
-        when (val resolved = AdvanceSupport.holderId(env, ctx)) {
+        when (val resolved = AdvanceSupport.holder(env, ctx)) {
             is Outcome.Err -> return resolved
             is Outcome.Ok -> resolved.value
         }
@@ -63,15 +63,16 @@ private suspend fun WriteScope.runHeartbeat(
             is Outcome.Err -> return loaded
             is Outcome.Ok -> loaded.value
         }
-    if (item.claimedBy != holder || !ClaimState.isActive(item, now)) return Outcome.Err(AdvanceSupport.notClaimHolder(id))
+    if (!holder.holds(item) || !ClaimState.isActive(item, now)) return Outcome.Err(AdvanceSupport.notClaimHolder(id))
 
     val result =
-        when (val outcome = env.claimService.claim(id, holder, req.ttlSeconds)) {
+        when (val outcome = env.claimService.claim(id, holder.principalId, req.ttlSeconds)) {
             is Outcome.Err -> return outcome
             is Outcome.Ok -> outcome.value
         }
     return when (result) {
-        is ClaimResult.Success -> Outcome.Ok(claimedElement(result.item, refreshed = true, selected = false, claimRef = null))
+        is ClaimResult.Success ->
+            Outcome.Ok(claimedElement(result.item, result.releasedItemIds, refreshed = true, selected = false, claimRef = null))
         is ClaimResult.AlreadyClaimed -> Outcome.Err(AdvanceSupport.claimHeld(result))
         is ClaimResult.NotFound -> Outcome.Err(AdvanceSupport.itemNotFound(result.itemId))
         is ClaimResult.TerminalItem -> Outcome.Err(AdvanceSupport.claimTerminal(result.itemId))

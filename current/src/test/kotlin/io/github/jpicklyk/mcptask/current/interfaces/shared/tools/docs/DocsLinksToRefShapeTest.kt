@@ -108,12 +108,12 @@ class DocsLinksToRefShapeTest {
                     .value()
             val referencingNote =
                 rig.ctx.noteCommandService
-                    .upsert(NoteUpsertCommand(owner.id, "refs", "work", "see [[plan:alpha-plan]]", null, null))
+                    .upsert(NoteUpsertCommand(owner.id, "refs", "work", "see [[plan:alpha-plan]]", null, null, caller = null))
                     .value()
                     .note.id
             val derivingNote =
                 rig.ctx.noteCommandService
-                    .upsert(NoteUpsertCommand(owner.id, "derived", "work", "no brackets here", null, null))
+                    .upsert(NoteUpsertCommand(owner.id, "derived", "work", "no brackets here", null, null, caller = null))
                     .value()
                     .note.id
             rig.ctx.linkService.recordDerivedFrom(root.id, derivingNote, "alpha-plan", "overview", Instant.now())

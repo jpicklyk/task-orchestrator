@@ -473,7 +473,7 @@ class NoteCommandServiceTest {
             val svc = service(perRoot = ThrowingPerRoot)
 
             assertFailsWith<PerRootConfigUnavailableException> {
-                svc.upsert(NoteUpsertCommand(item.id, "lim", "work", "ok", actorClaim = null, verification = null))
+                svc.upsert(NoteUpsertCommand(item.id, "lim", "work", "ok", actorClaim = null, verification = null, caller = null))
             }
             assertNull(db.repositoryProvider().noteRepository().findByItemIdAndKey(item.id, "lim"))
         }
@@ -493,7 +493,7 @@ class NoteCommandServiceTest {
     @Test
     fun `upsert on a missing item is NOT_FOUND`(): Unit =
         runBlocking {
-            val error = service().upsert(NoteUpsertCommand(UUID.randomUUID(), "k", "work", "b", null, null)).err()
+            val error = service().upsert(NoteUpsertCommand(UUID.randomUUID(), "k", "work", "b", null, null, caller = null)).err()
 
             assertEquals(ErrorCode.NOT_FOUND, error.code)
         }
@@ -505,7 +505,7 @@ class NoteCommandServiceTest {
             val svc = service()
             val claim = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
 
-            val first = svc.upsert(NoteUpsertCommand(item.id, "k", "Work", "x\r\ny", claim, null)).ok()
+            val first = svc.upsert(NoteUpsertCommand(item.id, "k", "Work", "x\r\ny", claim, null, caller = null)).ok()
             assertTrue(first.created)
             assertEquals("work", first.note.role)
             assertEquals("x\ny", first.note.body)
@@ -517,7 +517,7 @@ class NoteCommandServiceTest {
             assertEquals("x\ny", stored.body)
             assertEquals("agent-1", stored.actorClaim?.id)
 
-            val second = svc.upsert(NoteUpsertCommand(item.id, "k", "WORK", "z", claim, null)).ok()
+            val second = svc.upsert(NoteUpsertCommand(item.id, "k", "WORK", "z", claim, null, caller = null)).ok()
             assertTrue(!second.created, "re-upsert of the same (item, key) is an update")
             assertEquals(first.note.id, second.note.id)
             assertEquals(
@@ -546,7 +546,7 @@ class NoteCommandServiceTest {
             val result =
                 service(
                     schema(globalMode = "warn")
-                ).upsert(NoteUpsertCommand(item.id, "lim", "work", "x".repeat(11), null, null)).ok()
+                ).upsert(NoteUpsertCommand(item.id, "lim", "work", "x".repeat(11), null, null, caller = null)).ok()
 
             assertEquals(NoteLengthWarning("lim", 10, 11), result.warning)
             assertEquals(
@@ -569,9 +569,9 @@ class NoteCommandServiceTest {
             val tooLong =
                 service(
                     schema(globalMode = "reject")
-                ).upsert(NoteUpsertCommand(item.id, "lim", "work", "x".repeat(11), null, null))
-            val wrongRole = service().upsert(NoteUpsertCommand(item.id, "lim", "queue", "new", null, null))
-            val overCap = service().upsert(NoteUpsertCommand(item.id, "lim", "work", "a".repeat(65537), null, null))
+                ).upsert(NoteUpsertCommand(item.id, "lim", "work", "x".repeat(11), null, null, caller = null))
+            val wrongRole = service().upsert(NoteUpsertCommand(item.id, "lim", "queue", "new", null, null, caller = null))
+            val overCap = service().upsert(NoteUpsertCommand(item.id, "lim", "work", "a".repeat(65537), null, null, caller = null))
 
             assertEquals(ErrorCode.NOTE_TOO_LONG, tooLong.err().code)
             assertEquals(ErrorCode.SCHEMA_VIOLATION, wrongRole.err().code)
@@ -592,16 +592,16 @@ class NoteCommandServiceTest {
             repos.noteRepository().upsert(Note(itemId = item.id, key = "b", role = "work", body = "B"))
             val svc = service()
 
-            val deleted = svc.delete(item.id, "a").ok()
+            val deleted = svc.delete(item.id, "a", caller = null).ok()
             assertEquals("a", deleted.key)
             assertNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"))
             assertNotNull(repos.noteRepository().findByItemIdAndKey(item.id, "b"), "only the named key is deleted")
 
-            val again = svc.delete(item.id, "a").err()
+            val again = svc.delete(item.id, "a", caller = null).err()
             assertEquals(ErrorCode.NOT_FOUND, again.code)
             assertEquals(ErrorDetail.NotFound(EntityKind.NOTE, "${item.id}/a"), again.detail)
-            assertEquals(ErrorCode.NOT_FOUND, svc.delete(item.id, "A").err().code, "keys are case-sensitive")
-            val noItem = svc.delete(UUID(0, 1), "a").err()
+            assertEquals(ErrorCode.NOT_FOUND, svc.delete(item.id, "A", caller = null).err().code, "keys are case-sensitive")
+            val noItem = svc.delete(UUID(0, 1), "a", caller = null).err()
             assertEquals(ErrorDetail.NotFound(EntityKind.ITEM, UUID(0, 1).toString()), noItem.detail)
         }
 
@@ -613,11 +613,11 @@ class NoteCommandServiceTest {
             repos.noteRepository().upsert(Note(itemId = item.id, key = "a", role = "work", body = "A"))
             val svc = service()
 
-            val conflict = svc.delete(item.id, "a", expectedVersion = 5).err()
+            val conflict = svc.delete(item.id, "a", expectedVersion = 5, caller = null).err()
             assertEquals(ErrorCode.VERSION_CONFLICT, conflict.code)
             assertNotNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"), "a stale delete leaves the note")
 
-            assertEquals("a", svc.delete(item.id, "a", expectedVersion = 1).ok().key)
+            assertEquals("a", svc.delete(item.id, "a", expectedVersion = 1, caller = null).ok().key)
             assertNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"))
         }
 
@@ -634,7 +634,7 @@ class NoteCommandServiceTest {
             fun cmd(
                 body: String,
                 expected: Long? = null
-            ) = NoteUpsertCommand(item.id, "k", "work", body, null, null, expectedVersion = expected)
+            ) = NoteUpsertCommand(item.id, "k", "work", body, null, null, expectedVersion = expected, caller = null)
 
             assertEquals(
                 1L,
@@ -673,7 +673,7 @@ class NoteCommandServiceTest {
             val item = persist(plainItem())
             val svc = service()
 
-            fun cmd(expected: Long?) = NoteUpsertCommand(item.id, "k", "work", "b", null, null, expectedVersion = expected)
+            fun cmd(expected: Long?) = NoteUpsertCommand(item.id, "k", "work", "b", null, null, expectedVersion = expected, caller = null)
 
             // 0 on a missing note creates; n on a missing note conflicts with actual 0
             val missing = svc.upsert(cmd(3)).err()

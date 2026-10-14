@@ -113,13 +113,13 @@ class PlacementInvariantTest {
             val current = rig.raw.workItemRepository().getById(id)!!
             val change = if (newParent == null) ParentChange.MoveToRoot else ParentChange.MoveUnder(newParent)
             rig.ctx.itemCommandService
-                .patch(patchOf(current, parent = change))
+                .patch(patchOf(current, parent = change), caller = null)
                 .orFail()
         }
 
         override suspend fun delete(id: UUID) {
             rig.ctx.itemCommandService
-                .delete(id, recursive = true)
+                .delete(id, recursive = true, caller = null)
                 .orFail()
         }
     }
@@ -353,7 +353,7 @@ class PlacementInvariantTest {
                                 async {
                                     val current = rig.raw.workItemRepository().getById(p.id)!!
                                     val target = if (i % 2 == 1) ParentChange.MoveUnder(r2.id) else ParentChange.MoveUnder(mid.id)
-                                    svc.patch(patchOf(current, parent = target)).orFail()
+                                    svc.patch(patchOf(current, parent = target), caller = null).orFail()
                                 }
                             }
                         moves.awaitAll()

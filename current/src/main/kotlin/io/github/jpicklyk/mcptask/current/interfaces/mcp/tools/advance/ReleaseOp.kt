@@ -40,7 +40,7 @@ private suspend fun WriteScope.runRelease(
     req: ReleaseRequest
 ): Outcome<JsonElement> {
     val holder =
-        when (val resolved = AdvanceSupport.holderId(env, ctx)) {
+        when (val resolved = AdvanceSupport.holder(env, ctx)) {
             is Outcome.Err -> return resolved
             is Outcome.Ok -> resolved.value
         }
@@ -50,7 +50,7 @@ private suspend fun WriteScope.runRelease(
             is Outcome.Ok -> resolved.value
         }
     val result =
-        when (val outcome = env.claimService.release(id, holder)) {
+        when (val outcome = env.claimService.release(id, holder.principalId)) {
             is Outcome.Err -> return outcome
             is Outcome.Ok -> outcome.value
         }

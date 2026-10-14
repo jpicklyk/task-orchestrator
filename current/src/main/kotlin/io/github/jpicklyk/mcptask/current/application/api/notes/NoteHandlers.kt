@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
@@ -131,6 +132,11 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
+        val caller =
+            when (val resolved = caller(env, ctx)) {
+                is Outcome.Err -> return resolved
+                is Outcome.Ok -> resolved.value
+            }
         val text =
             if (file != null) {
                 when (val read = env.bodySource.read(file)) {
@@ -151,6 +157,7 @@ object NoteHandlers {
                         body = text,
                         actorClaim = principal.claim,
                         verification = principal.verification,
+                        caller = caller,
                         bodyFromFile = file,
                         expectedVersion = expected
                     )
@@ -194,7 +201,12 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val deleted = env.noteCommandService.delete(itemId, req.key, expected)
+        val caller =
+            when (val resolved = caller(env, ctx)) {
+                is Outcome.Err -> return resolved
+                is Outcome.Ok -> resolved.value
+            }
+        val deleted = env.noteCommandService.delete(itemId, req.key, expected, caller)
         return when (deleted) {
             is Outcome.Err -> deleted
             is Outcome.Ok -> Outcome.Ok(NoteWriteOutcome.Deleted(deleted.value.id))
@@ -202,6 +214,12 @@ object NoteHandlers {
     }
 
     // ---- shared steps -------------------------------------------------------------------------------------
+
+    /** The claim fence's caller: the call principal's trusted id ([ClaimHolder.resolve]); a policy rejection is `unauthenticated`. */
+    private fun caller(
+        env: ToolExecutionContext,
+        ctx: CallContext
+    ): Outcome<ClaimHolder> = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)
 
     /**
      * Resolves [rawItemId] by the one scope-aware rule ([ScopedIds.resolveTarget]): `not_found` / `ambiguous_id` for an

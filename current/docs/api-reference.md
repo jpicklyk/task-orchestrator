@@ -296,7 +296,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `properties` | object | no | Free-form JSON object without a traits key. |
 | `clear` | array of string: description \| statusLabel \| metadata \| complexity \| properties \| parentId | no | Update only: optional fields to set to null. |
 
-Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `partial_failure`, `schema_violation`, `unavailable`, `unknown_parameter`, `version_conflict`
+Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
 **`items_write` op `delete`** (knowledge and orchestration profiles; capability `write-items`; destructive): Delete an item; a parent needs recursive.
 
@@ -306,7 +306,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `
 | `recursive` | boolean | no | Delete the subtree; required when the item has children. |
 | `expectedVersion` | integer | no | Fails version_conflict if the item is at another version. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
 **`items_write` op `create_tree`** (orchestration profile only; capability `write-items`): Create a root (or attach to root.id) with children, dependencies and notes, all or nothing.
 
@@ -365,7 +365,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `docRef.slug` | string | yes | Slug (not rule/). |
 | `docRef.rootId` | string | no | Must be the tree's root (default). |
 
-Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_violation`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`items_write` op `complete_tree`** (orchestration profile only; capability `advance`): Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.
 
@@ -1007,7 +1007,7 @@ Create, replace or delete notes on work items, in batches. Every element commits
 | `bodyFromFile` | string | no | Server-side path whose text becomes the body. Exactly one of body and bodyFromFile is required. Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; a regular UTF-8 file of at most 65536 bytes; CRLF becomes LF. An idempotency replay does not re-read the file. |
 | `expectedVersion` | integer | no | Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_pinned_conflict`, `schema_violation`, `unavailable`, `unknown_parameter`, `version_conflict`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_pinned_conflict`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
 **`notes_write` op `delete`** (knowledge and orchestration profiles; capability `write-notes`; destructive): Delete the note at (item, key). A missing note is not_found.
 
@@ -1017,7 +1017,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `key` | string | yes | Note key, unique per item (1 to 200 characters, case-sensitive). |
 | `expectedVersion` | integer | no | Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 <!-- /generated:tool notes_write -->
 
 ---
@@ -1154,7 +1154,7 @@ Create and delete dependency edges between items: create, delete, and the patter
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
-Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`deps_write` op `delete`** (knowledge and orchestration profiles; capability `manage-dependencies`; destructive): Delete dependency edges. Give exactly one of: id (one edge, full UUID), from + to (with optional type), or item (every edge touching it). An unknown id is not_found; a from/to or item that matches nothing deletes 0.
 
@@ -1166,7 +1166,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `item` | string | no | Delete every edge touching this item (either end). Item id: a UUID or a hex prefix of 8 to 32 characters. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`deps_write` op `linear`** (knowledge and orchestration profiles; capability `manage-dependencies`): Create a chain: each item in ids blocks the next. All edges are created together or none.
 
@@ -1176,7 +1176,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
-Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`deps_write` op `fan_out`** (knowledge and orchestration profiles; capability `manage-dependencies`): Create from to each of toIds. All edges are created together or none.
 
@@ -1187,7 +1187,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
-Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`deps_write` op `fan_in`** (knowledge and orchestration profiles; capability `manage-dependencies`): Create each of fromIds to the to item. All edges are created together or none.
 
@@ -1198,7 +1198,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
-Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool deps_write -->
 
 ---
@@ -1225,27 +1225,33 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 | Op | Result element (on top of `ok: true`) |
 |---|---|
 | `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
-| `claim` | `{itemId, claimed: true, claimedAt, expiresAt, originalClaimedAt, refreshed?, selected?, claimRef?}` |
+| `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?}` |
 | `release` | `{itemId, released: true}` |
-| `heartbeat` | `{itemId, claimed: true, claimedAt, expiresAt, originalClaimedAt, refreshed: true}` |
+| `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
 
 `itemId` is a UUID or a dash-free hex prefix of 8 to 32 characters (`not_found` when nothing matches, `ambiguous_id` with the
 candidate ids when several do).
 
 **`transition` result.** `cascades` lists the parents evaluated as a side effect: `{itemId, previousRole, targetRole, applied,
-blocked?: gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
-`unblocked` is `[{itemId, title}]`. `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
+blocked?: ownership | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
+`unblocked` is `[{itemId, title}]`. Under a root- or tag-scoped token, a `cascades` or `unblocked` entry for an item the scope
+does not admit is `{itemId}` only (the same rule applies to `complete_tree` items and to `items_write` `cascade` entries).
+`expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
 `skillPointer` name the first missing required note's guidance and skill. `dispatch` is `{agent?, model?, effort?}` for the
 phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?, waived?}]`, present only when the list is
 non-empty. Empty and null members are omitted.
 
 **Ownership.** When an item has an active (non-expired) claim, `transition` requires the caller's trusted actor id to equal the
 holder, on every trigger and on both MCP and REST; any other caller gets `not_claim_holder`.
-An unclaimed item, or one whose claim has lapsed, can be transitioned by anyone. Cascades are system transitions and bypass the
-check. A transition that lands the item in `terminal` clears its claim. There is no override: an operator who must take over a
-claimed item waits out the claim TTL.
+An unclaimed item, or one whose claim has lapsed, can be transitioned by anyone. The same fence guards the other writes to a
+held item: `notes_write` `upsert`/`delete`, `items_write` `update`/`delete` (a recursive delete over a held descendant is refused
+for that descendant) and every `deps_write` op naming it answer `not_claim_holder{itemId}` and write nothing, checked right after
+the item lookup and before any version compare. A cascade into a parent another principal holds is not applied (`blocked:
+ownership`, see Cascades). A transition that lands the item in `terminal` clears its claim. There is no override: an operator who
+must take over a claimed item waits out the claim TTL.
 
-**Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor). The holder claiming
+**Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor) and listed in
+`released` (omitted when none). `version` is the item's row version (claim writes never bump it). The holder claiming
 again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
 it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). For claim, release and
 heartbeat the holder id is the principal's audited id after the degraded-mode policy (`unauthenticated` when the policy rejects). The holder's identity never appears in any error detail.
@@ -1256,7 +1262,9 @@ match (no active claim, no blocking ancestor claim by another actor, no unmet de
 reported. A selector that finds nothing claimable is `ok` with `{claimed: false}` plus, when matching items exist but none can be
 claimed, `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and `excluded: {claimed, ancestorClaimed,
 dependencyBlocked, outOfScope}`; nothing matched at all has no `reason`. Under a root- or tag-scoped token, candidates outside the
-scope are skipped and counted in `excluded.outOfScope`; a selector never answers `forbidden`.
+scope are skipped and counted in `excluded.outOfScope`; a selector never answers `forbidden`. Each candidate's ancestors are
+re-read inside the claim unit: one held by another principal skips it (counted in `excluded.ancestorClaimed`) and the next
+candidate is tried; an ancestor the caller holds never shields.
 
 **Error codes** (per element; the call is `207 partial_failure` when some elements fail): `invalid_request` (field pointers
 such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credentialRefs/1`),
@@ -1271,8 +1279,8 @@ caller's other claims kept; every `transition` trigger on a lifecycle-free item 
 
 **Cascades (the single source of cascade semantics).** A transition, and a structural edit, may re-evaluate the
 item's immediate parent inside the same unit. The parent goes through the same policy as a direct transition
-(table, warrant, hold, dependencies, notes, lease; claim ownership does not apply) with a cascade trigger, and a
-cascade applies only when the parent's schema lifecycle is `auto`: a parent that is lifecycle-free, `manual` or
+(table, warrant, hold, dependencies, notes, lease) with a cascade trigger, fenced for the caller of the write that
+caused it (see Suppressed below), and a cascade applies only when the parent's schema lifecycle is `auto`: a parent that is lifecycle-free, `manual` or
 `permanent` is left alone and nothing is reported. The result lists each cascade that applied or was suppressed in
 `cascades`.
 
@@ -1288,7 +1296,9 @@ cascade applies only when the parent's schema lifecycle is `auto`: a parent that
 - **Not reported.** A parent whose lifecycle is not `auto`, a parent in a role the cascade does not apply to, and a
   terminal cascade whose parent still has non-terminal children (or no children) produce no `cascades` entry.
 - **Suppressed, reported.** A cascade that would apply but is stopped by a gate appears with `applied: false`
-  and its reason: `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
+  and its reason: `blocked: ownership` (the parent has an active claim held by a principal other than the caller,
+  checked before every other gate; the parent keeps its role and claim and the chain stops there; `items_write`
+  reports `reason: not_claim_holder`), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
   unless it descends from a `cancel`, a start cascade checks the parent's current phase only, a reopen cascade
   never checks notes), `blocked: dependency` (the parent has an unmet blocker; `blockers`), `blocked: resource`
   (a start or reopen cascade into `work` whose exclusive lease is held elsewhere; `contended`), or `blocked: role`

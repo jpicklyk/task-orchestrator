@@ -203,29 +203,30 @@ class EventActorRootIdTest {
                         item.properties,
                         item.traits,
                     ),
+                    caller = null,
                 ).value()
                 .item
 
-        suspend fun deleteItem(id: UUID) = ctx.itemCommandService.delete(id, recursive = false).value()
+        suspend fun deleteItem(id: UUID) = ctx.itemCommandService.delete(id, recursive = false, caller = null).value()
 
         suspend fun upsertNote(note: Note): Note =
             ctx.noteCommandService
-                .upsert(NoteUpsertCommand(note.itemId, note.key, note.role, note.body, note.actorClaim, note.verification))
+                .upsert(NoteUpsertCommand(note.itemId, note.key, note.role, note.body, note.actorClaim, note.verification, caller = null))
                 .value()
                 .note
 
         suspend fun deleteNote(id: UUID) {
             val note = checkNotNull(ctx.noteRepository().getById(id)) { "no note $id to delete" }
-            ctx.noteCommandService.delete(note.itemId, note.key).value()
+            ctx.noteCommandService.delete(note.itemId, note.key, caller = null).value()
         }
 
         suspend fun addDependency(dep: Dependency): Dependency =
             ctx.dependencyCommandService
-                .create(listOf(dep))
+                .create(listOf(dep), caller = null)
                 .value()
                 .single()
 
-        suspend fun deleteDependency(id: UUID) = ctx.dependencyCommandService.deleteById(id).value()
+        suspend fun deleteDependency(id: UUID) = ctx.dependencyCommandService.deleteById(id, caller = null).value()
     }
 
     // -------------------------------------------------------------------------
@@ -510,10 +511,19 @@ class EventActorRootIdTest {
                         ItemCreateCommand(type = TEST_ITEM_TYPE, id = c2Id, parentId = rootId, title = "C2 s4d")
                     )
                     ctx.dependencyCommandService.createInUnit(
-                        listOf(Dependency(fromItemId = c1Id, toItemId = c2Id, type = DependencyType.BLOCKS))
+                        listOf(Dependency(fromItemId = c1Id, toItemId = c2Id, type = DependencyType.BLOCKS)),
+                        caller = null
                     )
                     ctx.noteCommandService.upsert(
-                        NoteUpsertCommand(c1Id, treeNote.key, treeNote.role, treeNote.body, treeNote.actorClaim, treeNote.verification),
+                        NoteUpsertCommand(
+                            c1Id,
+                            treeNote.key,
+                            treeNote.role,
+                            treeNote.body,
+                            treeNote.actorClaim,
+                            treeNote.verification,
+                            caller = null
+                        ),
                     )
                 }
             }

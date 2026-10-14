@@ -95,7 +95,7 @@ class DependencyCommandServiceTest {
         runBlocking {
             val input = dep(a, b, DependencyType.IS_BLOCKED_BY, unblockAt = "review")
 
-            val created = service.create(listOf(input)).ok()
+            val created = service.create(listOf(input), caller = null).ok()
 
             val row = created.single()
             assertEquals(b, row.fromItemId, "b blocks a")
@@ -116,7 +116,7 @@ class DependencyCommandServiceTest {
             val second = dep(c, d, DependencyType.BLOCKS)
             val third = dep(e, c, DependencyType.IS_BLOCKED_BY)
 
-            val created = service.create(listOf(first, second, third)).ok()
+            val created = service.create(listOf(first, second, third), caller = null).ok()
 
             assertEquals(listOf(first.id, second.id, third.id), created.map { it.id })
             assertEquals(
@@ -132,7 +132,12 @@ class DependencyCommandServiceTest {
     @Test
     fun `create leaves a BLOCKS row and a RELATES_TO row as given`(): Unit =
         runBlocking {
-            val created = service.create(listOf(dep(a, b, DependencyType.BLOCKS, "work"), dep(c, d, DependencyType.RELATES_TO))).ok()
+            val created =
+                service
+                    .create(
+                        listOf(dep(a, b, DependencyType.BLOCKS, "work"), dep(c, d, DependencyType.RELATES_TO)),
+                        caller = null
+                    ).ok()
 
             assertEquals(Triple(a, b, DependencyType.BLOCKS), Triple(created[0].fromItemId, created[0].toItemId, created[0].type))
             assertEquals("work", created[0].unblockAt)
@@ -142,7 +147,7 @@ class DependencyCommandServiceTest {
     @Test
     fun `create of an empty list succeeds and stores nothing`(): Unit =
         runBlocking {
-            assertEquals(emptyList<Dependency>(), service.create(emptyList()).ok())
+            assertEquals(emptyList<Dependency>(), service.create(emptyList(), caller = null).ok())
             assertEquals(0, stored(a, b, c, d, e).size)
         }
 
@@ -153,9 +158,9 @@ class DependencyCommandServiceTest {
     @Test
     fun `create rejects an IS_BLOCKED_BY restatement of a stored BLOCKS row as a duplicate naming the stored id`(): Unit =
         runBlocking {
-            val existing = service.create(listOf(dep(b, a, DependencyType.BLOCKS))).ok().single()
+            val existing = service.create(listOf(dep(b, a, DependencyType.BLOCKS)), caller = null).ok().single()
 
-            val error = service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY))).err()
+            val error = service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY)), caller = null).err()
 
             assertEquals(ErrorCode.DUPLICATE, error.code)
             val detail = assertIs<ErrorDetail.Duplicate>(error.detail)
@@ -167,11 +172,21 @@ class DependencyCommandServiceTest {
     @Test
     fun `create rejects a restatement within one request in both orders and stores nothing`(): Unit =
         runBlocking {
-            val blocksFirst = service.create(listOf(dep(b, a, DependencyType.BLOCKS), dep(a, b, DependencyType.IS_BLOCKED_BY))).err()
+            val blocksFirst =
+                service
+                    .create(
+                        listOf(dep(b, a, DependencyType.BLOCKS), dep(a, b, DependencyType.IS_BLOCKED_BY)),
+                        caller = null
+                    ).err()
             assertEquals(ErrorCode.DUPLICATE, blocksFirst.code)
             assertEquals(0, stored(a, b).size)
 
-            val aliasFirst = service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY), dep(b, a, DependencyType.BLOCKS))).err()
+            val aliasFirst =
+                service
+                    .create(
+                        listOf(dep(a, b, DependencyType.IS_BLOCKED_BY), dep(b, a, DependencyType.BLOCKS)),
+                        caller = null
+                    ).err()
             assertEquals(ErrorCode.DUPLICATE, aliasFirst.code)
             assertEquals(0, stored(a, b).size)
         }
@@ -180,12 +195,16 @@ class DependencyCommandServiceTest {
     fun `create treats edges with different unblockAt as duplicates`(): Unit =
         runBlocking {
             val withinRequest =
-                service.create(listOf(dep(a, b, DependencyType.BLOCKS, "work"), dep(a, b, DependencyType.BLOCKS, "terminal"))).err()
+                service
+                    .create(
+                        listOf(dep(a, b, DependencyType.BLOCKS, "work"), dep(a, b, DependencyType.BLOCKS, "terminal")),
+                        caller = null
+                    ).err()
             assertEquals(ErrorCode.DUPLICATE, withinRequest.code)
             assertEquals(0, stored(a, b).size)
 
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS, "work"))).ok()
-            val againstStored = service.create(listOf(dep(a, b, DependencyType.BLOCKS, "review"))).err()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS, "work")), caller = null).ok()
+            val againstStored = service.create(listOf(dep(a, b, DependencyType.BLOCKS, "review")), caller = null).err()
             assertEquals(ErrorCode.DUPLICATE, againstStored.code)
             assertEquals("work", stored(a, b).single().unblockAt, "the stored threshold is not upgraded")
         }
@@ -193,9 +212,9 @@ class DependencyCommandServiceTest {
     @Test
     fun `create rejects a repeated RELATES_TO edge as a duplicate`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.RELATES_TO))).ok()
+            service.create(listOf(dep(a, b, DependencyType.RELATES_TO)), caller = null).ok()
 
-            val error = service.create(listOf(dep(a, b, DependencyType.RELATES_TO))).err()
+            val error = service.create(listOf(dep(a, b, DependencyType.RELATES_TO)), caller = null).err()
 
             assertEquals(ErrorCode.DUPLICATE, error.code)
             assertEquals(1, stored(a, b).size)
@@ -204,9 +223,14 @@ class DependencyCommandServiceTest {
     @Test
     fun `create stores none of a request that contains a duplicate`(): Unit =
         runBlocking {
-            service.create(listOf(dep(b, a, DependencyType.BLOCKS))).ok()
+            service.create(listOf(dep(b, a, DependencyType.BLOCKS)), caller = null).ok()
 
-            val error = service.create(listOf(dep(c, d, DependencyType.BLOCKS), dep(a, b, DependencyType.IS_BLOCKED_BY))).err()
+            val error =
+                service
+                    .create(
+                        listOf(dep(c, d, DependencyType.BLOCKS), dep(a, b, DependencyType.IS_BLOCKED_BY)),
+                        caller = null
+                    ).err()
 
             assertEquals(ErrorCode.DUPLICATE, error.code)
             assertEquals(0, stored(c, d).size, "the valid sibling edge is not written")
@@ -219,9 +243,9 @@ class DependencyCommandServiceTest {
     @Test
     fun `create reports a cycle with its path when the new edge reverses a stored edge`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS))).ok()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS)), caller = null).ok()
 
-            val error = service.create(listOf(dep(b, a, DependencyType.BLOCKS))).err()
+            val error = service.create(listOf(dep(b, a, DependencyType.BLOCKS)), caller = null).err()
 
             assertEquals(ErrorCode.CYCLE_DETECTED, error.code)
             val detail = assertIs<ErrorDetail.CycleDetected>(error.detail)
@@ -232,10 +256,10 @@ class DependencyCommandServiceTest {
     @Test
     fun `create finds a cycle closed through a long chain of stored rows`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b), dep(b, c), dep(c, d), dep(d, e))).ok()
+            service.create(listOf(dep(a, b), dep(b, c), dep(c, d), dep(d, e)), caller = null).ok()
 
             // a IS_BLOCKED_BY e means e blocks a, closing a -> b -> c -> d -> e -> a
-            val error = service.create(listOf(dep(a, e, DependencyType.IS_BLOCKED_BY))).err()
+            val error = service.create(listOf(dep(a, e, DependencyType.IS_BLOCKED_BY)), caller = null).err()
 
             assertEquals(ErrorCode.CYCLE_DETECTED, error.code)
             val detail = assertIs<ErrorDetail.CycleDetected>(error.detail)
@@ -252,7 +276,8 @@ class DependencyCommandServiceTest {
                             dep(a, b, DependencyType.BLOCKS),
                             dep(c, b, DependencyType.IS_BLOCKED_BY),
                             dep(c, a, DependencyType.BLOCKS)
-                        )
+                        ),
+                        caller = null
                     ).err()
 
             assertEquals(ErrorCode.CYCLE_DETECTED, error.code)
@@ -262,10 +287,10 @@ class DependencyCommandServiceTest {
     @Test
     fun `create never reports a restatement as a cycle`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS))).ok()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS)), caller = null).ok()
 
             // b IS_BLOCKED_BY a is a BLOCKS a -> b again
-            val error = service.create(listOf(dep(b, a, DependencyType.IS_BLOCKED_BY))).err()
+            val error = service.create(listOf(dep(b, a, DependencyType.IS_BLOCKED_BY)), caller = null).err()
 
             assertEquals(ErrorCode.DUPLICATE, error.code)
         }
@@ -273,10 +298,10 @@ class DependencyCommandServiceTest {
     @Test
     fun `create lets RELATES_TO sit against a blocking edge in either direction`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS))).ok()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS)), caller = null).ok()
 
-            service.create(listOf(dep(b, a, DependencyType.RELATES_TO))).ok()
-            service.create(listOf(dep(a, b, DependencyType.RELATES_TO))).ok()
+            service.create(listOf(dep(b, a, DependencyType.RELATES_TO)), caller = null).ok()
+            service.create(listOf(dep(a, b, DependencyType.RELATES_TO)), caller = null).ok()
 
             assertEquals(3, stored(a, b).size)
         }
@@ -284,7 +309,7 @@ class DependencyCommandServiceTest {
     @Test
     fun `create never stores an IS_BLOCKED_BY row`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY), dep(c, d, DependencyType.IS_BLOCKED_BY))).ok()
+            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY), dep(c, d, DependencyType.IS_BLOCKED_BY)), caller = null).ok()
 
             assertTrue(stored(a, b, c, d).none { it.type == DependencyType.IS_BLOCKED_BY })
             assertEquals(2, stored(a, b, c, d).size)
@@ -342,46 +367,46 @@ class DependencyCommandServiceTest {
     @Test
     fun `deleteByRelationship with IS_BLOCKED_BY removes the BLOCKS row from the to side to the from side`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY))).ok() // b BLOCKS a
+            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY)), caller = null).ok() // b BLOCKS a
 
-            assertEquals(1, service.deleteByRelationship(a, b, DependencyType.IS_BLOCKED_BY).ok())
+            assertEquals(1, service.deleteByRelationship(a, b, DependencyType.IS_BLOCKED_BY, caller = null).ok())
             assertEquals(0, stored(a, b).size)
         }
 
     @Test
     fun `deleteByRelationship with no type matches only rows stored from the from side to the to side`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY))).ok() // stored b BLOCKS a
+            service.create(listOf(dep(a, b, DependencyType.IS_BLOCKED_BY)), caller = null).ok() // stored b BLOCKS a
 
-            assertEquals(0, service.deleteByRelationship(a, b, null).ok(), "no stored row runs from a to b")
+            assertEquals(0, service.deleteByRelationship(a, b, null, caller = null).ok(), "no stored row runs from a to b")
             assertEquals(1, stored(a, b).size)
 
-            assertEquals(1, service.deleteByRelationship(b, a, null).ok())
+            assertEquals(1, service.deleteByRelationship(b, a, null, caller = null).ok())
             assertEquals(0, stored(a, b).size)
         }
 
     @Test
     fun `deleteByRelationship with no type removes every type from the from side to the to side`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS), dep(a, b, DependencyType.RELATES_TO))).ok()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS), dep(a, b, DependencyType.RELATES_TO)), caller = null).ok()
 
-            assertEquals(2, service.deleteByRelationship(a, b, null).ok())
+            assertEquals(2, service.deleteByRelationship(a, b, null, caller = null).ok())
             assertEquals(0, stored(a, b).size)
         }
 
     @Test
     fun `deleteByRelationship with RELATES_TO leaves the blocking row`(): Unit =
         runBlocking {
-            service.create(listOf(dep(a, b, DependencyType.BLOCKS), dep(a, b, DependencyType.RELATES_TO))).ok()
+            service.create(listOf(dep(a, b, DependencyType.BLOCKS), dep(a, b, DependencyType.RELATES_TO)), caller = null).ok()
 
-            assertEquals(1, service.deleteByRelationship(a, b, DependencyType.RELATES_TO).ok())
+            assertEquals(1, service.deleteByRelationship(a, b, DependencyType.RELATES_TO, caller = null).ok())
             assertEquals(listOf(DependencyType.BLOCKS), stored(a, b).map { it.type })
         }
 
     @Test
     fun `deleteByRelationship of an absent relationship deletes zero`(): Unit =
         runBlocking {
-            assertEquals(0, service.deleteByRelationship(a, b, DependencyType.IS_BLOCKED_BY).ok())
-            assertEquals(0, service.deleteByRelationship(a, b, null).ok())
+            assertEquals(0, service.deleteByRelationship(a, b, DependencyType.IS_BLOCKED_BY, caller = null).ok())
+            assertEquals(0, service.deleteByRelationship(a, b, null, caller = null).ok())
         }
 }

@@ -33,7 +33,9 @@ internal val noteUpsertOp =
                 ErrorCode.PAYLOAD_TOO_LARGE,
                 ErrorCode.NOTE_TOO_LONG,
                 ErrorCode.SCHEMA_VIOLATION,
-                ErrorCode.SCHEMA_PINNED_CONFLICT
+                ErrorCode.SCHEMA_PINNED_CONFLICT,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> NoteHandlers.upsert(this, env, ctx, req) }
     )
@@ -47,7 +49,15 @@ internal val noteDeleteOp =
         destructive = true,
         capability = ApiCapability.WRITE_NOTES,
         request = serializer<NoteDeleteRequest>(),
-        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.VERSION_CONFLICT),
+        errors =
+            setOf(
+                ErrorCode.NOT_FOUND,
+                ErrorCode.AMBIGUOUS_ID,
+                ErrorCode.FORBIDDEN,
+                ErrorCode.VERSION_CONFLICT,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
+            ),
         execute = { env, ctx, req -> NoteHandlers.delete(this, env, ctx, req) }
     )
 

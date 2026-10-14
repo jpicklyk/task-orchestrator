@@ -80,7 +80,7 @@ internal class DocSeeder(
     ): UUID {
         val id =
             ctx.noteCommandService
-                .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null))
+                .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null, caller = null))
                 .value()
                 .note.id
         remember(id, EntityRef(RefKind.NOTE, id))

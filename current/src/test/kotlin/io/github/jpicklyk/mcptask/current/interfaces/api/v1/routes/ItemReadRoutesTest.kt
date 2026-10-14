@@ -115,7 +115,7 @@ class ItemReadRoutesTest {
             assertEquals(304, get("/items/${item.id}", headers = listOf(ifNoneMatch to etag(old))).status, "control")
 
             rig.ctx.itemCommandService
-                .patch(patchOf(rig.raw.workItemRepository().getById(item.id)!!, title = "After"))
+                .patch(patchOf(rig.raw.workItemRepository().getById(item.id)!!, title = "After"), caller = null)
                 .orFail()
             val now =
                 rig.raw

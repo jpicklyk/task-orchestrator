@@ -333,8 +333,21 @@ class AdvanceServiceTerminalClaimClearTest {
             coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
+            // R19: a cascade is fenced for the caller, so the parent's holder completes the child (a caller-less advance
+            // would be ownershipBlocked on the held parent).
+            val actor = ActorClaim(id = "agent-parent", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
             val outcome =
-                serviceWith().advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(
+                    advanceStores,
+                    child,
+                    "complete",
+                    null,
+                    actor,
+                    verification,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    true
+                )
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size)
             val cascade = success.result.cascadeEvents.first()

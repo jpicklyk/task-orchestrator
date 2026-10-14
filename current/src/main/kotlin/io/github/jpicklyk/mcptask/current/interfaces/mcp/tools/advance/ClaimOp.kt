@@ -12,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -24,6 +26,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
@@ -70,7 +74,7 @@ private suspend fun WriteScope.runClaim(
     req: ClaimRequest
 ): Outcome<JsonElement> {
     val holder =
-        when (val resolved = AdvanceSupport.holderId(env, ctx)) {
+        when (val resolved = AdvanceSupport.holder(env, ctx)) {
             is Outcome.Err -> return resolved
             is Outcome.Ok -> resolved.value
         }
@@ -99,18 +103,27 @@ private suspend fun WriteScope.runClaim(
 internal suspend fun WriteScope.claimItem(
     env: ToolExecutionContext,
     id: UUID,
-    holder: String,
+    holder: ClaimHolder,
     req: ClaimRequest,
     selected: Boolean
 ): Outcome<JsonElement> {
     val before = stores.workItemRepository().getById(id)
     val result =
-        when (val outcome = env.claimService.claim(id, holder, req.ttlSeconds)) {
+        when (val outcome = env.claimService.claim(id, holder.principalId, req.ttlSeconds)) {
             is Outcome.Err -> return outcome
             is Outcome.Ok -> outcome.value
         }
     return when (result) {
-        is ClaimResult.Success -> Outcome.Ok(claimedElement(result.item, refreshed = before?.claimedBy == holder, selected, req.claimRef))
+        is ClaimResult.Success ->
+            Outcome.Ok(
+                claimedElement(
+                    result.item,
+                    result.releasedItemIds,
+                    refreshed = before?.let(holder::holds) == true,
+                    selected = selected,
+                    claimRef = req.claimRef
+                )
+            )
         is ClaimResult.AlreadyClaimed -> Outcome.Err(AdvanceSupport.claimHeld(result))
         is ClaimResult.NotFound -> Outcome.Err(AdvanceSupport.itemNotFound(result.itemId))
         is ClaimResult.TerminalItem -> Outcome.Err(AdvanceSupport.claimTerminal(result.itemId))
@@ -121,7 +134,7 @@ internal suspend fun WriteScope.claimItem(
 private suspend fun WriteScope.claimBySelector(
     env: ToolExecutionContext,
     ctx: CallContext,
-    holder: String,
+    holder: ClaimHolder,
     req: ClaimRequest,
     select: ClaimSelect
 ): Outcome<JsonElement> {
@@ -132,28 +145,49 @@ private suspend fun WriteScope.claimBySelector(
                 is Outcome.Ok -> resolved.value
             }
         }
-    val criteria = criteria(select, parentId).copy(requestingAgentId = holder)
+    val criteria = criteria(select, parentId).copy(requestingAgentId = holder.principalId)
     val candidates = env.nextItemRecommender.recommend(criteria, SELECT_CANDIDATES)
 
     // A selector names no item, so a scope never answers `forbidden` here: out-of-scope candidates are skipped.
     var outOfScope = 0
+    var ancestorHeld = 0
     var chosen: WorkItem? = null
     for (candidate in candidates) {
-        if (ScopeGuard.check(ctx.scope, candidate.id, stores.workItemRepository()) is Outcome.Ok) {
-            chosen = candidate
-            break
+        if (ScopeGuard.check(ctx.scope, candidate.id, stores.workItemRepository()) !is Outcome.Ok) {
+            outOfScope++
+            continue
         }
-        outOfScope++
+        // The recommender read outside this unit: an ancestor claimed since by another principal shields the
+        // candidate, so the ancestors are re-read here, inside the claim unit.
+        if (heldAncestor(candidate, holder)) {
+            ancestorHeld++
+            continue
+        }
+        chosen = candidate
+        break
     }
     if (chosen != null) return claimItem(env, chosen.id, holder, req, selected = true)
 
-    val excluded =
+    val base =
         if (candidates.isEmpty()) {
             env.nextItemRecommender.explainEmpty(criteria)
         } else {
             NextItemRecommender.ExclusionCounts(claimed = 0, ancestorClaimed = 0, dependencyBlocked = 0)
         }
+    val excluded = base.copy(ancestorClaimed = base.ancestorClaimed + ancestorHeld)
     return Outcome.Ok(emptyElement(excluded, outOfScope, req.claimRef))
+}
+
+/**
+ * True when an ancestor of [candidate], re-read in the current unit, carries an active claim held by someone other
+ * than [holder] (the fence predicate, [FenceGuard]); an ancestor [holder] holds, or a lapsed claim, never shields.
+ */
+private suspend fun WriteScope.heldAncestor(
+    candidate: WorkItem,
+    holder: ClaimHolder
+): Boolean {
+    val ancestors = stores.workItemRepository().findAncestorChains(setOf(candidate.id))[candidate.id].orEmpty()
+    return ancestors.any { FenceGuard.check(it, holder, now) is Outcome.Err }
 }
 
 private fun criteria(
@@ -197,9 +231,14 @@ private fun order(order: SelectOrder): NextItemOrder =
         SelectOrder.NEWEST -> NextItemOrder.NEWEST_FIRST
     }
 
-/** `{itemId, claimed: true, claimedAt, expiresAt, originalClaimedAt, refreshed?, selected?, claimRef?}`. */
+/**
+ * `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?}`.
+ * `version` is the item row version read back after the claim (claim writes never bump it); `released` lists the
+ * other items the claim auto-released, in store order, and is omitted when there are none.
+ */
 internal fun claimedElement(
     item: WorkItem,
+    released: List<UUID>,
     refreshed: Boolean,
     selected: Boolean,
     claimRef: String?
@@ -207,9 +246,11 @@ internal fun claimedElement(
     buildJsonObject {
         put("itemId", item.id.toString())
         put("claimed", true)
+        put("version", item.version)
         item.claimedAt?.let { put("claimedAt", it.toString()) }
         item.claimExpiresAt?.let { put("expiresAt", it.toString()) }
         (item.originalClaimedAt ?: item.claimedAt)?.let { put("originalClaimedAt", it.toString()) }
+        if (released.isNotEmpty()) put("released", buildJsonArray { released.forEach { add(JsonPrimitive(it.toString())) } })
         if (refreshed) put("refreshed", true)
         if (selected) put("selected", true)
         claimRef?.let { put("claimRef", it) }

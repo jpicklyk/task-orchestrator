@@ -105,7 +105,7 @@ class ReparentLinkRestampTest {
         body: String
     ): UUID =
         notes
-            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null))
+            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null, caller = null))
             .value()
             .note.id
 
@@ -123,7 +123,7 @@ class ReparentLinkRestampTest {
         item: WorkItem,
         parent: ParentChange
     ) {
-        items.patch(patchOf(fresh(item), parent = parent)).value()
+        items.patch(patchOf(fresh(item), parent = parent), caller = null).value()
     }
 
     private fun hex(id: UUID) = id.toString().replace("-", "")
@@ -298,7 +298,7 @@ class ReparentLinkRestampTest {
             move(w.i, ParentChange.MoveUnder(w.b.id))
             assertNotNull(provider.documentStore().get(w.a.id, DocumentKind.PLAN, "plan-a"), "control: the plan exists before the delete")
 
-            items.delete(w.a.id, recursive = true).value()
+            items.delete(w.a.id, recursive = true, caller = null).value()
 
             val iLinks = from(noteRef(w.noteI))
             assertEquals(2, iLinks.size, "both of I's note links survive the deletion of the old root: $iLinks")

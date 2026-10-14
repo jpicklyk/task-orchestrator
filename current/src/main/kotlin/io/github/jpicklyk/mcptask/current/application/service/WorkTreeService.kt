@@ -89,7 +89,8 @@ sealed interface TreeRootInput {
  * A whole work tree request. [docSlug] names the plan document every anchor is cut from (the root adopts it last);
  * [docRootRef] is its project root as the caller wrote it (a UUID or hex prefix), matched against the tree's own root
  * and never looked up, so a foreign or unknown id is the same `invalid_request` and reveals nothing. The note actor is
- * [actorClaim] / [verification] for every note the tree writes.
+ * [actorClaim] / [verification] for every note the tree writes. [caller] is who the tree's dependency and note writes
+ * are fenced for ([FenceGuard]); new items are unclaimed, so only an attached root can be fenced.
  */
 data class WorkTreeRequest(
     val root: TreeRootInput,
@@ -100,7 +101,8 @@ data class WorkTreeRequest(
     val docSlug: String? = null,
     val docRootRef: String? = null,
     val actorClaim: ActorClaim? = null,
-    val verification: VerificationResult? = null
+    val verification: VerificationResult? = null,
+    val caller: ClaimHolder?
 )
 
 /** One item a tree wrote (or attached to): its [ref], [id] and stored [depth]. */
@@ -150,7 +152,8 @@ class WorkTreePlan internal constructor(
     internal val notes: List<PlannedTreeNote>,
     internal val adoption: TreeAdoption?,
     internal val actorClaim: ActorClaim?,
-    internal val verification: VerificationResult?
+    internal val verification: VerificationResult?,
+    internal val caller: ClaimHolder?
 )
 
 /** A note that passed the write policy, ready to upsert. [derivedFrom] is the anchor its body was cut at, if any. */
@@ -375,7 +378,8 @@ class WorkTreeService(
                 notes = notes,
                 adoption = adoption,
                 actorClaim = request.actorClaim,
-                verification = request.verification
+                verification = request.verification,
+                caller = request.caller
             )
         )
     }
@@ -401,7 +405,7 @@ class WorkTreeService(
             }
 
             val storedDeps =
-                when (val stored = dependencyCommandService.createInUnit(plan.deps.map { it.dependency })) {
+                when (val stored = dependencyCommandService.createInUnit(plan.deps.map { it.dependency }, plan.caller)) {
                     is Outcome.Err -> return@write stored
                     is Outcome.Ok -> stored.value
                 }
@@ -410,7 +414,7 @@ class WorkTreeService(
             for (note in plan.notes) {
                 val upserted =
                     noteCommandService.upsert(
-                        NoteUpsertCommand(note.itemId, note.key, note.role, note.body, plan.actorClaim, plan.verification)
+                        NoteUpsertCommand(note.itemId, note.key, note.role, note.body, plan.actorClaim, plan.verification, plan.caller)
                     )
                 when (upserted) {
                     is Outcome.Err -> return@write upserted

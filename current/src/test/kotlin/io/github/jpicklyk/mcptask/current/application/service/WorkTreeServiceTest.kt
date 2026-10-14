@@ -69,7 +69,8 @@ class WorkTreeServiceTest {
         deps = deps,
         notes = notes,
         createNotes = createNotes,
-        docSlug = docSlug
+        docSlug = docSlug,
+        caller = null
     )
 
     private fun count(table: String): Int = rawCount(db.jdbcUrl, "SELECT count(*) FROM $table")
@@ -261,7 +262,7 @@ class WorkTreeServiceTest {
             val existing = rig.seed("Existing", project)
             val tree =
                 workTreeService(rig.ctx)
-                    .create(WorkTreeRequest(root = TreeRootInput.Attach(existing.id), children = listOf(item("a"))))
+                    .create(WorkTreeRequest(root = TreeRootInput.Attach(existing.id), children = listOf(item("a")), caller = null))
                     .ok()
 
             assertEquals(existing.id, tree.rootId)

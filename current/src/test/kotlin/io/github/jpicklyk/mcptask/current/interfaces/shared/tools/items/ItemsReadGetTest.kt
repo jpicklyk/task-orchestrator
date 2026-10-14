@@ -259,7 +259,7 @@ class ItemsReadGetTest {
             )
 
             rig.ctx.itemCommandService
-                .patch(patchOf(rig.raw.workItemRepository().getById(item.id)!!, title = "After"))
+                .patch(patchOf(rig.raw.workItemRepository().getById(item.id)!!, title = "After"), caller = null)
                 .orFail()
 
             val d = select(getArgs(item.id.toString(), ""","ifVersion":$old""")).data

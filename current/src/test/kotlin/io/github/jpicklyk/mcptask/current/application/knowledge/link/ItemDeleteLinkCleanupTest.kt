@@ -118,7 +118,7 @@ class ItemDeleteLinkCleanupTest {
         body: String
     ): UUID =
         notes
-            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null))
+            .upsert(NoteUpsertCommand(itemId, key, "work", body, null, null, caller = null))
             .value()
             .note.id
 
@@ -257,7 +257,7 @@ class ItemDeleteLinkCleanupTest {
             assertEquals(listOf(noteRef(n)), inbound(itemRef(sibling)).map { it.from }, "control: the sibling has a backlink from the note")
             val before = snapshot()
 
-            items.delete(leaf.id, recursive = false).value()
+            items.delete(leaf.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), from(noteRef(n)))
             assertEquals(emptyList(), inbound(itemRef(sibling)), "the sibling's backlink from the deleted note is gone")
@@ -281,7 +281,7 @@ class ItemDeleteLinkCleanupTest {
             levels.forEach { assertTrue(inbound(itemRef(it)).isNotEmpty(), "control: ${it.title} has an inbound link before the delete") }
             val before = snapshot()
 
-            val result = items.delete(p.id, recursive = true).value()
+            val result = items.delete(p.id, recursive = true, caller = null).value()
 
             assertEquals(2, result.descendantsDeleted)
             noteIds.forEach { assertEquals(emptyList(), from(noteRef(it)), "note $it") }
@@ -307,7 +307,7 @@ class ItemDeleteLinkCleanupTest {
             val keptLink = insertLink(itemRef(surviving), docRef(docA), "plan:plan-a", LinkRelation.REFERENCES)
             val before = snapshot()
 
-            items.delete(leaf.id, recursive = false).value()
+            items.delete(leaf.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), from(itemRef(leaf)))
             assertEquals(listOf(keptLink.id), from(itemRef(surviving)).map { it.id })
@@ -336,7 +336,7 @@ class ItemDeleteLinkCleanupTest {
             val docLinkBefore = from(noteRef(observer)).single { it.to == docRef(docA) }
             val before = snapshot()
 
-            items.delete(victim.id, recursive = false).value()
+            items.delete(victim.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), inbound(itemRef(victim)), "nothing resolves to the deleted item any more")
             assertEquals(docLinkBefore, from(noteRef(observer)).single { it.to == docRef(docA) }, "the observer's other link is untouched")
@@ -356,7 +356,7 @@ class ItemDeleteLinkCleanupTest {
             val before = snapshot()
             val adoptionBefore = assertNotNull(docs.adoptionOf(adopted), "control: the adoption exists")
 
-            items.delete(adopter.id, recursive = false).value()
+            items.delete(adopter.id, recursive = false, caller = null).value()
 
             val after = assertNotNull(docs.adoptionOf(adopted), "the ADOPTED_BY link outlives the adopting item")
             assertEquals(adoptionBefore, after, "the adoption row is unchanged")
@@ -380,7 +380,7 @@ class ItemDeleteLinkCleanupTest {
             assertEquals(2, from(noteRef(observer)).size, "control: two resolved references")
             val before = snapshot()
 
-            items.delete(p.id, recursive = true).value()
+            items.delete(p.id, recursive = true, caller = null).value()
 
             assertEquals(itemRef(g), assertNotNull(docs.adoptionOf(adopted)).to)
             assertEquals(emptyList(), from(noteRef(observer)), "references to the deleted descendants are gone")
@@ -404,7 +404,7 @@ class ItemDeleteLinkCleanupTest {
             )
             val before = snapshot()
 
-            items.delete(victim.id, recursive = false).value()
+            items.delete(victim.id, recursive = false, caller = null).value()
 
             assertEquals(setOf(LinkRelation.ADOPTED_BY), from(docRef(d)).map { it.relation }.toSet())
             assertEquals(itemRef(victim), assertNotNull(docs.adoptionOf(d)).to)
@@ -423,13 +423,13 @@ class ItemDeleteLinkCleanupTest {
             val oldRootLink = from(noteRef(n)).single()
             assertEquals(otherRootId, oldRootLink.rootItemId, "control: the link is recorded under the old root")
 
-            items.patch(patchOf(x, parent = ParentChange.MoveUnder(rootId))).value()
+            items.patch(patchOf(x, parent = ParentChange.MoveUnder(rootId)), caller = null).value()
             assertEquals(rootId, provider.workItemRepository().getById(x.id)!!.rootId, "control: X now lives under the new root")
             links.attach(rootId, DocumentKind.PLAN, "plan-a", x.id).value()
             insertLink(itemRef(x), docRef(docA), "plan:plan-a", LinkRelation.REFERENCES, root = otherRootId)
             val before = snapshot()
 
-            items.delete(x.id, recursive = false).value()
+            items.delete(x.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), from(noteRef(n)), "the old-root link sourced from the deleted note is gone")
             assertEquals(emptyList(), from(itemRef(x)))
@@ -445,10 +445,10 @@ class ItemDeleteLinkCleanupTest {
             val x = newItem(otherRoot, "X")
             val n = upsertNote(x.id, "k", "from the old root [[plan-r2]]")
             assertEquals(otherRootId, from(noteRef(n)).single().rootItemId, "control: recorded under the old root")
-            items.patch(patchOf(x, parent = ParentChange.MoveUnder(rootId))).value()
+            items.patch(patchOf(x, parent = ParentChange.MoveUnder(rootId)), caller = null).value()
             val before = snapshot()
 
-            items.delete(rootId, recursive = true).value()
+            items.delete(rootId, recursive = true, caller = null).value()
 
             assertTrue(before.any { it.sourcedFrom(noteRef(n)) }, "control: the row existed")
             assertEquals(emptyList(), from(noteRef(n)), "a root_item_id cascade cannot reach this row; entity matching must")
@@ -472,7 +472,7 @@ class ItemDeleteLinkCleanupTest {
             val keptBefore = from(noteRef(keepNote)).single()
             val before = snapshot()
 
-            items.delete(leaf.id, recursive = false).value()
+            items.delete(leaf.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), from(noteRef(n)))
             assertEquals(keptBefore, from(noteRef(keepNote)).single(), "the surviving note's dangling link is untouched")
@@ -494,7 +494,7 @@ class ItemDeleteLinkCleanupTest {
             val before = snapshot()
             assertTrue(before.any { it.targets(itemRef(p)) }, "control: an inbound link to the refused parent exists")
 
-            val err = items.delete(p.id, recursive = false).error()
+            val err = items.delete(p.id, recursive = false, caller = null).error()
 
             assertEquals(ErrorCode.INVALID_REQUEST, err.code)
             assertEquals(sorted(before), sorted(snapshot()))
@@ -514,13 +514,13 @@ class ItemDeleteLinkCleanupTest {
             assertTrue(before.any { it.sourcedFrom(noteRef(n)) } && before.any { it.targets(itemRef(doomed)) }, "control: links both ways")
             exec("CREATE TRIGGER s10_fault BEFORE DELETE ON work_items WHEN OLD.title = 'doomed' BEGIN SELECT RAISE(ABORT, 'inj'); END")
 
-            assertDeleteFails { items.delete(doomed.id, recursive = false) }
+            assertDeleteFails { items.delete(doomed.id, recursive = false, caller = null) }
 
             assertEquals(sorted(before), sorted(snapshot()), "the failed unit rolled every link change back")
             assertEquals(1, scalar("SELECT count(*) FROM work_items WHERE title = 'doomed'"), "control: the item is still there")
 
             exec("DROP TRIGGER s10_fault")
-            items.delete(doomed.id, recursive = false).value()
+            items.delete(doomed.id, recursive = false, caller = null).value()
             assertEquals(emptyList(), from(noteRef(n)), "control: without the fault the same delete cleans the links")
         }
 
@@ -539,7 +539,7 @@ class ItemDeleteLinkCleanupTest {
             assertTrue(before.any { it.sourcedFrom(noteRef(noteC)) } && before.any { it.sourcedFrom(noteRef(noteG)) }, "control")
             exec("CREATE TRIGGER s10b_fault BEFORE DELETE ON work_items WHEN OLD.title = 'doomed' BEGIN SELECT RAISE(ABORT, 'inj'); END")
 
-            assertDeleteFails { items.delete(doomed.id, recursive = true) }
+            assertDeleteFails { items.delete(doomed.id, recursive = true, caller = null) }
 
             assertEquals(sorted(before), sorted(snapshot()), "no descendant-level cleanup survives the failed unit")
             assertEquals(3, scalar("SELECT count(*) FROM work_items WHERE title IN ('doomed','C','G')"), "control: nothing was deleted")
@@ -561,14 +561,14 @@ class ItemDeleteLinkCleanupTest {
             upsertNote(leaf.id, "k", "[[plan-a]]")
             val beforeAll = snapshot()
 
-            assertEquals(ErrorCode.NOT_FOUND, items.delete(UUID.randomUUID(), recursive = true).error().code)
+            assertEquals(ErrorCode.NOT_FOUND, items.delete(UUID.randomUUID(), recursive = true, caller = null).error().code)
             assertEquals(sorted(beforeAll), sorted(snapshot()), "an unknown id changes no link")
 
-            items.delete(leaf.id, recursive = false).value()
+            items.delete(leaf.id, recursive = false, caller = null).value()
             val afterFirst = snapshot()
             assertTrue(afterFirst.size < beforeAll.size, "control: the first delete removed the leaf's link")
 
-            assertEquals(ErrorCode.NOT_FOUND, items.delete(leaf.id, recursive = false).error().code)
+            assertEquals(ErrorCode.NOT_FOUND, items.delete(leaf.id, recursive = false, caller = null).error().code)
             assertEquals(sorted(afterFirst), sorted(snapshot()), "the replay changes no link")
         }
 
@@ -586,10 +586,10 @@ class ItemDeleteLinkCleanupTest {
             upsertNote(peer.id, "k", "[[item:${linked.id}]]")
 
             val m0 = eventTypes().size
-            val rLinked = items.delete(linked.id, recursive = false).value()
+            val rLinked = items.delete(linked.id, recursive = false, caller = null).value()
             val linkedEvents = eventTypes().drop(m0)
             val m1 = eventTypes().size
-            val rPlain = items.delete(plain.id, recursive = false).value()
+            val rPlain = items.delete(plain.id, recursive = false, caller = null).value()
             val plainEvents = eventTypes().drop(m1)
 
             assertTrue(linkedEvents.isNotEmpty(), "control: a delete emits events")
@@ -611,7 +611,7 @@ class ItemDeleteLinkCleanupTest {
             val before = snapshot()
             assertTrue(before.isNotEmpty(), "control: other links exist that could be touched by mistake")
 
-            items.delete(bare.id, recursive = false).value()
+            items.delete(bare.id, recursive = false, caller = null).value()
 
             assertEquals(sorted(before), sorted(snapshot()))
         }
@@ -625,7 +625,7 @@ class ItemDeleteLinkCleanupTest {
             insertLink(noteRef(n), docRef(docA), null, LinkRelation.DERIVED_FROM, anchor = "overview")
             val before = snapshot()
 
-            items.delete(leaf.id, recursive = false).value()
+            items.delete(leaf.id, recursive = false, caller = null).value()
 
             assertEquals(emptyList(), from(noteRef(n)))
             assertOnlyRemoved(before, "P2") { it.sourcedFrom(noteRef(n)) }
@@ -658,7 +658,7 @@ class ItemDeleteLinkCleanupTest {
                 "control: one note-sourced link per child"
             )
 
-            val result = items.delete(p.id, recursive = true).value()
+            val result = items.delete(p.id, recursive = true, caller = null).value()
 
             assertEquals(count, result.descendantsDeleted)
             val after = snapshot()

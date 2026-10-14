@@ -79,7 +79,7 @@ class WorkItemDeletionBulkSubtreeTest {
             db.unitOfWork().inUnit {
                 val conn = TransactionManager.current().connection.connection as Connection
                 conn.unwrap(SQLiteConnection::class.java).setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, 600)
-                outcome = deletion.delete(root.id, recursive = true)
+                outcome = deletion.delete(root.id, recursive = true, caller = null)
             }
 
             assertEquals(root.id to expectedDescendants, deleted(outcome))
@@ -108,7 +108,7 @@ class WorkItemDeletionBulkSubtreeTest {
                 WorkItemsTable.update({ WorkItemsTable.id eq c.id }) { it[depth] = 1 }
             }
 
-            val outcome = deletion.delete(root.id, recursive = true)
+            val outcome = deletion.delete(root.id, recursive = true, caller = null)
 
             assertEquals(root.id to 4, deleted(outcome))
             assertTrue(listOf(root, a, b, c, sibling).none { exists(it.id) })

@@ -206,6 +206,10 @@ data class BlockerInfo(
  * @property violations A2 independence-attestation findings for the cascaded parent — null iff the
  *   cascade's note gate did not run (cancel-origin or reopen cascade, schema-free parent), independence
  *   mode is OFF, or the parent's schema declares no `independent_of`; otherwise a (possibly empty) list.
+ * @property ownershipBlocked true when the cascade was suppressed because the parent has an active claim held by a
+ *   principal other than the write's caller ([FenceGuard]; a write with no caller is fenced by any active claim).
+ *   [applied] is false and the parent keeps its role and claim. Checked before every other cascade gate. Never carries
+ *   the holder.
  */
 data class AdvanceCascadeEvent(
     val itemId: UUID,
@@ -222,7 +226,8 @@ data class AdvanceCascadeEvent(
     val dependencyBlocked: Boolean = false,
     val blockers: List<BlockerInfo> = emptyList(),
     val error: String? = null,
-    val violations: List<IndependenceViolation>? = null
+    val violations: List<IndependenceViolation>? = null,
+    val ownershipBlocked: Boolean = false
 )
 
 /** A downstream item that became fully unblocked as a result of the primary advance. */
@@ -443,14 +448,20 @@ class AdvanceService(
      * JOINS the ambient unit (the caller's structural write), so the cascade's role change, its transition row
      * and its `item.transitioned` (origin `cascade`) event commit or roll back with that write. A store fault
      * propagates and rolls the joined unit back.
+     *
+     * [caller] is the structural write's own caller: a parent with an active claim held by anyone else is suppressed
+     * as an [AdvanceCascadeEvent.ownershipBlocked] event ([FenceGuard]).
      */
-    suspend fun cascadeInUnit(followUps: List<FollowUp>): List<AdvanceCascadeEvent> {
+    suspend fun cascadeInUnit(
+        followUps: List<FollowUp>,
+        caller: ClaimHolder?
+    ): List<AdvanceCascadeEvent> {
         if (followUps.isEmpty()) return emptyList()
         var events: List<AdvanceCascadeEvent> = emptyList()
         val outcome =
             unitOfWork.write(UNIT_OP) {
                 val now = clock.unitNow()
-                events = runCascades(viewAt(this, now), followUps, resourceLeasesEnforced, now)
+                events = runCascades(viewAt(this, now), followUps, resourceLeasesEnforced, caller, now)
                 Outcome.Ok(Unit)
             }
         if (outcome is Outcome.Err) throw IllegalStateException(applyFaultMessage(outcome.error))
@@ -674,7 +685,7 @@ class AdvanceService(
                     )
             }
 
-        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, now)
+        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, request.ownership.callerId?.let(::ClaimHolder), now)
         val unblocked = findUnblocked(item.id)
 
         return AdvanceOutcome.Success(
@@ -1056,12 +1067,14 @@ class AdvanceService(
 
     /**
      * Evaluates [followUps] (and the follow-ups of every applied cascade) in the current unit,
-     * iteratively, up to [MAX_CASCADES] applied cascades.
+     * iteratively, up to [MAX_CASCADES] applied cascades. Every step is fenced for [caller] (null fences on any active
+     * claim): a parent held by someone else stops the chain there.
      */
     private suspend fun WriteScope.runCascades(
         view: ReadScope,
         followUps: List<FollowUp>,
         leaseGateActive: Boolean,
+        caller: ClaimHolder?,
         now: Instant
     ): List<AdvanceCascadeEvent> {
         val out = mutableListOf<AdvanceCascadeEvent>()
@@ -1079,7 +1092,7 @@ class AdvanceService(
             val followUp = pending.removeFirst()
             val step =
                 try {
-                    cascadeStep(view, followUp, leaseGateActive, now)
+                    cascadeStep(view, followUp, leaseGateActive, caller, now)
                 } catch (e: PerRootConfigUnavailableException) {
                     // D7: a parent's config fault skips that cascade only; the primary still commits.
                     logger.warn(
@@ -1103,6 +1116,7 @@ class AdvanceService(
         view: ReadScope,
         followUp: FollowUp,
         leaseGateActive: Boolean,
+        caller: ClaimHolder?,
         now: Instant
     ): CascadeStep? {
         val parent = workItemRepository.getById(followUp.parentId) ?: return null
@@ -1113,7 +1127,13 @@ class AdvanceService(
                 is FollowUp.ReopenCascade -> Trigger.Cascade.Reopen to "Auto-cascaded from child reopen"
             }
         val loaded = loader.loadDetailed(view, parent, trigger, OwnershipInput.NONE, LeaseInput(leaseGateActive))
-        return when (val decision = policy.evaluate(loaded.snapshot, trigger)) {
+        val decision = policy.evaluate(loaded.snapshot, trigger)
+        // Ownership precedes every other cascade gate: a parent another principal holds is not touched, whatever the
+        // other gates said, and the chain stops there.
+        if (decision !is Decision.NotApplicable && FenceGuard.check(parent, caller, now) is Outcome.Err) {
+            return ownershipBlockedEvent(parent, trigger, decision, loaded)?.let { CascadeStep(it, emptyList()) }
+        }
+        return when (decision) {
             is Decision.NotApplicable -> null
             is Decision.Reject -> CascadeStep(suppressedEvent(parent, trigger, decision, loaded), emptyList())
             is Decision.Allow -> {
@@ -1165,6 +1185,32 @@ class AdvanceService(
                 }
             }
         }
+    }
+
+    /**
+     * The [AdvanceCascadeEvent.ownershipBlocked] event of a cascade into [parent], fenced for its caller: the roles the
+     * cascade would have moved between ([decision]'s on an allow, the table's resolved target on a reject), not
+     * applied. Null when the cascade has no resolvable target (nothing to report).
+     */
+    private fun ownershipBlockedEvent(
+        parent: WorkItem,
+        trigger: Trigger.Cascade,
+        decision: Decision,
+        loaded: LoadedSnapshot
+    ): AdvanceCascadeEvent? {
+        val (from, target) =
+            when (decision) {
+                is Decision.Allow -> decision.lifecycleFrom() to decision.lifecycleTarget()
+                else -> (parent.role ?: return null) to (resolvedTarget(loaded.snapshot, trigger) ?: return null)
+            }
+        return AdvanceCascadeEvent(
+            itemId = parent.id,
+            title = parent.title,
+            previousRole = from,
+            targetRole = target,
+            applied = false,
+            ownershipBlocked = true
+        )
     }
 
     /** The suppressed-cascade event for a rejected cascade; null for a gate cascades cannot fail. */

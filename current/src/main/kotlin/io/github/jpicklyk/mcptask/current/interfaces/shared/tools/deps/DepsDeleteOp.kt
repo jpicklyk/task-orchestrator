@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsDeleteRequest
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -33,14 +34,26 @@ internal val depsDeleteOp =
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
         request = serializer<DepsDeleteRequest>(),
-        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
+        errors =
+            setOf(
+                ErrorCode.NOT_FOUND,
+                ErrorCode.AMBIGUOUS_ID,
+                ErrorCode.FORBIDDEN,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
+            ),
         execute = { env, ctx, req ->
             shapeError(req)?.let { return@OpSpec Outcome.Err(it) }
+            val caller =
+                when (val resolved = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)) {
+                    is Outcome.Err -> return@OpSpec resolved
+                    is Outcome.Ok -> resolved.value
+                }
             val result: Outcome<Int> =
                 when {
-                    req.id != null -> deleteById(env, ctx, req.id)
-                    req.item != null -> deleteByItem(env, ctx, req.item)
-                    else -> deleteByEnds(env, ctx, req)
+                    req.id != null -> deleteById(env, ctx, req.id, caller)
+                    req.item != null -> deleteByItem(env, ctx, req.item, caller)
+                    else -> deleteByEnds(env, ctx, req, caller)
                 }
             result.map { n -> buildJsonObject { put("deleted", n) } }
         }
@@ -63,20 +76,22 @@ private fun shapeError(req: DepsDeleteRequest): DomainError? {
 private suspend fun WriteScope.deleteById(
     env: ToolExecutionContext,
     ctx: CallContext,
-    rawId: String
+    rawId: String,
+    caller: ClaimHolder
 ): Outcome<Int> {
     val id = UUID.fromString(rawId)
     val dep =
         stores.dependencyRepository().findById(id)
             ?: return Outcome.Err(DepsSupport.notFound(EntityKind.DEPENDENCY, id.toString()))
     DepsSupport.forbiddenIfAny(ctx, listOf(dep.fromItemId, dep.toItemId), stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return env.dependencyCommandService.deleteById(id).map { if (it) 1 else 0 }
+    return env.dependencyCommandService.deleteById(id, caller).map { if (it) 1 else 0 }
 }
 
 private suspend fun WriteScope.deleteByItem(
     env: ToolExecutionContext,
     ctx: CallContext,
-    ref: IdRef
+    ref: IdRef,
+    caller: ClaimHolder
 ): Outcome<Int> {
     val item =
         when (val r = DepsSupport.resolve(env, ctx, ref, "/item")) {
@@ -89,13 +104,14 @@ private suspend fun WriteScope.deleteByItem(
         touched += dep.toItemId
     }
     DepsSupport.forbiddenIfAny(ctx, touched, stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return env.dependencyCommandService.deleteByItemId(item)
+    return env.dependencyCommandService.deleteByItemId(item, caller)
 }
 
 private suspend fun WriteScope.deleteByEnds(
     env: ToolExecutionContext,
     ctx: CallContext,
-    req: DepsDeleteRequest
+    req: DepsDeleteRequest,
+    caller: ClaimHolder
 ): Outcome<Int> {
     val ids =
         when (val r = DepsSupport.resolveAll(env, ctx, listOf(requireNotNull(req.from), requireNotNull(req.to)), "/from")) {
@@ -103,5 +119,5 @@ private suspend fun WriteScope.deleteByEnds(
             is Outcome.Err -> return r
         }
     DepsSupport.forbiddenIfAny(ctx, ids, stores.workItemRepository())?.let { return Outcome.Err(it) }
-    return env.dependencyCommandService.deleteByRelationship(ids[0], ids[1], req.type?.domain)
+    return env.dependencyCommandService.deleteByRelationship(ids[0], ids[1], req.type?.domain, caller)
 }

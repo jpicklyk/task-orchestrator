@@ -129,7 +129,7 @@ class DocsFixRound1Test {
         val r = root(rig, "11111111-0000-4000-8000-000000000001", "root")
         val c = child(rig, "11111111-0000-4000-8000-0000000000c1", r)
         upsertPlan(rig, r, "p")
-        val note = rig.ctx.noteCommandService.upsert(NoteUpsertCommand(c, "k1", "work", "see [[plan:p]]", null, null))
+        val note = rig.ctx.noteCommandService.upsert(NoteUpsertCommand(c, "k1", "work", "see [[plan:p]]", null, null, caller = null))
         assertTrue(note is Outcome.Ok)
         rig.raw.workItemRepository().delete(c)
         return r

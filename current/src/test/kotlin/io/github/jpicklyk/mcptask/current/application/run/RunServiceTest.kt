@@ -1055,14 +1055,14 @@ class RunServiceTest {
             val items = rig.ctx.itemCommandService
             val run = runService.open(RunOpenCommand(rootId = root.id, items = listOf(kid.id))).ok()
 
-            val whileOpen = items.delete(root.id, recursive = true).err()
+            val whileOpen = items.delete(root.id, recursive = true, caller = null).err()
             assertRootSurvives(rig, root, kid, run, RunStatus.OPEN, whileOpen)
             runService.pause(run.id).ok()
-            val whilePaused = items.delete(root.id, recursive = true).err()
+            val whilePaused = items.delete(root.id, recursive = true, caller = null).err()
             assertRootSurvives(rig, root, kid, run, RunStatus.PAUSED, whilePaused)
 
             runService.close(run.id, RunTerminalReason.CANCELLED).ok()
-            items.delete(root.id, recursive = true).ok()
+            items.delete(root.id, recursive = true, caller = null).ok()
 
             assertNull(rig.raw.workItemRepository().getById(root.id), "the root is gone once the run is closed")
             assertNull(rig.raw.runStore().getById(run.id), "a closed run follows its root away")
@@ -1108,7 +1108,7 @@ class RunServiceTest {
                 .ok()
 
             rig.ctx.itemCommandService
-                .delete(closedRoot.id, recursive = true)
+                .delete(closedRoot.id, recursive = true, caller = null)
                 .ok()
             assertNull(rig.raw.workItemRepository().getById(closedRoot.id))
 
@@ -1121,7 +1121,7 @@ class RunServiceTest {
                     .ok()
 
             rig.ctx.itemCommandService
-                .delete(k1.id, recursive = false)
+                .delete(k1.id, recursive = false, caller = null)
                 .ok()
 
             assertEquals(listOf(k2.id), rig.raw.runStore().members(run.id), "deleting a member drops its membership")

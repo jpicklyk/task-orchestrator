@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -42,7 +44,9 @@ internal fun deleteItemOp(): OpSpec<DeleteItemRequest, ItemWriteResult> =
                 ErrorCode.VERSION_CONFLICT,
                 ErrorCode.INVALID_TRANSITION,
                 ErrorCode.FORBIDDEN,
-                ErrorCode.UNAVAILABLE
+                ErrorCode.UNAVAILABLE,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> itemWriteBody(ctx) { deleteItem(env, ctx, req) } }
     )
@@ -59,19 +63,28 @@ private suspend fun WriteScope.deleteItem(
         }
     (checkItemScope(env, ctx, id) as? Outcome.Err)?.let { return it }
 
-    val existing = env.workItemRepository().getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id))
+    val repo = env.workItemRepository()
+    val existing = repo.getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id))
+    val caller =
+        when (val resolved = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)) {
+            is Outcome.Err -> return resolved
+            is Outcome.Ok -> resolved.value
+        }
+    // The fence precedes the version compare (lookup -> fence -> version): a non-holder learns nothing from a conflict.
+    // The service re-checks it, with the subtree, in the same unit.
+    FenceGuard.check(existing, caller, now).let { if (it is Outcome.Err) return it }
     val expected = req.expectedVersion
     if (expected != null && expected != existing.version) {
         return Outcome.Err(ItemCommandErrors.versionConflict(existing.id, expected, existing.version))
     }
-    return when (val deleted = env.itemCommandService.delete(id, req.recursive)) {
+    return when (val deleted = env.itemCommandService.delete(id, req.recursive, caller)) {
         is Outcome.Err -> deleted
         is Outcome.Ok ->
             Outcome.Ok(
                 ItemWriteResult(
                     id = deleted.value.id,
                     deleted = 1 + deleted.value.descendantsDeleted,
-                    cascade = cascadeSummaries(deleted.value.cascadeEvents)
+                    cascade = cascadeSummaries(deleted.value.cascadeEvents, ctx, repo)
                 )
             )
     }

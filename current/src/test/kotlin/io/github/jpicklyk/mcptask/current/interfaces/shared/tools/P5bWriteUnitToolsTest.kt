@@ -235,7 +235,7 @@ class P5bWriteUnitToolsTest {
                             ItemCreateCommand(type = TEST_ITEM_TYPE, id = placedId, parentId = null, title = "S13 placed")
                         )
                     assertIs<Outcome.Ok<WorkItem>>(placed)
-                    val purged = items.delete(victim.id, recursive = false)
+                    val purged = items.delete(victim.id, recursive = false, caller = null)
                     assertIs<Outcome.Ok<*>>(purged)
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "outer decides to roll back"))
                 }
@@ -256,7 +256,7 @@ class P5bWriteUnitToolsTest {
             val result =
                 uow.write("S13.outer.ok") {
                     items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = placedId, parentId = null, title = "S13 placed ok"))
-                    items.delete(victim.id, recursive = false)
+                    items.delete(victim.id, recursive = false, caller = null)
                     Outcome.Ok(Unit)
                 }
 

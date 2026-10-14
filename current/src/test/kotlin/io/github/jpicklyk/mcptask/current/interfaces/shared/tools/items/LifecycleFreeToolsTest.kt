@@ -464,14 +464,21 @@ class LifecycleFreeToolsTest {
             val page = rig.svc("Page", null, "page")
             val service = rig.ctx.dependencyCommandService
 
-            val refused = service.create(listOf(Dependency(fromItemId = plain.id, toItemId = page.id, type = DependencyType.IS_BLOCKED_BY)))
+            val refused =
+                service.create(
+                    listOf(Dependency(fromItemId = plain.id, toItemId = page.id, type = DependencyType.IS_BLOCKED_BY)),
+                    caller = null
+                )
 
             val error = assertIs<Outcome.Err>(refused)
             assertEquals("invalid_request", error.error.code.wire)
             assertEquals(0, rig.allEdges().size, "nothing was stored")
             val other = rig.svc("Other")
             assertIs<Outcome.Ok<*>>(
-                service.create(listOf(Dependency(fromItemId = plain.id, toItemId = other.id, type = DependencyType.IS_BLOCKED_BY))),
+                service.create(
+                    listOf(Dependency(fromItemId = plain.id, toItemId = other.id, type = DependencyType.IS_BLOCKED_BY)),
+                    caller = null
+                ),
                 "control: the same shape between ordinary items is accepted"
             )
             assertEquals(1, rig.allEdges().size)

@@ -340,7 +340,14 @@ class ItemCommandServiceTest {
             val before = d.snapshot(f.all)
             delay(25)
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.b2.id))).orFail() }
+            val (result, rows) =
+                d.rig.written {
+                    d.svc
+                        .patch(
+                            patchOf(f.x, parent = ParentChange.MoveUnder(f.b2.id)),
+                            caller = null
+                        ).orFail()
+                }
 
             assertTrue(result.reparented)
             assertEquals(2, result.descendantsRestamped)
@@ -405,7 +412,7 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val f = d.forest()
 
-            val result = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveToRoot)).orFail()
+            val result = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveToRoot), caller = null).orFail()
 
             assertTrue(result.reparented)
             assertEquals(2, result.descendantsRestamped)
@@ -429,7 +436,14 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val f = d.forest()
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.ra.id))).orFail() }
+            val (result, rows) =
+                d.rig.written {
+                    d.svc
+                        .patch(
+                            patchOf(f.x, parent = ParentChange.MoveUnder(f.ra.id)),
+                            caller = null
+                        ).orFail()
+                }
 
             assertEquals(2, result.descendantsRestamped)
             assertEquals(1, d.reload(f.x).depth)
@@ -453,7 +467,14 @@ class ItemCommandServiceTest {
             val f = d.forest()
             assertEquals(f.x.depth, f.b.depth + 1, "fixture: x under b keeps x's depth, so only the root differs")
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.b.id))).orFail() }
+            val (result, rows) =
+                d.rig.written {
+                    d.svc
+                        .patch(
+                            patchOf(f.x, parent = ParentChange.MoveUnder(f.b.id)),
+                            caller = null
+                        ).orFail()
+                }
 
             assertEquals(2, result.descendantsRestamped)
             listOf(f.c1, f.c2).forEach {
@@ -476,7 +497,14 @@ class ItemCommandServiceTest {
             val before = d.snapshot(f.subtree.drop(1))
             delay(25)
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.a2.id))).orFail() }
+            val (result, rows) =
+                d.rig.written {
+                    d.svc
+                        .patch(
+                            patchOf(f.x, parent = ParentChange.MoveUnder(f.a2.id)),
+                            caller = null
+                        ).orFail()
+                }
 
             assertTrue(result.reparented)
             assertEquals(0, result.descendantsRestamped, "same depth and same root: the restamp is skipped entirely")
@@ -494,7 +522,7 @@ class ItemCommandServiceTest {
             val f = d.forest()
             val before = d.snapshot(f.subtree.drop(1))
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, title = "X renamed")).orFail() }
+            val (result, rows) = d.rig.written { d.svc.patch(patchOf(f.x, title = "X renamed"), caller = null).orFail() }
 
             assertFalse(result.reparented)
             assertEquals(0, result.descendantsRestamped)
@@ -514,7 +542,7 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val f = d.forest()
 
-            val (_, rows) = d.rig.written { d.svc.patch(patchOf(f.x)).orFail() }
+            val (_, rows) = d.rig.written { d.svc.patch(patchOf(f.x), caller = null).orFail() }
 
             assertEquals(emptyList(), rows, "an unchanged patch records nothing")
         }
@@ -533,17 +561,17 @@ class ItemCommandServiceTest {
             val before = d.snapshot(f.all)
             val marker = d.rig.maxSeq()
 
-            val self = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.x.id))).errorOrFail()
+            val self = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.x.id)), caller = null).errorOrFail()
             assertEquals(ErrorCode.INVALID_REQUEST, self.code)
             assertTrue(ItemCommandErrors.isSelfParent(self), "the error is classified as a self parent: $self")
 
-            val cycle = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.c2.id))).errorOrFail()
+            val cycle = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.c2.id)), caller = null).errorOrFail()
             assertEquals(ErrorCode.CYCLE_DETECTED, cycle.code)
 
-            val missing = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(UUID.randomUUID()))).errorOrFail()
+            val missing = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(UUID.randomUUID())), caller = null).errorOrFail()
             assertEquals(ErrorCode.NOT_FOUND, missing.code)
 
-            val gone = d.svc.patch(patchOf(f.x).copy(itemId = UUID.randomUUID())).errorOrFail()
+            val gone = d.svc.patch(patchOf(f.x).copy(itemId = UUID.randomUUID()), caller = null).errorOrFail()
             assertEquals(ErrorCode.NOT_FOUND, gone.code)
 
             assertEquals(before, d.snapshot(f.all), "every rejection leaves every row untouched")
@@ -559,14 +587,19 @@ class ItemCommandServiceTest {
             val f = d.forest()
             val current = d.reload(f.x)
 
-            val stale = d.svc.patch(patchOf(current, title = "stale write").copy(expectedVersion = current.version + 5)).errorOrFail()
+            val stale =
+                d.svc
+                    .patch(
+                        patchOf(current, title = "stale write").copy(expectedVersion = current.version + 5),
+                        caller = null
+                    ).errorOrFail()
             assertEquals(ErrorCode.VERSION_CONFLICT, stale.code)
             assertEquals("X", d.reload(f.x).title, "a conflict writes nothing")
 
-            val exact = d.svc.patch(patchOf(current, title = "exact write").copy(expectedVersion = current.version)).orFail()
+            val exact = d.svc.patch(patchOf(current, title = "exact write").copy(expectedVersion = current.version), caller = null).orFail()
             assertEquals("exact write", exact.item.title)
 
-            val absent = d.svc.patch(patchOf(d.reload(f.x), title = "absent version write")).orFail()
+            val absent = d.svc.patch(patchOf(d.reload(f.x), title = "absent version write"), caller = null).orFail()
             assertEquals("absent version write", absent.item.title, "a null expectedVersion skips the check")
         }
 
@@ -587,7 +620,7 @@ class ItemCommandServiceTest {
             val headBefore = d.reload(head)
             val marker = d.rig.maxSeq()
 
-            val refused = d.svc.patch(patchOf(headBefore, parent = ParentChange.MoveToRoot))
+            val refused = d.svc.patch(patchOf(headBefore, parent = ParentChange.MoveToRoot), caller = null)
 
             assertIs<Outcome.Err>(refused, "moving a subtree beyond the traversal bound must fail closed")
             assertEquals(headBefore, d.reload(head), "the moved item is unchanged")
@@ -615,7 +648,7 @@ class ItemCommandServiceTest {
             d.raw.dependencyRepository().create(Dependency(fromItemId = outsider.id, toItemId = child.id, type = DependencyType.BLOCKS))
             d.raw.dependencyRepository().create(Dependency(fromItemId = r.id, toItemId = outsider.id, type = DependencyType.BLOCKS))
 
-            val (result, rows) = d.rig.written { d.svc.delete(r.id, recursive = true).orFail() }
+            val (result, rows) = d.rig.written { d.svc.delete(r.id, recursive = true, caller = null).orFail() }
 
             assertEquals(r.id, result.id)
             assertEquals(2, result.descendantsDeleted, "child and grandchild, not the root itself")
@@ -673,7 +706,7 @@ class ItemCommandServiceTest {
             d.holdLease(p)
             val marker = d.rig.maxSeq()
 
-            val refused = d.svc.delete(p.id, recursive = false).errorOrFail()
+            val refused = d.svc.delete(p.id, recursive = false, caller = null).errorOrFail()
 
             assertEquals(ErrorCode.INVALID_REQUEST, refused.code)
             assertEquals(2, ItemCommandErrors.childCount(refused), "the count is of direct children only: $refused")
@@ -714,7 +747,7 @@ class ItemCommandServiceTest {
                 "fixture: the kid holds the lease"
             )
 
-            d.svc.delete(p.id, recursive = true).orFail()
+            d.svc.delete(p.id, recursive = true, caller = null).orFail()
 
             val interval =
                 d.raw
@@ -733,13 +766,13 @@ class ItemCommandServiceTest {
         runBlocking {
             val d = driver(dir)
             val parent = d.make("short lived")
-            d.svc.delete(parent.id, recursive = false).orFail()
+            d.svc.delete(parent.id, recursive = false, caller = null).orFail()
             val marker = d.rig.maxSeq()
 
             assertEquals(
                 ErrorCode.NOT_FOUND,
                 d.svc
-                    .delete(parent.id, recursive = false)
+                    .delete(parent.id, recursive = false, caller = null)
                     .errorOrFail()
                     .code
             )
@@ -781,7 +814,7 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val fam = d.family()
 
-            val (result, rows) = d.rig.written { d.svc.patch(patchOf(fam.open, parent = ParentChange.MoveToRoot)).orFail() }
+            val (result, rows) = d.rig.written { d.svc.patch(patchOf(fam.open, parent = ParentChange.MoveToRoot), caller = null).orFail() }
 
             val cascade = result.cascadeEvents.single()
             assertEquals(fam.parent.id, cascade.itemId)
@@ -813,7 +846,7 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val fam = d.family()
 
-            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false).orFail() }
+            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false, caller = null).orFail() }
 
             val cascade = result.cascadeEvents.single()
             assertEquals(fam.parent.id, cascade.itemId)
@@ -828,7 +861,7 @@ class ItemCommandServiceTest {
             d.setRole(lone, Role.WORK)
             val only = d.make("only kid", lone)
 
-            val loneResult = d.svc.delete(only.id, recursive = false).orFail()
+            val loneResult = d.svc.delete(only.id, recursive = false, caller = null).orFail()
 
             assertEquals(emptyList(), loneResult.cascadeEvents)
             assertEquals(Role.WORK, d.role(lone), "no remaining child is not a completed set of children")
@@ -847,7 +880,7 @@ class ItemCommandServiceTest {
             d.setRole(z, Role.TERMINAL)
             val fam = d.family()
 
-            val result = d.svc.patch(patchOf(fam.done, parent = ParentChange.MoveUnder(q.id))).orFail()
+            val result = d.svc.patch(patchOf(fam.done, parent = ParentChange.MoveUnder(q.id)), caller = null).orFail()
 
             assertEquals(emptyList(), result.cascadeEvents, "the old parent still has an open child, so nothing cascades")
             assertEquals(Role.WORK, d.role(fam.parent))
@@ -865,7 +898,7 @@ class ItemCommandServiceTest {
             d.setRole(grand, Role.WORK)
             val fam = d.family(parent = grand)
 
-            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false).orFail() }
+            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false, caller = null).orFail() }
 
             assertEquals(listOf(fam.parent.id, grand.id), result.cascadeEvents.map { it.itemId })
             assertTrue(result.cascadeEvents.all { it.applied })
@@ -883,13 +916,13 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             for (type in listOf("p11-manual", "p11-permanent")) {
                 val onDelete = d.family(type)
-                val deleted = d.svc.delete(onDelete.open.id, recursive = false).orFail()
+                val deleted = d.svc.delete(onDelete.open.id, recursive = false, caller = null).orFail()
                 assertEquals(emptyList(), deleted.cascadeEvents, "$type: delete is silent")
                 assertEquals(Role.WORK, d.role(onDelete.parent), "$type: the parent stays in WORK after a delete")
                 assertEquals(0, d.transitions(onDelete.parent).size)
 
                 val onMove = d.family(type)
-                val moved = d.svc.patch(patchOf(onMove.open, parent = ParentChange.MoveToRoot)).orFail()
+                val moved = d.svc.patch(patchOf(onMove.open, parent = ParentChange.MoveToRoot), caller = null).orFail()
                 assertEquals(emptyList(), moved.cascadeEvents, "$type: reparent-out is silent")
                 assertEquals(Role.WORK, d.role(onMove.parent), "$type: the parent stays in WORK after a move")
             }
@@ -898,7 +931,7 @@ class ItemCommandServiceTest {
             assertEquals(
                 1,
                 d.svc
-                    .delete(auto.open.id, recursive = false)
+                    .delete(auto.open.id, recursive = false, caller = null)
                     .orFail()
                     .cascadeEvents.size
             )
@@ -912,7 +945,7 @@ class ItemCommandServiceTest {
             val d = driver(dir)
             val fam = d.family("p11-gated")
 
-            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false).orFail() }
+            val (result, rows) = d.rig.written { d.svc.delete(fam.open.id, recursive = false, caller = null).orFail() }
 
             val event = result.cascadeEvents.single()
             assertEquals(fam.parent.id, event.itemId)
@@ -933,7 +966,7 @@ class ItemCommandServiceTest {
             val fam = d.family("p11-gated")
             d.note(fam.parent, "spec", "queue")
 
-            val result = d.svc.delete(fam.open.id, recursive = false).orFail()
+            val result = d.svc.delete(fam.open.id, recursive = false, caller = null).orFail()
 
             assertTrue(result.cascadeEvents.single().applied)
             assertEquals(Role.TERMINAL, d.role(fam.parent))
@@ -950,7 +983,7 @@ class ItemCommandServiceTest {
             d.setRole(done, Role.TERMINAL)
             val open = d.make("open kid", p)
 
-            val result = d.svc.delete(open.id, recursive = false).orFail()
+            val result = d.svc.delete(open.id, recursive = false, caller = null).orFail()
 
             val event = result.cascadeEvents.single()
             assertEquals(p.id, event.itemId)
@@ -970,7 +1003,7 @@ class ItemCommandServiceTest {
 
             val outcome =
                 d.rig.composition.unitOfWork.write<Unit>("S6.outer") {
-                    d.svc.delete(fam.open.id, recursive = false).orFail()
+                    d.svc.delete(fam.open.id, recursive = false, caller = null).orFail()
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "boom"))
                 }
 
@@ -993,7 +1026,7 @@ class ItemCommandServiceTest {
 
             val outcome =
                 d.rig.composition.unitOfWork.write<Unit>("S11.outer") {
-                    d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.b2.id))).orFail()
+                    d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(f.b2.id)), caller = null).orFail()
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "boom"))
                 }
 
@@ -1127,7 +1160,7 @@ class ItemCommandServiceTest {
                 assertEquals(closed.id, child.parentId, "$type: create is accepted")
                 assertEquals(closed.depth + 1, child.depth)
                 val stray = d.make("$type stray")
-                val moved = d.svc.patch(patchOf(stray, parent = ParentChange.MoveUnder(closed.id))).orFail()
+                val moved = d.svc.patch(patchOf(stray, parent = ParentChange.MoveUnder(closed.id)), caller = null).orFail()
                 assertTrue(moved.reparented, "$type: reparent under it is accepted")
                 assertEquals(closed.id, d.reload(stray).parentId)
             }
@@ -1144,7 +1177,7 @@ class ItemCommandServiceTest {
             val before = d.snapshot(f.all)
             val marker = d.rig.maxSeq()
 
-            val rejected = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(closed.id))).errorOrFail()
+            val rejected = d.svc.patch(patchOf(f.x, parent = ParentChange.MoveUnder(closed.id)), caller = null).errorOrFail()
 
             assertEquals(ErrorCode.INVALID_TRANSITION, rejected.code)
             assertTrue(ItemCommandErrors.isClosedParent(rejected))
