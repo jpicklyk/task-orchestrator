@@ -219,7 +219,7 @@ class SqliteItemStore(
     ): List<WorkItem> =
         databaseManager.readTx {
             val conditions =
-                ItemQueries.conditions(ItemQuerySpec(role = role), rootIds?.let { ScopeResolver.resolve(it) }, null)
+                ItemQueries.conditions(ItemQuerySpec(role = role), rootIds?.let { ScopeResolver.subtree(it) }, null)
                     ?: return@readTx emptyList()
             WorkItemsTable
                 .selectAll()
@@ -377,7 +377,7 @@ class SqliteItemStore(
     override suspend fun countInScopeByRole(rootIds: Set<UUID>): Map<Role, Int> {
         if (rootIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
-            val scope = ScopeResolver.resolve(rootIds)
+            val scope = ScopeResolver.subtree(rootIds)
             if (scope == ResolvedScope.Empty) return@readTx emptyMap()
             countByRole(scope.toCondition())
         }
@@ -573,7 +573,7 @@ class SqliteItemStore(
         return databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (rootIds != null) {
-                val resolved = ScopeResolver.resolve(rootIds)
+                val resolved = ScopeResolver.subtree(rootIds)
                 if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
                 conditions.add(resolved.toCondition())
             }
@@ -612,7 +612,7 @@ class SqliteItemStore(
         databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (ancestorId != null) {
-                val resolved = ScopeResolver.resolve(setOf(ancestorId))
+                val resolved = ScopeResolver.subtree(setOf(ancestorId))
                 if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
                 conditions.add(resolved.toCondition())
             }
@@ -692,10 +692,10 @@ class SqliteItemStore(
      * The AND-ed WHERE conditions of [find]/[count], or null when nothing can match (an empty scope or ancestor subtree).
      * Must run inside a transaction: resolving a root set may probe or walk the hierarchy.
      *
-     * The access scope's roots and the filter's ancestor are two AND-ed subtree conditions. When the ancestor is
-     * itself a listed scope root, its subtree lies inside the scope and the scope condition is dropped (one
-     * resolution instead of two). The `tags_include` allowlist is [TagAllowlistOp], the same SQL the search
-     * engine applies.
+     * The access scope's roots (roots-only, `root_id IN`) and the filter's ancestor subtree are two AND-ed
+     * conditions. The principal condition is never dropped, even when the ancestor is a listed root: the ancestor
+     * subtree traverses, so it alone would admit rows outside the scope once the anchor stops being a root. The
+     * `tags_include` allowlist is [TagAllowlistOp], the same SQL the search engine applies.
      */
     private fun conditionsFor(
         filter: ItemFilter,
@@ -703,11 +703,10 @@ class SqliteItemStore(
         at: Instant?,
     ): List<Op<Boolean>>? {
         val ancestorId = filter.ancestorId
-        val scopeRoots = scope.rootIds?.takeUnless { ancestorId != null && ancestorId in it }
-        val accessScope = scopeRoots?.let { ScopeResolver.resolve(it) }
+        val accessScope = scope.rootIds?.let { ScopeResolver.resolve(it) }
         val conditions = ItemQueries.conditions(ItemQueries.specOf(filter), accessScope, at) ?: return null
         if (ancestorId != null) {
-            val ancestorScope = ScopeResolver.resolve(setOf(ancestorId))
+            val ancestorScope = ScopeResolver.subtree(setOf(ancestorId))
             if (ancestorScope == ResolvedScope.Empty) return null
             conditions.add(ancestorScope.toCondition())
         }
@@ -757,9 +756,8 @@ internal class ResolvedRoots(
 )
 
 /**
- * Resolves the root restriction of [scope] (inside a transaction): null when nothing is visible (an empty or
- * unresolvable root set), else the [ResolvedRoots]. One probe statement for stamped depth-0 roots; the traversal
- * fallback of [ScopeResolver] otherwise.
+ * Resolves the root restriction of [scope] (inside a transaction): null when nothing is visible (an empty
+ * root set), else the [ResolvedRoots]: `root_id IN (...)`, no probe and no traversal.
  */
 internal fun resolveRoots(scope: AccessScope): ResolvedRoots? {
     val rootIds = scope.rootIds ?: return ResolvedRoots(null)

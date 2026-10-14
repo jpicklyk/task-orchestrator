@@ -18,9 +18,10 @@ import kotlin.test.assertTrue
 /**
  * Independent tests (test-author seat, item 54f3a1ce, Q12) for `ScopeGuard.admitted`, scenario S27 of the frozen test-plan.
  *
- * Oracle: the plan's S27 and the declared `ScopeGuard` KDoc. `admitted(scope, ids, repo)` is the batch twin of `check`: an
+ * Oracle: the plan's S27 and the declared `ScopeGuard` KDoc, amended by item 754ae3dc (scope on root_id, roots only).
+ * `admitted(scope, ids, repo)` is the batch twin of `check`: an
  * unrestricted scope returns exactly the input without reading the repository; a root or tag restriction returns exactly the ids
- * for which `check` is Ok (root: the item or an ancestor is listed, ids need not be depth 0; tag: the trimmed CSV element equals a
+ * for which `check` is Ok (root: the item's stamped `rootId` is a listed root, a listed non-root admits nothing; tag: the trimmed CSV element equals a
  * listed tag exactly, no ancestor walk; a missing id is never admitted); a lookup fault returns the empty set (fail closed).
  * The literal expected sets are written out from those rules, and every restricted case is also compared with `check` per id.
  *
@@ -56,7 +57,8 @@ class ScopeGuardAdmittedTest {
                 title = "item-${id.toString().takeLast(2)}",
                 parentId = parent,
                 depth = (p?.depth ?: -1) + 1,
-                rootId = p?.let { it.rootId ?: it.id },
+                // a root is stamped with its own id, a child with its parent's root (the one-writer invariant)
+                rootId = p?.let { it.rootId ?: it.id } ?: id,
                 tags = tags
             )
         )
@@ -105,12 +107,14 @@ class ScopeGuardAdmittedTest {
         }
 
     @Test
-    fun `S27 a listed non-root ancestor admits itself and its descendants, not its parent`(): Unit =
+    fun `S27 a listed non-root admits nothing, neither itself nor its descendants nor its parent`(): Unit =
         runBlocking {
             seedTree()
             val scope = AccessScope.principal(setOf(childA), emptySet())
-            assertEquals(setOf(childA, grandA), admitted(scope))
+            assertEquals(emptySet(), admitted(scope))
             assertAgreesWithCheck(scope)
+            // control: the real root admits the same rows
+            assertEquals(setOf(rootA, childA, grandA), admitted(AccessScope.principal(setOf(rootA), emptySet())))
         }
 
     @Test

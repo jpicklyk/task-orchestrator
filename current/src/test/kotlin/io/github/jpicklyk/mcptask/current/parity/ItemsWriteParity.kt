@@ -255,14 +255,14 @@ internal object ItemsWriteParity {
                 expectDbChanged = false
             ),
             scenario(
-                "items_write create scope-forbidden tag-scoped root create without a listed tag",
+                "items_write create scope-forbidden tag-scoped root create (R15: forbidden root, even with a tag)",
                 "create",
                 ParityKind.OTHER,
                 tagScoped,
                 ops(create("NoTag")),
                 207,
                 "partial_failure",
-                listOf("\"scope\":\"tag\""),
+                listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"\""),
                 expectDbChanged = false
             ),
             scenario(

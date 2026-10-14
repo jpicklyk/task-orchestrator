@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
@@ -67,7 +68,10 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
         parentId: UUID? = null,
         depth: Int = if (parentId == null) 0 else 1
     ): WorkItem {
-        val result = repository.create(WorkItem(title = title, parentId = parentId, depth = depth))
+        // Stamp rootId as production create paths do (own id for a root, the parent's root for a descendant).
+        val id = UUID.randomUUID()
+        val rootId = if (parentId == null) id else repository.getById(parentId)?.let { it.rootId ?: it.id }
+        val result = repository.create(WorkItem(id = id, title = title, parentId = parentId, depth = depth, rootId = rootId))
         assertNotNull(result, "fixture setup: failed to create '$title'")
         return result
     }
@@ -207,38 +211,61 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertIs<IllegalStateException>(result)
         }
 
-    // ── S11a: findInScope / countInScope on cyclic SQLite data ─────────────
+    // -- S11a: cyclic data under principal (roots-only) scope and under the request-filter subtree path --
 
+    /**
+     * R15 ruling (roots-only principal scope): `findInScope`/`countInScope` do no traversal, so a cyclic
+     * `parent_id` graph cannot loop or error there; a scope id admits exactly the rows stamped with that `root_id`.
+     * The cycle bound is kept on the request-filter subtree path (`findByRole(rootIds = ...)`), asserted below.
+     */
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    fun `findInScope on a cyclic root reports DatabaseError instead of hanging`(): Unit =
+    fun `findInScope on a cyclic graph does not traverse and returns exactly the stamped rows`(): Unit =
         runBlocking {
             val root = createItem("S11a root")
             val a = createItem("S11a A", parentId = root.id, depth = 1)
             val b = createItem("S11a B", parentId = a.id, depth = 2)
             forceParentId(a.id, b.id)
 
-            val result =
-                assertFailsWith<IllegalStateException>(message = "expected the cyclic scope to be reported, not hang or silently succeed") {
-                    repository.findInScope(rootIds = setOf(a.id))
-                }
-            assertIs<IllegalStateException>(result)
+            val result = assertNotNull(repository.findInScope(rootIds = setOf(root.id)))
+            assertEquals(setOf(root.id, a.id, b.id), result.map { it.id }.toSet())
+
+            // A non-root scope id admits nothing even when it sits inside the cycle (no traversal from it).
+            assertTrue(repository.findInScope(rootIds = setOf(a.id)).isEmpty())
         }
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    fun `countInScope on a cyclic root reports DatabaseError instead of hanging`(): Unit =
+    fun `countInScope on a cyclic graph does not traverse and counts exactly the stamped rows`(): Unit =
         runBlocking {
             val root = createItem("S11a-count root")
             val a = createItem("S11a-count A", parentId = root.id, depth = 1)
             val b = createItem("S11a-count B", parentId = a.id, depth = 2)
             forceParentId(a.id, b.id)
 
-            val result =
-                assertFailsWith<IllegalStateException>(message = "expected the cyclic scope to be reported, not hang or silently succeed") {
-                    repository.countInScope(rootIds = setOf(a.id))
+            assertEquals(3, repository.countInScope(rootIds = setOf(root.id)))
+            assertEquals(0, repository.countInScope(rootIds = setOf(a.id)))
+        }
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `findByRole request-filter rootIds on a cyclic subtree reports the traversal bound instead of hanging`(): Unit =
+        runBlocking {
+            val root = createItem("S11a-filter root")
+            val a = createItem("S11a-filter A", parentId = root.id, depth = 1)
+            val b = createItem("S11a-filter B", parentId = a.id, depth = 2)
+            forceParentId(a.id, b.id)
+
+            val error =
+                assertFailsWith<IllegalStateException>(
+                    message = "expected the cyclic request-filter subtree to be reported, not hang or silently succeed"
+                ) {
+                    repository.findByRole(role = Role.QUEUE, rootIds = setOf(a.id))
                 }
-            assertIs<IllegalStateException>(result)
+            assertTrue(
+                error.message.orEmpty().contains(MAX_TRAVERSAL_DEPTH.toString()),
+                "expected the error to name the traversal bound ($MAX_TRAVERSAL_DEPTH), got: ${error.message}"
+            )
         }
 
     // ── Ported from the retired in-memory cycle-guard suite (dialect-neutral scenarios, now on SQLite) ──

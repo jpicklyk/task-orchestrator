@@ -98,7 +98,11 @@ tokens:
   `403 forbidden` with `detail: {scope: "capability", required: "director"}`. Any other value fails startup.
 - `scope` — optional; when present must be a mapping with only `root_ids` and/or `tags_include`
   keys (any other key, including a typo, fails startup)
-  - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access.
+  - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access. Every
+    listed id must be a depth-0 project root: a token whose anchor names an existing item that is not a root
+    fails startup, naming the token id and the anchor (`token '<id>' scope.root_ids anchor <uuid> is not a depth-0 root`).
+    An anchor that does not exist yet is accepted and admits nothing until the root is created. A JWT whose
+    `to_scope.root_ids`/scope claim names an existing non-root is unauthenticated (`401`), with one WARN per `sub`.
     An empty list `[]` is **rejected at startup** — root scope is the isolation boundary, so `[]`
     cannot mean "every root"; omit the key (or set it `null`) instead.
   - `scope.tags_include` — a list of non-blank tag strings, or absent/`null`/`[]` for no tag
@@ -214,7 +218,7 @@ now gets `403 forbidden` (`required: write-docs`) on every `docs_write` op; add 
 
 ## 3. Scope Filtering
 
-Tokens with `scope.root_ids` set can only access items within those root subtrees. Scope enforcement walks the item's full ancestor chain — an item is accessible if any ancestor (including itself) is in the scope set.
+Tokens with `scope.root_ids` set can only access items within those project trees. Roots only: an item is accessible when its stamped `root_id` is one of the listed roots (each a depth-0 item, validated at startup for bearer tokens and per credential for JWTs). There is no ancestor walk, so a listed id that is not a root admits nothing, and an item with no stamped `root_id` is never admitted.
 
 Tokens with `scope.tags_include` set are additionally restricted to items carrying at least one of
 the listed tags. Unlike `root_ids`, tag scope applies **item-level only** — there is no ancestor
@@ -254,11 +258,12 @@ collection checks cannot drift apart.
 
 **Item writes are scope-checked too.** Item creates, updates and deletes are the `items_write` ops of
 `POST /ops/items_write` (§20a); each element is checked against the token's scope before anything is written
-(`forbidden`, `detail.scope` `root` or `tag`). A newly created item's ancestor chain is only its own
-(server-generated) id, so it can never already be listed in a `root_ids` allowlist: a root create with a non-null
-`scope.root_ids` is `forbidden`. A `tags_include`-only token may create a root item only if the tags it is creating
-that root *with* carry a listed tag. A reparent is checked against the new parent, and `clear: ["parentId"]` (move
-to root) under `root_ids` is allowed only when the item itself is a listed root.
+(`forbidden`, `detail.scope` `root` or `tag`). A new depth-0 root founds a new project, and no restricted scope
+owns a root that does not exist yet: creating a root (`items_write` `create` without `parentId`, or a new top-level
+root in `create_work_tree`) and moving an item to the top level (`clear: ["parentId"]` on a non-root item) are
+`forbidden` with `detail.scope` `root` for any token with `scope.root_ids` or `scope.tags_include`, unless it
+holds `admin` (`detail.required` is the listed roots, empty for a tag-only token). Clearing the parent of an item
+that already is a root stays a no-op. A reparent under another parent is checked against the new parent.
 
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
@@ -1013,7 +1018,7 @@ connection-time check, distinct from the per-event filtering described below.
 **Browser SSE note:** The native browser `EventSource` API cannot set custom headers. Browsers must use a fetch-based SSE client (e.g., `@microsoft/fetch-event-source`) to provide the `Authorization: Bearer` header, or enable `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` to use the query-parameter path.
 
 **Query parameters:**
-- `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`. Both rejections below are enforced by the pre-flight plugin — a normal HTTP status + JSON body, not an SSE stream:
+- `root` (repeatable) — filter to events whose stamped `root_id` is this root (the root's whole tree; roots only, no ancestor walk). Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`. Both rejections below are enforced by the pre-flight plugin — a normal HTTP status + JSON body, not an SSE stream:
   - `403 forbidden` (`detail: {scope: "root", required: "<the token's roots>"}`) — the principal is root-scoped (`scope.rootIds` non-null) and its `?root=` values do not intersect that scope at all.
   - `400 invalid_request` on field `root` — any `?root=` value is not a UUID (e.g. `?root=` with no value, `?root=garbage`, or `?root=<uuid>&root=garbage`; Q32 ended the 3.x leniency that dropped the bad values of a mix). This check also fires under `API_AUTH_MODE=none`.
 - `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`). Exempt from this filter: `sync.lost` and `auth.expired` (the control events, see Event Types below) are always delivered regardless of `types` — they report the state of the stream itself, and a filtered-out client would otherwise keep operating on incomplete state (or an expired credential) with no signal.

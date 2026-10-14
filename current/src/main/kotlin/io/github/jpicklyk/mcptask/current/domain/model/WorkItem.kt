@@ -22,11 +22,11 @@ data class WorkItem(
      * reparented or deleted between an earlier read and a later write would otherwise leave this
      * field stamped with stale data.
      *
-     * Nullable and NOT validated against [depth] or [parentId] here — rows written before
-     * the root_id backfill migration (or in fixtures that construct [WorkItem]
-     * directly without going through the create/reparent paths) may legitimately have a
-     * null or stale value. Treat this as a best-effort denormalization for read-path scope
-     * filtering, not a structural invariant enforced at the domain layer.
+     * This is the authorization predicate: a scope admits an item only when its stamped `root_id` is a
+     * listed root (`ScopeGuard`, the search engine and the SSE stream all test exactly this), and an
+     * item with a null `root_id` is admitted by no root-restricted scope. It is stamped by the one
+     * writer (the create/reparent paths), not validated against [depth] or [parentId] at the domain
+     * layer; fixtures that construct [WorkItem] directly must stamp it themselves.
      */
     val rootId: UUID? = null,
     val title: String,

@@ -113,7 +113,8 @@ class ToolDispatcher(
                     access.scope,
                     access.attributionVisible,
                     access.principalsVisible,
-                    profile = profile.wire
+                    profile = profile.wire,
+                    rootWritesAllowed = access.rootWritesAllowed
                 )
 
             when (val describe = describeFlag(arguments)) {

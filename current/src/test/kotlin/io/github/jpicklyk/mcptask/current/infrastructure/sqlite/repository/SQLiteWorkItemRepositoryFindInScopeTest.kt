@@ -19,8 +19,8 @@ import kotlin.test.assertTrue
  *
  * Uses an in-memory SQLite database with the base schema (no FTS5 virtual tables).
  *
- * SQLite is used so the recursive CTE path of [SQLiteWorkItemRepository.resolveScopeIds] is
- * exercised.
+ * Principal scope is roots-only (R15 ruling): a scope id admits exactly the rows whose stamped `root_id`
+ * equals it, with no traversal; fixtures therefore stamp `rootId` in [create].
  *
  * Test coverage per task-scope acceptance criteria (Phase 0):
  * 1. Roots included — findInScope({R1}) includes R1 itself (not just descendants)
@@ -63,9 +63,21 @@ class SQLiteWorkItemRepositoryFindInScopeTest {
             role = role,
         )
 
+    /**
+     * Stamps `rootId` the way production create paths do (a root's own id for a depth-0 item, its parent's root
+     * for a descendant): the store writes `rootId` verbatim and principal scope admits only stamped rows (R15 ruling).
+     */
     private fun create(item: WorkItem): WorkItem =
         runBlocking {
-            val result = repository.create(item)
+            val rootId =
+                if (item.parentId == null) {
+                    item.id
+                } else {
+                    val parent = repository.getById(item.parentId)
+                    assertNotNull(parent, "fixture setup: parent of '${item.title}' must exist")
+                    parent.rootId ?: parent.id
+                }
+            val result = repository.create(item.copy(rootId = rootId))
             assertNotNull(result, "Expected item '${item.title}' to be created")
             result
         }

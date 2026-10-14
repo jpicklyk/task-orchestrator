@@ -166,14 +166,14 @@ internal object ItemsWriteTreeParity {
                 expectDbChanged = false
             ),
             scenario(
-                "items_write create_tree scope-forbidden tag-scoped root create without a listed tag",
+                "items_write create_tree scope-forbidden tag-scoped root create (R15: forbidden root, even with a tag)",
                 "create_tree",
                 ParityKind.OTHER,
                 tagScoped,
                 ops(tree()),
                 207,
                 "partial_failure",
-                listOf("\"code\":\"forbidden\"", "\"scope\":\"tag\"", "\"required\":\"alpha\""),
+                listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"\""),
                 expectDbChanged = false
             ),
             scenario(
