@@ -23,6 +23,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -33,19 +34,23 @@ import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
+import java.time.Instant
+import kotlin.test.assertIs
 
 /**
- * Regression guard: enabling the REST API must NOT gate the MCP transport endpoint.
+ * Regression guard (inverted by item 8ae4c8e7, R14): enabling the REST API now gates the MCP transport endpoint too.
  *
- * `ApiBearerAuth` is an application-level plugin, so it intercepts every request — not only
- * `/api/v1`. The `/mcp` Streamable HTTP endpoint is a separate protocol that MCP clients reach
- * without a REST bearer token; it must stay open while the `/api/v1` routes are gated. This was unreachable
- * until the SSE-double-install startup crash was fixed (HTTP + API-enabled could never run before),
- * so the leak shipped silently. This test wires the SAME production functions
- * ([installMcpStreamableHttp] + [installRestApiRoutes]) with the REST API enabled in bearer mode.
+ * Before R14 `ApiBearerAuth` exempted `/mcp`, so an MCP client reached the server without any credential while `/api/v1`
+ * was gated. Now `/mcp` leaves the public paths: with the REST API in bearer mode the production wiring resolves
+ * [McpAuthMode.Credential] and `McpBearerAuth` answers `/mcp` with the same resolver, so a request without a resolvable
+ * bearer token is 401 `unauthenticated`. Oracle: the R14 plan paragraph ("`/mcp` leaves `publicPaths`"), AC1 and AC7
+ * ("`McpRestAuthBypassTest` asserts the inverse"). The `/api/v1` assertions are unchanged. This test wires the SAME production
+ * functions ([installMcpStreamableHttp] + [installRestApiRoutes]) with the REST API enabled in bearer mode; the 401 is paired
+ * with a 200 for the same call under a valid token, so a plugin that refuses everything fails the pair.
  */
 class McpRestAuthBypassTest {
     @RegisterExtension
@@ -81,13 +86,15 @@ class McpRestAuthBypassTest {
     private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     @Test
-    fun `REST API enabled gates api routes but leaves the mcp endpoint open`() =
+    fun `REST API enabled gates api routes and the mcp endpoint alike`() =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             val provider = inMemoryProvider()
+            val resolution = McpAuthMode.resolve("http", apiConfig, entries, null, { Instant.now() }, false)
+            val mcpAuth = assertIs<McpAuthResolution.Resolved>(resolution).mode
             application {
                 // Same wiring CurrentMcpServer uses in HTTP mode with the API enabled.
-                installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv())
+                installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = mcpAuth)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = null,
@@ -110,22 +117,34 @@ class McpRestAuthBypassTest {
                 )
             }
 
-            // /mcp must NOT require the REST bearer token — initialize succeeds with no Authorization.
+            val initialize =
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":""" +
+                    """{"protocolVersion":"2025-03-26","capabilities":{},""" +
+                    """"clientInfo":{"name":"t","version":"1.0"}}}"""
+
+            // /mcp must now REQUIRE the bearer token: initialize with no Authorization is 401 unauthenticated.
             val mcp =
                 client.post("/mcp") {
                     header(HttpHeaders.Accept, "application/json, text/event-stream")
                     contentType(ContentType.Application.Json)
-                    setBody(
-                        """{"jsonrpc":"2.0","id":1,"method":"initialize","params":""" +
-                            """{"protocolVersion":"2025-03-26","capabilities":{},""" +
-                            """"clientInfo":{"name":"t","version":"1.0"}}}""",
-                    )
+                    setBody(initialize)
                 }
             assertEquals(
-                HttpStatusCode.OK,
+                HttpStatusCode.Unauthorized,
                 mcp.status,
-                "/mcp must stay open when the REST API is enabled (no bearer token sent)",
+                "/mcp must be gated when the REST API is enabled (no bearer token sent)",
             )
+            assertTrue("unauthenticated" in mcp.bodyAsText(), "the refusal is the unauthenticated envelope")
+
+            // Control: the same call under the valid token initializes.
+            val authorised =
+                client.post("/mcp") {
+                    header(HttpHeaders.Accept, "application/json, text/event-stream")
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    contentType(ContentType.Application.Json)
+                    setBody(initialize)
+                }
+            assertEquals(HttpStatusCode.OK, authorised.status, "/mcp initializes with a valid bearer token")
 
             // /api/v1 routes MUST be gated — no token → 401.
             assertEquals(

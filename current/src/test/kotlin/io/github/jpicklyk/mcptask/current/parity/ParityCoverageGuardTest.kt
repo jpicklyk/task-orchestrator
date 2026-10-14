@@ -270,7 +270,34 @@ internal object FixtureParityCatalog {
             )
         )
 
-    val all: List<ParityScenario> get() = happy + scopeForbidden + notFound + other
+    /** R14: one call per fixture tool with no credential on either leg; both must be refused as `unauthenticated` and write nothing. */
+    val unauthenticated =
+        listOf(
+            scenario(
+                "get unauthenticated",
+                ParityFixtureTools.ITEMS,
+                "get",
+                ParityKind.UNAUTHENTICATED,
+                reader,
+                get(c1),
+                401,
+                expectCode = "unauthenticated",
+                expectDbChanged = false
+            ),
+            scenario(
+                "rename unauthenticated",
+                ParityFixtureTools.EDIT,
+                "rename",
+                ParityKind.UNAUTHENTICATED,
+                writer,
+                """{"ops":[${rename(c1, "Never applied")}]}""",
+                401,
+                expectCode = "unauthenticated",
+                expectDbChanged = false
+            )
+        )
+
+    val all: List<ParityScenario> get() = happy + scopeForbidden + notFound + other + unauthenticated
 }
 
 /**
@@ -393,9 +420,12 @@ class ParityCoverageGuardTest {
     }
 
     @Test
-    fun `S17 an empty catalog misses a happy and a scope-forbidden scenario for every member`() {
+    fun `S17 an empty catalog misses a happy and a scope-forbidden scenario for every member and an unauthenticated one per tool`() {
         val missing = ParityCoverage.missing(fixtures.registry, emptyList())
-        assertEquals(8, missing.size, "4 members x 2 requirements: $missing")
+        assertEquals(10, missing.size, "4 members x 2 requirements + 2 tools x 1 (R14): $missing")
+        for (tool in listOf(ParityFixtureTools.ITEMS, ParityFixtureTools.EDIT)) {
+            assertTrue(MissingParity(tool, ParityCoverage.TOOL_WIDE, ParityKind.UNAUTHENTICATED) in missing, "$tool unauthenticated")
+        }
         for ((tool, member) in ParityCoverage.members(fixtures.registry)) {
             assertTrue(MissingParity(tool, member, ParityKind.HAPPY) in missing, "$tool.$member happy")
             assertTrue(MissingParity(tool, member, ParityKind.SCOPE_FORBIDDEN) in missing, "$tool.$member scope-forbidden")
@@ -475,6 +505,41 @@ class ParityCoverageGuardTest {
     }
 
     @Test
+    fun `S17 removing the only UNAUTHENTICATED scenario of a tool reports exactly that tool, tool-wide`() {
+        val without = catalog.filterNot { it.name == "rename unauthenticated" }
+        assertEquals(
+            listOf(MissingParity(ParityFixtureTools.EDIT, ParityCoverage.TOOL_WIDE, ParityKind.UNAUTHENTICATED)),
+            ParityCoverage.missing(fixtures.registry, without)
+        )
+    }
+
+    @Test
+    fun `S17 an UNAUTHENTICATED scenario of another tool or of another kind does not cover the tool`() {
+        val without = catalog.filterNot { it.name == "rename unauthenticated" }
+        val wrongTool = catalog.single { it.name == "get unauthenticated" }.copy(name = "duplicate on the other tool")
+        val wrongKind = catalog.single { it.name == "rename unauthenticated" }.copy(kind = ParityKind.OTHER)
+        val expected = listOf(MissingParity(ParityFixtureTools.EDIT, ParityCoverage.TOOL_WIDE, ParityKind.UNAUTHENTICATED))
+        assertEquals(expected, ParityCoverage.missing(fixtures.registry, without + wrongTool))
+        assertEquals(expected, ParityCoverage.missing(fixtures.registry, without + wrongKind))
+    }
+
+    @Test
+    fun `S17 a scope exemption never waives the UNAUTHENTICATED requirement`() {
+        val without = catalog.filterNot { it.name == "rename unauthenticated" }
+        val exempt = ScopeExempt(ParityFixtureTools.EDIT, "rename", "an exemption is only for the scope requirement")
+        assertEquals(
+            listOf(MissingParity(ParityFixtureTools.EDIT, ParityCoverage.TOOL_WIDE, ParityKind.UNAUTHENTICATED)),
+            ParityCoverage.missing(fixtures.registry, without, listOf(exempt))
+        )
+    }
+
+    @Test
+    fun `S17 an UNAUTHENTICATED scenario naming an unregistered tool is reported as stale`() {
+        val ghost = catalog.single { it.name == "get unauthenticated" }.copy(name = "ghost unauthenticated", tool = "pf_ghost")
+        assertEquals(listOf("ghost unauthenticated"), ParityCoverage.stale(fixtures.registry, catalog + ghost).map { it.name })
+    }
+
+    @Test
     fun `S17 a scenario naming an unregistered member is reported as stale`() {
         val ghost = catalog.first().copy(name = "ghost", tool = "pf_ghost")
         assertEquals(listOf("ghost"), ParityCoverage.stale(fixtures.registry, catalog + ghost).map { it.name })
@@ -489,6 +554,53 @@ class ParityCoverageGuardTest {
         assertEquals(emptyList(), ParityCoverage.stale(production, ProductionParity.scenarios))
         // the same call is not trivially empty: it reports an uncovered registry
         assertTrue(ParityCoverage.missing(fixtures.registry, ProductionParity.scenarios, ProductionParity.exemptions).isNotEmpty())
+    }
+
+    // ------------------------------------------------------------------ R14 unauthenticated legs
+
+    @Test
+    fun `R14 unauthenticated scenarios are refused identically over REST and MCP and write nothing, with a credentialed control`() {
+        for (s in FixtureParityCatalog.unauthenticated) harness.run(s)
+    }
+
+    @Test
+    fun `R14 an UNAUTHENTICATED scenario expecting another status fails the harness`() {
+        val wrong = FixtureParityCatalog.unauthenticated.first().copy(expectStatus = 403)
+        val failure = assertFailsWith<AssertionError> { harness.run(wrong) }
+        assertTrue("REST status" in failure.message.orEmpty(), failure.message)
+    }
+
+    @Test
+    fun `R14 every production tool refuses a call with no credential identically over REST and MCP and writes nothing`() {
+        val production = ParityHarness(ToolRegistry(buildToolSpecs()))
+        val scenarios = ProductionParity.scenarios.filter { it.kind == ParityKind.UNAUTHENTICATED }
+        assertTrue(scenarios.isNotEmpty(), "vacuity: the production catalog derives UNAUTHENTICATED rows")
+        val failures = mutableListOf<String>()
+        for (s in scenarios) {
+            try {
+                production.run(s)
+            } catch (e: Throwable) {
+                failures += "${s.name}: ${e.message}"
+            }
+        }
+        assertTrue(failures.isEmpty(), "failing unauthenticated scenarios:\n" + failures.joinToString("\n"))
+    }
+
+    @Test
+    fun `R14 the production catalog holds an UNAUTHENTICATED scenario for every registered tool`() {
+        val production = ToolRegistry(buildToolSpecs())
+        val covered =
+            ProductionParity.scenarios
+                .filter { it.kind == ParityKind.UNAUTHENTICATED }
+                .map { it.tool }
+                .toSet()
+        assertEquals(production.tools.map { it.name }.toSet(), covered, "one UNAUTHENTICATED scenario per production tool")
+        assertTrue(
+            ProductionParity.scenarios.filter { it.kind == ParityKind.UNAUTHENTICATED }.all {
+                it.expectStatus == 401 &&
+                    it.expectCode == "unauthenticated"
+            }
+        )
     }
 
     // ------------------------------------------------------------------ S19 non-vacuity
@@ -615,7 +727,7 @@ class ParityCoverageGuardTest {
         val missing = ParityCoverage.missing(modes.registry, emptyList())
         assertTrue(MissingParity("pm_items", "web_peek", ParityKind.HAPPY) in missing, missing.toString())
         assertTrue(MissingParity("pm_items", "web_peek", ParityKind.SCOPE_FORBIDDEN) in missing, missing.toString())
-        assertEquals(10, missing.size, "5 members x 2 requirements: $missing")
+        assertEquals(11, missing.size, "5 members x 2 requirements + 1 tool x 1 (R14): $missing")
     }
 
     @Test

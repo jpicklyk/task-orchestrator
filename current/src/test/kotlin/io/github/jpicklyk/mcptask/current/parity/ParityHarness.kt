@@ -332,25 +332,29 @@ class ParityHarness(
 
     private fun runRest(
         leg: Leg,
-        s: ParityScenario
+        s: ParityScenario,
+        credential: Boolean = true
     ): RestResult {
         var result: RestResult? = null
         testApplication {
             application { installParityRestApp(leg.rig, parityAuthConfig(s.token), registry) }
             val response =
                 client.post("/api/v1/ops/${s.tool}") {
-                    header(HttpHeaders.Authorization, "Bearer ${s.token.raw}")
+                    if (credential) header(HttpHeaders.Authorization, "Bearer ${s.token.raw}")
                     contentType(ContentType.Application.Json)
                     setBody(s.arguments)
                 }
             val text = response.bodyAsText()
-            assertParityBodyConforms(text, "${s.name}: REST body", s.arguments)
+            // A refusal by the auth plugin (no credential) is checked for its code and status by the caller, not for the full
+            // envelope shape: the plugin, not the dispatcher, writes it (R14 D8).
+            if (credential) assertParityBodyConforms(text, "${s.name}: REST body", s.arguments)
             result = RestResult(response.status.value, text, response.headers["X-Req-Id"])
         }
         return checkNotNull(result) { "REST leg produced no response" }
     }
 
     fun run(s: ParityScenario): ParityOutcome {
+        if (s.kind == ParityKind.UNAUTHENTICATED) return runUnauthenticated(s)
         // R5 AC6: the MCP leg runs on a profile whose set contains the member; an empty-set member has no MCP leg at all.
         val mcpProfile = ParityCoverage.mcpLegProfile(registry, s.tool, s.member) ?: return runRestOnly(s)
         val restLeg = openLeg(s.seed)
@@ -439,6 +443,76 @@ class ParityHarness(
             val changed = project(restRawAfter) != before
             s.expectDbChanged?.let { assertEquals(it, changed, "${s.name}: database changed") }
             return ParityOutcome(rest.status, restNorm, restAfter, changed)
+        } finally {
+            restLeg.close()
+            mcpLeg.close()
+        }
+    }
+
+    private fun JsonObject.errorCode(): String? =
+        this["error"]
+            ?.jsonObject
+            ?.get("code")
+            ?.jsonPrimitive
+            ?.content
+
+    /**
+     * An UNAUTHENTICATED scenario (R14, decision D8): the REST leg sends the call with NO Authorization header and the MCP leg
+     * is handed an access that carries no principal. Both must answer `unauthenticated` with its catalog status and leave the
+     * database untouched. The error `message` is deliberately not compared (REST is refused by the auth plugin, MCP by the
+     * dispatcher). A control pair then sends the identical call WITH the scenario's token on both legs and must not be refused as
+     * unauthenticated, so the refusal is caused by the missing credential and by nothing else about the call.
+     */
+    private fun runUnauthenticated(s: ParityScenario): ParityOutcome {
+        val restLeg = openLeg(s.seed)
+        val mcpLeg =
+            try {
+                openLeg(s.seed)
+            } catch (e: Throwable) {
+                restLeg.close()
+                throw e
+            }
+        try {
+            val before = project(rawTables(restLeg.db.jdbcUrl))
+            assertEquals(
+                before,
+                project(rawTables(mcpLeg.db.jdbcUrl)),
+                "${s.name}: the two legs must start from identical seeded databases"
+            )
+            val unauthenticatedStatus = ErrorCode.entries.single { it.wire == "unauthenticated" }.httpStatus
+
+            val rest = runRest(restLeg, s, credential = false)
+            val restBody = Json.parseToJsonElement(rest.body).jsonObject
+            assertEquals(false, restBody["ok"]?.jsonPrimitive?.boolean, "${s.name}: REST refusal is not ok: ${rest.body}")
+            assertEquals("unauthenticated", restBody.errorCode(), "${s.name}: REST error code: ${rest.body}")
+            assertEquals(s.expectStatus, rest.status, "${s.name}: REST status")
+            assertEquals(unauthenticatedStatus, rest.status, "${s.name}: REST status equals the catalog status of unauthenticated")
+            assertEquals(before, project(rawTables(restLeg.db.jdbcUrl)), "${s.name}: the REST refusal wrote nothing")
+
+            val spec = checkNotNull(registry[s.tool]) { "${s.name}: tool ${s.tool} is not registered" }
+            val profile = ToolProfile.entries.firstOrNull { spec in registry.visible(it) }
+            val args = Json.parseToJsonElement(s.arguments).jsonObject
+            if (profile != null) {
+                val mcp =
+                    runBlocking {
+                        callMcp(mcpLeg.rig.composition.toolContext, registry, { _ -> CallAccess.unauthenticated() }, s.tool, args, profile)
+                    }
+                assertTrue(mcp.isError, "${s.name}: the MCP refusal is a tool error: ${mcp.text}")
+                assertEquals("unauthenticated", mcp.structured.errorCode(), "${s.name}: MCP error code: ${mcp.text}")
+                assertEquals(before, project(rawTables(mcpLeg.db.jdbcUrl)), "${s.name}: the MCP refusal wrote nothing")
+            }
+
+            // Controls: the same call with the scenario's own credential is not refused as unauthenticated on either leg.
+            val controlRest = runRest(restLeg, s, credential = true)
+            assertNotEquals(unauthenticatedStatus, controlRest.status, "${s.name}: control REST call with a token: ${controlRest.body}")
+            if (profile != null) {
+                val controlMcp =
+                    runBlocking {
+                        callMcp(mcpLeg.rig.composition.toolContext, registry, { _ -> parityAccess(s.token) }, s.tool, args, profile)
+                    }
+                assertNotEquals("unauthenticated", controlMcp.structured.errorCode(), "${s.name}: control MCP call with a principal")
+            }
+            return ParityOutcome(rest.status, rest.body, before, false)
         } finally {
             restLeg.close()
             mcpLeg.close()

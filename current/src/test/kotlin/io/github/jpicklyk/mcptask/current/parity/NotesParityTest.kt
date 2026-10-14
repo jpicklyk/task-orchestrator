@@ -561,7 +561,8 @@ class NotesParityTest {
             members.filter { it.first.startsWith("notes_") }.toSet()
         )
         val missing = ParityCoverage.missing(registry, NotesParityCatalog.scenarios, NotesParityCatalog.exemptions)
-        assertEquals(emptyList(), missing.filter { it.tool.startsWith("notes_") })
+        // The per-tool UNAUTHENTICATED rows (R14) are derived into ProductionParity, not kept in this slice.
+        assertEquals(emptyList(), missing.filter { it.tool.startsWith("notes_") && it.kind != ParityKind.UNAUTHENTICATED })
         assertEquals(emptyList(), ParityCoverage.stale(registry, NotesParityCatalog.scenarios))
         assertTrue(NotesParityCatalog.exemptions.isEmpty(), "no scope exemption: every notes member touches an item")
     }

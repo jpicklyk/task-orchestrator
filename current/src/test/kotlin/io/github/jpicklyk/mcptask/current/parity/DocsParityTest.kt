@@ -347,7 +347,9 @@ class DocsParityTest {
             ),
             ParityCoverage.members(docsOnly).toSet()
         )
-        assertEquals(emptyList(), ParityCoverage.missing(docsOnly, DocsParityScenarios.scenarios, DocsParityScenarios.exemptions))
+        // The per-tool UNAUTHENTICATED rows (R14) are derived into ProductionParity, not kept in this slice.
+        val missing = ParityCoverage.missing(docsOnly, DocsParityScenarios.scenarios, DocsParityScenarios.exemptions)
+        assertEquals(emptyList(), missing.filter { it.kind != ParityKind.UNAUTHENTICATED })
         assertEquals(emptyList(), ParityCoverage.stale(docsOnly, DocsParityScenarios.scenarios))
         assertTrue(DocsParityScenarios.exemptions.isEmpty(), "no scope exemption: every docs member names a document under a root")
     }
