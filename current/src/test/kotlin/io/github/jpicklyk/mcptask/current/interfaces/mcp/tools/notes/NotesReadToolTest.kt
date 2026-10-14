@@ -522,7 +522,9 @@ class NotesReadToolTest {
 
     private suspend fun seedEvidenceNote(
         item: WorkItem,
-        ownerId: String? = null
+        ownerId: String? = null,
+        seat: String? = null,
+        ownerSeat: String? = null
     ) {
         val claims =
             ProofClaims(
@@ -543,6 +545,8 @@ class NotesReadToolTest {
                 body = "Evidence body",
                 actorClaim = ActorClaim(id = "agent-evidence", kind = ActorKind.ORCHESTRATOR, parent = "workflow:s18"),
                 ownerId = ownerId,
+                seat = seat,
+                ownerSeat = ownerSeat,
                 verification =
                     VerificationResult(
                         status = VerificationStatus.VERIFIED,
@@ -889,5 +893,56 @@ class NotesReadToolTest {
                 assertFalse("\"owner\"" in answer.toString(), "hidden, adopted: no owner member: $answer")
                 assertFalse("api:t" in answer.toString(), "hidden, adopted: the owner id never appears: $answer")
             }
+        }
+
+    // ------------------------------------------------------------------ R22 W6 (item 95a22e6e, round 2): owner.seat is owner_seat
+    //
+    // Oracle: R21 decision Ruling 8 (orchestrator-decisions note of 95a22e6e): `notes.seat` is ATTRIBUTION (the seat of the token
+    // that made the latest write) and `notes.owner_seat` is the seat half of the owner; the view's `owner.seat` comes from
+    // `owner_seat`, never from `seat`. A note whose latest writer sat in another seat than the owner therefore tells the two
+    // values apart.
+
+    @Test
+    fun `R22 W6 get and list show owner seat from owner_seat and never from the attribution seat`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            seedEvidenceNote(item, ownerId = "agent-evidence", seat = "test-author", ownerSeat = "implementer")
+
+            val get = rig.ctx.getNoteVia(item.id, "evidence")
+            assertTrue(envelopeOk(get), "$get")
+            val owner = get.data().obj("owner")
+            assertEquals(setOf("id", "seat"), owner.keys, "the owner member carries the id and the seat: $owner")
+            assertEquals("agent-evidence", owner.str("id"))
+            assertEquals("implementer", owner.str("seat"), "owner.seat is owner_seat, not the attribution seat test-author")
+
+            val listed =
+                rig.ctx
+                    .listNotesVia(item.id)
+                    .items()
+                    .single()
+                    .obj("owner")
+            assertEquals("implementer", listed.str("seat"), "the list entry reads the same column: $listed")
+            assertNoProofEvidence(get)
+        }
+
+    @Test
+    fun `R22 W6 an attribution seat without an owner seat leaves the owner seat out of the view`(): Unit =
+        runBlocking {
+            val item = rig.seed("owner")
+            seedEvidenceNote(item, ownerId = "agent-evidence", seat = "test-author", ownerSeat = null)
+
+            val owner =
+                rig.ctx
+                    .getNoteVia(item.id, "evidence")
+                    .data()
+                    .obj("owner")
+            assertEquals(setOf("id"), owner.keys, "owner_seat NULL: no seat member, whatever the attribution seat is: $owner")
+            val listedOwner =
+                rig.ctx
+                    .listNotesVia(item.id)
+                    .items()
+                    .single()
+                    .obj("owner")
+            assertEquals(setOf("id"), listedOwner.keys, "list entry: $listedOwner")
         }
 }

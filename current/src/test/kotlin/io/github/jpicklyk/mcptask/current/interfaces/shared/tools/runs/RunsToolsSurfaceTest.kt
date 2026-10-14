@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.RunsParityScenarios
 import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.parityAccess
+import io.github.jpicklyk.mcptask.current.parity.parityCoordinatorToken
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
@@ -96,11 +97,12 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `the members are exactly get and list, and open update close pause resume mark`() {
-        assertEquals(setOf("get", "list"), read.selects.map { it.name }.toSet())
-        assertEquals(2, read.selects.size)
-        assertEquals(setOf("open", "update", "close", "pause", "resume", "mark"), write.ops.map { it.name }.toSet())
-        assertEquals(6, write.ops.size)
+    fun `the members are exactly get list seats, and open update close pause resume mark assign end_seat`() {
+        // R22 adds the `seats` select and the `assign` / `end_seat` ops.
+        assertEquals(setOf("get", "list", "seats"), read.selects.map { it.name }.toSet())
+        assertEquals(3, read.selects.size)
+        assertEquals(setOf("open", "update", "close", "pause", "resume", "mark", "assign", "end_seat"), write.ops.map { it.name }.toSet())
+        assertEquals(8, write.ops.size)
     }
 
     @Test
@@ -114,12 +116,16 @@ class RunsToolsSurfaceTest {
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("pause").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("resume").profiles)
         assertEquals(emptySet(), writeMember("mark").profiles, "mark is REST only (R5 empty-set contract)")
+        // R22: the seat members are orchestration only (the director never assigns or ends a seat)
+        assertEquals(setOf(ToolProfile.ORCHESTRATION), readMember("seats").profiles)
+        assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("assign").profiles)
+        assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("end_seat").profiles)
     }
 
     @Test
     fun `reads need READ, every write op needs RUNS, and close is the only destructive op`() {
         assertTrue(read.selects.all { it.capability == ApiCapability.READ }, "reads need READ")
-        assertTrue(write.ops.all { it.capability == ApiCapability.RUNS }, "every write op needs RUNS")
+        assertTrue(write.ops.all { it.capability == ApiCapability.RUNS }, "every write op needs RUNS (assign and end_seat included)")
         assertEquals(listOf("close"), write.ops.filter { it.destructive }.map { it.name }, "only close is destructive")
     }
 
@@ -145,8 +151,8 @@ class RunsToolsSurfaceTest {
     fun `visibility per profile - knowledge sees neither tool, mark is on no profile`() {
         assertEquals(emptySet(), visible("runs_read", ToolProfile.KNOWLEDGE))
         assertEquals(emptySet(), visible("runs_write", ToolProfile.KNOWLEDGE))
-        assertEquals(setOf("get", "list"), visible("runs_read", ToolProfile.ORCHESTRATION))
-        assertEquals(setOf("open", "update", "close"), visible("runs_write", ToolProfile.ORCHESTRATION))
+        assertEquals(setOf("get", "list", "seats"), visible("runs_read", ToolProfile.ORCHESTRATION))
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), visible("runs_write", ToolProfile.ORCHESTRATION))
         assertEquals(setOf("get", "list"), visible("runs_read", ToolProfile.DIRECTOR))
         assertEquals(setOf("open", "close", "pause", "resume"), visible("runs_write", ToolProfile.DIRECTOR))
         for (profile in ToolProfile.entries) {
@@ -188,7 +194,7 @@ class RunsToolsSurfaceTest {
 
     @Test
     fun `the rendered op enum is the visible set of the profile and never carries mark`() {
-        assertEquals(setOf("open", "update", "close"), opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION)))
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION)))
         assertEquals(setOf("open", "close", "pause", "resume"), opEnum(rendered("runs_write", ToolProfile.DIRECTOR)))
         assertNull(McpOperationAdapter.toolFor(registry["runs_write"]!!, ToolProfile.KNOWLEDGE), "control: knowledge renders no runs_write")
         assertNull(McpOperationAdapter.toolFor(registry["runs_read"]!!, ToolProfile.KNOWLEDGE))
@@ -217,7 +223,7 @@ class RunsToolsSurfaceTest {
                         .getValue("name")
                         .jsonPrimitive.content
                 }
-        assertEquals(setOf("open", "update", "close"), described(ToolProfile.ORCHESTRATION).toSet())
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), described(ToolProfile.ORCHESTRATION).toSet())
         assertEquals(setOf("open", "close", "pause", "resume"), described(ToolProfile.DIRECTOR).toSet())
         val selects =
             ToolDescriber
@@ -294,32 +300,21 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `S20 the planned directory keeps the four runs deltas and no full runs entry`() {
+    fun `S20 the planned directory keeps the three runs deltas left after R22 and no full runs entry`() {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertNull(resource("planned/$file.json"), "$file.json is stale once the tool is visible")
-            assertNotNull(resource("planned/$file.delta.json"), "$file.delta.json keeps the members R20 does not ship")
         }
+        for (file in listOf("runs_read.director", "runs_write.orchestration", "runs_write.director")) {
+            assertNotNull(resource("planned/$file.delta.json"), "$file.delta.json keeps the members no item has shipped yet")
+        }
+        assertNull(resource("planned/runs_read.orchestration.delta.json"), "R22 shipped the seats select, so its delta is gone")
 
         fun keys(file: String): Set<String> = Json.parseToJsonElement(assertNotNull(resource("planned/$file")).readText()).jsonObject.keys
-        assertEquals(setOf("itemId", "ended"), keys("runs_read.orchestration.delta.json"))
         assertEquals(setOf("decisionId", "overdue"), keys("runs_read.director.delta.json"))
         assertEquals(setOf("decisionId", "option", "text", "rationale"), keys("runs_write.director.delta.json"))
+        // R22 shipped assign and end_seat: what is left of the orchestration runs_write delta is the decision `raise` request.
         assertEquals(
-            setOf(
-                "itemId",
-                "seat",
-                "outcome",
-                "links",
-                "class",
-                "question",
-                "options",
-                "recommended",
-                "context",
-                "dedupeKey",
-                "severity",
-                "block",
-                "summary"
-            ),
+            setOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity", "block"),
             keys("runs_write.orchestration.delta.json")
         )
     }
@@ -414,7 +409,10 @@ class RunsToolsSurfaceTest {
                 rig,
                 coord,
                 "runs_write",
-                RunsParityScenarios.ops(RunsParityScenarios.update(ra, ""","hints":{"x":"y"}""")),
+                RunsParityScenarios.ops(
+                    RunsParityScenarios.update(ra, ""","hints":{"x":"y"}"""),
+                    top = ""","seatToken":"${parityCoordinatorToken(ra)}""""
+                ),
                 ToolProfile.ORCHESTRATION
             )
         assertFalse(updated.isError, updated.structured.toString())
@@ -476,8 +474,10 @@ class RunsToolsSurfaceTest {
         assertTrue("\"openedByKind\":\"agent\"" in anonymous.structured.toString(), anonymous.structured.toString())
     }
 
+    private fun coordinatorTokenOf(text: String): String = Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(text)!!.groupValues[1]
+
     @Test
-    fun `D-coord on MCP the opening actor coordinates its run and another actor does not`() {
+    fun `D-coord on MCP the coordinator is the token open returned - the opener without it, and another actor with it, are refused`() {
         val rig = rig(seeded)
         val opened =
             mcp(
@@ -492,7 +492,27 @@ class RunsToolsSurfaceTest {
             )
         assertFalse(opened.isError, opened.structured.toString())
         val runId = Regex("\"runId\":\"([0-9a-f-]{36})\"").find(opened.structured.toString())!!.groupValues[1]
+        val token = coordinatorTokenOf(opened.structured.toString())
+        val asA = ""","actor":{"id":"orch-A","kind":"subagent"}"""
+        val asB = ""","actor":{"id":"orch-B","kind":"subagent"}"""
 
+        // D3: the opener fallback is removed - orch-A opened the run but, with no token, is not its coordinator
+        val openerNoToken =
+            mcp(
+                rig,
+                null,
+                "runs_write",
+                RunsParityScenarios.ops(RunsParityScenarios.update(runId, ""","hints":{"x":"y"}"""), top = asA),
+                ToolProfile.ORCHESTRATION
+            )
+        assertTrue("\"code\":\"forbidden\"" in openerNoToken.structured.toString(), openerNoToken.structured.toString())
+        assertTrue(
+            "\"scope\":\"principal_kind\"" in openerNoToken.structured.toString() &&
+                "\"required\":\"coordinator\"" in openerNoToken.structured.toString(),
+            openerNoToken.structured.toString()
+        )
+
+        // D2: the token is bound to the principal it was issued to, so another actor presenting it is unauthenticated
         val stranger =
             mcp(
                 rig,
@@ -500,26 +520,19 @@ class RunsToolsSurfaceTest {
                 "runs_write",
                 RunsParityScenarios.ops(
                     RunsParityScenarios.update(runId, ""","hints":{"x":"y"}"""),
-                    top = ""","actor":{"id":"orch-B","kind":"subagent"}"""
+                    top = asB + ""","seatToken":"$token""""
                 ),
                 ToolProfile.ORCHESTRATION
             )
-        assertTrue("\"code\":\"forbidden\"" in stranger.structured.toString(), stranger.structured.toString())
-        assertTrue(
-            "\"scope\":\"principal_kind\"" in stranger.structured.toString() &&
-                "\"required\":\"coordinator\"" in stranger.structured.toString(),
-            stranger.structured.toString()
-        )
+        assertEquals("unauthenticated", errorCode(stranger), stranger.structured.toString())
+        assertFalse(token in stranger.structured.toString(), "the refusal never echoes the token")
 
         val closeByStranger =
             mcp(
                 rig,
                 null,
                 "runs_write",
-                RunsParityScenarios.ops(
-                    RunsParityScenarios.close(runId, "cancelled"),
-                    top = ""","actor":{"id":"orch-B","kind":"subagent"}"""
-                ),
+                RunsParityScenarios.ops(RunsParityScenarios.close(runId, "cancelled"), top = asB),
                 ToolProfile.ORCHESTRATION
             )
         assertTrue("\"code\":\"forbidden\"" in closeByStranger.structured.toString(), closeByStranger.structured.toString())
@@ -528,36 +541,33 @@ class RunsToolsSurfaceTest {
             closeByStranger.structured.toString()
         )
 
-        val updateByOpener =
+        val updateByCoordinator =
             mcp(
                 rig,
                 null,
                 "runs_write",
                 RunsParityScenarios.ops(
                     RunsParityScenarios.update(runId, ""","hints":{"x":"y"}"""),
-                    top = ""","actor":{"id":"orch-A","kind":"subagent"}"""
+                    top = asA + ""","seatToken":"$token""""
                 ),
                 ToolProfile.ORCHESTRATION
             )
-        assertFalse(updateByOpener.isError, updateByOpener.structured.toString())
+        assertFalse(updateByCoordinator.isError, updateByCoordinator.structured.toString())
 
-        val closeByOpener =
+        val closeByCoordinator =
             mcp(
                 rig,
                 null,
                 "runs_write",
-                RunsParityScenarios.ops(
-                    RunsParityScenarios.close(runId, "completed"),
-                    top = ""","actor":{"id":"orch-A","kind":"subagent"}"""
-                ),
+                RunsParityScenarios.ops(RunsParityScenarios.close(runId, "completed"), top = asA + ""","seatToken":"$token""""),
                 ToolProfile.ORCHESTRATION
             )
-        assertFalse(closeByOpener.isError, closeByOpener.structured.toString())
-        assertTrue("\"closedBy\":\"orch-A\"" in closeByOpener.structured.toString(), closeByOpener.structured.toString())
+        assertFalse(closeByCoordinator.isError, closeByCoordinator.structured.toString())
+        assertTrue("\"closedBy\":\"orch-A\"" in closeByCoordinator.structured.toString(), closeByCoordinator.structured.toString())
     }
 
     @Test
-    fun `D-coord on MCP a principal-less call is the coordinator of a run opened without an actor`() {
+    fun `D-coord on MCP a principal-less call runs as local and coordinates only with the token its open returned`() {
         val rig = rig(seeded)
         val opened =
             mcp(
@@ -569,7 +579,10 @@ class RunsToolsSurfaceTest {
             )
         assertFalse(opened.isError, opened.structured.toString())
         val runId = Regex("\"runId\":\"([0-9a-f-]{36})\"").find(opened.structured.toString())!!.groupValues[1]
-        val updated =
+        val token = coordinatorTokenOf(opened.structured.toString())
+
+        // D3: the opener (local, no actor) is not the coordinator without the token ...
+        val noToken =
             mcp(
                 rig,
                 null,
@@ -577,9 +590,21 @@ class RunsToolsSurfaceTest {
                 RunsParityScenarios.ops(RunsParityScenarios.update(runId, ""","hints":{"x":"y"}""")),
                 ToolProfile.ORCHESTRATION
             )
+        assertTrue("\"code\":\"forbidden\"" in noToken.structured.toString(), noToken.structured.toString())
+        assertTrue("\"required\":\"coordinator\"" in noToken.structured.toString(), noToken.structured.toString())
+
+        // ... and is with it
+        val updated =
+            mcp(
+                rig,
+                null,
+                "runs_write",
+                RunsParityScenarios.ops(RunsParityScenarios.update(runId, ""","hints":{"x":"y"}"""), top = ""","seatToken":"$token""""),
+                ToolProfile.ORCHESTRATION
+            )
         assertFalse(updated.isError, updated.structured.toString())
         assertTrue("\"version\":2" in updated.structured.toString(), updated.structured.toString())
-        // control: an actor that is not the (absent) opener is refused
+        // control: an actor that is not the opener presenting the token is refused as unauthenticated (D2), not let in
         val named =
             mcp(
                 rig,
@@ -587,11 +612,11 @@ class RunsToolsSurfaceTest {
                 "runs_write",
                 RunsParityScenarios.ops(
                     RunsParityScenarios.update(runId, ""","hints":{"x":"z"}"""),
-                    top = ""","actor":{"id":"orch-C","kind":"subagent"}"""
+                    top = ""","actor":{"id":"orch-C","kind":"subagent"},"seatToken":"$token""""
                 ),
                 ToolProfile.ORCHESTRATION
             )
-        assertTrue("\"code\":\"forbidden\"" in named.structured.toString(), named.structured.toString())
+        assertEquals("unauthenticated", errorCode(named), named.structured.toString())
     }
 
     @Test

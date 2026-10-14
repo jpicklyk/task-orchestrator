@@ -154,13 +154,27 @@ class RunsDirectorRouteTest {
 
     private val ops = RunsParityScenarios
 
+    /**
+     * The coordinator token `open` returned for each run it opened (R22 D7: returned once, as `coordinatorToken`). Coordinating a
+     * run (update, and close as its coordinator) needs the token as the top-level `seatToken`; the opener's principal alone no
+     * longer does (D3), so a test that coordinates presents [ctop].
+     */
+    private val coordinatorTokens = mutableMapOf<String, String>()
+
+    private fun ctop(runId: String): String =
+        ""","seatToken":"${checkNotNull(coordinatorTokens[runId]) { "no coordinator token for $runId" }}""""
+
     private suspend fun HttpClient.open(
         extra: String = "",
         token: ParityToken = coord
     ): String {
         val response = plain(ops.ops(ops.open(ops.r1, extra)), token)
         assertEquals(200, response.status.value, "open: ${response.text()}")
-        return runIdIn(response.text())
+        val runId = runIdIn(response.text())
+        val issued = Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(response.text())
+        assertTrue(issued != null, "open returns a 43-character coordinatorToken: ${response.text()}")
+        coordinatorTokens[runId] = issued!!.groupValues[1]
+        return runId
     }
 
     private suspend fun HttpClient.statusOf(runId: String): String {
@@ -280,7 +294,11 @@ class RunsDirectorRouteTest {
             assertEquals(listOf("run.opened"), runEventTypes(), "the refused calls wrote nothing")
 
             // controls: the same members are served where they belong
-            assertEquals(200, client.plain(ops.ops(ops.update(runId, ""","hints":{"x":"y"}"""))).status.value, "update on the plain route")
+            assertEquals(
+                200,
+                client.plain(ops.ops(ops.update(runId, ""","hints":{"x":"y"}"""), top = ctop(runId))).status.value,
+                "update on the plain route"
+            )
             assertEquals(200, client.plain(ops.ops(ops.mark(runId, "retro")), other).status.value, "mark on the plain route")
 
             assertEquals(200, client.director(ops.get(runId), reader, "runs_read").status.value, "get on the director route")
@@ -332,7 +350,7 @@ class RunsDirectorRouteTest {
             assertTrue("unknown_parameter" in updateSpoof.text() && "/actor" in updateSpoof.text(), updateSpoof.text())
             assertEquals(listOf("run.opened"), runEventTypes())
             // control: the real coordinator token closes
-            assertEquals(200, client.plain(ops.ops(ops.close(runId, "cancelled")), coord).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(runId, "cancelled"), top = ctop(runId)), coord).status.value)
         }
 
     @Test
@@ -387,7 +405,7 @@ class RunsDirectorRouteTest {
     fun `S19 a mark replay across two calls keeps the first write and records one event`() =
         withApp {
             val runId = client.open()
-            assertEquals(200, client.plain(ops.ops(ops.close(runId, "completed"))).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(runId, "completed"), top = ctop(runId))).status.value)
             val first = client.plain(ops.ops(ops.mark(runId, "retro")), other)
             assertEquals(200, first.status.value, first.text())
             assertTrue("\"marked\":true" in first.text(), first.text())
@@ -402,16 +420,16 @@ class RunsDirectorRouteTest {
     fun `the lifecycle records one event per transition in order, and a refused update on a paused run records none`() =
         withApp {
             val runId = client.open(""","items":["${ops.c1}"]""")
-            assertEquals(200, client.plain(ops.ops(ops.update(runId, ""","addItems":["${ops.c2}"]"""))).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.update(runId, ""","addItems":["${ops.c2}"]"""), top = ctop(runId))).status.value)
             assertEquals(200, client.plain(ops.ops(ops.pause(runId)), human).status.value)
 
-            val refused = client.plain(ops.ops(ops.update(runId, ""","hints":{"x":"y"}""")))
+            val refused = client.plain(ops.ops(ops.update(runId, ""","hints":{"x":"y"}"""), top = ctop(runId)))
             assertEquals(207, refused.status.value)
             assertTrue("\"code\":\"run_paused\"" in refused.text() && "\"pauseReason\":\"manual\"" in refused.text(), refused.text())
             assertEquals(listOf("run.opened", "run.updated", "run.paused"), runEventTypes(), "the refused update recorded nothing")
 
             assertEquals(200, client.plain(ops.ops(ops.resume(runId)), human).status.value)
-            val closed = client.plain(ops.ops(ops.close(runId, "cancelled")))
+            val closed = client.plain(ops.ops(ops.close(runId, "cancelled"), top = ctop(runId)))
             assertEquals(200, closed.status.value, closed.text())
             assertEquals(200, client.plain(ops.ops(ops.mark(runId, "retro")), other).status.value)
             assertEquals(
@@ -424,13 +442,33 @@ class RunsDirectorRouteTest {
     fun `a closed run refuses every state change with run_closed and a mark still works`() =
         withApp {
             val runId = client.open()
-            assertEquals(200, client.plain(ops.ops(ops.close(runId, "abandoned"))).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(runId, "abandoned"), top = ctop(runId))).status.value)
+            // R22 D2/D3: the close cascade ended the coordinator seat, so the coordinator token of a closed run is dead and a call
+            // that still presents it is the fixed 401 before the run state is looked at; the callers who need no token (a human) reach
+            // the run_closed refusal.
+            for (label in listOf("update", "close")) {
+                val dead =
+                    client.plain(
+                        ops.ops(
+                            if (label ==
+                                "update"
+                            ) {
+                                ops.update(runId, ""","hints":{"x":"y"}""")
+                            } else {
+                                ops.close(runId, "cancelled")
+                            },
+                            top = ctop(runId)
+                        )
+                    )
+                assertEquals(401, dead.status.value, "$label with the dead coordinator token: ${dead.text()}")
+                assertEquals("unauthenticated", Json.parseToJsonElement(dead.text()).jsonObject.code(), label)
+                assertFalse("run_closed" in dead.text(), "$label: the token is refused before the run state: ${dead.text()}")
+            }
             val attempts =
                 listOf(
-                    "update" to client.plain(ops.ops(ops.update(runId, ""","hints":{"x":"y"}"""))),
                     "pause" to client.plain(ops.ops(ops.pause(runId)), human),
                     "resume" to client.plain(ops.ops(ops.resume(runId)), human),
-                    "close" to client.plain(ops.ops(ops.close(runId, "cancelled")))
+                    "close" to client.plain(ops.ops(ops.close(runId, "cancelled")), human)
                 )
             for ((label, response) in attempts) {
                 assertEquals(207, response.status.value, label)
@@ -450,8 +488,8 @@ class RunsDirectorRouteTest {
         withApp {
             val a = client.open()
             val b = client.open()
-            assertEquals(200, client.plain(ops.ops(ops.close(a, "completed"))).status.value)
-            assertEquals(200, client.plain(ops.ops(ops.close(b, "completed"))).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(a, "completed"), top = ctop(a))).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(b, "completed"), top = ctop(b))).status.value)
 
             suspend fun unmarked(): List<String> =
                 Json
@@ -480,7 +518,7 @@ class RunsDirectorRouteTest {
     fun `the view of a closed run carries the close instant, closer and reason, is not stalled, and omits absent members`() =
         withApp {
             val runId = client.open()
-            assertEquals(200, client.plain(ops.ops(ops.close(runId, "failed")), coord).status.value)
+            assertEquals(200, client.plain(ops.ops(ops.close(runId, "failed"), top = ctop(runId)), coord).status.value)
             val text = client.plain(ops.get(runId), reader, "runs_read").text()
             val view =
                 Json
@@ -498,7 +536,7 @@ class RunsDirectorRouteTest {
             assertFalse("pauseReason" in view.keys, text)
             assertFalse(":null" in text, "absent members are omitted, never null: $text")
             assertTrue("\"reportedTokens\":0" in text && "\"observedTokens\":0" in text, "usage starts at zero: $text")
-            assertTrue("\"activeSeats\":0" in text, "no seat port before R22: $text")
+            assertTrue("\"activeSeats\":0" in text, "a closed run has no active seat (the cascade ended the coordinator seat): $text")
             assertEquals("0", view.getValue("members").jsonPrimitive.content)
         }
 }

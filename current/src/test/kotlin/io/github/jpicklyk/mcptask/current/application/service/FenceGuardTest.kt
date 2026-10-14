@@ -21,8 +21,9 @@ import kotlin.test.fail
  *
  * Oracles (frozen, planning phase; none read from the implementation): task-scope item 2 (`Ok` unless the claim is active and the
  * caller is not the holder; a null caller on a fenced item is refused; the holder id never appears in the message, detail or
- * fix args), task-scope item 1 (`holds` is an exact, case-sensitive compare; `assignmentId` stays null and is not compared until
- * R22), the pre-existing `ClaimState` KDoc (a claim is active while `expiresAt` is strictly after the instant asked about, so an
+ * fix args), task-scope item 1 (`holds` is an exact, case-sensitive compare of the principal id) as AMENDED BY R22 task-scope D10
+ * (the holder is the pair `(principal, assignment)`: `holds` is `claimedBy == principalId && claimAssignmentId == assignmentId`, so
+ * a principal-level claim is held only by a holder without an assignment, and a seat claim only by its own assignment), the pre-existing `ClaimState` KDoc (a claim is active while `expiresAt` is strictly after the instant asked about, so an
  * instant equal to `expiresAt` is already expired; a row with `claimedBy` set but no expiry has no usable claim) and the error
  * catalog declaration (`not_claim_holder`, permanent, HTTP 403, detail `NotClaimHolder{itemId}`).
  *
@@ -37,7 +38,8 @@ class FenceGuardTest {
     /** A claim by [by] taken a minute before it expires at [expiresAt]; claimedAt <= expiresAt and originalClaimedAt == claimedAt by construction. */
     private fun claimed(
         by: String = holderB,
-        expiresAt: Instant
+        expiresAt: Instant,
+        assignmentId: UUID? = null
     ): WorkItem {
         val claimedAt = expiresAt.minusSeconds(60)
         return WorkItem(
@@ -45,7 +47,8 @@ class FenceGuardTest {
             claimedBy = by,
             claimedAt = claimedAt,
             claimExpiresAt = expiresAt,
-            originalClaimedAt = claimedAt
+            originalClaimedAt = claimedAt,
+            claimAssignmentId = assignmentId
         )
     }
 
@@ -186,11 +189,20 @@ class FenceGuardTest {
     }
 
     @Test
-    fun `probe the assignment id is not compared - same principal with and without an assignment is the holder`() {
-        val item = claimed(by = "agent-a", expiresAt = now.plusSeconds(60))
+    fun `probe the assignment id is compared - the holder is the pair (principal, assignment) per D10`() {
+        val assignment = UUID.randomUUID()
+        val seatClaim = claimed(by = "agent-a", expiresAt = now.plusSeconds(60), assignmentId = assignment)
+        val principalClaim = claimed(by = "agent-a", expiresAt = now.plusSeconds(60))
 
-        assertAllowed(item, ClaimHolder("agent-a", UUID.randomUUID()), "holder with an assignment id")
-        assertAllowed(item, ClaimHolder("agent-a", null), "holder without one")
+        // a seat claim is held by exactly its own assignment
+        assertAllowed(seatClaim, ClaimHolder("agent-a", assignment), "seat claim, the same pair")
+        assertFenced(seatClaim, ClaimHolder("agent-a", null), "seat claim, same principal without an assignment")
+        assertFenced(seatClaim, ClaimHolder("agent-a", UUID.randomUUID()), "seat claim, same principal under a sibling assignment")
+        assertFenced(seatClaim, ClaimHolder("agent-b", assignment), "seat claim, another principal with the same assignment id")
+        // a principal-level claim is held only by a holder without an assignment
+        assertAllowed(principalClaim, ClaimHolder("agent-a", null), "principal claim, the same pair")
+        assertFenced(principalClaim, ClaimHolder("agent-a", assignment), "principal claim, same principal under a seat")
+        // another principal is fenced either way
         assertFenced(
             claimed(expiresAt = now.plusSeconds(60)),
             ClaimHolder("agent-a", UUID.randomUUID()),

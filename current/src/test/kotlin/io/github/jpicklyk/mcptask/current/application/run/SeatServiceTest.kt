@@ -160,7 +160,9 @@ work_item_schemas:
                 terminalReason = RunTerminalReason.CANCELLED,
                 openedBy = ORCH,
                 openedByKind = "service",
-                openedAt = Instant.parse("2026-10-10T11:00:00Z")
+                openedAt = Instant.parse("2026-10-10T11:00:00Z"),
+                // the tests open the coordinator themselves through the service (one active coordinator per run), so the seeder adds none
+                coordinatorToken = null
             )
         return Fixture(rig, root, seated, seatedTwo, plain, free, outsider, run)
     }
@@ -900,7 +902,8 @@ work_item_schemas:
                     rootId = f.root.id,
                     items = listOf(f.outsider.id),
                     openedBy = ORCH,
-                    openedByKind = "service"
+                    openedByKind = "service",
+                    coordinatorToken = null
                 )
             val theirs = f.assign(f.outsider, "builder", runId = otherRun.id).ok()
 

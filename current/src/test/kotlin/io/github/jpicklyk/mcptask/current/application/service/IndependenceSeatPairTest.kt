@@ -29,9 +29,10 @@ import kotlin.test.assertTrue
  * actor only when BOTH the actor identity and the seat of the note are equal, so one principal acting under two seat assignments
  * is two parties. Scenario S7 of the frozen test-plan, with the probes of section 6 that apply to a pair compare.
  *
- * Oracle: task-scope "Notes" (`GatePredicate` independence compares `(actor_id, seat)`), decision D11 (`notes.seat` is the OWNER's
- * seat, a token-less note has a NULL seat, and "a token-less note (seat NULL) and a seat note of the same principal are distinct
- * pairs; strict enforcement of that gap is R23"), and the pre-existing semantics of `IndependencePredicateTest` (same actor id and
+ * Oracle: task-scope "Notes" (`GatePredicate` independence compares `(actor_id, seat)`), the R21 ruling 8 two-column model of the
+ * orchestrator-decisions note (D11 is SUPERSEDED: `notes.seat` is ATTRIBUTION, the seat of the latest writer, NULL without a token;
+ * the compared pair is the attribution pair `(actor, seat)` and never the `owner_id`/`owner_seat` pair; "a token-less note (seat
+ * NULL) and a seat note of the same principal are distinct pairs; strict enforcement of that gap is R23"), and the pre-existing semantics of `IndependencePredicateTest` (same actor id and
  * no seats = `same_actor`; an absent actor on either side = `missing_actor`, fail closed; `violationsForComplete` returns an
  * empty list when nothing conflicts and only REJECT blocks). The expected violations are written by hand from those clauses.
  *
@@ -78,7 +79,9 @@ class IndependenceSeatPairTest {
     private fun note(
         key: String,
         actor: String?,
-        seat: String?
+        seat: String?,
+        ownerId: String? = null,
+        ownerSeat: String? = null
     ): Note =
         Note(
             itemId = itemId,
@@ -86,7 +89,9 @@ class IndependenceSeatPairTest {
             role = "work",
             body = "filled",
             actorClaim = actor?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
-            seat = seat
+            seat = seat,
+            ownerId = ownerId,
+            ownerSeat = ownerSeat
         )
 
     private fun violations(
@@ -148,6 +153,46 @@ class IndependenceSeatPairTest {
         assertEquals(emptyList(), violations(note(S_KEY, "agent-a", "implementer"), note(N_KEY, "agent-b", "implementer")))
         // control: same seat, same actor is the conflict
         assertEquals(sameActorOnN, violations(note(S_KEY, "agent-a", "implementer"), note(N_KEY, "agent-a", "implementer")))
+    }
+
+    // ------------------------------------------------------------------ W5: the compare is the attribution pair, never the owner pair
+
+    @Test
+    fun `W5 the same owner pair on both notes does not make two different writers one party`() {
+        // Both notes are owned by (shared-owner, A); their latest writers are (local, implementer) and (local, test-author).
+        val s = note(S_KEY, "local", "implementer", ownerId = "shared-owner", ownerSeat = "A")
+        val n = note(N_KEY, "local", "test-author", ownerId = "shared-owner", ownerSeat = "A")
+        assertEquals(emptyList(), violations(s, n), "different attribution pairs pass even when the owner pairs are equal")
+        assertEquals(emptyList(), violations(s, n, reject), "and REJECT does not block them")
+        // control: the same attribution pair with DIFFERENT owner pairs is still the same party, so the compare reads (actor, seat)
+        assertEquals(
+            sameActorOnN,
+            violations(
+                note(S_KEY, "local", "implementer", ownerId = "owner-one", ownerSeat = "A"),
+                note(N_KEY, "local", "implementer", ownerId = "owner-two", ownerSeat = "B")
+            ),
+            "equal (actor, seat) with different owner pairs"
+        )
+    }
+
+    @Test
+    fun `W5 probe an owner seat is never the seat compared`() {
+        assertEquals(
+            sameActorOnN,
+            violations(
+                note(S_KEY, "local", "implementer"),
+                note(N_KEY, "local", "implementer", ownerId = "someone", ownerSeat = "test-author")
+            ),
+            "owner_seat test-author is not the seat compared: the attribution seat implementer is"
+        )
+        assertEquals(
+            emptyList(),
+            violations(
+                note(S_KEY, "local", "implementer", ownerId = "local", ownerSeat = "test-author"),
+                note(N_KEY, "local", "test-author", ownerId = "local", ownerSeat = "test-author")
+            ),
+            "the first note's owner seat equals the second note's attribution seat; the attribution seats still differ"
+        )
     }
 
     // ------------------------------------------------------------------ S7: token-less notes keep the pre-seat behaviour
@@ -229,13 +274,15 @@ class IndependenceSeatPairTest {
             val provider = db.repositoryProvider()
             val item = provider.workItemRepository().create(WorkItem(title = "seat round trip item", type = "seat-pair-test"))
             assertNotNull(item)
-            val seated = note("seated-note", "local", "implementer").copy(itemId = item.id)
+            val seated = note("seated-note", "local", "implementer", ownerId = "local", ownerSeat = "planner").copy(itemId = item.id)
             val bare = note("bare-note", "local", null).copy(itemId = item.id)
             assertNotNull(provider.noteRepository().upsert(seated))
             assertNotNull(provider.noteRepository().upsert(bare))
 
             val stored = provider.noteRepository().findByItemId(item.id).associateBy { it.key }
-            assertEquals("implementer", stored.getValue("seated-note").seat, "the seat is stored")
+            assertEquals("implementer", stored.getValue("seated-note").seat, "the attribution seat is stored")
+            assertEquals("planner", stored.getValue("seated-note").ownerSeat, "the owner seat is stored apart from the attribution seat")
+            assertNull(stored.getValue("bare-note").ownerSeat, "a note without an owner seat reads null")
             assertNull(stored.getValue("bare-note").seat, "a token-less note has no seat")
 
             // the stored pair feeds the predicate: read-back notes of one actor under two seats are two parties

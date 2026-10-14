@@ -59,7 +59,9 @@ object SeedV26 : MigrationSeed(26) {
             "pinned_root_cfg" to false,
             "pinned_schema_key" to false,
             "pinned_schema_layer" to false,
-            "pinned_at" to false
+            "pinned_at" to false,
+            // V35 appends the claim assignment (the list is checked at the latest schema)
+            "claim_assignment_id" to false
         )
 
     private val newColumns =

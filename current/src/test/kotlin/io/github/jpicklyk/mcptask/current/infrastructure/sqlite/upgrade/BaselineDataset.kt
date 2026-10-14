@@ -254,8 +254,10 @@ object BaselineDataset {
             "version" to if (key == "notes-extra") 3 else 1,
             // V34: a non-default owner (dropped below V34, where the column does not exist yet).
             "owner_id" to if (key == "task-scope") "api:baseline-owner" else null,
-            // V35: the owner's seat (dropped below V35, where the column does not exist yet).
-            "seat" to if (key == "task-scope") "implementer" else null
+            // V35 (R21 ruling 8): the two seat columns, distinct non-default values so a swapped mapping is caught: seat = attribution
+            // (the writing token's seat), owner_seat = the seat half of the owner (dropped below V35, where the columns do not exist yet).
+            "seat" to if (key == "task-scope") "test-author" else null,
+            "owner_seat" to if (key == "task-scope") "implementer" else null
         )
         note("feature", "feature-summary", "queue", "Summary of the baseline feature")
         note("feature", "notes-extra", "work", "A second note for the feature", proofStatus = "REJECTED")

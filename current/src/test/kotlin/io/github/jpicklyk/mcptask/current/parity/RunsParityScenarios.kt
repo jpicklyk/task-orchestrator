@@ -93,6 +93,18 @@ internal object RunsParityScenarios {
 
     private fun at(text: String): Instant = Instant.parse(text)
 
+    /** The known token of [run]'s seeded coordinator seat (the principal is the opener, `api:rw-coord`). */
+    private fun coordToken(run: UUID): String = parityCoordinatorToken(run)
+
+    /** The top-level `seatToken` member that presents [coordToken] of [run]; spliced after the `ops` array. */
+    private fun coordTop(run: UUID): String = ""","seatToken":"${coordToken(run)}""""
+
+    /** A seat token of an `implementer` assignment on [c1] of [ra], seeded by [seedSeatOnC1]: 43 characters, unlike any coordinator token. */
+    private val seatTokenC1 = "k".repeat(43)
+
+    /** The top-level member that presents [seatTokenC1]. */
+    private fun seatTop(): String = ""","seatToken":"$seatTokenC1""""
+
     val coord = ParityToken("rw-coord", setOf(ApiCapability.RUNS, ApiCapability.READ))
     val other = ParityToken("rw-other", setOf(ApiCapability.RUNS, ApiCapability.READ))
     val reader = ParityToken("rw-read", setOf(ApiCapability.READ))
@@ -127,6 +139,12 @@ internal object RunsParityScenarios {
     private val seedOpenA: suspend ParitySeeder.() -> Unit = {
         tree()
         run(ra, r1, listOf(c1, c2), openedBy = OPENER, openedByKind = "service", openedAt = at("2026-10-10T11:00:00Z"))
+    }
+
+    /** Run A plus an active `implementer` assignment on C1 held by the opener's principal, with the known token [seatTokenC1]. */
+    private val seedSeatOnC1: suspend ParitySeeder.() -> Unit = {
+        seedOpenA()
+        seat(ra, c1, "implementer", principalId = OPENER, token = seatTokenC1)
     }
 
     private val seedOpenAB: suspend ParitySeeder.() -> Unit = {
@@ -448,7 +466,9 @@ internal object RunsParityScenarios {
                         "\"members\":2",
                         "\"version\":1",
                         "\"openedBy\":\"api:rw-coord\"",
-                        "\"openedByKind\":\"service\""
+                        "\"openedByKind\":\"service\"",
+                        // R22 D7: the coordinator token is returned once, as 43 base64url characters (the harness masks the value)
+                        "\"coordinatorToken\":\"<TOKEN>\""
                     ),
                 seed = tree
             ),
@@ -467,7 +487,7 @@ internal object RunsParityScenarios {
                 "update",
                 ParityKind.HAPPY,
                 coord,
-                ops(update(ra, ""","addItems":${ids(c3)},"hints":{"phase":"two"}""")),
+                ops(update(ra, ""","addItems":${ids(c3)},"hints":{"phase":"two"}"""), top = coordTop(ra)),
                 contains = listOf("\"version\":2", "\"members\":3", "\"hints\":{\"phase\":\"two\"}", "\"status\":\"open\""),
                 seed = seedOpenA
             ),
@@ -486,7 +506,7 @@ internal object RunsParityScenarios {
                 "close",
                 ParityKind.HAPPY,
                 coord,
-                ops(close(ra, "cancelled")),
+                ops(close(ra, "cancelled"), top = coordTop(ra)),
                 contains =
                     listOf(
                         "\"status\":\"closed\"",
@@ -1078,23 +1098,32 @@ internal object RunsParityScenarios {
                 "update of a paused run is run_paused",
                 "update",
                 coord,
-                ops(update(rp, ""","hints":{"x":"y"}""")),
+                ops(update(rp, ""","hints":{"x":"y"}"""), top = coordTop(rp)),
                 listOf("\"code\":\"run_paused\"", "\"pauseReason\":\"manual\""),
                 seed = seedPaused
             ),
-            failed(
-                "update of a closed run is run_closed",
+            // R22 D3/D2: only the coordinator TOKEN updates, and the close cascade ended the run's coordinator seat (outcome
+            // run_closed), so the token of a closed run is dead and the call is refused as unauthenticated before the run state
+            // can be looked at (the run_closed word is asserted for close below, which a human may also call).
+            sc(
+                "update of a closed run is unauthenticated, the coordinator token died with the run",
+                WRITE_TOOL,
                 "update",
+                ParityKind.OTHER,
                 coord,
-                ops(update(k2, ""","hints":{"x":"y"}""")),
-                listOf("\"code\":\"run_closed\"", "\"terminalReason\":\"completed\""),
+                ops(update(k2, ""","hints":{"x":"y"}"""), top = coordTop(k2)),
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                absent = listOf("run_closed", coordToken(k2)),
+                dbChanged = false,
                 seed = seedClosed
             ),
             failed(
                 "update with a stale expectedVersion is version_conflict",
                 "update",
                 coord,
-                ops(update(ra, ""","hints":{"x":"y"},"expectedVersion":5""")),
+                ops(update(ra, ""","hints":{"x":"y"},"expectedVersion":5"""), top = coordTop(ra)),
                 listOf("\"code\":\"version_conflict\"", "\"actual\":1"),
                 seed = seedOpenA
             ),
@@ -1103,7 +1132,7 @@ internal object RunsParityScenarios {
                 "update",
                 ParityKind.OTHER,
                 coord,
-                ops(update(ra, ""","hints":{"x":"y"},"expectedVersion":1""")),
+                ops(update(ra, ""","hints":{"x":"y"},"expectedVersion":1"""), top = coordTop(ra)),
                 contains = listOf("\"version\":2", "\"hints\":{\"x\":\"y\"}"),
                 seed = seedOpenA
             ),
@@ -1112,7 +1141,7 @@ internal object RunsParityScenarios {
                 "update",
                 ParityKind.OTHER,
                 coord,
-                ops(update(ra, ""","removeItems":${ids(c2)}""")),
+                ops(update(ra, ""","removeItems":${ids(c2)}"""), top = coordTop(ra)),
                 contains = listOf("\"members\":1", "\"version\":2"),
                 seed = seedOpenA
             ),
@@ -1120,7 +1149,7 @@ internal object RunsParityScenarios {
                 "update adding an item of another root",
                 "update",
                 coord,
-                ops(update(ra, ""","addItems":${ids(d1)}""")),
+                ops(update(ra, ""","addItems":${ids(d1)}"""), top = coordTop(ra)),
                 listOf("\"code\":\"invalid_request\"", "/addItems/0"),
                 seed = seedOpenA
             ),
@@ -1154,7 +1183,7 @@ internal object RunsParityScenarios {
                 "close",
                 ParityKind.OTHER,
                 coord,
-                ops(close(ra, "failed")),
+                ops(close(ra, "failed"), top = coordTop(ra)),
                 contains = listOf("\"terminalReason\":\"failed\""),
                 seed = seedOpenA
             ),
@@ -1163,7 +1192,7 @@ internal object RunsParityScenarios {
                 "close",
                 ParityKind.OTHER,
                 coord,
-                ops(close(ra, "abandoned")),
+                ops(close(ra, "abandoned"), top = coordTop(ra)),
                 contains = listOf("\"terminalReason\":\"abandoned\""),
                 seed = seedOpenA
             ),
@@ -1246,10 +1275,12 @@ internal object RunsParityScenarios {
                 listOf("\"code\":\"unknown_parameter\"", "/summary"),
                 seed = seedOpenA
             ),
+            // R22 D3: close is the coordinator token, a director or a human; the opener has no standing of its own and the token of a
+            // closed run is dead, so the run_closed refusal is reached by a human (who may close), not by the old opener.
             failed(
                 "close of a closed run is run_closed",
                 "close",
-                coord,
+                human,
                 ops(close(k2, "cancelled")),
                 listOf("\"code\":\"run_closed\"", "\"terminalReason\":\"completed\""),
                 seed = seedClosed
@@ -1478,13 +1509,136 @@ internal object RunsParityScenarios {
      * token, `required: "seat"`), D5 (the run is loaded in scope first, so a scope refusal and an unknown run precede the token
      * check) and the envelope statuses.
      *
-     * Not authored here (reported in the test-manifest): a HAPPY `assign` / `end_seat` scenario and a heartbeat `usage` one. They
-     * need a live seat token, which is random per run: the harness would have to seed a seat row with a known token hash
-     * (`ParitySeeder` has no seat seeding) and mask the issued token in the compared bodies. Both are harness edits that this
-     * item's declarations do not grant, so those happy paths are covered by `RunsSeatOpsTest` over the same dispatcher.
+     * Round 2 adds the HAPPY `assign` / `end_seat` scenarios: the harness seeds the coordinator seat of every seeded run with a
+     * known token (`parityCoordinatorToken`) and an `implementer` seat with a known token (`ParitySeeder.seat`), and masks the
+     * issued `seatToken` / `coordinatorToken` values in the compared bodies (the heartbeat `usage` one is in
+     * [AdvanceParityScenarios]). A token is accepted only from the principal the seat was assigned to, so these scenarios run as
+     * `api:rw-coord`, the opener the seeder records.
      */
     val seatScenarios: List<ParityScenario> =
         listOf(
+            // R22 HAPPY (round 2): the harness seeds the coordinator seat (known token) of every run it seeds, and a seat with a known
+            // token for end_seat; the issued tokens in the bodies are masked to <TOKEN> by the harness.
+            wrote(
+                "assign happy by the coordinator token",
+                "assign",
+                ParityKind.HAPPY,
+                coord,
+                ops(assign(ra, c1, "implementer", ""","hints":{"model":"m1"}"""), top = coordTop(ra)),
+                contains = listOf("\"assignmentId\":\"", "\"seatToken\":\"<TOKEN>\"", "\"attempt\":1"),
+                absent = listOf(coordToken(ra)),
+                seed = seedOpenA
+            ),
+            wrote(
+                "assign again supersedes the live assignment and increments the attempt",
+                "assign",
+                ParityKind.OTHER,
+                coord,
+                ops(assign(ra, c1, "implementer"), top = coordTop(ra)),
+                contains = listOf("\"seatToken\":\"<TOKEN>\"", "\"attempt\":2"),
+                absent = listOf(seatTokenC1, coordToken(ra)),
+                seed = seedSeatOnC1
+            ),
+            failed(
+                "assign of an unknown seat for a seat-less item is not_found of kind seat",
+                "assign",
+                coord,
+                ops(assign(ra, c1, "reviewer"), top = coordTop(ra)),
+                listOf("\"code\":\"not_found\"", "\"kind\":\"seat\""),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign of the coordinator seat is invalid_request on the seat",
+                "assign",
+                coord,
+                ops(assign(ra, c1, "coordinator"), top = coordTop(ra)),
+                listOf("\"code\":\"invalid_request\"", "/seat"),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign of an item outside the run is invalid_request on the item",
+                "assign",
+                coord,
+                ops(assign(ra, c3, "implementer"), top = coordTop(ra)),
+                listOf("\"code\":\"invalid_request\"", "/itemId"),
+                seed = seedOpenA
+            ),
+            wrote(
+                "end_seat happy by the seat's own token",
+                "end_seat",
+                ParityKind.HAPPY,
+                coord,
+                ops(endSeat("done", ""","summary":"built","links":[{"kind":"commit","ref":"abc123"}]"""), top = seatTop()),
+                contains =
+                    listOf(
+                        "\"seat\":\"implementer\"",
+                        "\"attempt\":1",
+                        "\"outcome\":\"done\"",
+                        "\"released\":[]"
+                    ),
+                absent = listOf(seatTokenC1),
+                seed = seedSeatOnC1
+            ),
+            failed(
+                "end_seat by the coordinator token is refused on the kind seat",
+                "end_seat",
+                coord,
+                ops(endSeat("done"), top = coordTop(ra)),
+                principalKind("seat"),
+                seed = seedOpenA
+            ),
+            failed(
+                "end_seat with a summary of 501 characters is invalid_request on the summary",
+                "end_seat",
+                coord,
+                ops(endSeat("done", ""","summary":"${"s".repeat(501)}""""), top = seatTop()),
+                listOf("\"code\":\"invalid_request\"", "/summary"),
+                seed = seedSeatOnC1
+            ),
+            sc(
+                "end_seat under another principal's valid token is unauthenticated",
+                WRITE_TOOL,
+                "end_seat",
+                ParityKind.OTHER,
+                other,
+                ops(endSeat("done"), top = seatTop()),
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                absent = listOf(seatTokenC1),
+                dbChanged = false,
+                seed = seedSeatOnC1
+            ),
+            read(
+                "seats lists the coordinator and the assignment without any token",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(ra),
+                contains = listOf("\"seat\":\"coordinator\"", "\"seat\":\"implementer\"", "\"status\":\"active\""),
+                absent = listOf(seatTokenC1, coordToken(ra), "seatToken", "coordinatorToken", "tokenHash", "token_hash", "principalId"),
+                seed = seedSeatOnC1
+            ),
+            read(
+                "seats of an ended assignment is listed only with ended true",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(k2, ""","ended":true"""),
+                contains = listOf("\"seat\":\"coordinator\"", "\"status\":\"ended\"", "\"outcome\":\"run_closed\""),
+                absent = listOf(coordToken(k2), "tokenHash", "token_hash"),
+                seed = seedClosed
+            ),
+            read(
+                "seats of a closed run hides the ended coordinator by default",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(k2),
+                contains = listOf("\"seats\":[]"),
+                absent = listOf("\"coordinator\""),
+                seed = seedClosed
+            ),
             read(
                 "seats happy",
                 "seats",
@@ -1817,6 +1971,7 @@ class RunsParityTest {
                 mine.any { it.tool == tool && it.member == member && it.kind == ParityKind.HAPPY },
                 "$tool.$member has no HAPPY scenario"
             )
+            if (RunsParityScenarios.exemptions.any { it.tool == tool && it.member == member }) continue
             assertTrue(
                 mine.any { it.tool == tool && it.member == member && it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted },
                 "$tool.$member has no restricted SCOPE_FORBIDDEN scenario"
@@ -1848,6 +2003,17 @@ class RunsParityTest {
         val o = harness.run(named("open happy"))
         assertEquals(1, o.snapshot.getValue("runs").size, "one run row")
         assertEquals(2, o.snapshot.getValue("run_items").size, "one membership row per item")
+        // R22 D7: `open` also creates the run-scoped coordinator pseudo-seat, held by the opener, attempt 1, active, no item.
+        val seats = o.snapshot.getValue("run_seats")
+        assertEquals(1, seats.size, "one coordinator seat row: $seats")
+        with(seats.single()) {
+            assertEquals("coordinator", this["seat"])
+            assertEquals("api:rw-coord", this["principal_id"])
+            assertEquals(1L, this["attempt"])
+            assertEquals("active", this["status"])
+            assertNull(this["item_id"], "the coordinator seat is run-scoped")
+            assertNull(this["outcome"])
+        }
         assertEquals(1, events(o, "run.opened").size, "one run.opened")
         assertEquals(1, runEvents(o).size, "open records no run event besides run.opened")
     }

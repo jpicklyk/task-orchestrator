@@ -85,6 +85,10 @@ work_item_schemas:
         role: work
         required: false
         seat: checker
+      - key: shared-notes
+        role: work
+        required: false
+        shared: true
   plain-task:
     notes: []
 """
@@ -515,6 +519,45 @@ internal class SeatWorld private constructor(
         item: WorkItem,
         key: String
     ): Map<String, Any?>? = rows("SELECT * FROM notes WHERE work_item_id = ? AND key = ?", item.id, key).singleOrNull()
+
+    /** Runs a write statement against the world's database (fixture setup only); UUID arguments bind as 16-byte blobs. */
+    fun exec(
+        sql: String,
+        vararg args: Any?
+    ) {
+        DriverManager.getConnection(database.jdbcUrl).use { conn ->
+            conn.prepareStatement(sql).use { ps ->
+                args.forEachIndexed { i, a ->
+                    when (a) {
+                        null -> ps.setNull(i + 1, java.sql.Types.NULL)
+                        is UUID -> ps.setBytes(i + 1, BaselineDataset.bytes(a))
+                        else -> ps.setString(i + 1, a.toString())
+                    }
+                }
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    /** Inserts a pre-4.0 note: no owner, no owner seat, no attribution seat. */
+    fun legacyNote(
+        item: WorkItem,
+        key: String
+    ) {
+        DriverManager.getConnection(database.jdbcUrl).use { conn ->
+            BaselineDataset.insert(
+                conn,
+                "notes",
+                "id" to BaselineDataset.id("legacy-note:${item.id}:$key"),
+                "work_item_id" to BaselineDataset.bytes(item.id),
+                "key" to key,
+                "role" to "work",
+                "body" to "3.x body",
+                "created_at" to BaselineDataset.TS,
+                "modified_at" to BaselineDataset.TS_PLUS_1
+            )
+        }
+    }
 
     fun uuidOf(bytes: Any?): UUID = ByteBuffer.wrap(bytes as ByteArray).let { UUID(it.long, it.long) }
 
@@ -1758,12 +1801,14 @@ class RunsSeatOpsTest {
             assertTrue(w.noteUpsert(w.m1, "scratch", builder.token, body = "first").ok())
             val created = assertNotNull(w.noteRow(w.m1, "scratch"))
             assertEquals(w.orchId, created["owner_id"])
-            assertEquals("builder", created["seat"])
+            assertEquals("builder", created["seat"], "attribution (R21 ruling 8; D11 is superseded)")
+            assertEquals("builder", created["owner_seat"], "the owner seat is the creator's seat")
             assertEquals(1L, created["version"])
 
             assertTrue(w.noteUpsert(w.m1, "scratch", builder.token, body = "second").ok(), "the same pair rewrites")
             assertEquals(2L, assertNotNull(w.noteRow(w.m1, "scratch"))["version"])
-            assertEquals("builder", assertNotNull(w.noteRow(w.m1, "scratch"))["seat"], "the owner's seat is kept")
+            assertEquals("builder", assertNotNull(w.noteRow(w.m1, "scratch"))["seat"], "the owner's own rewrite is attributed to its seat")
+            assertEquals("builder", assertNotNull(w.noteRow(w.m1, "scratch"))["owner_seat"], "the owner seat is kept")
 
             val otherSeat = w.noteUpsert(w.m1, "scratch", checker.token, body = "intruder")
             assertEquals("note_owned_by_other", otherSeat.code(), otherSeat.toString())
@@ -1782,11 +1827,157 @@ class RunsSeatOpsTest {
             assertTrue(w.noteUpsert(w.m1, "plain-note", null, body = "mine").ok())
             val plain = assertNotNull(w.noteRow(w.m1, "plain-note"))
             assertEquals(w.orchId, plain["owner_id"])
-            assertNull(plain["seat"], "a token-less note has no seat")
+            assertNull(plain["seat"], "a token-less note has no attribution seat")
+            assertNull(plain["owner_seat"], "a token-less note has no owner seat")
             val seated = w.noteUpsert(w.m1, "plain-note", builder.token, body = "seated")
             assertEquals("note_owned_by_other", seated.code(), seated.toString())
             assertTrue(w.noteUpsert(w.m1, "plain-note", null, body = "again").ok(), "control: the token-less pair rewrites its own note")
             assertEquals(2L, assertNotNull(w.noteRow(w.m1, "plain-note"))["version"])
+        }
+
+    // ------------------------------------------------------------------ W1-W4 the two-column note model (R21 ruling 8)
+    //
+    // Oracle: the orchestrator-decisions note of 95a22e6e (R21 decision Ruling 8; task-scope D11 is SUPERSEDED): `notes.seat` is
+    // ATTRIBUTION, written on every successful write from the caller's token seat and NULL without a token; `notes.owner_seat` is
+    // written only together with `owner_id` (create: the caller's seat; adoption of an unowned note: the caller's seat; admin
+    // takeover: NULL; every other write: unchanged); rule 3 compares (owner_id, owner_seat) with (principal, callerSeat) and
+    // `note_owned_by_other.ownerSeat` reports the OWNER seat.
+
+    @Test
+    fun `W1 a shared-key write by another seat rewrites the attribution seat and keeps the owner pair`() =
+        world { w ->
+            val run = w.open()
+            val a = w.assignOk(run, w.m1, "builder")
+            val b = w.assignOk(run, w.m1, "checker")
+
+            assertTrue(w.noteUpsert(w.m1, "shared-notes", a.token, body = "by builder").ok())
+            val created = assertNotNull(w.noteRow(w.m1, "shared-notes"))
+            assertEquals(w.orchId, created["owner_id"])
+            assertEquals("builder", created["seat"], "create: attribution is the creator's seat")
+            assertEquals("builder", created["owner_seat"], "create: the owner seat is the creator's seat")
+
+            val bySeatB = w.noteUpsert(w.m1, "shared-notes", b.token, body = "by checker")
+            assertTrue(bySeatB.ok(), "a shared key accepts the sibling seat: $bySeatB")
+            val after = assertNotNull(w.noteRow(w.m1, "shared-notes"))
+            assertEquals(2L, after["version"])
+            assertEquals("checker", after["seat"], "attribution follows the latest writer's seat")
+            assertEquals("builder", after["owner_seat"], "the owner seat is unchanged by another seat's write")
+            assertEquals(w.orchId, after["owner_id"], "the owner is unchanged")
+
+            val noToken = w.noteUpsert(w.m1, "shared-notes", null, body = "no token")
+            assertTrue(noToken.ok(), "a shared key accepts a token-less write: $noToken")
+            val last = assertNotNull(w.noteRow(w.m1, "shared-notes"))
+            assertNull(last["seat"], "a token-less write attributes no seat")
+            assertEquals("builder", last["owner_seat"], "a token-less write does not touch the owner seat")
+            assertEquals(w.orchId, last["owner_id"])
+        }
+
+    @Test
+    fun `W2 the same principal under another seat on a non-shared key is note_owned_by_other and reports the owner seat`() =
+        world { w ->
+            val run = w.open()
+            val a = w.assignOk(run, w.m1, "builder")
+            val b = w.assignOk(run, w.m1, "checker")
+            assertTrue(w.noteUpsert(w.m1, "scratch", a.token, body = "first").ok())
+
+            val refused = w.noteUpsert(w.m1, "scratch", b.token, body = "intruder")
+            assertEquals("note_owned_by_other", refused.code(), refused.toString())
+            assertEquals("builder", refused.find("ownerSeat", refused.error()), "the owner seat is reported: $refused")
+            val row = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals(1L, row["version"], "the refused write changed nothing")
+            assertEquals("builder", row["owner_seat"])
+            assertEquals("builder", row["seat"])
+            assertEquals("first", row["body"])
+        }
+
+    @Test
+    fun `W2 rule 3 and the refusal read the owner seat, not the attribution seat`() =
+        world { w ->
+            val run = w.open()
+            val a = w.assignOk(run, w.m1, "builder")
+            val b = w.assignOk(run, w.m1, "checker")
+            assertTrue(w.noteUpsert(w.m1, "scratch", a.token, body = "first").ok())
+            // Fixture: the attribution seat diverges from the owner seat (it can, after a shared-key write by another seat).
+            w.exec("UPDATE notes SET seat = 'checker' WHERE work_item_id = ? AND key = 'scratch'", w.m1.id)
+            val diverged = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals("checker", diverged["seat"])
+            assertEquals("builder", diverged["owner_seat"])
+
+            val bySeatB = w.noteUpsert(w.m1, "scratch", b.token, body = "intruder")
+            assertEquals("note_owned_by_other", bySeatB.code(), "seat checker equals the ATTRIBUTION seat but not the owner seat: $bySeatB")
+            assertEquals("builder", bySeatB.find("ownerSeat", bySeatB.error()), "ownerSeat is the owner seat, not checker: $bySeatB")
+
+            val bySeatA = w.noteUpsert(w.m1, "scratch", a.token, body = "owner again")
+            assertTrue(bySeatA.ok(), "the owner pair (principal, builder) rewrites although the attribution seat reads checker: $bySeatA")
+            val row = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals("builder", row["seat"], "the owner's write is attributed to its own seat again")
+            assertEquals("builder", row["owner_seat"])
+            assertEquals(2L, row["version"])
+        }
+
+    @Test
+    fun `W3 a legacy note adopted under a seat token records the caller as owner and the caller seat as owner seat`() =
+        world { w ->
+            val run = w.open()
+            val a = w.assignOk(run, w.m1, "builder")
+            w.legacyNote(w.m1, "legacy-one")
+            w.legacyNote(w.m1, "legacy-two")
+            for (key in listOf("legacy-one", "legacy-two")) {
+                val before = assertNotNull(w.noteRow(w.m1, key))
+                assertNull(before["owner_id"], "fixture: $key is unowned")
+                assertNull(before["owner_seat"], "fixture: $key has no owner seat")
+                assertNull(before["seat"], "fixture: $key has no attribution seat")
+            }
+
+            assertTrue(w.noteUpsert(w.m1, "legacy-one", a.token, body = "adopted under a seat").ok())
+            val adopted = assertNotNull(w.noteRow(w.m1, "legacy-one"))
+            assertEquals(w.orchId, adopted["owner_id"])
+            assertEquals("builder", adopted["owner_seat"], "adoption: the owner seat is the caller's seat")
+            assertEquals("builder", adopted["seat"], "adoption: attribution is the caller's seat")
+
+            assertTrue(w.noteUpsert(w.m1, "legacy-two", null, body = "adopted without a token").ok())
+            val bare = assertNotNull(w.noteRow(w.m1, "legacy-two"))
+            assertEquals(w.orchId, bare["owner_id"], "control: a token-less adoption still records the owner")
+            assertNull(bare["owner_seat"], "control: a token-less adoption has no owner seat")
+            assertNull(bare["seat"], "control: a token-less adoption has no attribution seat")
+        }
+
+    @Test
+    fun `W4 a token-less write by the owner principal to a note owned by the principal and a seat is refused`() =
+        world { w ->
+            val run = w.open()
+            val a = w.assignOk(run, w.m1, "builder")
+            assertTrue(w.noteUpsert(w.m1, "scratch", a.token, body = "mine").ok())
+
+            val refused = w.noteUpsert(w.m1, "scratch", null, body = "no token")
+            assertEquals("note_owned_by_other", refused.code(), "(principal, no seat) differs from (principal, builder): $refused")
+            assertEquals("builder", refused.find("ownerSeat", refused.error()), refused.toString())
+            val row = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals("mine", row["body"])
+            assertEquals(1L, row["version"])
+            assertEquals("builder", row["owner_seat"])
+            assertEquals("builder", row["seat"])
+
+            assertTrue(w.noteUpsert(w.m1, "scratch", a.token, body = "mine again").ok(), "control: the exact pair rewrites")
+            assertEquals(2L, assertNotNull(w.noteRow(w.m1, "scratch"))["version"])
+        }
+
+    @Test
+    fun `W3 an admin takeover writes no owner seat and the taken note keeps no seat of its previous owner`() =
+        world { w ->
+            val run = w.open(by = w.admin)
+            val adminSeat = w.assignOk(run, w.m1, "builder", by = w.admin)
+            assertTrue(w.noteUpsert(w.m1, "scratch", adminSeat.token, body = "owned under a seat", by = w.admin).ok())
+            val owned = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals("api:seat-admin", owned["owner_id"])
+            assertEquals("builder", owned["owner_seat"], "fixture: the note is owned by (admin, builder)")
+
+            val taken = w.noteUpsert(w.m1, "scratch", null, body = "taken over", extra = ""","takeover":true""", by = w.admin)
+            assertTrue(taken.ok(), "a token-less ADMIN takeover succeeds: $taken")
+            val row = assertNotNull(w.noteRow(w.m1, "scratch"))
+            assertEquals("api:seat-admin", row["owner_id"], "the takeover writes the caller as owner")
+            assertNull(row["owner_seat"], "a takeover is never under a token: the owner seat is NULL")
+            assertNull(row["seat"], "a token-less write attributes no seat")
         }
 
     @Test

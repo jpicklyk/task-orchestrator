@@ -11,8 +11,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * V35 adds one new table, `run_seats`, with its indexes, and two nullable columns: `work_items.claim_assignment_id BLOB` and
- * `notes.seat TEXT`. No existing column is modified or dropped and no row is rewritten.
+ * V35 adds one new table, `run_seats`, with its indexes, and three nullable columns: `work_items.claim_assignment_id BLOB`,
+ * `notes.seat TEXT` (attribution) and `notes.owner_seat TEXT` (the seat half of the note owner; R21 ruling 8, orchestrator-decisions
+ * note). No existing column is modified or dropped and no row is rewritten.
  *
  * Oracle: the frozen migration-assessment of item 95a22e6e, sections 1 to 4 (the column list with types, nullability, defaults and
  * the vocabulary and length CHECKs, the four named indexes, the two foreign keys, both ADD COLUMNs nullable with no default, no
@@ -161,6 +162,11 @@ object SeedV35 : MigrationSeed(35) {
             "work_items.claim_assignment_id (BLOB, notnull 0, default NULL, pk 0)"
         )
         assertEquals(col("seat", "TEXT"), notes.single { it.name == "seat" }, "notes.seat (TEXT, notnull 0, default NULL, pk 0)")
+        assertEquals(
+            col("owner_seat", "TEXT"),
+            notes.single { it.name == "owner_seat" },
+            "notes.owner_seat (TEXT, notnull 0, default NULL, pk 0; R21 ruling 8)"
+        )
         // ADD COLUMN appends: the pre-V35 columns keep their order and the new column follows them (later migrations may append more).
         val workItemsBefore = pre.getValue("work_items")
         assertEquals(workItemsBefore, workItems.map { it.name }.take(workItemsBefore.size), "work_items keeps its columns")
@@ -168,6 +174,7 @@ object SeedV35 : MigrationSeed(35) {
         val notesBefore = pre.getValue("notes")
         assertEquals(notesBefore, notes.map { it.name }.take(notesBefore.size), "notes keeps its columns")
         assertEquals("seat", notes[notesBefore.size].name, "seat is appended right after them")
+        assertEquals("owner_seat", notes[notesBefore.size + 1].name, "owner_seat follows seat")
     }
 
     /** Assessment section 3 / verification (b): nothing is backfilled and the seeded claim and owner values are unchanged. */
@@ -177,7 +184,13 @@ object SeedV35 : MigrationSeed(35) {
             scalar(conn, "SELECT count(*) FROM work_items WHERE claim_assignment_id IS NOT NULL"),
             "no claim has an assignment"
         )
-        assertEquals(0L, scalar(conn, "SELECT count(*) FROM notes WHERE seat IS NOT NULL"), "no note has a seat")
+        assertEquals(0L, scalar(conn, "SELECT count(*) FROM notes WHERE seat IS NOT NULL"), "no note has an attribution seat")
+        assertEquals(0L, scalar(conn, "SELECT count(*) FROM notes WHERE owner_seat IS NOT NULL"), "no note has an owner seat")
+        assertEquals(
+            0L,
+            scalar(conn, "SELECT count(*) FROM notes WHERE seat IS NOT NULL OR owner_seat IS NOT NULL"),
+            "R21 ruling 8: seat and owner_seat are both NULL on every pre-existing note, the owned one included"
+        )
         assertEquals(
             "s35-agent",
             string(conn, "SELECT claimed_by FROM work_items WHERE id = x'${hex(BaselineDataset.id(CLAIMED_ITEM))}'"),
