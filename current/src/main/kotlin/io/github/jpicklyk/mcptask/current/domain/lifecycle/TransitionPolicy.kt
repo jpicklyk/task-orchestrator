@@ -97,12 +97,13 @@ internal fun evaluateNotes(
 
 /** The standard gates, in their mandated order (see [TransitionPolicy.DEFAULT_GATES]). */
 object StandardGates {
-    /** User triggers only: a live claim held by someone other than the caller rejects. */
+    /** User triggers only: a live claim held by a holder pair other than the caller's rejects. */
     val OWNERSHIP: TransitionGate =
         TransitionGate { input ->
             val ownership = input.snapshot.ownership
             val holder = ownership.activeHolder
-            if (input.trigger !is User || !ownership.enforced || holder == null || ownership.callerId == holder) {
+            val callerHolds = ownership.callerId == holder && ownership.callerAssignment == ownership.activeHolderAssignment
+            if (input.trigger !is User || !ownership.enforced || holder == null || callerHolds) {
                 null
             } else {
                 val id = input.snapshot.item.id

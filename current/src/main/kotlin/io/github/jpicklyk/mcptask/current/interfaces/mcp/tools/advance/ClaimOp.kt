@@ -105,7 +105,7 @@ internal suspend fun WriteScope.claimItem(
 ): Outcome<JsonElement> {
     val before = stores.workItemRepository().getById(id)
     val result =
-        when (val outcome = env.claimService.claim(id, holder.principalId, req.ttlSeconds)) {
+        when (val outcome = env.claimService.claim(id, holder, req.ttlSeconds)) {
             is Outcome.Err -> return outcome
             is Outcome.Ok -> outcome.value
         }
@@ -141,7 +141,7 @@ private suspend fun WriteScope.claimBySelector(
                 is Outcome.Ok -> resolved.value
             }
         }
-    val criteria = criteria(select, parentId).copy(requestingAgentId = holder.principalId)
+    val criteria = criteria(select, parentId).copy(requestingAgentId = holder.principalId, requestingAssignmentId = holder.assignmentId)
     val candidates = env.nextItemRecommender.recommend(criteria, SELECT_CANDIDATES)
 
     // A selector names no item, so a scope never answers `forbidden` here: out-of-scope candidates are skipped.

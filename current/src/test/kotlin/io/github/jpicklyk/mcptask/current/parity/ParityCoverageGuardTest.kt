@@ -553,7 +553,8 @@ class ParityCoverageGuardTest {
         assertEquals(emptyList(), ParityCoverage.missing(production, ProductionParity.scenarios, ProductionParity.exemptions))
         assertEquals(emptyList(), ParityCoverage.stale(production, ProductionParity.scenarios))
         // the same call is not trivially empty: it reports an uncovered registry
-        assertTrue(ParityCoverage.missing(fixtures.registry, ProductionParity.scenarios, ProductionParity.exemptions).isNotEmpty())
+        // (no exemptions here: a scope exemption must name a registered member, and the fixture registry has none of the production ones)
+        assertTrue(ParityCoverage.missing(fixtures.registry, ProductionParity.scenarios, emptyList()).isNotEmpty())
     }
 
     // ------------------------------------------------------------------ R14 unauthenticated legs

@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.RunInFlight
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.RunReleased
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatLink
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
@@ -566,6 +568,52 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("keys" to keys)
     }
 
+    // ---- seats (entity = the assignment; root = the run's root item) ----
+
+    /** A seat of member [itemId] of run [runId] was assigned (attempt [attempt]). The token is never part of an event. */
+    data class SeatAssigned(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val runId: UUID,
+        val itemId: UUID,
+        val seat: String,
+        val attempt: Int,
+        val hints: Map<String, String>
+    ) : DomainEvent() {
+        override val type: String get() = SEAT_ASSIGNED
+        override val entityKind: String get() = KIND_SEAT
+
+        override fun payload(): Map<String, Any?> =
+            mapOf("runId" to runId, "itemId" to itemId, "seat" to seat, "attempt" to attempt, "hints" to hints)
+    }
+
+    /** A seat assignment ended by its own seat (`end_seat`) with [outcome], [summary] and [links]. */
+    data class SeatEnded(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val runId: UUID,
+        val itemId: UUID,
+        val seat: String,
+        val attempt: Int,
+        val outcome: RunSeatOutcome,
+        val summary: String?,
+        val links: List<RunSeatLink>
+    ) : DomainEvent() {
+        override val type: String get() = SEAT_ENDED
+        override val entityKind: String get() = KIND_SEAT
+
+        override fun payload(): Map<String, Any?> =
+            mapOf(
+                "runId" to runId,
+                "itemId" to itemId,
+                "seat" to seat,
+                "attempt" to attempt,
+                "outcome" to outcome.wire,
+                "summary" to summary,
+                "links" to links.map { mapOf("kind" to it.kind, "ref" to it.ref) }
+            )
+    }
+
     companion object {
         const val KIND_ITEM = "item"
         const val KIND_NOTE = "note"
@@ -573,6 +621,7 @@ sealed class DomainEvent {
         const val KIND_CONFIG = "config"
         const val KIND_DOCUMENT = "document"
         const val KIND_RUN = "run"
+        const val KIND_SEAT = "seat"
 
         const val ITEM_CREATED = "item.created"
         const val ITEM_UPDATED = "item.updated"
@@ -606,6 +655,8 @@ sealed class DomainEvent {
         const val RUN_RESUMED = "run.resumed"
         const val RUN_ENDED = "run.ended"
         const val RUN_MARKED = "run.marked"
+        const val SEAT_ASSIGNED = "seat.assigned"
+        const val SEAT_ENDED = "seat.ended"
 
         /** The run event types, in lifecycle order (all of them stream on the SSE projection). */
         val RUN_TYPES: List<String> = listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED)

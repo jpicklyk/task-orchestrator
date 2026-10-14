@@ -1,28 +1,4 @@
 {
-  "itemId": {
-    "type": "string",
-    "description": "Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign, raise]"
-  },
-  "seat": {
-    "type": "string",
-    "description": "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]"
-  },
-  "outcome": {
-    "type": "string",
-    "description": "How the calling seat ended. [ops: end_seat]",
-    "enum": [
-      "done",
-      "failed",
-      "abandoned"
-    ]
-  },
-  "links": {
-    "type": "array",
-    "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: end_seat, raise]",
-    "items": {
-      "type": "object"
-    }
-  },
   "class": {
     "type": "string",
     "description": "Decision class (for example question or deviation); it decides who may answer. [ops: raise]"
@@ -62,9 +38,5 @@
   "block": {
     "type": "boolean",
     "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
-  },
-  "summary": {
-    "type": "string",
-    "description": "Closing summary, at most 500 characters. [ops: end_seat]"
   }
 }

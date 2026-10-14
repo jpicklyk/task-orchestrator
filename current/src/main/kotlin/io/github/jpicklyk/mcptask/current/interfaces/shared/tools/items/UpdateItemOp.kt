@@ -164,7 +164,7 @@ private suspend fun WriteScope.updateItem(
             properties = if (ClearField.PROPERTIES in req.clear) null else req.properties?.toString() ?: existing.properties,
             traits = req.traits ?: existing.traits
         )
-    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
     return when (val patched = env.itemCommandService.patch(command, caller)) {
         is Outcome.Err -> patched
         is Outcome.Ok ->

@@ -51,7 +51,7 @@
     },
     "type": "object"
   },
-  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters). A run is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
+  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments). A run is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

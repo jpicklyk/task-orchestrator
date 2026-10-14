@@ -14,7 +14,9 @@
               "enum": [
                 "open",
                 "update",
-                "close"
+                "close",
+                "assign",
+                "end_seat"
               ]
             },
             "rootId": {
@@ -68,14 +70,14 @@
             },
             "hints": {
               "type": "object",
-              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open, update]",
+              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open, update, assign]",
               "additionalProperties": {
                 "type": "string"
               }
             },
             "runId": {
               "type": "string",
-              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: update, close]"
+              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: update, close, assign]"
             },
             "addItems": {
               "type": "array",
@@ -105,6 +107,34 @@
                 "abandoned"
               ]
             },
+            "itemId": {
+              "type": "string",
+              "description": "Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign]"
+            },
+            "seat": {
+              "type": "string",
+              "description": "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]"
+            },
+            "outcome": {
+              "type": "string",
+              "description": "How the calling seat ended. [ops: end_seat]",
+              "enum": [
+                "done",
+                "failed",
+                "abandoned"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "description": "Closing summary, at most 500 characters. [ops: end_seat]"
+            },
+            "links": {
+              "type": "array",
+              "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: end_seat]",
+              "items": {
+                "type": "object"
+              }
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
@@ -126,7 +156,7 @@
     },
     "type": "object"
   },
-  "description": "Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
+  "description": "Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

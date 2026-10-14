@@ -157,7 +157,8 @@ object NoteHandlers {
                         bodyFromFile = file,
                         expectedVersion = expected,
                         takeover = req.takeover == true,
-                        takeoverAllowed = ctx.takeoverAllowed
+                        takeoverAllowed = ctx.takeoverAllowed,
+                        callerSeat = ctx.seat?.seat
                     )
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -202,7 +203,7 @@ object NoteHandlers {
         val caller = caller(ctx)
         val deleted =
             try {
-                env.noteCommandService.delete(itemId, req.key, expected, caller)
+                env.noteCommandService.delete(itemId, req.key, expected, caller, ctx.seat?.seat)
             } catch (e: PerRootConfigUnavailableException) {
                 // Resolving the item's schema (the key's `shared` flag) failed with no last-known-good config: nothing was deleted.
                 return Outcome.Err(
@@ -223,8 +224,8 @@ object NoteHandlers {
 
     // ---- shared steps -------------------------------------------------------------------------------------
 
-    /** The claim fence's caller: the call principal's audited id ([ClaimHolder.resolve]). */
-    private fun caller(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim)
+    /** The claim fence's caller: the call principal's audited id and the seat assignment of its token ([ClaimHolder.resolve]). */
+    private fun caller(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
 
     /**
      * Resolves [rawItemId] by the one scope-aware rule ([ScopedIds.resolveTarget]): `not_found` / `ambiguous_id` for an
@@ -273,7 +274,7 @@ object NoteHandlers {
             modifiedAt = note.modifiedAt,
             actor = if (ctx.attributionVisible) note.actorClaim else null,
             verification = if (ctx.attributionVisible) note.verification else null,
-            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it) } else null
+            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it, note.ownerSeat) } else null
         )
 
     private fun entry(
@@ -293,7 +294,7 @@ object NoteHandlers {
             modifiedAt = row.modifiedAt,
             actor = if (ctx.attributionVisible) row.actorClaim else null,
             verification = if (ctx.attributionVisible) row.verification else null,
-            owner = if (ctx.attributionVisible) row.ownerId?.let { NoteOwner(it) } else null
+            owner = if (ctx.attributionVisible) row.ownerId?.let { NoteOwner(it, row.ownerSeat) } else null
         )
 
     private fun noteNotFound(

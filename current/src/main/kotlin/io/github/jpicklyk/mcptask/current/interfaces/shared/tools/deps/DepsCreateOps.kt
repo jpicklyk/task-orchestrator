@@ -184,7 +184,7 @@ private suspend fun WriteScope.createEdges(
     val items = stores.workItemRepository()
     DepsSupport.forbiddenIfAny(ctx, ids, items)?.let { return Outcome.Err(it) }
     DepsSupport.missingItem(ids, items)?.let { return Outcome.Err(it) }
-    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
     val deps =
         edges.map { (from, to) ->
             Dependency(

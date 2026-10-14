@@ -473,12 +473,12 @@ class PlannedSurfaceGuardTest {
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the six delta files of D5, the runs tools (R20) and notes_write (R21) now real`() {
+    fun `S17 the planned directory holds exactly the five delta files left after R22`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
-        // stale; what the later items still add stays reserved as deltas.
+        // stale; R22 shipped the `seats` select (the whole runs_read orchestration delta), so that file is gone; what the later items
+        // still add stays reserved as deltas.
         assertEquals(
             setOf(
-                "runs_read.orchestration.delta.json",
                 "runs_read.director.delta.json",
                 "runs_write.orchestration.delta.json",
                 "runs_write.director.delta.json",
@@ -501,31 +501,22 @@ class PlannedSurfaceGuardTest {
         val names = planned().keys
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertTrue("$file.json" !in names, "$file.json is stale once the tool is visible and must be replaced by a delta")
-            assertTrue("$file.delta.json" in names, "$file.delta.json keeps the budget of the members R20 does not ship")
         }
+        for (file in listOf("runs_read.director", "runs_write.orchestration", "runs_write.director")) {
+            assertTrue("$file.delta.json" in names, "$file.delta.json keeps the budget of the members no item has shipped yet")
+        }
+        // R22 shipped every member the runs_read orchestration delta reserved (`seats` with itemId and ended), so nothing is left to reserve.
+        assertTrue("runs_read.orchestration.delta.json" !in names, "R22 shipped the seats select: no runs_read orchestration delta remains")
     }
 
     @Test
-    fun `S17 the runs deltas add exactly the properties of the members R20 does not ship`() {
+    fun `S17 the runs deltas add exactly the properties of the members no item has shipped yet`() {
         val files = planned()
-        assertEquals(setOf("itemId", "ended"), files.getValue("runs_read.orchestration.delta.json").keys)
         assertEquals(setOf("decisionId", "overdue"), files.getValue("runs_read.director.delta.json").keys)
+        // R22 shipped assign (itemId, seat, hints) and end_seat (outcome, summary, links), so what remains of the orchestration
+        // runs_write delta is the decision `raise` request (R24).
         assertEquals(
-            setOf(
-                "itemId",
-                "seat",
-                "outcome",
-                "links",
-                "class",
-                "question",
-                "options",
-                "recommended",
-                "context",
-                "dedupeKey",
-                "severity",
-                "block",
-                "summary"
-            ),
+            setOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity", "block"),
             files.getValue("runs_write.orchestration.delta.json").keys
         )
         assertEquals(setOf("decisionId", "option", "text", "rationale"), files.getValue("runs_write.director.delta.json").keys)
@@ -534,7 +525,8 @@ class PlannedSurfaceGuardTest {
     @Test
     fun `S17 the other two deltas add exactly the properties decision D5 and R9 give`() {
         val files = planned()
-        assertEquals(setOf("usage", "reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
+        // R22 shipped the heartbeat `usage`, so only the blocked-reason properties of R24 remain.
+        assertEquals(setOf("reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
         assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
     }
 

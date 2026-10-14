@@ -94,6 +94,15 @@ class SqliteRunStore(
             }
         }
 
+    override suspend fun touchCoordinator(
+        runId: UUID,
+        at: Instant
+    ) {
+        databaseManager.writeTx("RunStore.touchCoordinator") {
+            RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.coordinatorSeenAt] = at }
+        }
+    }
+
     override suspend fun members(runId: UUID): List<UUID> =
         databaseManager.readTx {
             RunItemsTable

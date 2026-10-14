@@ -70,21 +70,29 @@ class ClaimService(
     // Claims
     // -------------------------------------------------------------------------
 
-    /**
-     * Claims [itemId] for [agentId] (or refreshes the agent's own claim: a heartbeat is a re-claim). Every OTHER item
-     * the agent held is auto-released.
-     */
+    /** [claim] for the principal-level holder [agentId] (no seat assignment). */
     suspend fun claim(
         itemId: UUID,
         agentId: String,
         ttlSeconds: Int = DEFAULT_CLAIM_TTL_SECONDS
+    ): Outcome<ClaimResult> = claim(itemId, ClaimHolder(agentId), ttlSeconds)
+
+    /**
+     * Claims [itemId] for [holder] (or refreshes the holder's own claim: a heartbeat is a re-claim). Every OTHER item
+     * the same holder PAIR held is auto-released (per holder: a sibling seat of the same principal keeps its claims).
+     */
+    suspend fun claim(
+        itemId: UUID,
+        holder: ClaimHolder,
+        ttlSeconds: Int = DEFAULT_CLAIM_TTL_SECONDS
     ): Outcome<ClaimResult> =
         unitOfWork.writeOutcome("ClaimService.claim") {
+            val agentId = holder.principalId
             val items = repositoryProvider.workItemRepository()
             val prior = items.getById(itemId)
-            val heldBefore = items.findHeldBy(agentId).associateBy { it.id }
+            val heldBefore = items.findHeldBy(agentId, holder.assignmentId).associateBy { it.id }
 
-            val result = items.claim(itemId, agentId, ttlSeconds)
+            val result = items.claim(itemId, agentId, ttlSeconds, holder.assignmentId)
             when (result) {
                 is ClaimResult.Success -> {
                     val out = mutableListOf<DomainEvent>()
@@ -109,14 +117,20 @@ class ClaimService(
             result
         }
 
-    /** Releases the claim [agentId] holds on [itemId]. A lapsed claim reports `claim.expired` instead of a release. */
+    /** [release] for the principal-level holder [agentId] (no seat assignment). */
     suspend fun release(
         itemId: UUID,
         agentId: String
+    ): Outcome<ReleaseResult> = release(itemId, ClaimHolder(agentId))
+
+    /** Releases the claim [holder] holds on [itemId]. A lapsed claim reports `claim.expired` instead of a release. */
+    suspend fun release(
+        itemId: UUID,
+        holder: ClaimHolder
     ): Outcome<ReleaseResult> =
         unitOfWork.writeOutcome("ClaimService.release") {
             val prior = repositoryProvider.workItemRepository().getById(itemId)
-            val result = repositoryProvider.workItemRepository().release(itemId, agentId)
+            val result = repositoryProvider.workItemRepository().release(itemId, holder.principalId, holder.assignmentId)
             if (result is ReleaseResult.Success) {
                 val lapsed = prior?.takeIf { isLapsed(it, now) }
                 if (lapsed != null) {

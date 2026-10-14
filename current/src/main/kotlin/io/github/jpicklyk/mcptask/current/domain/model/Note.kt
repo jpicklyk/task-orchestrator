@@ -24,7 +24,14 @@ data class Note(
     val actorClaim: ActorClaim? = null,
     val verification: VerificationResult? = null,
     val version: Long = 1L,
-    val ownerId: String? = null
+    val ownerId: String? = null,
+    /**
+     * Attribution (R22): the seat of the token that made the note's latest write, null without a token. Rewritten on every
+     * write like [actorClaim]; never part of ownership.
+     */
+    val seat: String? = null,
+    /** The seat half of the owner pair ([ownerId], [ownerSeat]); written only with [ownerId], null for a principal-level owner. */
+    val ownerSeat: String? = null
 ) {
     init {
         validate()

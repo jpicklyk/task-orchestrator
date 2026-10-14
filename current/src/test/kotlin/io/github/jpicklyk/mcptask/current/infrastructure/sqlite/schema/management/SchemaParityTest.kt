@@ -142,6 +142,7 @@ class SchemaParityTest {
                             t == "item_traits" ||
                             t == "runs" ||
                             t == "run_items" ||
+                            t == "run_seats" ||
                             t == "usage_daily"
                     if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
                         mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
@@ -307,6 +308,8 @@ private object NotesMirror : Table("notes") {
     val actorProofClaims = text("actor_proof_claims").nullable()
     val version = long("version")
     val ownerId = text("owner_id").nullable()
+    val seat = text("seat").nullable()
+    val ownerSeat = text("owner_seat").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

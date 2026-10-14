@@ -70,7 +70,7 @@ private suspend fun WriteScope.deleteItem(
 
     val repo = env.workItemRepository()
     val existing = repo.getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id))
-    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
     // The fence precedes the version compare (lookup -> fence -> version): a non-holder learns nothing from a conflict.
     // The service re-checks it, with the subtree, in the same unit.
     FenceGuard.check(existing, caller, now).let { if (it is Outcome.Err) return it }

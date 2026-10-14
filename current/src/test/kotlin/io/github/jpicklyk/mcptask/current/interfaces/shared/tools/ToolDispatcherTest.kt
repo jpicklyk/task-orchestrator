@@ -536,6 +536,44 @@ class ToolDispatcherTest {
             assertEquals(emptyList(), titles(), "neither call ran its element")
         }
 
+    // ------------------------------------------------------------------ S9 seatToken (R22, decision D1)
+
+    /** The `/pointer` strings an `unknown_parameter` error lists, empty for any other outcome. */
+    private fun Dispatched.unknownPointers(): List<String> =
+        body()["error"]
+            ?.jsonObject
+            ?.get("detail")
+            ?.jsonObject
+            ?.get("parameters")
+            ?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            .orEmpty()
+
+    @Test
+    fun `S9 seatToken is an accepted top-level key of an ops call and of a select call - it is never an unknown parameter`(): Unit =
+        runBlocking {
+            val opsCall = call(fx.writeTool, ops(create("A"), top = ""","seatToken":"some-token""""))
+            assertFalse("/seatToken" in opsCall.unknownPointers(), "ops tool: ${opsCall.body()}")
+            val selectCall = call(fx.readTool, """{"select":"get","id":"${FixtureTools.GET_OK}","seatToken":"some-token"}""")
+            assertFalse("/seatToken" in selectCall.unknownPointers(), "select tool: ${selectCall.body()}")
+            // control: a key that is not reserved IS an unknown parameter on the very same call shape
+            assertEquals(listOf("/foo"), call(fx.writeTool, ops(create("A"), top = ""","foo":"some-token"""")).error().parameters())
+            assertEquals(
+                listOf("/foo"),
+                call(fx.readTool, """{"select":"get","id":"${FixtureTools.GET_OK}","foo":"some-token"}""").error().parameters()
+            )
+        }
+
+    @Test
+    fun `S9 seatToken inside an ops element is unknown_parameter at its prefixed pointer and the element does not run`(): Unit =
+        runBlocking {
+            val result = call(fx.writeTool, ops(create("A"), create("B", ""","seatToken":"some-token"""")))
+            assertEquals("partial_failure", result.code())
+            val failed = result.elementError(1)
+            assertEquals("unknown_parameter", failed.str("code"))
+            assertEquals(listOf("/ops/1/seatToken"), failed.parameters())
+            assertEquals(listOf("A"), titles(), "control: element 0 ran, the element that carried a token did not")
+        }
     // ------------------------------------------------------------------ S9 atomic
 
     @Test

@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -15,6 +16,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -81,6 +85,13 @@ internal val PARITY_NOW: Instant = Instant.parse("2026-10-10T12:00:00Z")
 
 internal val PARITY_CLOCK: Clock = Clock { PARITY_NOW }
 
+/**
+ * The KNOWN token of the coordinator pseudo-seat [ParitySeeder.run] seeds for a run opened by someone (R22 D7: `open` creates it, so
+ * a run has one): the run's 32 hex digits and `_coordtoken`, which is 43 characters of the base64url alphabet and unique per run.
+ * A scenario presents it as the top-level `seatToken`, as the opener principal.
+ */
+internal fun parityCoordinatorToken(run: UUID): String = run.toString().replace("-", "") + "_coordtoken"
+
 /** Seeds work items with caller-chosen ids through the undecorated repository (no event rows, same on both legs). */
 class ParitySeeder(
     private val repo: WorkItemRepository,
@@ -144,7 +155,8 @@ class ParitySeeder(
 
     /**
      * Seeds a run through the undecorated [io.github.jpicklyk.mcptask.current.application.port.RunStore] inside a write unit (no
-     * event rows, the same on both legs), with [items] as its members. The state fields are derived from [status] by
+     * event rows, the same on both legs), with [items] as its members. A run with an [openedBy] also gets its coordinator seat with
+     * the known token [parityCoordinatorToken] (active, or ended `run_closed` for a closed run). The state fields are derived from [status] by
      * construction: a paused run carries a [pauseReason], a closed run a [terminalReason], a `closedAt` and a `closedBy`, so a
      * fixture cannot name an inconsistent combination. Instants are fixed, so both legs seed identical rows.
      */
@@ -159,7 +171,8 @@ class ParitySeeder(
         terminalReason: RunTerminalReason = RunTerminalReason.COMPLETED,
         openedAt: Instant = PARITY_NOW.minusSeconds(3_600),
         closedAt: Instant = PARITY_NOW.minusSeconds(60),
-        marks: Map<String, Instant> = emptyMap()
+        marks: Map<String, Instant> = emptyMap(),
+        coordinatorToken: String? = if (openedBy != null) parityCoordinatorToken(id) else null
     ): Run {
         val store = checkNotNull(provider) { "this seeder was built without a repository provider" }.runStore()
         val uow = checkNotNull(unitOfWork) { "this seeder was built without a unit of work" }
@@ -183,6 +196,65 @@ class ParitySeeder(
                     )
                 )
             if (items.isNotEmpty()) store.addMembers(id, items, openedAt)
+            if (coordinatorToken != null) {
+                // R22 D7: the coordinator pseudo-seat `open` creates, held by the opener. A closed run's coordinator row is ENDED
+                // (outcome run_closed, ended when the run closed), exactly the state the close cascade leaves, so its token is dead.
+                val closed = status == RunStatus.CLOSED
+                checkNotNull(provider).runSeatStore().create(
+                    RunSeat(
+                        id = UUID.nameUUIDFromBytes("parity-coordinator:$id".toByteArray()),
+                        runId = id,
+                        itemId = null,
+                        seat = RunSeat.COORDINATOR,
+                        attempt = 1,
+                        principalId = checkNotNull(openedBy) { "a coordinator seat needs the opener's identity" },
+                        tokenHash = sha256Hex(coordinatorToken.toByteArray(Charsets.UTF_8)),
+                        status = if (closed) RunSeatStatus.ENDED else RunSeatStatus.ACTIVE,
+                        outcome = if (closed) RunSeatOutcome.RUN_CLOSED else null,
+                        assignedAt = openedAt,
+                        endedAt = if (closed) closedAt else null
+                    )
+                )
+            }
+        }
+        return created
+    }
+
+    /**
+     * Seeds a seat assignment with a KNOWN token through the undecorated seat store inside a write unit (no event rows, the same on
+     * both legs). The stored form is the lowercase hex SHA-256 of the token's UTF-8 bytes; the caller presents [token] as the
+     * top-level `seatToken` and is accepted only as [principalId]. An ended seat carries the `run_closed` outcome and an end
+     * instant, so the state invariants hold by construction. [itemId] is null exactly for the `coordinator` pseudo-seat.
+     */
+    suspend fun seat(
+        runId: UUID,
+        itemId: UUID?,
+        seat: String,
+        principalId: String,
+        token: String,
+        attempt: Int = 1,
+        ended: Boolean = false,
+        assignedAt: Instant = PARITY_NOW.minusSeconds(3_000)
+    ): RunSeat {
+        val uow = checkNotNull(unitOfWork) { "this seeder was built without a unit of work" }
+        lateinit var created: RunSeat
+        uow.inUnit("parity.seedSeat") {
+            created =
+                checkNotNull(provider) { "this seeder was built without a repository provider" }.runSeatStore().create(
+                    RunSeat(
+                        id = UUID.nameUUIDFromBytes("parity-seat:$runId:$itemId:$seat:$attempt".toByteArray()),
+                        runId = runId,
+                        itemId = itemId,
+                        seat = seat,
+                        attempt = attempt,
+                        principalId = principalId,
+                        tokenHash = sha256Hex(token.toByteArray(Charsets.UTF_8)),
+                        status = if (ended) RunSeatStatus.ENDED else RunSeatStatus.ACTIVE,
+                        outcome = if (ended) RunSeatOutcome.RUN_CLOSED else null,
+                        assignedAt = assignedAt,
+                        endedAt = if (ended) PARITY_NOW.minusSeconds(60) else null
+                    )
+                )
         }
         return created
     }
@@ -686,15 +758,22 @@ class ParityHarness(
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
         val fixed = PARITY_NOW.toString()
-        return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(TIMESTAMP) { match ->
-            val value = match.groupValues[2]
-            if (value == fixed) {
-                match.value
-            } else {
-                assertTrue(Instant.parse(value) in seeded, "a stamp the call wrote must be the fixed clock's, got $value: $body")
-                "\"${match.groupValues[1]}\":\"<SEEDED>\""
+        return body
+            .replace(marker, "\"reqId\":\"<REQ>\"")
+            .replace(SEAT_TOKEN) { match ->
+                // R22: `open` returns a random coordinatorToken and `assign` a random seatToken (43 base64url characters, returned once);
+                // the two legs issue different values, so the value is masked and only its form (exactly 43 characters of the
+                // alphabet) is compared.
+                "\"${match.groupValues[1]}\":\"<TOKEN>\""
+            }.replace(TIMESTAMP) { match ->
+                val value = match.groupValues[2]
+                if (value == fixed) {
+                    match.value
+                } else {
+                    assertTrue(Instant.parse(value) in seeded, "a stamp the call wrote must be the fixed clock's, got $value: $body")
+                    "\"${match.groupValues[1]}\":\"<SEEDED>\""
+                }
             }
-        }
     }
 
     companion object {
@@ -710,10 +789,14 @@ class ParityHarness(
                 "config_versions",
                 "config_heads",
                 "runs",
-                "run_items"
+                "run_items",
+                "run_seats"
             )
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
+
+        /** A seat token the server issued: `"seatToken"` / `"coordinatorToken"` and exactly 43 base64url characters. */
+        private val SEAT_TOKEN = Regex("\"(seatToken|coordinatorToken)\":\"[A-Za-z0-9_-]{43}\"")
 
         /**
          * The comparable content of every table: generated ids (all `id` columns except work_items, whose ids are seeded),
@@ -759,6 +842,9 @@ class ParityHarness(
                                 // fresh id per leg), the same kind of per-leg generated id as the dropped `id` columns
                                 (label == "version_id" && table == "config_heads") ||
                                 (label == "host" && table == "events") ||
+                                // R22: the stored SHA-256 of an issued seat token; the token is random per call, so the hash differs
+                                // between the legs by design (a SEEDED seat's hash is compared through its row and the call's outcome)
+                                (label == "token_hash" && table == "run_seats") ||
                                 label == "at" ||
                                 (label.endsWith("_at") && label != "unblock_at")
                         ) &&

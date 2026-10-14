@@ -28,7 +28,9 @@ data class NoteSummary(
     val bodyLength: Int,
     val modifiedAt: Instant,
     val actorClaim: ActorClaim?,
-    val verification: VerificationResult?
+    val verification: VerificationResult?,
+    /** The owner's seat ([io.github.jpicklyk.mcptask.current.domain.model.Note.ownerSeat]); null for a principal-level owner. */
+    val ownerSeat: String? = null
 )
 
 interface NoteStore {
@@ -97,7 +99,8 @@ interface NoteStore {
                     it.body.codePointCount(0, it.body.length),
                     it.modifiedAt,
                     it.actorClaim,
-                    it.verification
+                    it.verification,
+                    it.ownerSeat
                 )
             }
 }

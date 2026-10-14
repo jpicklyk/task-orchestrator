@@ -48,6 +48,9 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     val pinnedSchemaLayer = text("pinned_schema_layer").nullable()
     val pinnedAt = utcTimestampText("pinned_at").nullable()
 
+    // V35: the seat assignment a claim is held under (NULL = a principal-level claim); no FK on purpose (see V35).
+    val claimAssignmentId = javaUuidSqlite("claim_assignment_id").nullable()
+
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)

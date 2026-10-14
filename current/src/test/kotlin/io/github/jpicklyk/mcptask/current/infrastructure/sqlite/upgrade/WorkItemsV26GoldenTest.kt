@@ -430,7 +430,9 @@ class WorkItemsV26GoldenTest {
                     "pinned_root_cfg",
                     "pinned_schema_key",
                     "pinned_schema_layer",
-                    "pinned_at"
+                    "pinned_at",
+                    // V35 appends the claim assignment (nullable BLOB); the list is read at the latest schema
+                    "claim_assignment_id"
                 ),
                 cols.map { it.name },
                 "column list and order"

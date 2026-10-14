@@ -65,7 +65,7 @@ object SeedV34 : MigrationSeed(34) {
         verifyIndexesAndTriggers(conn)
     }
 
-    /** Assertion 1: `owner_id` TEXT, notnull 0, default NULL, pk 0; and the last column (ADD COLUMN appends). */
+    /** Assertion 1: `owner_id` TEXT, notnull 0, default NULL, pk 0; and the last V34 column (ADD COLUMN appends). */
     private fun verifyColumn(conn: Connection) {
         val columns =
             conn.createStatement().use { st ->
@@ -90,7 +90,9 @@ object SeedV34 : MigrationSeed(34) {
             columns.filter { it[0] == "owner_id" },
             "notes.owner_id (name, type, notnull, default, pk)"
         )
-        assertEquals("owner_id", columns.last()[0], "ADD COLUMN appends: owner_id is the last notes column")
+        // V35 appends notes.seat and notes.owner_seat after it, and this verify runs at the latest schema
+        val untilV34 = columns.filter { it[0] != "seat" && it[0] != "owner_seat" }
+        assertEquals("owner_id", untilV34.last()[0], "ADD COLUMN appends: owner_id is the last notes column of V34")
     }
 
     /** Assertion 2: nothing was backfilled, so no note has an owner. */

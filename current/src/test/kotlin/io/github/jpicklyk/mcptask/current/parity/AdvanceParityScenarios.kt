@@ -40,6 +40,20 @@ internal object AdvanceParityScenarios {
         ttl: Int? = null
     ) = """{"op":"heartbeat","itemId":"$id"${if (ttl != null) ""","ttlSeconds":$ttl""" else ""}}"""
 
+    private fun heartbeatWithUsage(id: UUID) = """{"op":"heartbeat","itemId":"$id","usage":{"tokens":10,"costUsd":0.5}}"""
+
+    /** A run of R1 over C1 whose opener is the `adv-agent` principal, plus an `implementer` seat on C1 held by that principal. */
+    private val seatRun: UUID = UUID.fromString("a0000004-0000-4000-8000-000000000004")
+
+    /** The known token of that seat (43 characters of the base64url alphabet). */
+    private val seatToken = "h".repeat(43)
+
+    private val seedSeat: suspend ParitySeeder.() -> Unit = {
+        seedTree()
+        run(seatRun, r1, listOf(c1), openedBy = "api:adv-agent", openedByKind = "agent")
+        seat(seatRun, c1, "implementer", principalId = "api:adv-agent", token = seatToken)
+    }
+
     private fun ops(
         vararg elements: String,
         top: String = ""
@@ -55,7 +69,8 @@ internal object AdvanceParityScenarios {
         expectCode: String? = null,
         expectContains: List<String> = emptyList(),
         expectAbsent: List<String> = emptyList(),
-        expectDbChanged: Boolean? = null
+        expectDbChanged: Boolean? = null,
+        seed: suspend ParitySeeder.() -> Unit = seedTree
     ) = ParityScenario(
         name,
         "advance",
@@ -68,7 +83,7 @@ internal object AdvanceParityScenarios {
         expectContains,
         expectAbsent,
         expectDbChanged,
-        seedTree
+        seed
     )
 
     private val rootForbidden = listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"$r1\"")
@@ -201,6 +216,49 @@ internal object AdvanceParityScenarios {
                 expectCode = "partial_failure",
                 expectContains = listOf("\"code\":\"not_claim_holder\"", "\"itemId\":\"$r1\""),
                 expectAbsent = listOf("\"refreshed\""),
+                expectDbChanged = false
+            ),
+            // R22 (decision D9): `usage` is a seat's spend, so a call with no seat token cannot carry it. Atomic, so the failing
+            // element is the whole-call error with its index and the claim before it is rolled back.
+            scenario(
+                "advance heartbeat usage without a seat token is invalid_request on the usage pointer",
+                "heartbeat",
+                ParityKind.OTHER,
+                agent,
+                ops(claim(r1), heartbeatWithUsage(r1), top = ""","atomic":true"""),
+                400,
+                expectCode = "invalid_request",
+                expectContains = listOf("\"index\":1", "/usage", "requires a seat token"),
+                expectAbsent = listOf("\"refreshed\""),
+                expectDbChanged = false
+            ),
+            // R22 (decision D9), the HAPPY half the round 1 harness could not seed: under a live seat token the seat's spend is
+            // accepted. The claim and the heartbeat are taken under the assignment (the holder is the pair, D10), so the heartbeat
+            // refreshes the very claim the same call made; the seat row keeps the reported usage (compared across the legs through
+            // the run_seats snapshot).
+            scenario(
+                "advance heartbeat usage under a seat token is accepted for the seat's own claim",
+                "heartbeat",
+                ParityKind.OTHER,
+                agent,
+                ops(claim(c1), heartbeatWithUsage(c1), top = ""","seatToken":"$seatToken""""),
+                200,
+                expectContains = listOf("\"claimed\":true", "\"refreshed\":true"),
+                expectAbsent = listOf(seatToken, "requires a seat token"),
+                expectDbChanged = true,
+                seed = seedSeat
+            ),
+            // R22 (decision D1/D2): a seat token that no live assignment issued is the fixed 401 before any op is read.
+            scenario(
+                "advance with an unknown seat token is unauthenticated and claims nothing",
+                "claim",
+                ParityKind.OTHER,
+                agent,
+                ops(claim(r1), top = ""","seatToken":"${"u".repeat(43)}""""),
+                401,
+                expectCode = "unauthenticated",
+                expectContains = listOf("The seat token is not accepted."),
+                expectAbsent = listOf("\"claimed\":true", "u".repeat(43)),
                 expectDbChanged = false
             )
         )

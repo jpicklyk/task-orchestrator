@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.run.RunService
+import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -129,12 +130,24 @@ class ToolExecutionContext(
     val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
 
     /**
-     * The single owner of run writes and run events. No tool serves it yet. Lazy for the same reason as
+     * The single owner of run writes and run events, with [seatService] as its seat port. Lazy for the same reason as
      * [advanceServiceFactoryLazy], and because a provider that serves no runs throws from `runStore()`.
      */
     val runService: RunService by lazy {
-        RunService(repositoryProvider, unitOfWork, claimService, runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) })
+        RunService(
+            repositoryProvider,
+            unitOfWork,
+            claimService,
+            runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
+            seats = seatService
+        )
     }
+
+    /**
+     * The single owner of seat-assignment writes, seat tokens and seat events (R22). Lazy for the same reason as
+     * [runService]; its store is reached only when a seat is touched (a provider that serves no seats throws then).
+     */
+    val seatService: SeatService by lazy { SeatService(repositoryProvider, unitOfWork, claimService, configResolver) }
 
     /**
      * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].

@@ -2,9 +2,11 @@ package io.github.jpicklyk.mcptask.current.application.api.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 /** Why a caller closes a run. `budget_exhausted` is server-only and is not accepted. */
 @Serializable
@@ -39,6 +41,22 @@ private const val BUDGET_DOC =
         "configured ceiling; on update a field can only be lowered or newly set."
 private const val HINTS_DOC = "Short structured coordinator hints, string to string. On update they replace the stored hints."
 private const val ITEM_DOC = "Item id: a UUID or a hex prefix of 8 to 32 characters."
+private const val LINKS_DOC = "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url."
+
+/** How the calling seat ended: the outcomes a seat reports itself (`superseded` and `run_closed` are server-only). */
+@Serializable
+enum class SeatEndOutcome(
+    val domain: RunSeatOutcome
+) {
+    @SerialName("done")
+    DONE(RunSeatOutcome.DONE),
+
+    @SerialName("failed")
+    FAILED(RunSeatOutcome.FAILED),
+
+    @SerialName("abandoned")
+    ABANDONED(RunSeatOutcome.ABANDONED)
+}
 
 /** `runs_write open`: starts a run over a set of items of one root. */
 @Serializable
@@ -84,6 +102,26 @@ data class RunsPauseRequest(
 @Serializable
 data class RunsResumeRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef
+)
+
+/** `runs_write assign`: the coordinator assigns a seat of a member item and receives the seat token. */
+@Serializable
+data class RunsAssignRequest(
+    @Doc(RUN_ID_DOC) val runId: IdRef,
+    @Doc(ITEM_DOC) val itemId: IdRef,
+    @Doc(
+        "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes."
+    )
+    val seat: String,
+    @Doc(HINTS_DOC) val hints: Map<String, String>? = null
+)
+
+/** `runs_write end_seat`: the calling seat ends its own assignment. */
+@Serializable
+data class RunsEndSeatRequest(
+    @Doc("How the calling seat ended.") val outcome: SeatEndOutcome,
+    @Doc("Closing summary, at most 500 characters.") val summary: String? = null,
+    @Doc(LINKS_DOC) val links: List<JsonObject>? = null
 )
 
 /** `runs_write mark`: sets a named mark on a run. */

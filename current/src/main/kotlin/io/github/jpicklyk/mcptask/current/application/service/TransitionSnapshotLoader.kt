@@ -32,11 +32,13 @@ import java.util.UUID
 
 /**
  * Claim-ownership input to [TransitionSnapshotLoader.load]: whether the ownership gate is enforced
- * and the caller's trusted identity. The loader derives the live claim holder itself.
+ * and the caller's trusted identity, the holder pair ([callerId], [callerAssignmentId]). The loader derives the live
+ * claim holder pair itself.
  */
 data class OwnershipInput(
     val enforced: Boolean,
-    val callerId: String?
+    val callerId: String?,
+    val callerAssignmentId: UUID? = null
 ) {
     companion object {
         /** Ownership not enforced (system cascades, REST, previews). */
@@ -144,11 +146,22 @@ class TransitionSnapshotLoader(
             }
 
         val ownershipFacts =
-            OwnershipFacts(
-                enforced = ownership.enforced,
-                activeHolder = if (ClaimState.isActive(item, scope.now)) item.claimedBy else null,
-                callerId = ownership.callerId
-            )
+            if (ClaimState.isActive(item, scope.now)) {
+                OwnershipFacts(
+                    enforced = ownership.enforced,
+                    activeHolder = item.claimedBy,
+                    callerId = ownership.callerId,
+                    activeHolderAssignment = item.claimAssignmentId,
+                    callerAssignment = ownership.callerAssignmentId
+                )
+            } else {
+                OwnershipFacts(
+                    enforced = ownership.enforced,
+                    activeHolder = null,
+                    callerId = ownership.callerId,
+                    callerAssignment = ownership.callerAssignmentId
+                )
+            }
 
         var requirements: List<ResourceRequirement> = emptyList()
         var leaseFacts = LeaseFacts.NONE

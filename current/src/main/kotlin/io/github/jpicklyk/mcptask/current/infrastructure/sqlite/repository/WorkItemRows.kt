@@ -65,6 +65,7 @@ internal object WorkItemRows {
                 claimedAt = readInstant(row, WorkItemsTable.claimedAt, unreadable),
                 claimExpiresAt = readInstant(row, WorkItemsTable.claimExpiresAt, unreadable),
                 originalClaimedAt = readInstant(row, WorkItemsTable.originalClaimedAt, unreadable),
+                claimAssignmentId = row[WorkItemsTable.claimAssignmentId],
                 pin = readPin(row, unreadable),
                 diagnostics = emptyList()
             )

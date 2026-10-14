@@ -166,9 +166,11 @@ class ToolRegistryTest {
     @Test
     fun `S3 the declared reserved-name sets are exactly the frozen ones`() {
         // R14: `actor` is no longer reserved anywhere; a body actor is an ordinary unknown key.
-        assertEquals(setOf("describe", "select"), SelectSpec.SELECT_RESERVED)
-        assertEquals(setOf("describe", "select"), ToolRegistry.SELECT_FORBIDDEN_FIELDS)
-        assertEquals(setOf("op", "idempotencyKey"), OpSpec.OP_FORBIDDEN_FIELDS)
+        // R22 D1: `seatToken` is a top-level key of BOTH tool kinds: reserved on a select, forbidden to every request class (it is
+        // not a request field), while inside an `ops[]` element it stays an unknown parameter (so OP_RESERVED is unchanged).
+        assertEquals(setOf("describe", "select", "seatToken"), SelectSpec.SELECT_RESERVED)
+        assertEquals(setOf("describe", "select", "seatToken"), ToolRegistry.SELECT_FORBIDDEN_FIELDS)
+        assertEquals(setOf("op", "idempotencyKey", "seatToken"), OpSpec.OP_FORBIDDEN_FIELDS)
         assertEquals(setOf("op", "idempotencyKey"), OpSpec.OP_RESERVED)
     }
 

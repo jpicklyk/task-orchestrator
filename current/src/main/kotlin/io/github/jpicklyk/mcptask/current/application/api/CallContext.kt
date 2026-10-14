@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import java.util.UUID
 
 /**
  * Who made a call: the actor [claim] and the [verification] result recorded for it, and, when a credential
@@ -17,6 +18,18 @@ data class CallPrincipal(
     val claim: ActorClaim,
     val verification: VerificationResult,
     val principal: Principal? = null
+)
+
+/**
+ * The seat a call is made under: the active assignment its valid `seatToken` names (R22). [runId] is the run,
+ * [assignmentId] the assignment (the claim holder's second member), [itemId] the member item (null for the run-scoped
+ * `coordinator` pseudo-seat) and [seat] the seat name.
+ */
+data class SeatContext(
+    val runId: UUID,
+    val assignmentId: UUID,
+    val itemId: UUID?,
+    val seat: String
 )
 
 /**
@@ -34,6 +47,8 @@ data class CallPrincipal(
  * unrestricted. [takeoverAllowed] says whether the caller may take over a note owned by another principal (`notes_write`
  * `takeover`); the transport decides it (ADMIN only) and it defaults to false. [profile] is the wire name of
  * the tool view that served the call (set by the dispatcher); [sessionId] is the caller's MCP session (null on REST and stdio).
+ * [seat] is the seat of the call's valid seat token (null without one); under a token the dispatcher has already narrowed
+ * the access (no ADMIN, so no principal visibility and no takeover).
  */
 data class CallContext(
     val reqId: String,
@@ -45,7 +60,8 @@ data class CallContext(
     val profile: String? = null,
     val sessionId: String? = null,
     val rootWritesAllowed: Boolean = scope.isUnrestricted,
-    val takeoverAllowed: Boolean = false
+    val takeoverAllowed: Boolean = false,
+    val seat: SeatContext? = null
 ) {
     /**
      * The provenance tuple of this call, or null when its [CallPrincipal] carries no transport [Principal] (only a

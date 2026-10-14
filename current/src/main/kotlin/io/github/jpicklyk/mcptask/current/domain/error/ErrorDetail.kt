@@ -4,7 +4,7 @@ import java.time.Instant
 import java.util.UUID
 
 /** Entity families that errors can refer to. */
-enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG }
+enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG, SEAT }
 
 /** Scope that a `forbidden` error says the caller lacks. */
 enum class ForbiddenScope { ROOT, TAG, CAPABILITY, HOST, PRINCIPAL_KIND }

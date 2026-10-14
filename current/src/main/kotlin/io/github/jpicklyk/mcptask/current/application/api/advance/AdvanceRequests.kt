@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 
 /** The documentation text of the request fields several `advance` ops share (one text per field name, or the registry rejects the tool). */
@@ -146,5 +147,7 @@ data class ReleaseRequest(
 @Serializable
 data class HeartbeatRequest(
     @Doc(AdvanceDocs.ITEM_ID) val itemId: IdRef,
-    @Doc(AdvanceDocs.TTL_SECONDS) val ttlSeconds: Int = ClaimRequest.DEFAULT_TTL_SECONDS
+    @Doc(AdvanceDocs.TTL_SECONDS) val ttlSeconds: Int = ClaimRequest.DEFAULT_TTL_SECONDS,
+    @Doc("Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept.")
+    val usage: JsonObject? = null
 )

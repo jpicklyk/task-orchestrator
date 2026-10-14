@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.UsageDailyStore
@@ -39,6 +40,7 @@ class MockRepositoryProvider {
     val eventStore = InMemoryEventStore()
     val callLogStore: CallLogStore = mockk()
     val runStore: RunStore = mockk()
+    val runSeatStore: RunSeatStore = mockk()
     val reportQueries: ReportQueries = mockk()
     val usageDailyStore: UsageDailyStore = mockk()
     val provider: RepositoryProvider = mockk()
@@ -64,6 +66,7 @@ class MockRepositoryProvider {
         every { provider.searchIndex() } returns searchIndex
         every { provider.callLogStore() } returns callLogStore
         every { provider.runStore() } returns runStore
+        every { provider.runSeatStore() } returns runSeatStore
         every { provider.reportQueries() } returns reportQueries
         every { provider.usageDailyStore() } returns usageDailyStore
         // Default: noteRepo returns empty lists for any query

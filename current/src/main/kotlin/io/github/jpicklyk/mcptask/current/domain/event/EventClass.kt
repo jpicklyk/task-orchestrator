@@ -57,7 +57,9 @@ object EventClasses {
             DomainEvent.LEASE_ACQUIRED,
             DomainEvent.LEASE_RELEASED,
             DomainEvent.LEASE_REJECTED,
-            DomainEvent.LEASE_EXPIRED
+            DomainEvent.LEASE_EXPIRED,
+            DomainEvent.SEAT_ASSIGNED,
+            DomainEvent.SEAT_ENDED
         )
 
     /** The class of [type], or null when the map does not know it (an unknown type is never pruned). */

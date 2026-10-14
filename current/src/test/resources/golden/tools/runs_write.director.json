@@ -109,7 +109,7 @@
     },
     "type": "object"
   },
-  "description": "Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
+  "description": "Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

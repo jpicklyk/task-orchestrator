@@ -84,7 +84,8 @@ class TreeCompletionService(
         root: WorkItem?,
         trigger: String,
         actorClaim: ActorClaim?,
-        verification: VerificationResult?
+        verification: VerificationResult?,
+        assignmentId: UUID? = null
     ): Outcome<TreeCompletionResult> {
         val distinct = targets.distinctBy { it.id }.filter { it.id != root?.id }
         val byId = distinct.associateBy { it.id }
@@ -129,7 +130,7 @@ class TreeCompletionService(
                     propagate(id, blockedBy)
                 }
                 else ->
-                    when (val outcome = advance(item, trigger, actorClaim, verification, terminalized)) {
+                    when (val outcome = advance(item, trigger, actorClaim, verification, assignmentId, terminalized)) {
                         is Outcome.Err -> return outcome
                         is Outcome.Ok -> {
                             outcomes += outcome.value
@@ -144,7 +145,7 @@ class TreeCompletionService(
             if (root.role == Role.TERMINAL || root.id in terminalized) {
                 outcomes += TreeItemOutcome.AlreadyTerminal(root.id)
             } else {
-                when (val outcome = advance(root, trigger, actorClaim, verification, terminalized)) {
+                when (val outcome = advance(root, trigger, actorClaim, verification, assignmentId, terminalized)) {
                     is Outcome.Err -> return outcome
                     is Outcome.Ok -> outcomes += outcome.value
                 }
@@ -159,6 +160,7 @@ class TreeCompletionService(
         trigger: String,
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
+        assignmentId: UUID?,
         terminalized: MutableSet<UUID>
     ): Outcome<TreeItemOutcome> {
         val outcome =
@@ -170,7 +172,8 @@ class TreeCompletionService(
                     actorClaim = actorClaim,
                     verification = verification,
                     credentialRefs = emptyList(),
-                    enforceResourceLeases = true
+                    enforceResourceLeases = true,
+                    assignmentId = assignmentId
                 )
             }
         return when (outcome) {

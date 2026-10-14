@@ -6,14 +6,17 @@ import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.SeatContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.configName
 import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRun
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -21,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -51,6 +55,13 @@ data class Dispatched(
  * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`
  *    before anything in the arguments is read (no describe, no selector, no decode). No request body names its own
  *    actor: `actor` is an ordinary unknown key. The principal is recorded on the call telemetry.
+ * 0b. **Seat token** (R22). A top-level `seatToken` is lifted on both tool kinds before anything else in the arguments
+ *    is read. Absent: no seat. Present, it must be a string naming an ACTIVE assignment bound to this call's principal;
+ *    anything else (empty, not a string, unknown, ended, another principal's) is the one fixed `unauthenticated` answer
+ *    with no detail. A valid token narrows the access (ADMIN is dropped: what ADMIN granted becomes the explicit
+ *    non-admin capabilities, principal visibility, takeover and root writes follow), sets [CallContext.seat], stamps
+ *    the run and seat on the call telemetry and, for an ops tool, touches the seat's `last_seen_at`. Under a token the
+ *    idempotency principal is `<principal>#<assignmentId>`, so seats sharing one principal never replay each other.
  * 1. **Access** (Q6). The access's scope reaches handlers as `CallContext.scope`, and its capabilities are checked
  *    against each select/op (`Set<ApiCapability>.grants`; ADMIN grants all). A select lacking the capability answers
  *    the whole call `forbidden`; an op element lacking it fails `forbidden` alone and is never executed or stored.
@@ -91,18 +102,31 @@ class ToolDispatcher(
         return try {
             val principal = access.principal ?: return Dispatched(EnvelopeEncoder.error(noPrincipal(), reqId), null, batchSize)
             recordCallPrincipal(principal.claim, principal.verification, principal.principal?.proofStatus?.wire)
+            val seat =
+                if (SEAT_TOKEN in arguments) {
+                    resolveSeat(arguments[SEAT_TOKEN], principal.claim.id)
+                        ?: return Dispatched(EnvelopeEncoder.error(SeatService.tokenRefused(), reqId), null, batchSize)
+                } else {
+                    null
+                }
+            val effective = if (seat != null) narrowForSeat(access) else access
+            if (seat != null) {
+                recordCallRun(seat.runId, seat.seat)
+                if (spec is OpsToolSpec<*>) env.seatService.touch(seat)
+            }
             val ctx =
                 CallContext(
                     reqId,
                     surface,
                     principal,
-                    access.scope,
-                    access.attributionVisible,
-                    access.principalsVisible,
+                    effective.scope,
+                    effective.attributionVisible,
+                    effective.principalsVisible,
                     profile = profile.wire,
-                    sessionId = access.sessionId,
-                    rootWritesAllowed = access.rootWritesAllowed,
-                    takeoverAllowed = access.takeoverAllowed
+                    sessionId = effective.sessionId,
+                    rootWritesAllowed = effective.rootWritesAllowed,
+                    takeoverAllowed = effective.takeoverAllowed,
+                    seat = seat?.let { SeatContext(it.runId, it.id, it.itemId, it.seat) }
                 )
 
             when (val describe = describeFlag(arguments)) {
@@ -122,7 +146,7 @@ class ToolDispatcher(
                             is Outcome.Ok -> selected.value
                         }
                     operation = select.name
-                    if (!access.capabilities.grants(select.capability)) {
+                    if (!effective.capabilities.grants(select.capability)) {
                         return Dispatched(EnvelopeEncoder.error(missingCapability(select.capability), reqId), select.name, null)
                     }
                     val envelope =
@@ -132,7 +156,7 @@ class ToolDispatcher(
                         }
                     Dispatched(envelope, select.name, null)
                 }
-                is OpsToolSpec<*> -> runOps(spec, profile, arguments, ctx, access) { operation = it }
+                is OpsToolSpec<*> -> runOps(spec, profile, arguments, ctx, effective) { operation = it }
             }
         } catch (e: PerRootConfigInvalidException) {
             // The whole-request twin of the per-element mapping: an unloadable config head is config_invalid, not internal.
@@ -153,6 +177,42 @@ class ToolDispatcher(
         }
     }
 
+    // ---- seat token -------------------------------------------------------------------------------------
+
+    /**
+     * The active assignment [raw] names for [principalId], or null when the token is refused: not a string, empty,
+     * unknown, ended or bound to another principal. Nothing tells the cases apart.
+     */
+    private suspend fun resolveSeat(
+        raw: JsonElement?,
+        principalId: String
+    ): RunSeat? {
+        val token = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (token.isEmpty()) return null
+        return env.seatService.resolve(token, principalId)
+    }
+
+    /**
+     * [access] narrowed for a call under a seat token: ADMIN is dropped (what it granted stays granted as the explicit
+     * non-admin capabilities), so other principals' ids are hidden, `takeover` is refused and a root write needs an
+     * unrestricted scope. Scope, attribution visibility and the session are unchanged.
+     */
+    private fun narrowForSeat(access: CallAccess): CallAccess {
+        val held = access.capabilities
+        val narrowed =
+            if (ApiCapability.ADMIN in held) {
+                ApiCapability.entries.filter { it != ApiCapability.ADMIN }.toSet()
+            } else {
+                held - ApiCapability.ADMIN
+            }
+        return access.copy(
+            capabilities = narrowed,
+            principalsVisible = false,
+            takeoverAllowed = false,
+            rootWritesAllowed = access.scope.isUnrestricted
+        )
+    }
+
     // ---- describe ---------------------------------------------------------------------------------------
 
     private fun describeFlag(arguments: JsonObject): Outcome<Boolean> {
@@ -171,7 +231,7 @@ class ToolDispatcher(
         val selector = if (spec is SelectToolSpec) SELECT else OPS
         val faults = ArrayList<FieldViolation>()
         for (key in arguments.keys) {
-            if (key != DESCRIBE && key != selector) faults.add(FieldViolation(pointer(key), NOT_WITH_DESCRIBE))
+            if (key != DESCRIBE && key != selector && key != SEAT_TOKEN) faults.add(FieldViolation(pointer(key), NOT_WITH_DESCRIBE))
         }
         val only = LinkedHashSet<String>()
         var narrowed = false
@@ -308,7 +368,9 @@ class ToolDispatcher(
             }
         onOperation(operation)
 
-        val principalId = ctx.principal.claim.id
+        // Under a seat token, the idempotency principal is the (principal, assignment) pair: seats of one principal never
+        // replay each other's keyed elements.
+        val principalId = ctx.seat?.let { "${ctx.principal.claim.id}#${it.assignmentId}" } ?: ctx.principal.claim.id
         val execution =
             withEventActor(ctx.principal.claim) {
                 withConfigSession {
@@ -376,6 +438,9 @@ class ToolDispatcher(
         const val ATOMIC = "atomic"
         const val IDEMPOTENCY_KEY = "idempotencyKey"
 
+        /** The top-level seat token field (R22), lifted on both tool kinds. */
+        const val SEAT_TOKEN = "seatToken"
+
         /** `call_log` operation of a `describe: true` call. */
         const val DESCRIBE_OPERATION = "describe"
 
@@ -383,7 +448,7 @@ class ToolDispatcher(
         const val MIXED_OPERATION = "mixed"
 
         /** The top-level keys an ops tool accepts. */
-        val OPS_TOP_LEVEL: Set<String> = setOf(DESCRIBE, OPS, ATOMIC)
+        val OPS_TOP_LEVEL: Set<String> = setOf(DESCRIBE, OPS, ATOMIC, SEAT_TOKEN)
 
         /** The message of a call refused because its transport established no principal. */
         const val NO_PRINCIPAL_MESSAGE = "The call has no authenticated principal."

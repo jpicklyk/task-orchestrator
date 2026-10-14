@@ -25,6 +25,15 @@ interface RunStore {
         expectedVersion: Long
     ): Run?
 
+    /**
+     * Sets `coordinator_seen_at` of [runId] to [at] WITHOUT bumping the version (liveness is not a change a coordinator's
+     * `expectedVersion` should conflict with). A missing run is a no-op.
+     */
+    suspend fun touchCoordinator(
+        runId: UUID,
+        at: Instant
+    )
+
     /** The member item ids of [runId], oldest membership first. */
     suspend fun members(runId: UUID): List<UUID>
 
