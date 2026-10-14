@@ -32,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -379,7 +380,7 @@ class ScopeAnchorValidationTest {
         )
 
     private fun io.ktor.server.application.Application.installAnchorTestApp() {
-        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv())
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         val repositoryProvider = db.repositoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig,

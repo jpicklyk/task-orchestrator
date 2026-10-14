@@ -842,12 +842,12 @@ class ItemsWriteToolTest {
                         }.single()
                 assertEquals(id, row.entityId, type)
                 assertEquals("agent-1", row.principalId, "$type principal id")
-                assertEquals("subagent", row.principalKind, "$type principal kind")
+                assertEquals("external", row.principalKind, "$type principal kind: every transport principal is external")
             }
         }
 
     @Test
-    fun `S16 control - without an actor the same writes record no principal`(): Unit =
+    fun `S16 control - without an actor fixture the same writes record the local principal`(): Unit =
         runBlocking {
             val k = kit()
             val (_, rows) =
@@ -858,6 +858,6 @@ class ItemsWriteToolTest {
                         .okId()
                 }
             val created = rows.single { it.type == "item.created" }
-            assertNull(created.principalId, "an anonymous call has no principal, so the actor assertion above can fail")
+            assertEquals("local", created.principalId, "a fixture-less call runs as local, so the actor assertion above can fail")
         }
 }

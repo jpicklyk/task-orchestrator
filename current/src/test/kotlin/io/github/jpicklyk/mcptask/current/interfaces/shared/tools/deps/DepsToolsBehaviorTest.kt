@@ -41,7 +41,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -148,7 +147,7 @@ class DepsToolsBehaviorTest {
         }
 
     @Test
-    fun `S23 control - a write without any actor leaves the principal null`(
+    fun `S23 control - a write without any actor fixture runs as the local principal`(
         @TempDir dir: Path
     ): Unit =
         runBlocking {
@@ -159,11 +158,11 @@ class DepsToolsBehaviorTest {
 
             val created = write(rig, """{"ops":[${createOp(a.id, b.id)}]}""")
             assertFalse(created.isError, created.text)
-            assertNull(rig.rows().single { it.type == "dependency.added" }.principalId, "no actor, no principal")
+            assertEquals("local", rig.rows().single { it.type == "dependency.added" }.principalId, "no actor fixture, the local principal")
         }
 
     @Test
-    fun `S23 a verified access principal replaces the body actor on the event row`(
+    fun `S23 a body actor next to a verified access principal is unknown_parameter and writes nothing`(
         @TempDir dir: Path
     ): Unit =
         runBlocking {
@@ -182,10 +181,17 @@ class DepsToolsBehaviorTest {
                     "deps_write",
                     obj("""{"actor":{"id":"intruder","kind":"subagent"},"ops":[${createOp(a.id, b.id)}]}""")
                 )
-            assertFalse(result.isError, result.text)
-            val principal = rig.rows().single { it.type == "dependency.added" }.principalId
-            assertEquals(expected, principal)
-            assertNotEquals("intruder", principal)
+            assertTrue(result.isError, result.text)
+            assertEquals(
+                "unknown_parameter",
+                result.structured
+                    .getValue("error")
+                    .jsonObject
+                    .getValue("code")
+                    .jsonPrimitive.content
+            )
+            assertTrue(rig.rows().none { it.type == "dependency.added" }, "nothing is written")
+            assertNotNull(expected)
         }
 
     // ------------------------------------------------------------------ S24 idempotency

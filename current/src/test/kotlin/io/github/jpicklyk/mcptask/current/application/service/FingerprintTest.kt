@@ -86,26 +86,16 @@ class FingerprintTest {
         assertNotEquals(fp("""{"n":"1"}"""), fp("""{"n":1}"""))
     }
 
-    // S14 - actor proof ignored
+    // S14 - since R14 no request body carries an identity: an `actor` member is content like any other
     @Test
-    fun `S14 an actor object is reduced to id kind and parent`() {
-        // canonical text: {"actor":{"id":"a1","kind":"subagent","parent":"p1"},"x":1}
-        val withProof = """{"x":1,"actor":{"proof":"sig-1","parent":"p1","kind":"subagent","id":"a1","extra":true}}"""
-        assertEquals("1e7a06f4eeecd0aa294cb849dad92cedeca521aa03b4600df66f5b764c4b8010", fp(withProof))
-    }
-
-    @Test
-    fun `S14 changing only actor proof leaves the fingerprint unchanged`() {
+    fun `S14 an actor member is kept whole - changing only its proof changes the fingerprint`() {
         val one = fp("""{"actor":{"id":"a","kind":"k","proof":"AAA"},"v":1}""")
         val two = fp("""{"actor":{"id":"a","kind":"k","proof":"BBB"},"v":1}""")
-        assertEquals(one, two)
-    }
-
-    @Test
-    fun `S14 an actor nested inside an element is also reduced`() {
-        val one = fp("""{"element":{"actor":{"id":"a","kind":"k","proof":"AAA"},"t":"start"}}""")
-        val two = fp("""{"element":{"actor":{"id":"a","kind":"k"},"t":"start"}}""")
-        assertEquals(one, two)
+        assertNotEquals(one, two)
+        assertNotEquals(
+            fp("""{"element":{"actor":{"id":"a","kind":"k","proof":"AAA"},"t":"start"}}"""),
+            fp("""{"element":{"actor":{"id":"a","kind":"k"},"t":"start"}}""")
+        )
     }
 
     @Test

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.parity.ParityHarness
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.parityAccess
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -180,7 +181,7 @@ internal class CfgKit(
         actor: JsonObject? = null
     ): JsonObject =
         buildToolDispatcher(rig.ctx)
-            .dispatch(spec, ToolProfile.ORCHESTRATION, args(ops, atomic, actor), "k7f3q9ab", "mcp")
+            .dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args(ops, atomic, actor), "k7f3q9ab", "mcp")
             .envelope.body
 
     /** A real MCP client/server call under the token's principal, scope and capabilities; the envelope body. */

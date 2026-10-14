@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toCallPrincipal
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
@@ -48,7 +48,7 @@ class AnswerProvenanceTest {
     )
 
     private fun context(
-        principal: CallPrincipal?,
+        principal: CallPrincipal,
         profile: String? = null,
         sessionId: String? = null,
     ) = CallContext(
@@ -75,14 +75,6 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 a context with no principal has no provenance`() =
-        runBlocking {
-            assertNull(context(principal = null).provenance())
-            // control: the same context shape with a principal does answer
-            assertNotNull(context(principal().toCallPrincipal()).provenance())
-        }
-
-    @Test
     fun `S13 the MCP lifted path carries a claim but no Principal and has no provenance`() =
         runBlocking {
             val lifted =
@@ -102,7 +94,8 @@ class AnswerProvenanceTest {
                     val prov = assertNotNull(context(principal("p-${kind.wire}-${proof.wire}", kind, proof).toCallPrincipal()).provenance())
                     assertEquals(kind, prov.kind, "kind of $kind/$proof")
                     assertEquals(proof, prov.proofStatus, "proof of $kind/$proof")
-                    assertEquals("api:p-${kind.wire}-${proof.wire}", prov.principalId)
+                    val id = "p-${kind.wire}-${proof.wire}"
+                    assertEquals(if (proof == ProofStatus.NONE) id else "api:$id", prov.principalId, "NONE audits as the bare id")
                 }
             }
         }
@@ -139,7 +132,7 @@ class AnswerProvenanceTest {
                 )
             val b = assertNotNull(context(principal("two", PrincipalKind.SERVICE, ProofStatus.NONE).toCallPrincipal(), "rest").provenance())
             assertEquals("api:one", a.principalId)
-            assertEquals("api:two", b.principalId)
+            assertEquals("two", b.principalId, "a NONE principal audits as the bare id")
             assertEquals(PrincipalKind.HUMAN, a.kind)
             assertEquals(PrincipalKind.SERVICE, b.kind)
             assertEquals("knowledge", a.profile)

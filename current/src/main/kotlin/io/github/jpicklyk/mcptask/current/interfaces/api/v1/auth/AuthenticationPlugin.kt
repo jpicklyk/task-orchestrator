@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.Resolved
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -81,6 +81,14 @@ class ApiAuthPluginConfig {
      * starts with any of these prefixes are passed through without credential validation.
      */
     var publicPrefixes: Set<String> = setOf("/.well-known/")
+
+    /**
+     * Path prefixes another plugin authenticates (e.g. `/mcp`, owned by the route-scoped `McpBearerAuth`): this plugin
+     * neither authenticates them nor attaches a principal, so such a path is never public and never authenticated twice.
+     * A prefix matches the path itself and every path below it (`/mcp`, `/mcp/knowledge`), never a sibling (`/mcpx`).
+     * Matched against [io.ktor.server.request.path] (no query string).
+     */
+    var delegatedPrefixes: Set<String> = emptySet()
 }
 
 /**
@@ -102,8 +110,11 @@ class ApiAuthPluginConfig {
  * without a principal — routes must not call [apiPrincipal] in this case).
  *
  * When [ApiAuthConfig.Unauthenticated] is configured (opt-in: `API_AUTH_MODE=none` +
- * `API_ALLOW_UNAUTHENTICATED=true`), every call is attached [LOCAL_UNAUTH_PRINCIPAL] with no
- * credential check at all — see [LOCAL_UNAUTH_PRINCIPAL] for the ADMIN/unrestricted rationale.
+ * `API_ALLOW_UNAUTHENTICATED=true`), every call is attached [LOCAL_PRINCIPAL] with no
+ * credential check at all  -  see [LOCAL_PRINCIPAL] for the ADMIN/unrestricted rationale.
+ *
+ * Paths under [ApiAuthPluginConfig.delegatedPrefixes] (`/mcp`) are skipped in every mode: their own plugin
+ * authenticates them.
  */
 val ApiBearerAuth =
     createApplicationPlugin(
@@ -121,11 +132,15 @@ val ApiBearerAuth =
             // When API is disabled, skip authentication entirely.
             if (authConfig is ApiAuthConfig.Disabled) return@onCall
 
+            // Paths another plugin is the authority for (/mcp: McpBearerAuth) are left to it, in every mode.
+            val path = call.request.path()
+            if (config.delegatedPrefixes.any { path == it || path.startsWith("$it/") }) return@onCall
+
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
             // attach the synthetic ADMIN/unrestricted principal and skip the Authorization-header
             // check entirely -- this MUST run before that check so a token-less request isn't 401'd.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
-                call.attributes.put(ApiPrincipalKey, LOCAL_UNAUTH_PRINCIPAL.withHostOf(call))
+                call.attributes.put(ApiPrincipalKey, LOCAL_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 
@@ -133,7 +148,6 @@ val ApiBearerAuth =
             // Matched on the decoded path ONLY (no query string) via call.request.path() --
             // call.request.local.uri includes the query string, so an exact publicPaths entry
             // like "/api/v1/events" would never match "/api/v1/events?token=x".
-            val path = call.request.path()
             if (config.publicPaths.contains(path) || config.publicPrefixes.any { path.startsWith(it) }) {
                 return@onCall
             }

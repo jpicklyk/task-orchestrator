@@ -490,34 +490,41 @@ class OpsRoutesTest {
             assertEquals(1, db.idempotencyRecordCount(), "only the executed keyed element is recorded")
         }
 
-    // ------------------------------------------------------------------ S10 body actor ignored
+    // ------------------------------------------------------------------ S10 body actor refused (R14)
 
     @Test
-    fun `S10 a body actor on an ops call is ignored and the principal is the bearer, external`() =
+    fun `S10 a body actor on an ops call is unknown_parameter and the handler never runs, on REST and on MCP`() =
         withApp { rig ->
             val body = """{"actor":{"id":"orchestrator","kind":"orchestrator"},"ops":[${create("A")}]}"""
             val response = client.ops("fx_write", body)
-            assertEquals(200, response.status.value, response.bodyAsText())
+            val text = response.bodyAsText()
+            assertEquals(400, response.status.value, text)
+            assertTrue(text.contains("unknown_parameter") && text.contains("/actor"), text)
+            assertTrue(fx.seen.isEmpty(), "the refused call never reached the handler")
+
+            // the same body through the dispatcher's MCP path is refused the same way
+            val dispatcher = buildToolDispatcher(rig.composition.toolContext)
+            val mcp = dispatcher.dispatch(fx.writeTool, ToolProfile.ORCHESTRATION, obj(body), "k7f3q9ab", "mcp").envelope.body
+            assertTrue(mcp.toString().contains("unknown_parameter"), mcp.toString())
+            assertTrue(fx.seen.isEmpty())
+
+            // control: without the actor the bearer is the principal, external
+            val ok = client.ops("fx_write", """{"ops":[${create("A")}]}""")
+            assertEquals(200, ok.status.value, ok.bodyAsText())
             val principal = assertNotNull(fx.seen.single().principal)
             assertEquals("api:$WRITE_TOKEN_ID", principal.claim.id)
             assertEquals(ActorKind.EXTERNAL, principal.claim.kind)
-
-            // control: the same body through the dispatcher's default (MCP) path lifts the body actor
-            val dispatcher = buildToolDispatcher(rig.composition.toolContext)
-            dispatcher.dispatch(fx.writeTool, ToolProfile.ORCHESTRATION, obj(body), "k7f3q9ab", "mcp")
-            assertEquals("orchestrator", assertNotNull(fx.seen.last().principal).claim.id)
         }
 
     @Test
-    fun `S10 a body actor on a select, a spoofed user kind and a non-object actor are all ignored`() =
+    fun `S10 a body actor on a select, a spoofed user kind and a non-object actor are all unknown_parameter`() =
         withApp { _ ->
             val spoof = client.ops("fx_read", """{"actor":{"id":"spoof","kind":"user"},"select":"get","id":"${FixtureTools.GET_OK}"}""")
-            assertEquals(200, spoof.status.value, spoof.bodyAsText())
+            assertEquals(400, spoof.status.value, spoof.bodyAsText())
             val nonObject = client.ops("fx_read", """{"actor":5,"select":"get","id":"${FixtureTools.GET_OK}"}""")
-            assertEquals(200, nonObject.status.value, nonObject.bodyAsText())
-            assertEquals(listOf("api:$WRITE_TOKEN_ID", "api:$WRITE_TOKEN_ID"), fx.seen.map { it.principal?.claim?.id })
+            assertEquals(400, nonObject.status.value, nonObject.bodyAsText())
+            assertTrue(fx.seen.isEmpty(), "neither call reached the handler")
         }
-
     // ------------------------------------------------------------------ S11 per-token idempotency
 
     @Test

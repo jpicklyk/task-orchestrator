@@ -365,9 +365,9 @@ class CredentialResolverTest {
     }
 
     @Test
-    fun `S14 the unauthenticated principal is local-unauth, AGENT, NONE, unrestricted, ADMIN`() {
-        val p = LOCAL_UNAUTH_PRINCIPAL
-        assertEquals("local-unauth", p.id)
+    fun `S14 the local principal is local, AGENT, NONE, unrestricted, ADMIN`() {
+        val p = LOCAL_PRINCIPAL
+        assertEquals("local", p.id)
         assertEquals(PrincipalKind.AGENT, p.kind)
         assertEquals(ProofStatus.NONE, p.proofStatus)
         assertTrue(p.scope.isUnrestricted)

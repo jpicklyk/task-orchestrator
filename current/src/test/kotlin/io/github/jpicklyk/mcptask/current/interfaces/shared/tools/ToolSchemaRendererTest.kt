@@ -269,7 +269,7 @@ class ToolSchemaRendererTest {
             ToolSchemaRenderer.ATOMIC_DOC
         )
         assertEquals(
-            "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result.",
+            "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result.",
             ToolSchemaRenderer.IDEMPOTENCY_KEY_DOC
         )
         assertEquals(

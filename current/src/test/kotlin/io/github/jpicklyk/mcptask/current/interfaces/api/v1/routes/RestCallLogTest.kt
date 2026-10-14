@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Sqlit
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.MAX_JSON_WRITE_BODY_BYTES
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -375,7 +376,7 @@ class RestCallLogTest {
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
-                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv())
+                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
                 installRestApiRoutes(
                     apiConfig = authConfig,

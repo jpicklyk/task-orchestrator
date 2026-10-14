@@ -38,6 +38,9 @@ enum class Reason {
     READINESS_MARKER,
     TRANSPORT_START,
     DATA_STEPS,
+
+    /** `MCP_TRANSPORT=http` with the REST API disabled and no `MCP_ALLOW_UNAUTHENTICATED=true` opt-in (V9). */
+    MCP_AUTH,
 }
 
 /**

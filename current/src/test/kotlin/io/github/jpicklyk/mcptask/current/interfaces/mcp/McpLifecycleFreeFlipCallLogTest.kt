@@ -349,12 +349,6 @@ class McpLifecycleFreeFlipCallLogTest {
             assertEquals(0, BigDecimal("0.5").compareTo(assertNotNull(signal.value)))
         }
 
-    private val actor: JsonObject =
-        buildJsonObject {
-            put("id", "agent-r12")
-            put("kind", "subagent")
-        }
-
     private suspend fun advanceStart(id: Any): CallToolResult =
         call(
             "advance",
@@ -367,7 +361,6 @@ class McpLifecycleFreeFlipCallLogTest {
                             put("trigger", "start")
                         }
                     )
-                ),
-            "actor" to actor
+                )
         )
 }

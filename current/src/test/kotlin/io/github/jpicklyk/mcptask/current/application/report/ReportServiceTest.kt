@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -98,7 +100,7 @@ internal class ReportFixture(
         CallContext(
             reqId = "report-t",
             surface = CallLogRecord.SURFACE_MCP,
-            principal = null,
+            principal = LOCAL_PRINCIPAL.toCallPrincipal(),
             scope = scope,
             principalsVisible = principalsVisible
         )

@@ -12,7 +12,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.errorAt
@@ -63,6 +65,7 @@ class ServerHeadFaultRoutesTest {
 
     private fun Application.infoApp(configService: ConfigService) {
         install(ContentNegotiation) { json(McpJson) }
+        install(ApiBearerAuth) { authConfig = ApiAuthConfig.Unauthenticated }
         routing { route("/api/v1") { serviceRoutes(configService = configService) } }
     }
 

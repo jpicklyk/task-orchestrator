@@ -93,7 +93,13 @@ class EventActorRootIdTest {
 
     private fun dtoB() = ActorClaimDto(id = "agent-b", kind = "orchestrator", parent = null)
 
-    private fun dtoPlainA() = ActorClaimDto(id = "agent-a", kind = "subagent", parent = null)
+    /** A tool call's actor is its transport principal since R14: the fixture id, kind external, no parent. */
+    private fun dtoPlainA() = ActorClaimDto(id = "agent-a", kind = "external", parent = null)
+
+    private fun dtoCallB() = ActorClaimDto(id = "agent-b", kind = "external", parent = null)
+
+    /** A tool call made without an actor fixture runs as the local principal. */
+    private fun dtoLocal() = ActorClaimDto(id = "local", kind = "external", parent = null)
 
     private fun decorated(bus: ApiEventBus) = Writes(toolContext(bus))
 
@@ -592,7 +598,7 @@ class EventActorRootIdTest {
 
             val events = bus.drainDelivered("s6", flow)
             assertEquals(dtoPlainA(), events.one(ApiEventType.ITEM_ADVANCED, x.id).actor)
-            assertEquals(dtoB(), events.one(ApiEventType.ITEM_ADVANCED, y.id).actor)
+            assertEquals(dtoCallB(), events.one(ApiEventType.ITEM_ADVANCED, y.id).actor)
         }
 
     @Test
@@ -615,7 +621,11 @@ class EventActorRootIdTest {
                 events.one(ApiEventType.ITEM_ADVANCED, x.id).actor,
                 "fixture: the first transition must be attributed",
             )
-            assertNull(events.one(ApiEventType.ITEM_ADVANCED, y.id).actor, "an actor-less transition must have no actor")
+            assertEquals(
+                dtoLocal(),
+                events.one(ApiEventType.ITEM_ADVANCED, y.id).actor,
+                "a fixture-less transition runs as local, not as the previous caller"
+            )
         }
 
     // -------------------------------------------------------------------------
@@ -677,7 +687,11 @@ class EventActorRootIdTest {
             val a = events.one(ApiEventType.ITEM_CREATED, withActor.okId(0))
             assertEquals(dtoPlainA(), a.actor)
             assertEquals(root.id.toString(), a.rootId)
-            assertNull(events.one(ApiEventType.ITEM_CREATED, without.okId(0)).actor, "no actor supplied -> field absent")
+            assertEquals(
+                dtoLocal(),
+                events.one(ApiEventType.ITEM_CREATED, without.okId(0)).actor,
+                "no actor fixture -> the local principal"
+            )
         }
 
     @Test

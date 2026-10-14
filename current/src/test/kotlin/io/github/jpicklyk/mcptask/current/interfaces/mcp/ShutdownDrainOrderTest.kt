@@ -48,6 +48,7 @@ class ShutdownDrainOrderTest {
             mapOf(
                 "DATABASE_PATH" to tempDir.resolve("drain-${System.nanoTime()}.db").toString(),
                 "MCP_TRANSPORT" to transport,
+                "MCP_ALLOW_UNAUTHENTICATED" to "true",
                 "MCP_HTTP_HOST" to "127.0.0.1",
                 "MCP_HTTP_PORT" to "0",
                 "READINESS_FILE" to tempDir.resolve("ready").toString()
