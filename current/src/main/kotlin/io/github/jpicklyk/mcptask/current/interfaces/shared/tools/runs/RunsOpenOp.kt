@@ -16,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import java.util.UUID
 
@@ -25,7 +27,8 @@ internal val runsOpenOp =
         name = "open",
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
-                "an open run is duplicate. Returns the run.",
+                "an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown " +
+                "once): pass it as the top-level seatToken to update, assign and close.",
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsOpenRequest>(),
@@ -93,7 +96,19 @@ private suspend fun WriteScope.openRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    return Outcome.Ok(RunsSupport.view(env, stores, opened))
+    // The coordinator pseudo-seat joins the op's unit: a run is never stored without its coordinator.
+    val coordinator =
+        when (val r = env.seatService.openCoordinator(opened, RunPermissions.callerId(ctx))) {
+            is Outcome.Ok -> r.value
+            is Outcome.Err -> return r
+        }
+    val view = RunsSupport.view(env, stores, opened)
+    return Outcome.Ok(
+        buildJsonObject {
+            for ((key, value) in view) put(key, value)
+            put("coordinatorToken", coordinator.token)
+        }
+    )
 }
 
 /** Resolves every item ref under the call scope, in order; the first failure wins. */

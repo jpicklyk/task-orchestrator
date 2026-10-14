@@ -142,8 +142,8 @@ sealed class SelectSpec<R : Any, T>(
     }
 
     companion object {
-        /** Top-level keys a select request never decodes: the dispatcher reads them itself. */
-        val SELECT_RESERVED: Set<String> = setOf("describe", "select")
+        /** Top-level keys a select request never decodes: the dispatcher reads them itself (`seatToken`: R22). */
+        val SELECT_RESERVED: Set<String> = setOf("describe", "select", "seatToken")
     }
 }
 
@@ -195,8 +195,11 @@ class OpSpec<E : Any, R>(
         /** Element keys an op request never decodes: the dispatcher reads them itself. */
         val OP_RESERVED: Set<String> = setOf("op", "idempotencyKey")
 
-        /** Field names an op request class must not declare. */
-        val OP_FORBIDDEN_FIELDS: Set<String> = setOf("op", "idempotencyKey")
+        /**
+         * Field names an op request class must not declare. `seatToken` is a top-level call field (R22), never an element
+         * field: inside an `ops[]` element it is an unknown parameter.
+         */
+        val OP_FORBIDDEN_FIELDS: Set<String> = setOf("op", "idempotencyKey", "seatToken")
     }
 }
 

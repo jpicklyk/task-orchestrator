@@ -220,7 +220,7 @@ class FenceGuardTest {
     fun `S1 resolve builds a holder for the claim id with no assignment`() {
         val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT)
 
-        val holder = ClaimHolder.resolve(claim)
+        val holder = ClaimHolder.resolve(claim, null)
 
         assertEquals("agent-a", holder.principalId)
         assertNull(holder.assignmentId, "assignmentId stays null until R22")

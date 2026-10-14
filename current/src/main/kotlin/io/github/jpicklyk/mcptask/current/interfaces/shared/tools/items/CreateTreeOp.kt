@@ -95,7 +95,7 @@ private suspend fun WriteScope.createTree(
             if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
     }
-    val caller = ClaimHolder.resolve(ctx.principal.claim)
+    val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
     val request =
         WorkTreeRequest(
             root =
@@ -113,7 +113,8 @@ private suspend fun WriteScope.createTree(
             docRootRef = req.docRef?.rootId?.raw,
             actorClaim = ctx.principal.claim,
             verification = ctx.principal.verification,
-            caller = caller
+            caller = caller,
+            callerSeat = ctx.seat?.seat
         )
     val service = workTreeService(env)
     val plan =

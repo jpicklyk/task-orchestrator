@@ -1360,12 +1360,13 @@ Errors: `ambiguous_id`, `claim_held`, `forbidden`, `idempotency_mismatch`, `inte
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`advance` op `heartbeat`** (orchestration profile only; capability `advance`): Extend the active claim the calling actor holds on an item. Never takes an item: not_claim_holder unless the caller holds it.
+**`advance` op `heartbeat`** (orchestration profile only; capability `advance`): Extend the active claim the calling actor holds on an item. Never takes an item: not_claim_holder unless the caller holds it. usage needs a seat token.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `itemId` | string | yes | Item id: a UUID or a dash-free hex prefix of 8 to 32 characters. |
 | `ttlSeconds` | integer | no | Claim lifetime in seconds, 1 to 86400; default 900. |
+| `usage` | object | no | Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool advance -->
@@ -2026,7 +2027,7 @@ omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_read -->
-Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters). A run is outside the call scope when its root is.
+Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments). A run is outside the call scope when its root is.
 
 **`runs_read` select `get`** (orchestration and director profiles; capability `read`): Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call scope is forbidden, not not_found.
 
@@ -2048,6 +2049,16 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 | `cursor` | string | no | The page.next value of the previous page. |
 
 Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `seats`** (orchestration profile only; capability `read`): List the seat assignments of one run, oldest first: active ones, or every one with ended:true, optionally only those on one item. The coordinator pseudo-seat has no itemId. Tokens are never shown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `itemId` | string | no | Only the seats on this item (a UUID or a hex prefix). |
+| `ended` | boolean | no | true: include ended seats; default only active ones. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool runs_read -->
 
 ### runs_write
@@ -2068,9 +2079,9 @@ first, so a permission refusal never reveals whether an out-of-scope run exists.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_write -->
-Open, update, close, pause, resume and mark runs. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update: coordinator only; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
+Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
 
-**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run.
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown once): pass it as the top-level seatToken to update, assign and close.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2139,6 +2150,27 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `key` | string | yes | The mark key: lowercase letters, digits, - and _, starting with a letter, at most 64 characters. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once and every call made under the seat passes it as the top-level seatToken.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `itemId` | string | yes | Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `seat` | string | yes | A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. |
+| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `run_paused`, `unauthenticated`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `end_seat`** (orchestration profile only; capability `runs`): End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary (at most 500 characters) and up to 10 links. Needs the seat's own token; the coordinator token is refused. Releases the claims the seat holds and reports them in released; its token stops working.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `outcome` | string: done \| failed \| abandoned | yes | How the calling seat ended. |
+| `summary` | string | no | Closing summary, at most 500 characters. |
+| `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
+
+Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool runs_write -->
 
 ---

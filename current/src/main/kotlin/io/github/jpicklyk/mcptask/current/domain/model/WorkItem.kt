@@ -72,6 +72,11 @@ data class WorkItem(
      */
     val originalClaimedAt: Instant? = null,
     /**
+     * The seat assignment the claim is held under (R22): with [claimedBy] it is the claim holder pair. Null for a
+     * principal-level claim (or no claim); set only together with [claimedBy]. Never exposed on any wire view.
+     */
+    val claimAssignmentId: UUID? = null,
+    /**
      * The config this item is pinned to (plan section 3.8); null for a row that was never pinned (it resolves at the
      * config heads). Written only through the application's pin writer and the `pin-backfill` data step.
      */
@@ -123,6 +128,7 @@ data class WorkItem(
         if (claimFieldNullCount != 0 && claimFieldNullCount != 4) {
             out += "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
         }
+        if (claimAssignmentId != null && claimedBy == null) out += "claimAssignmentId requires claimedBy"
         pin?.let { out += it.violations() }
         return out
     }

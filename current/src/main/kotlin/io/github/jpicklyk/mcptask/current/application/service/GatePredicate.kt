@@ -211,10 +211,16 @@ object GatePredicate {
     }
 
     /**
-     * Identity of a note: verification.proofClaims.sub when the verification is a cryptographic proof
-     * (`status == VERIFIED`) and that sub is non-null, else actorClaim.id (may be null when the note is actor-less).
+     * Identity of a note: the pair (principal identity, owner seat). The principal identity is
+     * verification.proofClaims.sub when the verification is a cryptographic proof (`status == VERIFIED`) and that sub is
+     * non-null, else actorClaim.id (may be null when the note is actor-less); the seat is the note's owner seat
+     * ([Note.seat], R22), null for a note written without a seat token. Two notes of one principal written under
+     * different seats are different identities; a token-less note and a seat note of the same principal are different
+     * pairs too (strict enforcement of that gap is R23's seat gate).
      */
-    private fun identityOf(note: Note): String? {
+    private fun identityOf(note: Note): Pair<String?, String?> = principalIdentityOf(note) to note.seat
+
+    private fun principalIdentityOf(note: Note): String? {
         val verification = note.verification
         if (verification != null && verification.status == VerificationStatus.VERIFIED) {
             verification.proofClaims?.sub?.let { return it }

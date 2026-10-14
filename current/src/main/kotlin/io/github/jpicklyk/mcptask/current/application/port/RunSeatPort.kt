@@ -9,17 +9,32 @@ data class InFlightSeat(
 )
 
 /**
- * What the run service needs to know about a run's seat assignments. Seat assignments arrive with a later item; until
- * then [NONE] answers for every run: nothing is active, nobody is an assignee and nothing is ended.
+ * The claim holder pair of one active seat assignee: the principal the assignment's token is bound to and the
+ * assignment id. A member claim is the assignee's when BOTH columns match (`claimed_by`, `claim_assignment_id`).
+ */
+data class AssigneeHolder(
+    val principalId: String,
+    val assignmentId: UUID
+)
+
+/**
+ * What the run service needs to know about a run's seat assignments. [NONE] answers for every run: nothing is active,
+ * nobody is an assignee and nothing is ended (a run service built without seats, in tests).
+ *
+ * The run-scoped `coordinator` pseudo-seat is not a member seat: [activeCount] does not count it and [endActive] never
+ * reports it, though it ends it with the others.
  */
 interface RunSeatPort {
-    /** The number of seat assignments of [runId] that are still active. */
+    /** The number of member-seat assignments of [runId] that are still active (the coordinator is not counted). */
     suspend fun activeCount(runId: UUID): Int
 
-    /** The claim-holder strings of the run's active seat assignees: the claims a close may clear. */
-    suspend fun assigneeHolders(runId: UUID): Set<String>
+    /** The holder pairs of the run's active seat assignees (coordinator included): the claims a close may clear. */
+    suspend fun assigneeHolders(runId: UUID): Set<AssigneeHolder>
 
-    /** Ends every active seat assignment of [runId] with [outcome] and returns the ones it ended. Joins the caller's unit. */
+    /**
+     * Ends every active assignment of [runId] (the coordinator included) with [outcome], a `run_seats` outcome wire
+     * value, and returns the member seats it ended. Joins the caller's unit.
+     */
     suspend fun endActive(
         runId: UUID,
         outcome: String
@@ -31,7 +46,7 @@ interface RunSeatPort {
             object : RunSeatPort {
                 override suspend fun activeCount(runId: UUID): Int = 0
 
-                override suspend fun assigneeHolders(runId: UUID): Set<String> = emptySet()
+                override suspend fun assigneeHolders(runId: UUID): Set<AssigneeHolder> = emptySet()
 
                 override suspend fun endActive(
                     runId: UUID,

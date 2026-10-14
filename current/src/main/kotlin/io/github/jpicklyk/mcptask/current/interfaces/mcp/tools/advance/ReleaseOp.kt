@@ -46,7 +46,7 @@ private suspend fun WriteScope.runRelease(
             is Outcome.Ok -> resolved.value
         }
     val result =
-        when (val outcome = env.claimService.release(id, holder.principalId)) {
+        when (val outcome = env.claimService.release(id, holder)) {
             is Outcome.Err -> return outcome
             is Outcome.Ok -> outcome.value
         }

@@ -28,10 +28,10 @@ internal object AdvanceSupport {
     /**
      * The holder of a claim, release or heartbeat, and the caller every fenced write passes: [ClaimHolder.resolve] over
      * the audited claim of the call's principal (`api:<id>` for an authenticated caller, `local` for the
-     * unauthenticated local principal). The principal always exists and there is no policy to reject it, so this cannot
-     * fail.
+     * unauthenticated local principal) and the seat assignment of its seat token (null without one). The principal
+     * always exists and there is no policy to reject it, so this cannot fail.
      */
-    fun holder(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim)
+    fun holder(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
 
     /** Resolves [ref] to an item id the call's scope admits ([ScopedIds.resolveTarget]): never an existence oracle. */
     suspend fun resolveInScope(

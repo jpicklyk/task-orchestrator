@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
@@ -22,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.RunInFlight
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.RunReleased
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -45,10 +47,12 @@ import java.util.UUID
  *
  * ## Close cascade
  *
- * `completed` is refused while a seat assignment is active and runs no cascade. Every other reason, in order: ends the
- * active seats ([RunSeatPort.endActive]); clears the member claims held by the run's seat assignees (reason
- * `run_closed`); releases the leases of every member in WORK; stores the closed run; calls [onClose]; records
- * `run.ended`. The holders are read before the seats end, so the claims of the seats this close ends are covered.
+ * `completed` is refused while a member seat assignment is active and runs no cascade beyond ending the coordinator
+ * pseudo-seat. Every other reason, in order: ends the active seats, the coordinator included ([RunSeatPort.endActive],
+ * outcome `run_closed`); clears the member claims held by the run's seat assignees (reason `run_closed`; a claim is an
+ * assignee's when BOTH its holder columns match an active assignment's (principal, assignment) pair); releases the
+ * leases of every member in WORK; stores the closed run; calls [onClose]; records `run.ended`. The holders are read
+ * before the seats end, so the claims of the seats this close ends are covered.
  */
 class RunService(
     private val repositoryProvider: RepositoryProvider,
@@ -61,7 +65,7 @@ class RunService(
     private val runs: RunStore get() = repositoryProvider.runStore()
     private val items get() = repositoryProvider.workItemRepository()
 
-    /** The number of seat assignments of [runId] that are still active (0 until seats exist). */
+    /** The number of member seat assignments of [runId] that are still active (the coordinator is not counted). */
     suspend fun activeSeats(runId: UUID): Int = seats.activeCount(runId)
 
     // -------------------------------------------------------------------------
@@ -227,15 +231,20 @@ class RunService(
 
             var inFlight: List<RunInFlight> = emptyList()
             var released = RunReleased.NONE
-            if (reason != RunTerminalReason.COMPLETED) {
+            if (reason == RunTerminalReason.COMPLETED) {
+                // No member seat is active (checked above): this ends only the coordinator pseudo-seat, so its token dies.
+                seats.endActive(runId, RunSeatOutcome.RUN_CLOSED.wire)
+            } else {
                 // Read the assignees before their seats end: ending them must not hide the claims they hold.
                 val holders = seats.assigneeHolders(runId)
-                val ended = seats.endActive(runId, reason.wire)
+                val ended = seats.endActive(runId, RunSeatOutcome.RUN_CLOSED.wire)
                 inFlight = ended.map { RunInFlight(it.itemId, roleOf[it.itemId] ?: ROLE_NONE, it.seat) }
 
                 var claimsCleared = 0
                 for (member in members) {
-                    if (member.claimedBy == null || member.claimedBy !in holders) continue
+                    val holder = member.claimedBy ?: continue
+                    val assignment = member.claimAssignmentId ?: continue
+                    if (AssigneeHolder(holder, assignment) !in holders) continue
                     when (val cleared = claimService.clearClaim(member.id, ClaimReleaseReason.RUN_CLOSED)) {
                         is Outcome.Err -> return@write cleared
                         is Outcome.Ok -> if (cleared.value) claimsCleared++

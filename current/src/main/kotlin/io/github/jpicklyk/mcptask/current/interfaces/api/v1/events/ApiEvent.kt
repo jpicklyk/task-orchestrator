@@ -79,6 +79,8 @@ object SyncLostReason {
  * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).
  * - `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked` -- run lifecycle, streamed
  *   under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
+ * - `seat.ended` -- a seat ended its own assignment (`runs_write end_seat`), with [ApiEvent.runId] and the member item's
+ *   [ApiEvent.itemId] (item-scoped visibility, like `note.*`).
  * - `SYNC_LOST` — the client has an unrecoverable gap: its per-connection queue overflowed, or it
  *   resumed with a `Last-Event-ID` outside the replay window or not issued by this database. The
  *   cause is carried in [ApiEvent.reason] ([SyncLostReason]). Client should re-fetch full state.

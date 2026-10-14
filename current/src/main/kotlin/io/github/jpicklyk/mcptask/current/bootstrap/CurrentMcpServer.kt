@@ -614,15 +614,21 @@ internal fun productionServerCapabilities(): ServerCapabilities =
 
 /**
  * The `initialize` `instructions` of [profile]'s Server: one sentence naming the profile and `describe`, no tool-name
- * list (plan section 3.1). The director profile's sentence is shorter: its tools are reads only.
+ * list (plan section 3.1). The director profile's sentence is shorter: its tools are reads only. The orchestration
+ * profile adds the one place `seatToken` is documented (R22): a top-level field of every call made under a run seat,
+ * on every tool, unadvertised in the per-tool schemas.
  */
 internal fun profileInstructions(profile: ToolProfile): String =
     when (profile) {
         ToolProfile.DIRECTOR ->
             "Task Orchestrator MCP server, director tool profile: call any tool with describe: true for its reads."
-        ToolProfile.KNOWLEDGE, ToolProfile.ORCHESTRATION ->
+        ToolProfile.KNOWLEDGE ->
             "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
                 "for its selects, operations and parameters."
+        ToolProfile.ORCHESTRATION ->
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
+                "for its selects, operations and parameters. Under a run seat, pass its token as the top-level " +
+                "seatToken of every call."
     }
 
 /**

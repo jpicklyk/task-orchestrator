@@ -128,6 +128,10 @@
               "type": "string",
               "description": "Opaque caller reference (at most 64 characters), echoed in the result. [ops: claim]"
             },
+            "usage": {
+              "type": "object",
+              "description": "Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept. [ops: heartbeat]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."

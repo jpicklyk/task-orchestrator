@@ -943,21 +943,48 @@ from the subtree's events in the window; cost counts the distinct calls in the w
 one of its events, a lower bound. With neither `since` nor `until`, the window runs from the subtree's first event to its
 last event plus 1 ms, clamped to 31 days (`window.clamped: true`). It has the visibility of `usage`.
 
-**Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (newest
+**Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (newest
 first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unmarked`, a mark key that keeps only closed
-runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`). `POST /ops/runs_write`
-serves `open`, `update`, `close`, `pause`, `resume` and `mark`, each needing `runs`. A run is as visible as its root:
+runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`) and `seats` (the
+seat assignments of one run, oldest first: active ones, or every one with `ended: true`, optionally only those on
+`itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
+endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
+or the bound principal). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
+`end_seat`, each needing `runs`. A run is as visible as its root:
 `get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
 permission rule and before `not_found` could differ, and `list` leaves such runs out. Under a restricted scope an
 unknown run id or prefix is `forbidden` as well (never `not_found`), and an ambiguous prefix lists only the runs the
 scope admits (none is `forbidden`, one resolves); an unrestricted token keeps `not_found` and the full candidate list.
 Who may do what: `open` any `runs`
 caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for a request-body
-actor); `close` (any reason but the server-only `budget_exhausted`) the coordinator, the director profile or a human
-token; `pause` and `resume` the director profile or a human token (a service or agent token on `/ops/runs_write`
-is refused, the same token on `/ops/director/runs_write` is not); `update` the coordinator only; `mark` any `runs`
-caller. A refusal is `forbidden` with `detail: {scope: "principal_kind", required}` naming the allowed kinds. Until the
-coordinator token exists the coordinator is the caller that opened the run. `mark` is REST only (it is on no MCP
+actor) and the result carries `coordinatorToken`, the run's coordinator credential, shown once; `close` (any reason but
+the server-only `budget_exhausted`) the coordinator, the director profile or a human token; `pause` and `resume` the
+director profile or a human token (a service or agent token on `/ops/runs_write` is refused, the same token on
+`/ops/director/runs_write` is not; a call under any seat token is neither director nor human); `update` and `assign`
+the coordinator only; `end_seat` the seat's own token; `mark` any `runs` caller. A refusal is `forbidden` with
+`detail: {scope: "principal_kind", required}` naming the allowed kinds. The coordinator is the caller presenting the
+run's `coordinatorToken` as the top-level `seatToken`; the opening principal without it is not the coordinator.
+`assign{runId, itemId, seat, hints?}` assigns a seat of a member item (a seat of the item's schema, or `implementer` or
+`planner` for an item with none; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
+are `invalid_request` on `/seat` and `/itemId`, a closed or paused run `run_closed` or `run_paused`) and returns
+`{assignmentId, seatToken, attempt}`; re-assigning an active seat ends it as `superseded`, releases its claims and counts
+a new attempt. `end_seat{outcome, summary?, links?}` (outcome `done`, `failed` or `abandoned`; summary at most 500
+characters; at most 10 `{kind, ref}` links, kind `item`, `note`, `doc`, `commit` or `url`, ref 1 to 200 characters) ends
+the calling seat's assignment, releases its claims (leases are untouched) and returns `{assignmentId, itemId, seat,
+attempt, outcome, endedAt, released}`.
+
+**Seat token.** Every `POST /ops/{tool}` (and `/ops/director/{tool}`) body may carry a top-level `seatToken`, exactly as
+an MCP call does. It is accepted only while its assignment is active and only from the principal it was issued to;
+anything else (empty, not a string, unknown, ended, superseded, another principal's) is `401 unauthenticated` with the
+fixed message `The seat token is not accepted.` and no detail, checked before anything else in the body is read. A
+call under a token drops ADMIN (no principal visibility, no `takeover`, root writes only with an unrestricted scope),
+records its run and seat on its events and call-log row, refreshes the seat's `lastSeenAt` on a write tool (at most
+every 5 seconds; the coordinator token also refreshes the run's `coordinatorSeenAt`), and keys idempotency records by
+`<principal>#<assignmentId>`. A claim taken under a token is held by the pair (principal, assignment): only a call
+under the same token is its holder for heartbeat, release, transition and every fenced write, and a claim no longer
+auto-releases the other claims of a sibling seat of the same principal. A note created under a token is owned by
+(principal, seat). `advance` `heartbeat` takes `usage{tokens, costUsd}` (absolute values; the highest per field is
+kept), which needs a token. `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
 nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
 `costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `version`, ...); `close` adds `snapshot`, `mark` adds
@@ -1101,6 +1128,7 @@ events on the same item. See §24 for the `item.deleted` fail-closed gap this sc
 | `dependency.removed` | set | set | null | Dependency edge removed |
 | `scope.entered` | set | set | null | Item reparented into this root's subtree |
 | `scope.left` | set | set | null | Item reparented out of this root's subtree |
+| `seat.ended` | set | set | null | A seat ended its own assignment (`runs_write` `end_seat`); `itemId` is the member item and `runId` the run. Item-scoped visibility, like `note.*` |
 | `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is further behind the newest event than the replay window), or `unknown_event_id` (resumed `Last-Event-ID` is above the newest event, below the 10^12 seq floor -- a pre-4.0 cursor -- or was not parseable as a number) |
 | `auth.expired` | null | null | null | Connection's token has expired; reconnect with fresh credential |
 
@@ -1123,7 +1151,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and `document.adopted` for a `docRef`, all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`, and one `document.deleted` per document anchored to the item (archived and adopted ones included), before those.
 
-**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`) and seat assignments (`seat.assigned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 **Who records what (4.0).** Each write service records its own rows, in its own transaction: the
 item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one

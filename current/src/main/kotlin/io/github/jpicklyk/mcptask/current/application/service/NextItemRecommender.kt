@@ -46,6 +46,11 @@ class NextItemRecommender(
          */
         val requestingAgentId: String? = null,
         /**
+         * With [requestingAgentId], the seat assignment of the requesting holder (R22): an ancestor claim shields
+         * nothing only when it is held by exactly this (agent, assignment) pair.
+         */
+        val requestingAssignmentId: UUID? = null,
+        /**
          * Optional subtree scope. When null (default), unscoped. When non-null, candidates are restricted to the
          * subtree(s) rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.find]'s
          * `AccessScope.rootIds`.
@@ -69,6 +74,7 @@ class NextItemRecommender(
                 roleChangedBefore = roleChangedBefore,
                 orderBy = orderBy,
                 requestingAgentId = requestingAgentId,
+                requestingAssignmentId = requestingAssignmentId,
                 rootIds = ancestorIds,
                 includeClaimed = includeClaimed,
             )

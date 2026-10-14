@@ -71,11 +71,30 @@ internal object ClaimPredicates {
     /** No active claim at [at]: [unclaimed] or [expired]. */
     fun notActive(at: Instant): Op<Boolean> = unclaimed() or expired(at)
 
-    /** [agentId] may take or refresh the item at [at]: no active claim, or already its own. */
+    /**
+     * The claim columns name the holder pair ([agentId], [assignmentId]) exactly: `claimed_by = agentId` AND
+     * `claim_assignment_id IS assignmentId` (null-safe, so a principal-level holder never matches a seat's claim and a
+     * seat never matches a principal-level claim). Always TRUE or FALSE, never NULL, on a row with `claimed_by` set.
+     */
+    fun holderIs(
+        agentId: String,
+        assignmentId: UUID?
+    ): Op<Boolean> {
+        val assignment =
+            if (assignmentId == null) {
+                WorkItemsTable.claimAssignmentId.isNull()
+            } else {
+                WorkItemsTable.claimAssignmentId.isNotNull() and (WorkItemsTable.claimAssignmentId eq assignmentId)
+            }
+        return WorkItemsTable.claimedBy.isNotNull() and (WorkItemsTable.claimedBy eq agentId) and assignment
+    }
+
+    /** The holder pair ([agentId], [assignmentId]) may take or refresh the item at [at]: no active claim, or already its own. */
     fun acquirable(
         agentId: String,
+        assignmentId: UUID?,
         at: Instant
-    ): Op<Boolean> = notActive(at) or (WorkItemsTable.claimedBy eq agentId)
+    ): Op<Boolean> = notActive(at) or holderIs(agentId, assignmentId)
 
     /** The condition for a [ClaimStatus] filter at [at]. */
     fun forStatus(
@@ -107,7 +126,8 @@ class SqliteClaimStore(
     override suspend fun claim(
         itemId: UUID,
         agentId: String,
-        ttlSeconds: Int
+        ttlSeconds: Int,
+        assignmentId: UUID?
     ): ClaimResult {
         // The holder identity must satisfy the item invariants BEFORE anything is written.
         if (agentId.isBlank()) throw ValidationException("claimedBy must not be blank when set")
@@ -119,12 +139,15 @@ class SqliteClaimStore(
             // only fires when acquisition succeeds; otherwise a failed claim would cost the agent its existing one.
             val prior =
                 WorkItemsTable
-                    .select(WorkItemsTable.claimedBy, WorkItemsTable.originalClaimedAt)
+                    .select(WorkItemsTable.claimedBy, WorkItemsTable.claimAssignmentId, WorkItemsTable.originalClaimedAt)
                     .where { WorkItemsTable.id eq itemId }
                     .singleOrNull()
-            // Same-agent refresh keeps the original claim time; a take-over (or first claim) starts it now.
+            // Same-holder refresh keeps the original claim time; a take-over (or first claim) starts it now.
             val original =
-                if (prior != null && prior[WorkItemsTable.claimedBy] == agentId) {
+                if (prior != null &&
+                    prior[WorkItemsTable.claimedBy] == agentId &&
+                    prior[WorkItemsTable.claimAssignmentId] == assignmentId
+                ) {
                     try {
                         prior[WorkItemsTable.originalClaimedAt] ?: now
                     } catch (e: IllegalArgumentException) {
@@ -136,15 +159,16 @@ class SqliteClaimStore(
             WorkItemsTable.update({
                 (WorkItemsTable.id eq itemId) and
                     (WorkItemsTable.role neq Role.TERMINAL.name.lowercase()) and
-                    ClaimPredicates.acquirable(agentId, now)
+                    ClaimPredicates.acquirable(agentId, assignmentId, now)
             }) {
                 it[claimedBy] = agentId
+                it[claimAssignmentId] = assignmentId
                 it[claimedAt] = now
                 it[claimExpiresAt] = now.plusSeconds(ttlSeconds.toLong())
                 it[originalClaimedAt] = original
             }
 
-            // Read back the current state: if claimedBy == agentId, acquisition succeeded.
+            // Read back the current state: if the claim columns name the holder pair, acquisition succeeded.
             val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
             val result =
                 if (row == null) {
@@ -157,7 +181,7 @@ class SqliteClaimStore(
                         // not true for NULL) and is never claimable: report it before the AlreadyClaimed branch, whose
                         // active-claim read would fail on an unclaimed row.
                         item.role == null -> ClaimResult.LifecycleFree(itemId)
-                        item.claimedBy == agentId -> ClaimResult.Success(item)
+                        item.claimedBy == agentId && item.claimAssignmentId == assignmentId -> ClaimResult.Success(item)
                         else -> {
                             // Held by someone else with an active claim: the hint is the time left, at least 1 ms.
                             val held = checkNotNull(ClaimState.of(item)) { "A refused claim on $itemId has no active claim on the row" }
@@ -167,16 +191,17 @@ class SqliteClaimStore(
                     }
                 }
 
-            // Step 2 (auto-release prior claims): only when acquisition SUCCEEDED. The about-to-be-evicted ids are
-            // read first, in this same transaction, so the event decorator can emit item.updated for each.
+            // Step 2 (auto-release prior claims): only when acquisition SUCCEEDED, and only the claims of the SAME holder
+            // pair (a seat never evicts a sibling seat of its principal, nor a principal-level claim). The about-to-be-
+            // evicted ids are read first, in this same transaction, so the event decorator can emit item.updated for each.
             if (result is ClaimResult.Success) {
                 val releasedIds =
                     WorkItemsTable
                         .select(WorkItemsTable.id)
-                        .where { (WorkItemsTable.claimedBy eq agentId) and (WorkItemsTable.id neq itemId) }
+                        .where { ClaimPredicates.holderIs(agentId, assignmentId) and (WorkItemsTable.id neq itemId) }
                         .map { it[WorkItemsTable.id].value }
                 if (releasedIds.isNotEmpty()) {
-                    WorkItemsTable.update({ (WorkItemsTable.claimedBy eq agentId) and (WorkItemsTable.id neq itemId) }) {
+                    WorkItemsTable.update({ ClaimPredicates.holderIs(agentId, assignmentId) and (WorkItemsTable.id neq itemId) }) {
                         clearClaimColumns(it)
                     }
                 }
@@ -190,13 +215,14 @@ class SqliteClaimStore(
     @ClaimWrite
     override suspend fun release(
         itemId: UUID,
-        agentId: String
+        agentId: String,
+        assignmentId: UUID?
     ): ReleaseResult =
         databaseManager.writeTx("WorkItemRepository.release") {
             // Single statement: the WHERE clause atomically asserts both item identity and claimant ownership,
             // and the affected-row count decides the outcome (no SELECT-then-UPDATE window).
             val rowsUpdated =
-                WorkItemsTable.update({ (WorkItemsTable.id eq itemId) and (WorkItemsTable.claimedBy eq agentId) }) {
+                WorkItemsTable.update({ (WorkItemsTable.id eq itemId) and ClaimPredicates.holderIs(agentId, assignmentId) }) {
                     clearClaimColumns(it)
                 }
             if (rowsUpdated > 0) {
@@ -216,11 +242,14 @@ class SqliteClaimStore(
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) { clearClaimColumns(it) } > 0
         }
 
-    override suspend fun findHeldBy(agentId: String): List<WorkItem> =
+    override suspend fun findHeldBy(
+        agentId: String,
+        assignmentId: UUID?
+    ): List<WorkItem> =
         databaseManager.readTx {
             WorkItemsTable
                 .selectAll()
-                .where { WorkItemsTable.claimedBy eq agentId }
+                .where { ClaimPredicates.holderIs(agentId, assignmentId) }
                 .map { WorkItemRows.toWorkItem(it) }
                 .let { WorkItemRows.withTraits(it) }
         }
@@ -241,6 +270,7 @@ class SqliteClaimStore(
         stmt[WorkItemsTable.claimedAt] = null
         stmt[WorkItemsTable.claimExpiresAt] = null
         stmt[WorkItemsTable.originalClaimedAt] = null
+        stmt[WorkItemsTable.claimAssignmentId] = null
     }
 
     override suspend fun findEligible(
@@ -254,7 +284,7 @@ class SqliteClaimStore(
             val selector = selectorConditions(query, now, scope) ?: return@readTx ItemSlice(emptyList(), 0)
             if (!query.includeClaimed) {
                 selector.add(ClaimPredicates.notActive(now))
-                selector.add(NotOp(shieldedByAncestorClaim(query.requestingAgentId, now)))
+                selector.add(NotOp(shieldedByAncestorClaim(query.requestingAgentId, query.requestingAssignmentId, now)))
             }
             selector.add(NotOp(WorkViewSql.dependencyBlocked()))
             val condition = selector.reduce { acc, op -> acc and op }
@@ -288,7 +318,7 @@ class SqliteClaimStore(
             val dependencyBlocked =
                 WorkViewSql.countWhen(
                     ClaimPredicates.notActive(now) and
-                        NotOp(shieldedByAncestorClaim(query.requestingAgentId, now)) and
+                        NotOp(shieldedByAncestorClaim(query.requestingAgentId, query.requestingAssignmentId, now)) and
                         WorkViewSql.dependencyBlocked()
                 )
             val condition = selector.reduce { acc, op -> acc and op }
@@ -395,18 +425,19 @@ class SqliteClaimStore(
 
     /**
      * True when an ancestor (any depth) of the outer item holds an active claim at [now] by a disqualifying agent:
-     * any agent when [requestingAgentId] is null, otherwise only another agent. The claimed items are the seed of
-     * one downward walk ([WorkViewSql.shieldedByAncestorClaim]).
+     * any agent when [requestingAgentId] is null, otherwise any holder other than the pair ([requestingAgentId],
+     * [requestingAssignmentId]). The claimed items are the seed of one downward walk ([WorkViewSql.shieldedByAncestorClaim]).
      */
     private fun shieldedByAncestorClaim(
         requestingAgentId: String?,
+        requestingAssignmentId: UUID?,
         now: Instant,
     ): Op<Boolean> {
         val claimed =
             if (requestingAgentId == null) {
                 ClaimPredicates.active(now)
             } else {
-                ClaimPredicates.active(now) and (WorkItemsTable.claimedBy neq requestingAgentId)
+                ClaimPredicates.active(now) and NotOp(ClaimPredicates.holderIs(requestingAgentId, requestingAssignmentId))
             }
         val seed: Query = WorkItemsTable.select(WorkItemsTable.id).where { claimed }
         return WorkViewSql.shieldedByAncestorClaim(seed)

@@ -44,7 +44,7 @@ internal val depsDeleteOp =
             ),
         execute = { env, ctx, req ->
             shapeError(req)?.let { return@OpSpec Outcome.Err(it) }
-            val caller = ClaimHolder.resolve(ctx.principal.claim)
+            val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
             val result: Outcome<Int> =
                 when {
                     req.id != null -> deleteById(env, ctx, req.id, caller)

@@ -24,7 +24,9 @@ data class Note(
     val actorClaim: ActorClaim? = null,
     val verification: VerificationResult? = null,
     val version: Long = 1L,
-    val ownerId: String? = null
+    val ownerId: String? = null,
+    /** The seat of the owner ([ownerId]) when the owning write was made under a seat token (R22); null otherwise. */
+    val seat: String? = null
 ) {
     init {
         validate()

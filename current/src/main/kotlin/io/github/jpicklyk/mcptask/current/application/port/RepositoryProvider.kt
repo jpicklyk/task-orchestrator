@@ -64,6 +64,12 @@ interface RepositoryProvider {
     fun runStore(): RunStore = throw UnsupportedOperationException("This RepositoryProvider has no run store")
 
     /**
+     * Seat assignments (`run_seats`). Writes belong to `SeatService` and the run close. The default throws, so a provider
+     * that serves seats must override it.
+     */
+    fun runSeatStore(): RunSeatStore = throw UnsupportedOperationException("This RepositoryProvider has no run seat store")
+
+    /**
      * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
      * The default throws, so a provider that serves reports must override it.
      */

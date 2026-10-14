@@ -99,37 +99,45 @@ interface ClaimStore {
      * Both steps execute inside a single SERIALIZABLE transaction. The Kotlin layer does NOT compute
      * any timestamps — the bound clock instant is the sole time source.
      *
+     * The holder is the PAIR ([agentId], [assignmentId]) (R22): both claim columns are compared, null-safe, in every
+     * step, so a seat never evicts a sibling seat of the same principal and a principal-level claim (null assignment)
+     * is a different holder from any seat's.
+     *
      * @param itemId    UUID of the item to claim.
      * @param agentId   Opaque agent identifier to record as the claim holder.
      * @param ttlSeconds Number of seconds until the claim expires (default 900).
+     * @param assignmentId The seat assignment the claim is held under; null for a principal-level claim.
      * @return [ClaimResult.Success] with the updated item, or a failure variant.
      */
     @ClaimWrite
     suspend fun claim(
         itemId: UUID,
         agentId: String,
-        ttlSeconds: Int = 900
+        ttlSeconds: Int = 900,
+        assignmentId: UUID? = null
     ): ClaimResult
 
     /**
      * Release a claim held by [agentId] on [itemId].
      *
-     * Clears all four claim fields (`claimed_by`, `claimed_at`, `claim_expires_at`,
-     * `original_claimed_at`) atomically. Only succeeds when the current `claimed_by`
-     * matches [agentId]; returns [ReleaseResult.NotClaimedByYou] otherwise.
+     * Clears the claim columns (`claimed_by`, `claimed_at`, `claim_expires_at`, `original_claimed_at`,
+     * `claim_assignment_id`) atomically. Only succeeds when the claim columns name the holder pair ([agentId],
+     * [assignmentId]); returns [ReleaseResult.NotClaimedByYou] otherwise.
      *
      * @param itemId  UUID of the item to release.
      * @param agentId The agent releasing the claim (must be the current holder).
+     * @param assignmentId The seat assignment of the holder; null for a principal-level holder.
      * @return [ReleaseResult.Success] with the updated item, or a failure variant.
      */
     @ClaimWrite
     suspend fun release(
         itemId: UUID,
-        agentId: String
+        agentId: String,
+        assignmentId: UUID? = null
     ): ReleaseResult
 
     /**
-     * Clears all four claim columns of [itemId] unconditionally (no ownership check) and returns
+     * Clears every claim column of [itemId] (the assignment included) unconditionally (no ownership check) and returns
      * whether the item exists. Used where a claim must not outlive the item's state, e.g. when an
      * item enters or leaves a terminal role. Does not bump `version`.
      */
@@ -137,10 +145,14 @@ interface ClaimStore {
     suspend fun clear(itemId: UUID): Boolean
 
     /**
-     * Every item whose claim is held by [agentId], active or lapsed, in no particular order. Read inside the claim
-     * unit by `ClaimService` to tell which of the agent's other claims a new claim will auto-release were already lapsed.
+     * Every item whose claim is held by the holder pair ([agentId], [assignmentId]), active or lapsed, in no particular
+     * order. Read inside the claim unit by `ClaimService` to tell which of the holder's other claims a new claim will
+     * auto-release were already lapsed.
      */
-    suspend fun findHeldBy(agentId: String): List<WorkItem>
+    suspend fun findHeldBy(
+        agentId: String,
+        assignmentId: UUID? = null
+    ): List<WorkItem>
 
     /**
      * Every item whose claim has lapsed at the bound instant: `claimed_by` set and `claim_expires_at <= now`. A claim
@@ -158,8 +170,8 @@ interface ClaimStore {
      *   blocker never satisfies; RELATES_TO edges are ignored;
      * - unless [EligibilityQuery.includeClaimed]: has no active claim at the unit instant (an expiry
      *   equal to "now" is expired), and no ancestor at any depth holds an active claim by a
-     *   disqualifying agent (any agent when [EligibilityQuery.requestingAgentId] is null, otherwise
-     *   only other agents).
+     *   disqualifying holder (any holder when [EligibilityQuery.requestingAgentId] is null, otherwise
+     *   any holder other than the pair ([EligibilityQuery.requestingAgentId], [EligibilityQuery.requestingAssignmentId])).
      *
      * Ordered by [EligibilityQuery.orderBy] (priority rank then complexity ascending with nulls
      * last; or `createdAt` ascending; or `createdAt` descending), then `id` ascending, so offset
@@ -237,6 +249,8 @@ data class EligibilityQuery(
     val roleChangedBefore: Instant? = null,
     val orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
     val requestingAgentId: String? = null,
+    /** With [requestingAgentId], the seat assignment of the requesting holder; an ancestor claim of that exact pair shields nothing. */
+    val requestingAssignmentId: UUID? = null,
     val rootIds: Set<UUID>? = null,
     val includeClaimed: Boolean = false,
 )

@@ -6,26 +6,27 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.AUDIT_ID_PREFIX
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 
 /**
  * Who may do what to a run (plan section 3.2), one predicate per row. Every predicate runs AFTER the run's root passed
  * the scope check, so a refusal here never reveals whether a run outside the callers scope exists.
  *
- * - director: the call was served by the director profile (a profile, not a principal attribute).
- * - human: the credential is a human one.
- * - coordinator: until the coordinator token exists (R22), the caller that opened the run: the caller's principal id
- *   equals `run.openedBy` AND its credential kind equals `run.openedByKind`. Every call carries a transport principal
- *   (R14: a principal-less call is refused `unauthenticated` before any handler runs, and no request body names its
- *   own actor); the local principal (stdio, `/mcp` local mode) is id `local`, kind `agent`. A call principal without
- *   a credential exists only when a test builds one by hand; it is never the same caller as a credential (it cannot
- *   take over the `api:` id space), and it is the opener only of a run recorded with kind `agent`.
+ * - director: the call was served by the director profile (a profile, not a principal attribute) and carries no seat
+ *   token.
+ * - human: the credential is a human one and the call carries no seat token (a seat is always an agent).
+ * - coordinator: the call carries the run's coordinator token (R22): its seat is the `coordinator` pseudo-seat of THIS
+ *   run. The token is the only coordinator credential; the opening principal is not the coordinator by identity (a seat
+ *   sharing the opener's stdio principal must not be one).
+ * - seat: the call carries a member-seat token (`end_seat` ends the calling seat's own assignment).
  */
 internal object RunPermissions {
     const val CLOSE_REQUIRED = "coordinator,director,human"
     const val PAUSE_REQUIRED = "director,human"
     const val UPDATE_REQUIRED = "coordinator"
+    const val ASSIGN_REQUIRED = "coordinator"
+    const val END_SEAT_REQUIRED = "seat"
 
     private const val LIFTED_KIND = "agent"
 
@@ -38,23 +39,21 @@ internal object RunPermissions {
             ?.kind
             ?.wire ?: LIFTED_KIND
 
-    fun isDirector(ctx: CallContext): Boolean = ctx.profile == ToolProfile.DIRECTOR.wire
+    fun isDirector(ctx: CallContext): Boolean = ctx.seat == null && ctx.profile == ToolProfile.DIRECTOR.wire
 
-    fun isHuman(ctx: CallContext): Boolean = ctx.principal.principal?.kind == PrincipalKind.HUMAN
+    fun isHuman(ctx: CallContext): Boolean = ctx.seat == null && ctx.principal.principal?.kind == PrincipalKind.HUMAN
 
+    /** True when the call carries [run]'s coordinator token. */
     fun isCoordinator(
         ctx: CallContext,
         run: Run
     ): Boolean {
-        val id = callerId(ctx)
-        if (id != run.openedBy) return false
-        val credential = ctx.principal.principal
-        return if (credential != null) {
-            run.openedByKind == credential.kind.wire
-        } else {
-            !id.startsWith(AUDIT_ID_PREFIX) && run.openedByKind == LIFTED_KIND
-        }
+        val seat = ctx.seat ?: return false
+        return seat.seat == RunSeat.COORDINATOR && seat.runId == run.id
     }
+
+    /** True when the call carries a member-seat token (any run). */
+    fun isMemberSeat(ctx: CallContext): Boolean = ctx.seat?.let { it.seat != RunSeat.COORDINATOR && it.itemId != null } == true
 
     /** close, any reason. */
     fun mayClose(
@@ -67,6 +66,12 @@ internal object RunPermissions {
 
     /** update. */
     fun mayUpdate(
+        ctx: CallContext,
+        run: Run
+    ): Boolean = isCoordinator(ctx, run)
+
+    /** assign. */
+    fun mayAssign(
         ctx: CallContext,
         run: Run
     ): Boolean = isCoordinator(ctx, run)

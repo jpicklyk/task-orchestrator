@@ -52,13 +52,16 @@ data class BlockerState(
 )
 
 /**
- * Claim ownership. [activeHolder] is the holder of a live (unexpired) claim, already filtered by
- * the service; [callerId] is the acting identity.
+ * Claim ownership. ([activeHolder], [activeHolderAssignment]) is the holder pair of a live (unexpired) claim, already
+ * filtered by the service; ([callerId], [callerAssignment]) is the acting holder pair (the assignment is the seat
+ * assignment of the call's seat token, null without one). The caller holds the claim only when BOTH members match.
  */
 data class OwnershipFacts(
     val enforced: Boolean,
     val activeHolder: String?,
-    val callerId: String?
+    val callerId: String?,
+    val activeHolderAssignment: UUID? = null,
+    val callerAssignment: UUID? = null
 ) {
     companion object {
         val NONE: OwnershipFacts = OwnershipFacts(enforced = false, activeHolder = null, callerId = null)

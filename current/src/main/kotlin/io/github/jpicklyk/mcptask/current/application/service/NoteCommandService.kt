@@ -56,7 +56,12 @@ data class NoteUpsertCommand(
      */
     val takeover: Boolean = false,
     /** Whether the caller holds the capability `takeover` needs (ADMIN); decided by the transport, never inferred here. */
-    val takeoverAllowed: Boolean = false
+    val takeoverAllowed: Boolean = false,
+    /**
+     * The seat of the call's seat token (R22), null without one. With [caller] it is the ownership pair: a note created
+     * or adopted under a token is owned by `(principal, seat)`, and only that pair (or a shared key) may rewrite it.
+     */
+    val callerSeat: String? = null
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -232,9 +237,10 @@ class NoteCommandService(
                                 existing = existing,
                                 entry = entry,
                                 caller = cmd.caller,
-                                callerSeat = null,
+                                callerSeat = cmd.callerSeat,
                                 takeover = cmd.takeover,
-                                takeoverAllowed = cmd.takeoverAllowed
+                                takeoverAllowed = cmd.takeoverAllowed,
+                                ownerSeat = existing?.seat
                             )
                     ) {
                         is Outcome.Err -> return@writeUnit UnitResult.Rollback(decided)
@@ -243,12 +249,27 @@ class NoteCommandService(
                 cmd.expectedVersion?.let { expected ->
                     versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
                 }
-                val ownerId =
-                    when (decision) {
-                        is NoteOwnership.Decision.Adopted -> cmd.caller?.principalId
-                        is NoteOwnership.Decision.Transferred -> decision.to
-                        else -> if (existing == null) cmd.caller?.principalId else existing.ownerId
+                // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise.
+                val ownerId: String?
+                val ownerSeat: String?
+                when {
+                    decision is NoteOwnership.Decision.Adopted -> {
+                        ownerId = cmd.caller?.principalId
+                        ownerSeat = cmd.callerSeat
                     }
+                    decision is NoteOwnership.Decision.Transferred -> {
+                        ownerId = decision.to
+                        ownerSeat = cmd.callerSeat
+                    }
+                    existing == null -> {
+                        ownerId = cmd.caller?.principalId
+                        ownerSeat = if (ownerId != null) cmd.callerSeat else null
+                    }
+                    else -> {
+                        ownerId = existing.ownerId
+                        ownerSeat = existing.seat
+                    }
+                }
                 val note =
                     try {
                         Note(
@@ -259,7 +280,8 @@ class NoteCommandService(
                             body = prepared.body,
                             actorClaim = cmd.actorClaim,
                             verification = cmd.verification,
-                            ownerId = ownerId
+                            ownerId = ownerId,
+                            seat = ownerSeat
                         )
                     } catch (e: ValidationException) {
                         return@writeUnit UnitResult.Rollback(
@@ -297,7 +319,8 @@ class NoteCommandService(
         itemId: UUID,
         key: String,
         expectedVersion: Long? = null,
-        caller: ClaimHolder?
+        caller: ClaimHolder?,
+        callerSeat: String? = null
     ): Outcome<Note> {
         var configUnavailable: PerRootConfigUnavailableException? = null
         val result =
@@ -331,9 +354,10 @@ class NoteCommandService(
                         existing = existing,
                         entry = entry,
                         caller = caller,
-                        callerSeat = null,
+                        callerSeat = callerSeat,
                         takeover = false,
-                        takeoverAllowed = false
+                        takeoverAllowed = false,
+                        ownerSeat = existing.seat
                     ).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
                 expectedVersion?.let { expected ->
                     versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }

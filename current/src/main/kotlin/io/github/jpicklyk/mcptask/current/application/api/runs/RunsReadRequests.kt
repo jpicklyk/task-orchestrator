@@ -33,6 +33,14 @@ data class RunsGetRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef
 )
 
+/** `runs_read seats`: the seat assignments of one run. */
+@Serializable
+data class RunsSeatsRequest(
+    @Doc(RUN_ID_DOC) val runId: IdRef,
+    @Doc("Only the seats on this item (a UUID or a hex prefix).") val itemId: IdRef? = null,
+    @Doc("true: include ended seats; default only active ones.") val ended: Boolean? = null
+)
+
 /** `runs_read list`: runs, newest first. */
 @Serializable
 data class RunsListRequest(

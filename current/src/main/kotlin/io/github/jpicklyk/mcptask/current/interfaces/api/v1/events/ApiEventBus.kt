@@ -551,7 +551,8 @@ class ApiEventBus(
          * The SSE projection of one row, or null for a table-only type. 3.x names stream unchanged;
          * `item.transitioned` streams as `item.advanced` (newRole = toRole), `item.reparented` as `scope.left` /
          * `scope.entered` by side, `claim.acquired` / `claim.released` as `item.updated`. The `run.*` types stream
-         * unchanged with [ApiEvent.runId] set to the run and no item id.
+         * unchanged with [ApiEvent.runId] set to the run and no item id; `seat.ended` streams unchanged with its run and
+         * member item (`seat.assigned` is table-only).
          */
         fun project(record: EventRecord): ApiEvent? {
             val data = parseData(record.data)
@@ -564,6 +565,11 @@ class ApiEventBus(
                     in DomainEvent.RUN_TYPES -> {
                         runId = record.entityId.toString()
                         itemId = null
+                        record.type
+                    }
+                    DomainEvent.SEAT_ENDED -> {
+                        runId = str("runId")
+                        itemId = str("itemId")
                         record.type
                     }
                     DomainEvent.ITEM_CREATED -> ApiEventType.ITEM_CREATED

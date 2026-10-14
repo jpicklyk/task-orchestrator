@@ -1,8 +1,4 @@
 {
-  "usage": {
-    "type": "object",
-    "description": "Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept. [ops: heartbeat]"
-  },
   "reason": {
     "type": "string",
     "description": "Why the item blocks, block or hold only; default manual. resume clears it. [ops: transition]",

@@ -384,7 +384,8 @@ class AdvanceService(
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
         credentialRefs: List<String> = emptyList(),
-        enforceResourceLeases: Boolean = true
+        enforceResourceLeases: Boolean = true,
+        assignmentId: UUID? = null
     ): AdvanceOutcome {
         val userTrigger =
             Trigger.User.parse(trigger)
@@ -407,7 +408,7 @@ class AdvanceService(
                 summary = summary,
                 actorClaim = actorClaim,
                 verification = verification,
-                ownership = OwnershipInput(enforced = true, callerId = actorClaim?.id),
+                ownership = OwnershipInput(enforced = true, callerId = actorClaim?.id, callerAssignmentId = assignmentId),
                 leaseGateActive = leaseGateActive,
                 credentialRefs = credentialRefs
             )
@@ -661,7 +662,8 @@ class AdvanceService(
                     )
             }
 
-        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, request.ownership.callerId?.let(::ClaimHolder), now)
+        val caller = request.ownership.callerId?.let { ClaimHolder(it, request.ownership.callerAssignmentId) }
+        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, caller, now)
         val unblocked = findUnblocked(item.id)
 
         return AdvanceOutcome.Success(
@@ -953,7 +955,8 @@ class AdvanceService(
                     claimedBy = if (touchesTerminal) null else current.claimedBy,
                     claimedAt = if (touchesTerminal) null else current.claimedAt,
                     claimExpiresAt = if (touchesTerminal) null else current.claimExpiresAt,
-                    originalClaimedAt = if (touchesTerminal) null else current.originalClaimedAt
+                    originalClaimedAt = if (touchesTerminal) null else current.originalClaimedAt,
+                    claimAssignmentId = if (touchesTerminal) null else current.claimAssignmentId
                 )
             }
         // Leaving TERMINAL re-pins to the heads (the gate above ran under the old pin). A user trigger whose re-pin

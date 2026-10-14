@@ -93,7 +93,8 @@ private suspend fun WriteScope.runTransition(
                 actorClaim = claim,
                 verification = ctx.principal.verification,
                 credentialRefs = refs,
-                enforceResourceLeases = true
+                enforceResourceLeases = true,
+                assignmentId = ctx.seat?.assignmentId
             )
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))

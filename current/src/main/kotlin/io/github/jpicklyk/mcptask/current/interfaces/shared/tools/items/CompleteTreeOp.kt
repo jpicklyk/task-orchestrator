@@ -108,7 +108,17 @@ private suspend fun WriteScope.completeTree(
     }
 
     val completion =
-        when (val run = service.run(targets, root, req.trigger.wire, ctx.principal.claim, ctx.principal.verification)) {
+        when (
+            val run =
+                service.run(
+                    targets,
+                    root,
+                    req.trigger.wire,
+                    ctx.principal.claim,
+                    ctx.principal.verification,
+                    ctx.seat?.assignmentId
+                )
+        ) {
             is Outcome.Err -> return run
             is Outcome.Ok -> run.value
         }

@@ -41,6 +41,9 @@ object NotesTable : IdTable<UUID>("notes") {
     /** V34: the owning principal id; NULL = unowned (every pre-4.0 note). */
     val ownerId = text("owner_id").nullable()
 
+    /** V35: the owner's seat (written with [ownerId] under a seat token); NULL = a principal-level owner. */
+    val seat = text("seat").nullable()
+
     init {
         foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         uniqueIndex(itemId, key)

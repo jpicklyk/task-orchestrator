@@ -102,7 +102,9 @@ data class WorkTreeRequest(
     val docRootRef: String? = null,
     val actorClaim: ActorClaim? = null,
     val verification: VerificationResult? = null,
-    val caller: ClaimHolder?
+    val caller: ClaimHolder?,
+    /** The seat of the call's seat token, null without one: the owner seat of every note the tree writes. */
+    val callerSeat: String? = null
 )
 
 /** One item a tree wrote (or attached to): its [ref], [id] and stored [depth]. */
@@ -153,7 +155,8 @@ class WorkTreePlan internal constructor(
     internal val adoption: TreeAdoption?,
     internal val actorClaim: ActorClaim?,
     internal val verification: VerificationResult?,
-    internal val caller: ClaimHolder?
+    internal val caller: ClaimHolder?,
+    internal val callerSeat: String? = null
 )
 
 /** A note that passed the write policy, ready to upsert. [derivedFrom] is the anchor its body was cut at, if any. */
@@ -379,7 +382,8 @@ class WorkTreeService(
                 adoption = adoption,
                 actorClaim = request.actorClaim,
                 verification = request.verification,
-                caller = request.caller
+                caller = request.caller,
+                callerSeat = request.callerSeat
             )
         )
     }
@@ -414,7 +418,16 @@ class WorkTreeService(
             for (note in plan.notes) {
                 val upserted =
                     noteCommandService.upsert(
-                        NoteUpsertCommand(note.itemId, note.key, note.role, note.body, plan.actorClaim, plan.verification, plan.caller)
+                        NoteUpsertCommand(
+                            note.itemId,
+                            note.key,
+                            note.role,
+                            note.body,
+                            plan.actorClaim,
+                            plan.verification,
+                            plan.caller,
+                            callerSeat = plan.callerSeat
+                        )
                     )
                 when (upserted) {
                     is Outcome.Err -> return@write upserted

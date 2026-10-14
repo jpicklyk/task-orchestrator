@@ -2,10 +2,12 @@ package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.intKey
 import io.github.jpicklyk.mcptask.current.application.service.ok
@@ -59,6 +61,10 @@ import kotlin.test.assertTrue
 
 private val RUN_T: Instant = Instant.parse("2026-03-01T10:00:00Z")
 
+/** The two fixed seat assignments of the cascade fixture (R22 holder pairs). */
+private val SEAT_1: UUID = UUID.fromString("00000000-0000-0000-0000-0000000005e1")
+private val SEAT_2: UUID = UUID.fromString("00000000-0000-0000-0000-0000000005e2")
+
 /** The error of an [Outcome.Err]; any other outcome fails the test with its text. */
 private fun <T> Outcome<T>.err(): DomainError = (this as? Outcome.Err)?.error ?: error("expected Outcome.Err, got $this")
 
@@ -71,14 +77,14 @@ private fun EventRecord.intMap(key: String): Map<String, Int> = payload()[key]!!
 /** The stub for the seat port R22 fills: the tests choose the counts and holders it reports and record what the cascade asks of it. */
 private class StubSeats(
     var active: Int = 0,
-    var holders: Set<String> = emptySet(),
+    var holders: Set<AssigneeHolder> = emptySet(),
     var ended: List<InFlightSeat> = emptyList()
 ) : RunSeatPort {
     val endedFor = mutableListOf<UUID>()
 
     override suspend fun activeCount(runId: UUID): Int = active
 
-    override suspend fun assigneeHolders(runId: UUID): Set<String> = holders
+    override suspend fun assigneeHolders(runId: UUID): Set<AssigneeHolder> = holders
 
     override suspend fun endActive(
         runId: UUID,
@@ -179,15 +185,16 @@ private suspend fun RunRig.cascade(
     val b = child(root, "B $label", Role.WORK)
     val c = child(root, "C $label", Role.QUEUE)
     val outsider = child(root, "O $label", Role.WORK)
-    claims.claim(a.id, "p#s1", 600).ok()
+    // R22: an assignee's claim is the (principal, assignment) pair; the fixed assignments keep the principal ids.
+    claims.claim(a.id, ClaimHolder("p#s1", SEAT_1), 600).ok()
     claims.claim(b.id, "other", 600).ok()
-    claims.claim(outsider.id, "p#s2", 600).ok()
+    claims.claim(outsider.id, ClaimHolder("p#s2", SEAT_2), 600).ok()
     claims.acquireLeases(b.id, "actor-b", listOf("res-b-$label" to 600)).ok()
     claims.acquireLeases(c.id, "actor-c", listOf("res-c-$label" to 600)).ok()
     claims.acquireLeases(outsider.id, "actor-o", listOf("res-o-$label" to 600)).ok()
     val run = open(root, a, b, c)
     seats.active = activeSeats
-    seats.holders = setOf("p#s1", "p#s2")
+    seats.holders = setOf(AssigneeHolder("p#s1", SEAT_1), AssigneeHolder("p#s2", SEAT_2))
     seats.ended = if (activeSeats > 0) listOf(InFlightSeat(a.id, "implementer")) else emptyList()
     return Cascade(root, a, b, c, outsider, run)
 }

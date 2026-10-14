@@ -99,6 +99,7 @@ class SqliteItemStore(
             it[claimedAt] = item.claimedAt
             it[claimExpiresAt] = item.claimExpiresAt
             it[originalClaimedAt] = item.originalClaimedAt
+            it[claimAssignmentId] = item.claimAssignmentId
             writePin(it, item.pin)
         }
         insertTraits(item)
