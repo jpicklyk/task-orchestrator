@@ -2295,7 +2295,7 @@ Actor attribution tracks *who* made changes to work items. The actor of every ca
 established, never a request body: `api:<id>` for a bearer or JWT credential (REST, and `/mcp` over HTTP when the
 API runs a credential mode) and `local` for the local principal (stdio, `/mcp` in local mode, REST
 `API_AUTH_MODE=none`). Its kind is always `external`. A body `actor`, top-level or in an `ops[]` element, is
-`unknown_parameter` on every tool. See [fleet-deployment.md](./fleet-deployment.md) -> Actor authentication.
+`unknown_parameter` on every tool. See [fleet-deployment.md](./fleet-deployment.md#identity-configuration) -> Identity Configuration.
 
 ### Actor Shape
 
@@ -2316,9 +2316,9 @@ below is stored with it and is not part of the MCP wire shape.
 | Field | Type | Description |
 |-------|------|-------------|
 | proofStatus | string | One of the five proof-status values below |
-| verifier | string | Which verifier produced the result (e.g., `noop`, `jwks`) |
+| verifier | string | Which verifier produced the result: `api-jwks`, `api-bearer` or `local` (see Verifier names below; rows written by earlier versions may carry other names) |
 | reason | string | Failure detail or exception message; null when absent or verified |
-| metadata | object | Optional key/value bag — omitted when empty (see below) |
+| metadata | object | Optional key/value bag - omitted when empty (see below) |
 
 **Proof evidence (V17+, never on the MCP surface).** Since migration `V17__Store_Actor_Proof_Evidence.sql`,
 the database additionally stores `proofSha256` (a SHA-256 hex digest of the raw proof, set
@@ -2334,7 +2334,7 @@ transition trail (`items_read` `history`) never returns them either. They are st
 | Value | Meaning |
 |-------|---------|
 | `verified` | The credential was a JWT verified against a fresh key set |
-| `verified_stale` | The JWT was verified against a key set served from the stale cache after a failed refresh (within `max_stale_seconds`); a per-request fact of the principal, call log and provenance. A stored note records `verified` for it |
+| `verified_stale` | The JWT was verified against a key set served from the stale cache after a failed refresh (within `API_JWKS_MAX_STALE_SECONDS`); a per-request fact of the principal, call log and provenance. A stored note records `verified` for it |
 | `issued` | A server-issued token from the token file; not cryptographic proof, so it never satisfies `independence.require_verified` |
 | `none` | No credential at all (the local principal) |
 | `rejected` | History only: a proof that was presented and failed. The pipeline never produces it and a rejected credential yields no principal (`401`) |
@@ -2343,7 +2343,7 @@ Stored rows keep the older spellings and are read through one mapping: `unchecke
 any other `unchecked` and the legacy `absent`, `unverified` and `unavailable` are `none`, and the legacy `failed` is
 `rejected`; an unknown value is skipped. Nothing on a wire says `unchecked`, `absent` or `unavailable`.
 
-**Metadata fields:**
+**Metadata fields (history only).** Rows written by earlier versions may carry these keys; a 4.0 server writes none of them.
 
 | Key | Present when | Description |
 |-----|-------------|-------------|
@@ -2355,31 +2355,14 @@ any other `unchecked` and the legacy `absent`, `unverified` and `unavailable` ar
 
 A transport principal's verification record names its source: `api-jwks` (proof `verified`) for a verified JWT, fresh or
 stale; `api-bearer` (proof `issued`) for a token-file credential; `local` (proof `none`) for the local principal. The
-plugin's `actor_authentication.enabled` hook no longer has a server-side counterpart: the server ignores any body
-`actor`.
+server accepts no body `actor`.
 
 ---
 ## Actor Authentication & Verification
 
-### Verifier Configuration
+### `actor_authentication` is inert
 
-Since R14 no request body carries an actor claim or proof, so the actor verifier below is not consulted on any tool call; its configuration is still parsed and its future is decided with the field-guide work (R29). The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
-
-```yaml
-actor_authentication:
-  enabled: true          # Plugin hook only (client-side config); the server ignores this key
-  verifier:
-    type: jwks           # "noop" (default) | "jwks"
-    # Exactly one key source: jwks_uri, jwks_path, or oidc_discovery.
-    jwks_uri: "https://provider.example/.well-known/jwks.json"
-    # jwks_path: ".agentlair/jwks.json"
-    # oidc_discovery: "https://provider.example/.well-known/openid-configuration"
-    issuer: "https://provider.example"   # strongly recommended (startup WARN when missing)
-    audience: "task-orchestrator"            # strongly recommended
-    algorithms: ["EdDSA", "RS256"]          # required
-    cache_ttl_seconds: 300
-    require_sub_match: true
-```
+No request body carries an actor claim or proof, so the actor verifier configured by the `actor_authentication:` block in `.taskorchestrator/config.yaml` is not consulted on any tool call. The block is still parsed and validated by the server at startup from the global file (a malformed block, or a leftover `degraded_mode_policy` key, fails startup), but it changes no call. Caller identity is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [fleet-deployment.md](fleet-deployment.md#actor_authentication-in-40-inert) for what is still validated and [config-reference.md](config-reference.md) for the key's ownership.
 
 ### No degraded-mode policy
 
@@ -2391,54 +2374,16 @@ ownership check of `transition`) run as the transport principal and are always e
 unavailable is answered `503 unavailable` at the transport (REST, `/mcp`, SSE `?token=`), never served under a guessed
 identity; see [api-rest.md](api-rest.md) section 1.
 
-### Verification Behavior
+### JWKS network access
 
-| Verifier type | Behavior |
-|---|---|
-| `noop` (or absent) | All actor claims are accepted as `unchecked`. No cryptographic check is performed. |
-| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, wrong-claims, or missing-`exp` token → `status: rejected` with a descriptive `reason` (missing `exp` yields `reason: "missing exp claim"`) and `metadata.failureKind`. A token whose lifetime exceeds `max_token_lifetime_seconds` is rejected with `reason: "token lifetime exceeds maximum"`, `failureKind: claims`; a future-dated `iat` yields `reason: "iat in the future"`, `failureKind: claims`. A malformed claims set (e.g. non-numeric `exp`/`iat`) is rejected with `reason: "malformed JWT claims: …"`, `failureKind: claims` — under both DID trust and static-JWKS mode. When `jti_replay_protection: true`, a missing `jti` is rejected with `reason: "missing jti claim"`, `failureKind: claims`, and a replayed `(iss, jti)` pair is rejected with `reason: "jti replay detected"`, `failureKind: policy`. Missing proof → `status: absent`. Network/fetch errors → `status: unavailable`. |
-
-### JWKS Key Sources
-
-Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than one fails startup. An explicit `issuer` overrides the issuer found by OIDC discovery.
-
-| Field | Description |
-|---|---|
-| `oidc_discovery` | URL to an OpenID Connect discovery document. The server fetches `jwks_uri` and `issuer` from the document. |
-| `jwks_uri` | Direct URL to a JWKS endpoint. Overrides the URI discovered via `oidc_discovery`. |
-| `jwks_path` | Path to a local JWKS JSON file, relative to `AGENT_CONFIG_DIR`. Useful for local dev and air-gapped environments. |
-| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. Strongly recommended in `jwks_uri`/`jwks_path` mode; a startup WARN is logged when missing (and `oidc_discovery` is not set). |
-| `audience` | Expected `aud` claim in the JWT. Strongly recommended in static-JWKS mode; a startup WARN is logged when missing. |
-| `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
-| `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
-| `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |
-| `require_sub_match` | When true, the JWT `sub` claim must match `actor.id`. |
-| `allow_insecure_url` | Boolean, default `false`. Must be a boolean — any other type fails startup. When `false` (default), `oidc_discovery` and `jwks_uri` (plus a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme fails startup. When `true`, plaintext `http` is additionally accepted, but only for a literal loopback host (`localhost`, `127.x.x.x`, `::1`) — local dev/test only. Does not affect `jwks_path` or DID-trust mode. |
-| `max_token_lifetime_seconds` | Integer, default `86400` (24h). Must be a positive number (Int/Long only) — any other type or a non-positive value fails startup. Caps how long a token remains acceptable: rejected once `exp - now` exceeds this value plus the 60s clock-skew allowance, independent of `iat`; when `iat` is present, a future-dated `iat` or an `exp - iat` spread beyond the same cap is also rejected. See [fleet-deployment.md § Token Lifetime Cap](fleet-deployment.md#token-lifetime-cap). |
-| `jti_replay_protection` | Boolean, default `false`. When `true`, every token must carry a non-blank `jti`, and each `(iss, jti)` pair may be presented only once (tracked until `exp + 60s`) — see [fleet-deployment.md § Opt-in `jti` Replay Protection](fleet-deployment.md#opt-in-jti-replay-protection) for the per-call memo that keeps legitimate in-call/heartbeat re-verification of the same proof from tripping this. |
-
-### Docker — JWKS Path Mount
-
-When using `jwks_path`, the `.agentlair/` directory must be mounted into the container alongside `.taskorchestrator/`:
-
-```bash
-docker run --rm -i \
-  -v mcp-task-data:/app/data \
-  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
-  -v "$(pwd)"/.agentlair:/project/.agentlair:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  task-orchestrator:dev
-```
-
-The `.agentlair/` mount is only needed when using `jwks_path`. When using `jwks_uri` or `oidc_discovery`, the container must be able to reach the endpoint over the network.
-
-**Network access from Docker containers:**
+The JWKS endpoint of `API_AUTH_MODE=jwks` (`API_JWKS_URL`) is fetched by the server. Every fetch passes an egress guard that resolves the host and refuses it when any resolved address is non-public, so the container must reach the endpoint at a public address:
 
 | Scenario | Works? | Notes |
 |----------|--------|-------|
-| Public HTTPS endpoint | Yes | Standard outbound from container |
-| `localhost` on host | No | Container localhost is itself, not the host |
-| `host.docker.internal` | Docker Desktop only | On Linux: add `--add-host=host.docker.internal:host-gateway` |
-| Docker network service | Yes | Use the container name as hostname |
+| Public HTTPS endpoint | Yes | Standard outbound from the container |
+| `localhost` / loopback | Only with `API_JWKS_ALLOW_INSECURE_URL=true` | The guard refuses loopback otherwise; inside a container `localhost` is the container itself, not the host |
+| `host.docker.internal` | No | Refused by the egress guard (it resolves to a private or host-gateway address) |
+| Docker network service name | No | Refused by the egress guard (private address) |
+| Other private, link-local, CGNAT or unique-local address | No | Refused by the egress guard |
 
-`jwks_path` (local file) avoids all networking concerns — recommended for local dev and air-gapped environments.
+Serve the key set from a public HTTPS host, or run the issuer behind a public name; see [fleet-deployment.md](fleet-deployment.md#jwks-source-and-egress).

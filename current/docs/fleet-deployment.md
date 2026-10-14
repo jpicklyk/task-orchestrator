@@ -1,6 +1,6 @@
 # Fleet Deployment Guide
 
-This guide is written for operators deploying the MCP Task Orchestrator to production multi-agent fleets. It covers REST API authentication, MCP actor identity configuration, SQLite tuning, capacity planning, observability gaps, and the tiered claim disclosure design.
+This guide is written for operators deploying the MCP Task Orchestrator to production multi-agent fleets. It covers REST and `/mcp` authentication, identity (the transport principal), SQLite tuning, capacity planning, observability gaps, and the tiered claim disclosure design.
 
 For single-agent or local-dev setups, the defaults are appropriate and this guide can be skipped.
 
@@ -13,23 +13,40 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ---
 
-## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
+## `/mcp` Authentication - Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport. All three authenticate alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport.
 
-This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
+How `/mcp` establishes its caller is decided once at startup from the REST API configuration:
+
+| Deployment | `/mcp` mode | Caller |
+|---|---|---|
+| `API_ENABLED=true` with `API_AUTH_MODE=bearer` or `jwks` | **Credential** | Every request must carry the same `Authorization: Bearer` credential `/api/v1` accepts. The principal is the credential's holder (audited `api:<id>`). |
+| `API_ENABLED=true` with `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` | **Local** | Every request is the `local` principal. |
+| `API_ENABLED=false` (the default) with `MCP_ALLOW_UNAUTHENTICATED=true` | **Local** | Every request is the `local` principal. |
+| `API_ENABLED=false` without the opt-in | startup refused | The server fails startup (`MCP_AUTH`) naming `MCP_ALLOW_UNAUTHENTICATED`, before any worker starts or transport binds. |
+| stdio | **Local** | The one `local` principal. |
+
+**Credential mode.** A missing, malformed or empty `Authorization` header is `401 unauthenticated` with `WWW-Authenticate: Bearer error="invalid_request"`; an unknown, rejected or expired credential is `401 unauthenticated` with `error="invalid_token"`; a JWKS key set that is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`) is `503 unavailable`. Refusals are the 4.0 JSON error envelope, not a JSON-RPC error, and the MCP SDK is never reached. The `/mcp` mount is no longer a public path: the REST bearer plugin delegates `/mcp*` to the MCP authentication, so a request is authenticated exactly once.
+
+**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal. A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
+
+**Director confinement.** A credential with `profile: director` reaches only `/mcp/director` (and `POST /api/v1/ops/director/{tool}` over REST); on any other `/mcp*` path it is `403 forbidden` (scope `capability`, required `director`).
+
+**Local modes are unauthenticated.** In **Local** mode there is no credential check: any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) invokes every tool its profile serves, as the `local` principal (ADMIN, unrestricted) - full read, write and delete of the work-item graph. Every stdio or local session is that one principal, so they share claims and note ownership with no contention between them; separating callers needs credentials. The server logs a loud `SECURITY:` WARN at startup whenever a local mode serves HTTP. Check `docker logs` after first boot.
 
 **Critical consequences for fleet operators:**
 
-- **A `Host` header allowlist guards against DNS rebinding, but it is not authentication.** Every HTTP request — `/mcp`, every `/api/v1` route, and `/.well-known` — is rejected with `403` unless its `Host` header is `localhost`/`127.0.0.1`/`[::1]` (any port, the always-on default) or listed in `MCP_ALLOWED_HOSTS`. This stops a browser page from reaching the server via DNS rebinding; it does nothing to stop a caller that already has network access and sends a permitted `Host`. If you reach the server through a Docker Compose service name, `host.docker.internal`, a LAN hostname, or a reverse proxy that forwards the original `Host`, add it to `MCP_ALLOWED_HOSTS` or every request 403s. See the env var table below.
-- **Enabling the REST API does NOT protect `/mcp`.** `API_ENABLED=true` + `API_AUTH_MODE=bearer|jwks` authenticates only the `/api/v1/*` routes. `/mcp` stays wide open regardless of REST auth mode. An operator who locks down the REST API can be lulled into thinking the whole HTTP surface is protected — it is not.
-- **The server logs a loud `SECURITY:` WARN at startup** whenever `MCP_TRANSPORT=http`, repeating this and noting the bind address. Check `docker logs` after first boot.
-- **You MUST fence `/mcp` at the network layer.** Choose one:
+- **A `Host` header allowlist guards against DNS rebinding, but it is not authentication.** Every HTTP request - `/mcp`, every `/api/v1` route, and `/.well-known` - is rejected with `403` unless its `Host` header is `localhost`/`127.0.0.1`/`[::1]` (any port, the always-on default) or listed in `MCP_ALLOWED_HOSTS`. This stops a browser page from reaching the server via DNS rebinding; it does nothing to stop a caller that already has network access and sends a permitted `Host`. If you reach the server through a Docker Compose service name, `host.docker.internal`, a LAN hostname, or a reverse proxy that forwards the original `Host`, add it to `MCP_ALLOWED_HOSTS` or every request 403s. See the env var table below.
+- **Enabling a credential mode on the REST API protects `/mcp` too.** The one credential covers both surfaces. Conversely, `API_AUTH_MODE=none` opens both.
+- **Fence the local modes at the network layer.** If you run `/mcp` in a local mode, choose one:
   - Front it with an authenticating reverse proxy (e.g. nginx + mTLS, or an OAuth2 proxy) and never publish the raw port.
   - Restrict it to a private network / VPC with no public ingress.
   - For a single-host local run, bind loopback only: set `MCP_HTTP_HOST=127.0.0.1` (direct JAR run) or publish the Docker port as `127.0.0.1:3001:3001`.
 
-**Bind-default rationale.** The default bind is `0.0.0.0`, not `127.0.0.1`. Docker port-mapping (`-p host:container`) requires the server to bind all interfaces *inside* the container — a loopback default would make the published port unreachable and break the primary (containerized) deployment path. Control host exposure via the `-p` mapping for Docker, or set `MCP_HTTP_HOST=127.0.0.1` for a non-Docker local run. See [quick-start.md → HTTP transport security](quick-start.md) for the full matrix.
+  For a shared or fleet deployment, prefer a credential mode over fencing.
+
+**Bind-default rationale.** The default bind is `0.0.0.0`, not `127.0.0.1`. Docker port-mapping (`-p host:container`) requires the server to bind all interfaces *inside* the container - a loopback default would make the published port unreachable and break the primary (containerized) deployment path. Control host exposure via the `-p` mapping for Docker, or set `MCP_HTTP_HOST=127.0.0.1` for a non-Docker local run. See [quick-start.md -> HTTP transport security](quick-start.md) for the full matrix.
 
 ---
 
@@ -191,9 +208,8 @@ survive coroutine dispatcher hops:
 
 - MCP tool calls (`McpOperationAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, `reqId`
   (the call's 8-character correlation id, lowercase Crockford base32, 40 random bits; the MCP SDK handler
-  has no JSON-RPC request id to reuse, see "Call log and `reqId`" below), and `actorId` when the call's
-  top-level `arguments.actor.id` is a JSON string (this is self-reported and unverified - independent of
-  `actor_authentication` verification). `actorId` is length-capped at 128 chars (`MdcValues.bounded`,
+  has no JSON-RPC request id to reuse, see "Call log and `reqId`" below), and `actorId` (the audited id of the
+  call's principal: `api:<id>`, or `local`). `actorId` is length-capped at 128 chars (`MdcValues.bounded`,
   truncated with a `...[truncated]` marker) - the cap applies only to this MDC copy, never to what tools
   themselves receive.
 - REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
@@ -353,14 +369,15 @@ and run `VACUUM` offline.
 
 ## REST API Authentication
 
-The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** from the MCP actor identity system. They are independent:
+The credential layer (`API_ENABLED=true`, `API_AUTH_MODE`) authenticates every HTTP caller of `/api/v1/*` **and**, since 4.0, of `/mcp*`: one credential, one resolution pipeline, one principal. That principal (id `api:<id>` for a token-file or JWT credential, `local` for the unauthenticated modes) is the caller's identity everywhere - claim ownership, note ownership and audit attribution. There is no second, MCP-only identity layer: no request carries an `actor` or an `actor.proof` (a body `actor` is `unknown_parameter` on every tool, over MCP and REST alike), and the `actor_authentication:` config block is inert (see [Identity Configuration](#identity-configuration)).
 
-| Layer | What it authenticates | Governs |
-|-------|----------------------|---------|
-| **REST API auth** (`API_AUTH_MODE`) | HTTP callers (dashboards, CI systems, operators) using bearer tokens or JWTs | Access to `/api/v1/*` endpoints — which HTTP clients can read/write the work-item graph via REST |
-| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (the `advance` tool, `notes_write`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
+| Concern | Decided by |
+|---------|-----------|
+| Who the caller is | The credential (`Authorization: Bearer`): token-file id or JWT `sub` |
+| What the caller may do | The credential's `capabilities`, `scope` and `profile` |
+| Who owns a claim or a note | The principal id |
 
-A REST API caller with `write-items` capability can create and patch items; it does NOT need (and does NOT have) an MCP agent identity. An MCP agent with a verified `did:web` identity can claim and advance items; it does NOT use REST API bearer tokens.
+A caller with `write-items` capability can create and patch items; an agent holding the same kind of credential can claim and advance items through `/mcp`. Two agents sharing one credential are one principal.
 
 ### Enabling the REST API
 
@@ -396,21 +413,23 @@ API_ALLOW_UNAUTHENTICATED=true
 
 ### REST API env vars
 
-`MCP_ALLOWED_HOSTS` is listed here alongside the REST API vars for convenience, but it is transport-level — it guards `/mcp` too, not just `/api/v1/*`.
+`MCP_ALLOWED_HOSTS` and `MCP_ALLOW_UNAUTHENTICATED` are listed here alongside the REST API vars for convenience, but they are transport-level - they govern `/mcp` too, not just `/api/v1/*`.
 
 | Variable | Required when | Default | Description |
 |----------|--------------|---------|-------------|
 | `MCP_ALLOWED_HOSTS` | reached via a non-loopback `Host` | *(empty)* | Comma-separated `Host` header allowlist (DNS-rebinding protection — see the read-first callout above), **extending** the always-allowed loopback defaults (`localhost`, `127.0.0.1`, `[::1]`, any port). `host` matches any port; `host:port` matches that port only; bracket IPv6 entries (`[::1]:3001`). Hostname matching is case-insensitive with one trailing dot ignored, but otherwise exact — no subdomains, no `127.0.0.0/8` range, no unbracketed or non-canonical IPv6. An entry with a scheme, path, `@`, or non-digit port is dropped with a startup WARN (it never widens the allowlist). `*` disables the guard entirely (WARN logged; not recommended). Applies to the HTTP transport only — `stdio` never calls the guard. |
+| `MCP_ALLOW_UNAUTHENTICATED` | HTTP with the API disabled | `false` | Opt-in that lets `MCP_TRANSPORT=http` start with `API_ENABLED=false`: `/mcp` then serves every caller as the `local` principal, with no credential check. Without it that combination fails startup (`MCP_AUTH`). Parsed strictly (`true`/`1`/`yes` or `false`/`0`/`no`): any other value fails startup. Ignored when the API is enabled (the API's own mode decides) and over stdio. |
 | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` skips all `/api/v1/*` route registration; set `true` to opt in. |
 | `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below). Required. |
 | `API_ALLOW_UNAUTHENTICATED` | opting into `none` | `false` | Confirm flag required alongside `API_AUTH_MODE=none`. Ignored with `bearer`/`jwks`. |
 | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to bearer token YAML secret file. |
-| `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Must be `https`; plaintext `http` is rejected at startup unless the URL's host is loopback (`localhost`, `127.x.x.x`, `::1`) and `API_JWKS_ALLOW_INSECURE_URL=true`. Any other scheme (e.g. `file`, `ftp`), an `http` URL on a non-loopback host, or an unparseable `API_JWKS_ALLOW_INSECURE_URL` value fails startup with `IllegalArgumentException`. |
+| `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Its host must resolve only to public addresses: the egress guard refuses loopback, link-local, private (RFC 1918), CGNAT, unique-local and other non-public addresses (loopback is admitted only with `API_JWKS_ALLOW_INSECURE_URL=true`), so `host.docker.internal` and Docker-network names are refused. Must be `https`; plaintext `http` is rejected at startup unless the URL's host is loopback (`localhost`, `127.x.x.x`, `::1`) and `API_JWKS_ALLOW_INSECURE_URL=true`. Any other scheme (e.g. `file`, `ftp`), an `http` URL on a non-loopback host, or an unparseable `API_JWKS_ALLOW_INSECURE_URL` value fails startup with `IllegalArgumentException`. |
 | `API_JWKS_ALLOW_INSECURE_URL` | opting into plaintext JWKS | `false` | Loopback-only opt-in to fetch `API_JWKS_URL` over plaintext `http`. Evaluated even when `API_JWKS_URL` is `https` (an invalid value still fails startup). |
 | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim value in JWTs. |
 | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim value in JWTs. |
 | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g., `RS256,EdDSA`). |
 | `API_JWKS_CACHE_TTL_SECONDS` | jwks mode | `300` | JWKS key cache TTL in seconds. |
+| `API_JWKS_MAX_STALE_SECONDS` | optional | `max(3600, TTL)` | Oldest a cached key set may be, from its real fetch time, and still be served after a failed refresh. Positive and at least the TTL, else startup fails. Past it the key set is unavailable (`503 unavailable`). |
 | `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` | jwks mode | `86400` | Maximum accepted token lifetime in seconds (24h default). A token is rejected once `exp - now` exceeds this value plus the 60s clock-skew allowance, regardless of `iat`; when `iat` is present, a future-dated `iat` or an `exp - iat` spread beyond the same cap is also rejected. Non-numeric or `<= 0` fails startup. |
 | `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
 | `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
@@ -441,9 +460,9 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 ### Unauthenticated mode
 
-`API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (both required — see the env var table above) disables authentication on `/api/v1/*` entirely: every request, with or without an `Authorization` header, is attached a synthetic `ADMIN`/unrestricted-scope principal. This exists for a **single-user, loopback-bound local server** — e.g. so the `config-sync.mjs` hook (below) can push per-project config without minting a bearer token, the same friction-free posture the `/mcp` endpoint already has.
+`API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (both required - see the env var table above) disables authentication on `/api/v1/*` and `/mcp*` entirely: every request, with or without an `Authorization` header, runs as the one `local` principal (kind `agent`, proof `none`, unrestricted scope, `ADMIN`), audited as the bare id `local` with verifier `local`. This exists for a **single-user, loopback-bound local server** - e.g. so the `config-sync.mjs` hook (below) can push per-project config without minting a bearer token. Because every caller is that one principal, they share claims and note ownership.
 
-**This mode carries the same fence requirement as `/mcp`:** ensure the port is unreachable from any untrusted network before setting both keys — for Docker, publish only to loopback (`-p 127.0.0.1:3001:3001`; leave `MCP_HTTP_HOST=0.0.0.0`, see the bind-default rationale above and [SECURITY.md](../../SECURITY.md)), or for a direct non-Docker JAR run, set `MCP_HTTP_HOST=127.0.0.1`. Do not combine this mode with a `0.0.0.0` publish or a port published outside a trusted host, and do not set `MCP_HTTP_HOST=127.0.0.1` inside a Docker container to "harden" it — that binds loopback *inside* the container's own network namespace and breaks host→container reachability instead of restricting it. The server logs a `SECURITY:` WARN at startup whenever this mode is active, mirroring the existing `/mcp`-is-unauthenticated warning.
+**This mode carries the fence requirement of the local `/mcp` modes:** ensure the port is unreachable from any untrusted network before setting both keys - for Docker, publish only to loopback (`-p 127.0.0.1:3001:3001`; leave `MCP_HTTP_HOST=0.0.0.0`, see the bind-default rationale above and [SECURITY.md](../../SECURITY.md)), or for a direct non-Docker JAR run, set `MCP_HTTP_HOST=127.0.0.1`. Do not combine this mode with a `0.0.0.0` publish or a port published outside a trusted host, and do not set `MCP_HTTP_HOST=127.0.0.1` inside a Docker container to "harden" it - that binds loopback *inside* the container's own network namespace and breaks host->container reachability instead of restricting it. The server logs a `SECURITY:` WARN at startup whenever this mode is active.
 
 ### Key-set outages on the REST API
 
@@ -508,14 +527,14 @@ and the hook is re-pointed in the plugin work, so until then it fails open again
 
 ## Scope
 
-This guide covers **server-side configuration**: identity policy, capacity tuning, observability, and lifecycle. The **agent/client side** - calling the `advance` tool's `claim` op, attaching verified `actor.proof` JWTs, sequencing claim/heartbeat/release, retrying on `claim_held`, integrating with your identity provider and audit infrastructure - is the implementer's responsibility.
+This guide covers **server-side configuration**: credentials and identity, capacity tuning, observability, and lifecycle. The **agent/client side** - calling the `advance` tool's `claim` op, presenting a credential (`Authorization: Bearer`) on every call, sequencing claim/heartbeat/release, retrying on `claim_held`, minting and rotating credentials with your identity provider, integrating with your audit infrastructure - is the implementer's responsibility.
 
 ### The Bundled Claude Code Plugin Is Not a Fleet Driver
 
 The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance` `transition` called directly by each agent) - not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
 
 - The bundled orchestration context and skills do not reference the `advance` `claim` op and assume unclaimed items
-- The bundled `enforce-actor-attribution` hook checks for an `actor` field on writes but does not enforce claim ownership precedence
+- The bundled `enforce-actor-attribution` hook is client-side, predates the transport-principal model and is removed in a later plugin pass; a 4.0 server rejects a body `actor` as `unknown_parameter`, and the plugin does not manage credentials or enforce claim ownership precedence
 - Subagent dispatch templates do not include claim acquisition steps
 
 Treat the bundled plugin's behavior in claim mode as undefined. Build your own claim-aware skills, hooks, or middleware tailored to your fleet's identity scheme, contention policy, and audit integration.
@@ -525,8 +544,8 @@ Treat the bundled plugin's behavior in claim mode as undefined. Build your own c
 TO publishes the following as the integration seam — the surface fleet implementers build against:
 
 - **MCP tools** - `advance` ops `claim`, `heartbeat` and `release` (acquire/refresh/release), `advance` `transition` (with ownership enforcement on claimed items), `items_read` `context` with an `itemId` (operator diagnostic with full claim detail), `items_read` `list` with `claimStatus` (filtered discovery, identity-redacted), `items_read` `next` with `includeClaimed` (work discovery)
-- **Configuration** — `.taskorchestrator/config.yaml` `actor_authentication` block (server policy)
-- **Audit log** - actor claims persisted on every write regardless of any flag, queryable via `notes_read` and `items_read` `history`
+- **Credentials** - `API_AUTH_MODE` and its `API_*` variables (one credential model for REST and `/mcp`); the credential decides the principal
+- **Audit log** - the principal (`api:<id>` or `local`) persisted on every write regardless of any flag, queryable via `notes_read` and `items_read` `history`
 
 Anything else (specific skill instructions, hook behavior, orchestration-context conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
 
@@ -614,9 +633,9 @@ Heartbeat: call `advance` `heartbeat` with the feature's `itemId` at the recomme
 
 ---
 
-## Identity Configuration — fail-closed verification
+## Identity Configuration
 
-Verification fails closed. There is no degraded-mode policy: `actor_authentication.degraded_mode_policy` and the `DEGRADED_MODE_POLICY` environment variable were removed in 4.0. A credential is accepted, rejected (`401`) or, when the JWKS key set is unavailable, answered `503 unavailable`; the server never falls back to a self-reported identity.
+Identity is the transport principal. Verification fails closed: a credential is accepted, rejected (`401`) or, when the JWKS key set is unavailable, answered `503 unavailable`; the server never falls back to a self-reported identity. There is no degraded-mode policy: `actor_authentication.degraded_mode_policy` and the `DEGRADED_MODE_POLICY` environment variable were removed in 4.0.
 
 A leftover key (any value, `null` included) or a set variable (any value) stops the server with an `IllegalArgumentException` naming it, before the readiness marker is written (the container exits non-zero). Delete the key from the global config and unset the variable before upgrading:
 
@@ -630,171 +649,25 @@ docker run --rm -i \
   task-orchestrator:dev
 ```
 
-```yaml
-actor_authentication:
-  enabled: true
-  verifier:
-    type: jwks
-    oidc_discovery: "https://your-oidc-provider/.well-known/openid-configuration"
-    issuer: "https://your-oidc-provider"
-    audience: "task-orchestrator"
-    algorithms: ["EdDSA", "RS256"]
-    cache_ttl_seconds: 300
-    require_sub_match: true
-```
+To authenticate callers, configure the credential mode ([Enabling the REST API](#enabling-the-rest-api)) and, for JWKS, the [JWT Contract](#jwt-contract); the one credential covers REST and `/mcp`.
 
 ### What replaced the policy values
 
 | Former value | Now |
 |---|---|
-| `accept-cached` | Gone. A token verified against a stale key set (within `max_stale_seconds`) still authenticates, with proof `verified_stale`; past `max_stale_seconds`, or with no key set ever fetched, the answer is `503 unavailable`. A rejected token is `401`, never accepted. |
+| `accept-cached` | Gone. A token verified against a stale key set (within `API_JWKS_MAX_STALE_SECONDS`) still authenticates, with proof `verified_stale`; past the bound, or with no key set ever fetched, the answer is `503 unavailable`. A rejected token is `401`, never accepted. |
 | `accept-self-reported` | Gone. The caller is always the transport principal (`api:<id>`, or `local` in local mode); no request carries an identity of its own. |
 | `reject` | The only behavior: nothing is trusted that was not proven. Claim ownership (`claim`, `release`, `heartbeat`, and the ownership check of `transition`) is enforced against the principal. |
 
-### Cross-Org `did:web` Deployments
+### `actor_authentication` in 4.0 (inert)
 
-For deployments where agents from different organizations share a single Task Orchestrator instance,
-use native DID-trust mode (verification always fails closed):
+The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is still **parsed and validated at startup**, and a JWKS actor verifier is still constructed from it, but **it changes no call**: no request carries an `actor` or an `actor.proof` any more, so nothing consults the verifier. What stays observable:
 
-```yaml
-actor_authentication:
-  enabled: true
-  verifier:
-    type: jwks
-    # DID trust mode — each agent is identified by its own did:web DID
-    did_allowlist:
-      - "did:web:agent.org-a.example"
-      - "did:web:agent.org-b.example"
-    # OR match an entire domain's agent fleet — note: * is segment-bounded (see below)
-    # did_pattern: "did:web:agents.example.com:*"
-    algorithms:
-      - EdDSA                         # required — empty or missing causes startup error
-    audience: "mcp-task-orchestrator"
-    require_sub_match: true
-    did_loose_kid_match: true         # accommodates AgentLair-style thumbprint kid headers
-```
+- A malformed block still fails startup, closed, before the readiness marker is written: an unrecognized `verifier.type`, a non-mapping `verifier`, `type: jwks` with no key source (or more than one), a `verifier` field of the wrong type, or a non-positive or too-small `max_stale_seconds`.
+- A leftover `degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable still fails startup naming it.
+- The keys it still accepts are `verifier.type`, `oidc_discovery`, `jwks_uri`, `jwks_path`, `issuer`, `audience`, `algorithms`, `cache_ttl_seconds`, `stale_on_error`, `max_stale_seconds`, `max_token_lifetime_seconds`, `allow_insecure_url`, `require_sub_match`, `jti_replay_protection`, `did_allowlist`, `did_pattern`, `did_loose_kid_match` and `did_strict_relationship`. None of them affects a request: `require_sub_match`, `jti_replay_protection`, DID trust and the loose-kid match lived only on the removed actor path.
 
-**Algorithm name for Ed25519 tokens.** Use the string `EdDSA`, not `Ed25519`. This matches the
-`alg` claim that Ed25519-signed JWTs carry per [RFC 8037](https://datatracker.ietf.org/doc/html/rfc8037),
-and corresponds to `JWSAlgorithm.Ed25519.name` in the Nimbus JOSE library this verifier uses
-internally. Because `algorithms` is now strictly required under `type: jwks`, an EdDSA-only fleet
-that ships `algorithms: ["Ed25519"]` will fail startup with a clear error rather than silently
-mis-matching at verification time.
-
-**`did_pattern` segment-bounded wildcard.** The `*` in `did_pattern` matches a single
-colon-delimited DID segment — it will not cross a `:` boundary. Example:
-
-| Pattern | Value | Match? |
-|---------|-------|--------|
-| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice` | Yes — one segment |
-| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice:hijacker` | **No** — two segments |
-| `did:web:agents.example.com:*` | `did:web:agents.example.com:` | Yes — empty trailing segment |
-
-If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
-segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
-
-**Wildcard character set.** A `*` in a `did_pattern` matches `[A-Za-z0-9._-]*`. In the *host*
-segment (the portion before the first `:`) it can span dot-separated labels — for example
-`did:web:*.example.com` matches `did:web:a.b.example.com` — and `_` never matches there in
-practice, because a host containing `_` is rejected as malformed first. In a *path* segment it
-keeps the single-colon-segment meaning described above. A `*` never matches `%`, so a pattern
-cannot be defeated by encoding a would-be segment separator; an agent whose DID path segment is
-percent-encoded (e.g. `agents:abc%20def`) must be listed explicitly in `did_allowlist`.
-
-**`sub`/`iss` binding under DID trust.** Because each agent is identified by its own `did:web` DID
-(there is no separate operator-configured `issuer`), the verifier binds the JWT `sub` to `iss`
-under DID trust: `sub` must equal `iss` exactly, **regardless of `require_sub_match`**. A missing
-or empty `sub` is treated as a mismatch. This check runs after signature/`exp`/`nbf`/`iss`/`aud`
-validation and before the `require_sub_match` check, so an untrusted issuer is still reported as
-`failureKind: policy` and a `kid` mismatch is still reported as `failureKind: crypto` ahead of it.
-A mismatch here is rejected with `failureKind: claims` and a reason starting `sub/iss mismatch
-under DID trust`. Without this binding, an agent could sign a token with its own key asserting
-`sub` equal to a *different* trusted DID and be verified as that other agent. The binding turns
-such a token into `REJECTED`, which is refused (there is no self-reported fallback).
-
-**Verified identity under DID trust.** On a `VERIFIED` result under DID trust, the resolved
-identity is the verified DID
-(`sub`, which the binding above guarantees equals `iss`) — not the caller's self-reported
-`actor.id`. This holds even when `require_sub_match: false`, so operators cannot silently weaken
-the identity guarantee for `did:web` fleets by turning that flag off. Static-JWKS (non-DID)
-verification is unaffected — see [Identity Model](#identity-model).
-
-**DID identifier validation.** Before a `did:web` issuer is checked against `did_allowlist` /
-`did_pattern`, and before any network fetch, TO validates the identifier's structure:
-- Only [W3C DID Core §3.1](https://www.w3.org/TR/did-core/#did-syntax) `idchar`s are allowed:
-  ASCII letters/digits, `.`, `-`, `_`, `:` (the segment separator), and percent-encoded octets
-  (`%` followed by exactly two hex digits). Raw `/`, `?`, `#`, `@` are rejected outright, as is a
-  malformed percent-encoding.
-- In the host segment, the only percent-encoding accepted is `%3A` (either case, decoding to
-  `:`); the decoded host must be `[A-Za-z0-9.-]+` with an optional `:` plus a port in 1-65535.
-- Each path segment, percent-decoded once, must not contain `/ ? # @ %` (this also catches
-  double-encoding such as `%252F`, which decodes once to the literal `%2F`), a control character
-  or a backslash, and must not decode to `.` or `..`. Empty segments (e.g. a trailing `:`) and
-  `%20` remain legal, as shown in the wildcard table above.
-
-A violation raises a security-violation error whose message starts with `malformed DID`, surfaced
-to the caller as `REJECTED` with `failureKind: policy` — distinct from `issuer not in DID trust
-policy` for a well-formed but untrusted DID. This validation runs both where the issuer is looked
-up against the trust policy and, independently, inside DID resolution itself, so a malformed DID
-can never reach an outbound fetch.
-
-`did:web` identifiers work as `claimedBy` values natively — they are opaque strings and require no
-special handling. Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items
-or advance claimed items. Unclaimed items remain accessible to unverified actors to preserve backward
-compatibility for mixed fleets during migration.
-
-### DID document resolution under v1
-
-The verifier ships `did:web` support via the `DidResolver` interface, which is designed to be
-method-agnostic. Additional DID methods (e.g., `did:key`, `did:jwk`) can be registered by
-extending `DidResolver` and adding the implementation to the `DidResolverRegistry` — see issue #156
-for the roadmap.
-
-Per-agent DID documents are resolved **on-demand at verification time**, not pre-loaded at startup.
-The first verification attempt for a given issuer triggers a live fetch to the `did:web` URL;
-subsequent attempts within the cache TTL use the cached key set. The cache is LRU-evicted at 256
-entries — for fleets larger than that, monitor logs for LRU eviction warnings and consider tuning
-`cache_ttl_seconds` to spread re-fetches.
-
-### `service` block handling
-
-W3C DID documents may include a `service` block. AgentLair-shape deployments commonly publish a
-`service` entry of type `JsonWebKeySet2020` pointing at a separate JWKS endpoint URL, alongside the
-inline `verificationMethod` keys.
-
-**v1 deliberately ignores `service` blocks.** The verifier extracts signing keys from
-`verificationMethod[]` only and never fetches the `service` endpoint.
-
-**Rationale:** In mixed fleet deployments (issue #156), some accounts have rotated per-agent keys
-while others have not. For un-rotated accounts, the `service`-endpoint URL may point at an
-unreachable or stale endpoint. The inline `verificationMethod` route is the only one that works
-reliably across all accounts. Silently ignoring `service` prevents a broken service endpoint on one
-account from causing verification failures for that agent.
-
-Operators whose deployments treat external JWKS endpoints as the authoritative key source (rather
-than inline `verificationMethod` entries) should follow the tracking issue for future `service`-block
-support, deferred to a future release.
-
-### Loose-kid match policy
-
-The loose-kid match policy addresses the AgentLair deployment shape where agent tooling sets a JWK
-thumbprint as the JWT `kid` header. Thumbprint-based kids do not match the bare-fragment ids
-(`#key-1`, `#signing-key`, etc.) that the DID document extractor derives from
-`verificationMethod[].id`.
-
-Three conditions must ALL be true for loose-kid match to apply:
-
-1. DID trust mode is active (`did_allowlist` or `did_pattern` is configured).
-2. `did_loose_kid_match: true` (default).
-3. The resolved DID document's eligible key set contains **exactly one entry** (single-key guard).
-
-When all three hold, the single eligible key is used for signature verification regardless of kid.
-Multi-key documents always require an exact kid match — the single-key guard prevents "first key
-wins" ambiguity on documents with multiple signing keys.
-
-**When to set `did_loose_kid_match: false`:** Set this when your agents consistently emit correct
-bare-fragment kids, or when you want strict alignment between the JWT kid and the DID document
-fragment ids as an additional assurance layer.
+Remove the block when convenient; it is safe to delete. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not here. See [config-reference.md](config-reference.md) for the key's ownership.
 
 ---
 
@@ -825,100 +698,62 @@ Each stage is reversible by changing the credential mode. Existing claim records
 
 ## JWT Contract
 
-When `verifier.type: jwks` is configured, TO reads a narrow subset of claims from each `actor.proof` JWT. This section documents that contract — not how to operate a JWT issuer.
+Under `API_AUTH_MODE=jwks` every credential on `/api/v1/*` and `/mcp*` is a JWT judged by the API JWT policy. This section documents the claims TO reads - not how to operate a JWT issuer.
 
 ### Claims TO Reads
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery; strongly recommended in static mode, where a startup WARN is logged when missing); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
-| `aud` | Only if `audience` is configured (strongly recommended in static mode, where a startup WARN is logged when missing) | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
-| `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
-| `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims`. Also bounds the lifetime cap below (both TO's actor verifier and `JwksApiVerifier` now enforce the same cap; see `max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`). |
-| `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
-| `iat` | Optional — RFC 7519 §4.1.6 makes it optional, so its absence never fails a token on its own | When present: a token dated more than 60s in the future is rejected (`reason: "iat in the future"`, `failureKind: claims`); an `exp - iat` spread beyond `max_token_lifetime_seconds` (+60s skew) is rejected (`reason: "token lifetime exceeds maximum"`, `failureKind: claims`). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
-| `jti` | Only when `jti_replay_protection: true` (opt-in, default `false`) | Required when the flag is on — a token without one is rejected (`reason: "missing jti claim"`, `failureKind: claims`); the `(iss, jti)` pair may then be presented only once (see "Opt-in `jti` Replay Protection" below). |
+| `iss` | Yes (`API_JWKS_ISSUER` is required in jwks mode) | Must match `API_JWKS_ISSUER`; mismatch is `401 invalid_token`. |
+| `aud` | Yes (`API_JWKS_AUDIENCE` is required in jwks mode) | Must contain `API_JWKS_AUDIENCE`; mismatch is `401 invalid_token`. |
+| `sub` | Required | The principal id (`sub`); the audited holder id is `api:<sub>`. A token without a `sub` is rejected. |
+| `exp` | Required | Enforced with a **60-second clock-skew allowance**; a token without `exp`, or past it, is rejected. Also bounds the lifetime cap below. |
+| `nbf` | Optional | If present, enforced with a 60-second clock-skew allowance. |
+| `iat` | Optional | When present: a token dated more than 60s in the future is rejected, and so is an `exp - iat` spread beyond `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (+60s skew). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
+| `to_kind` | Optional | `human`, `agent` or `service` (trimmed, case-insensitive); see [api-rest.md section 1](api-rest.md#1-authentication) for the default. A non-string or unknown value rejects the JWT. |
+| `to_scope` | Optional | `root_ids` and `tags_include` scope; absent is unrestricted. A malformed value rejects the JWT (fail closed). |
+| `to_capabilities` | Optional | The capability list; absent defaults to read-only. |
 
-TO does not read any other custom claims — those are deployment concerns outside the TO contract. (This table is the MCP actor-proof contract. A REST API JWT under `API_AUTH_MODE=jwks` additionally reads `to_kind`, `to_scope` and `to_capabilities`; a non-string or unknown `to_kind` rejects the JWT — see [api-rest.md §1](api-rest.md#1-authentication).)
+The signature algorithm must be on the `API_JWKS_ALGORITHMS` allowlist; `none` and symmetric algorithms (`HS256` etc.) are not supported. The API JWT policy has no `jti` replay protection, no DID binding and no `sub`/`actor.id` matching: the principal is `sub`, full stop. TO reads no other custom claims.
 
 ### Token Lifetime Cap
 
-Config key `actor_authentication.verifier.max_token_lifetime_seconds` (default `86400` = 24h; must be a positive integer or startup fails). Applies to both the MCP actor verifier and the REST API's `JwksApiVerifier` (env `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`, same default). A token is rejected once:
+`API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (default `86400` = 24h; must be a positive integer or startup fails). A token is rejected once:
 
-- `exp - now > max_token_lifetime_seconds + 60s` — always checked, independent of `iat` (bounds how long a stolen token stays usable from the moment it is presented, and cannot be defeated by a forged or absent `iat`), or
+- `exp - now > cap + 60s` - always checked, independent of `iat` (bounds how long a stolen token stays usable from the moment it is presented, and cannot be defeated by a forged or absent `iat`), or
 - `iat` is present and `iat > now + 60s` (a future-dated `iat`), or
-- `iat` is present and `exp - iat > max_token_lifetime_seconds + 60s` (an honestly-declared over-long token).
+- `iat` is present and `exp - iat > cap + 60s` (an honestly-declared over-long token).
 
-**Upgrade note:** deployments that mint tokens with a lifetime longer than 24 hours will see those tokens newly rejected after upgrading past this change. Raise `max_token_lifetime_seconds` (and `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` for the REST API) before or immediately after upgrading if longer-lived tokens are intentional.
+**Upgrade note:** deployments that mint tokens with a lifetime longer than 24 hours see those tokens rejected. Raise `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` if longer-lived tokens are intentional.
 
-### Opt-in `jti` Replay Protection
+### JWKS Source and Egress
 
-Config key `actor_authentication.verifier.jti_replay_protection` (default `false` — off). When enabled:
+`API_JWKS_URL` is the single key source. It must be `https`; plaintext `http` is accepted only for a literal loopback host with `API_JWKS_ALLOW_INSECURE_URL=true`. Every key fetch passes the egress guard, which resolves the host and refuses the fetch when **any** resolved address is non-public: loopback (unless `API_JWKS_ALLOW_INSECURE_URL=true`), link-local, private (RFC 1918), CGNAT, unique-local, unspecified, multicast and reserved ranges, and IPv6 forms that wrap a non-public IPv4 address. A name that resolves to a mix of public and private addresses is refused. In particular `host.docker.internal`, Docker-network service names and LAN hosts are refused, so a JWKS endpoint must be reachable at a public address. The guard is resolve-then-connect, so it is not a defence against an attacker who controls the authoritative DNS for the host.
 
-- Every presented JWT must carry a non-blank `jti` claim; a token without one is rejected.
-- The `(iss, jti)` pair is tracked in an in-memory, single-instance cache (retained through `exp + 60s`, inclusive — the same instant through which the verifier still accepts the token); a second presentation of the same pair within that window is rejected with `reason: "jti replay detected"`, `failureKind: policy`.
-- **Off by default** because the same proof is legitimately re-verified more than once inside a single MCP call (a batch verifies the actor once per element, for example one `advance` `transition` call over several items) and reused across heartbeats/retries by design (see `advance` `heartbeat` above). TO installs a per-call memo so repeated verification of the *same* (proof, claim) pair within one call is never treated as a replay - but **a client that enables this flag must mint a fresh `proof` for every distinct call, including retries and heartbeats**, or those calls will be rejected as replays. This is separate from idempotency: the `idempotencyKey` of a batch element, not the proof, is what makes a retry idempotent, so an idempotent retry must still carry a fresh proof when this flag is on.
-- Not persisted or shared across instances: a restart, or a second server instance behind a load balancer, reopens the replay window for tokens still inside their `max_token_lifetime_seconds` cap. This is a single-instance mitigation, not a distributed one.
-- **Bounded capacity, best-effort:** the cache holds at most 10,000 `(iss, jti)` entries. When a new entry must be admitted at capacity, expired entries are purged first; if that still isn't enough, the oldest-inserted entry is evicted (rate-limited WARN logged) — regardless of which issuer it belongs to. Under a flood of distinct valid proofs large enough to evict a still-live entry before its retention window elapses, that entry's token can be replayed. Treat this as a best-effort, per-instance control, not a hard guarantee — raise the cache's capacity or lower `max_token_lifetime_seconds` if this is a concern for your issuer mix.
+### `API_JWKS_CACHE_TTL_SECONDS` and `API_JWKS_MAX_STALE_SECONDS`
 
-### `require_sub_match`
-
-When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked. (A `type: jwks` verifier configured with none of `oidc_discovery`/`jwks_uri`/`jwks_path`/`did_allowlist`/`did_pattern` — with no key source to check anything against — fails startup rather than silently downgrading to `noop`.)
-
-**Exception under DID trust (`did_allowlist`/`did_pattern` configured):** `require_sub_match` does not control whether `sub` is read. Each agent is identified by its own `did:web` DID, so the verifier unconditionally binds `sub` to `iss` (`sub` must equal `iss` exactly; missing/empty `sub` is a mismatch) whether or not `require_sub_match` is set. See [Cross-Org `did:web` Deployments](#cross-org-didweb-deployments) for the full rule and rejection semantics.
-
-### Algorithm Allowlist
-
-When `algorithms` is configured (non-empty), only listed algorithms are accepted. JWTs signed with other algorithms are rejected with `failureKind: policy`. When `algorithms` is empty or omitted, no algorithm filtering is applied — any algorithm Nimbus supports for the matching key type will be accepted. Default recommendation: `["EdDSA", "RS256"]`. `none` and symmetric algorithms (`HS256` etc.) are not supported.
-
-### JWKS Sources
-
-The provider supports three sources; configure exactly one (more than one fails startup):
-
-- `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
-- `jwks_uri` — fetched directly
-- `jwks_path` — local file, resolved relative to the agent config base directory (`AGENT_CONFIG_DIR`, else `user.dir`), which `AppConfig` resolves once at startup
-
-
-**`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key; a discovered `jwks_uri` that breaks the rule is refused at fetch time instead (no keys are fetched, and verification reports `UNAVAILABLE`). `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `API_JWKS_URL` row in the REST API environment-variable table above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
-
-```yaml
-actor_authentication:
-  verifier:
-    type: jwks
-    jwks_uri: "http://localhost:8080/jwks.json"
-    allow_insecure_url: true   # local dev/test only — never in production
-    issuer: "http://localhost:8080"
-    audience: "task-orchestrator"
-    algorithms: [RS256]
-```
-
-### `cache_ttl_seconds`, `stale_on_error`, and `max_stale_seconds`
-
-JWKS key material is cached for `cache_ttl_seconds` (default: 300). When a cached entry expires and a refresh fails, `stale_on_error` (default: `true`) controls whether the prior cache is served, and `max_stale_seconds` (default `max(3600, cache_ttl_seconds)`) bounds how old, from its real fetch time, a served set may be:
+JWKS key material is cached for `API_JWKS_CACHE_TTL_SECONDS` (default: 300). When a cached entry expires and a refresh fails, the prior cache is served only while it is younger than `API_JWKS_MAX_STALE_SECONDS` (default `max(3600, TTL)`), measured from its real fetch time:
 
 | Cache + refresh state | Result |
 |---|---|
 | Fresh hit (within TTL) | JWT verified, identity = `sub`, proof `verified` |
 | Expired, refresh succeeds | JWT verified against the fresh key set, proof `verified` |
-| Expired, refresh fails, `stale_on_error: true`, prior fetch younger than `max_stale_seconds` | Stale key set served, JWT verified, proof `verified_stale` |
-| Expired, refresh fails, `stale_on_error: false`, or no prior fetch, or prior fetch older than `max_stale_seconds` | The key set is unavailable: `503 unavailable` (`retryAfterMs` 15000), no `WWW-Authenticate`; the token is neither accepted nor called invalid |
+| Expired, refresh fails, prior fetch younger than the stale bound | Stale key set served, JWT verified, proof `verified_stale` |
+| Expired, refresh fails, and no prior fetch or a prior fetch older than the stale bound | The key set is unavailable: `503 unavailable` (`retryAfterMs` 15000), no `WWW-Authenticate`; the token is neither accepted nor called invalid |
 
 Operators can alert on the `503` rate and on `verified_stale` in the call log's `proof_status` column to see prolonged JWKS outages.
 
 ### JWT `exp` vs Claim TTL
 
-JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but it does affect subsequent operations that re-verify identity (`advance` `heartbeat`, `advance` `transition` on the claimed item).
+JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but the holder's next call (`advance` `heartbeat`, `advance` `transition` on the claimed item) presents the credential again and is rejected (`401 invalid_token`) once it has expired. A holder must present a fresh token to heartbeat or transition a claimed item, so size JWT lifetime to comfortably exceed the heartbeat cadence.
 
-When a presented JWT is past `exp`, it is rejected (`401 invalid_token`) and the call does not run: there is no fallback to a self-reported identity. A holder must present a fresh token to heartbeat or transition a claimed item, so size JWT lifetime to comfortably exceed the heartbeat cadence.
-
-The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime — it caches the verifier's public key material, not the JWTs themselves.
+The JWKS cache is separate from JWT lifetime - it caches the verifier's public key material, not the JWTs themselves.
 
 ### Proof handling
 
-`actor.proof` is never returned in an MCP response - no tool echoes it: the `actor` objects that
+This section covers evidence written by earlier versions. A 4.0 server accepts no `actor.proof` (a body `actor` is `unknown_parameter`) and returns none: the `actor` objects that
 `notes_read` and `items_read` `history` return carry only `id`, `kind` and `parent`, and the `verification`
-object (`status`, `verifier`, `reason`) is the non-secret signal that a proof was checked.
+object (`status`, `verifier`, `reason`) reports how the principal was established (`api-jwks`, `api-bearer` or `local`).
 
 **Since migration `V17__Store_Actor_Proof_Evidence.sql`, the raw proof (the JWT) is not persisted
 at all.** Only forensic *evidence about* the proof is stored on the `notes` rows and in the `item.transitioned`
@@ -1151,23 +986,21 @@ Agents use `parentId` scoping on `items_read` `next` (`parentId`) to restrict th
 
 The `claimedBy` field on a `WorkItem` is an uninterpreted opaque string. The server treats it as a key for ownership comparison — it does not parse or validate its structure. Valid values include:
 
-- Agent session IDs: `"session-abc123"`
-- Container hostnames: `"worker-pod-7.cluster.local"`
-- JWT `jti` claim values
-- `did:web` identifiers: `"did:web:agent.example.com"`
-- Any stable, unique per-agent string
+- Principal ids: `"api:worker-12"` (a token-file id or a JWT `sub`), or `"local"` in a local mode
+- Rows written by earlier versions may hold any other string (session ids, hostnames, `did:web` identifiers)
 
-### JWKS-Verified Identity Override
+### Identity From the Credential
 
-When a JWKS verifier is configured and the `actor.proof` JWT is valid, the server uses the JWT `sub` claim as the trusted identity. The verified identity, not a caller-supplied value, becomes the claim holder.
-
-Under **DID trust** (`did_allowlist`/`did_pattern` configured), the verifier additionally binds `sub` to `iss` (see [`require_sub_match`](#require_sub_match)), so the identity used here is the verified `did:web` DID — the same value whether or not `require_sub_match` is set. Under plain (non-DID) JWKS verification, this override applies only when `require_sub_match: true`, since `sub` is otherwise not read.
+The caller's identity is the principal its credential resolves to; nothing the caller puts in a request body can override it.
 
 The identity resolution chain:
-1. A valid JWT → its `sub` claim is the principal id, and the audited holder id is `api:<sub>` (under DID trust: the DID, bound equal to `iss`)
-2. An invalid JWT → `401`, the call does not run
-3. An unavailable key set → `503 unavailable`, the call does not run
-4. There is no self-reported identity and no fallback to one
+1. A valid JWT -> its `sub` claim is the principal id, and the audited holder id is `api:<sub>`
+2. A valid token-file token -> the token's id is the principal id (audited `api:<id>`)
+3. An invalid or expired credential -> `401`, the call does not run
+4. An unavailable key set -> `503 unavailable`, the call does not run
+5. No credential in a local mode (stdio, `API_AUTH_MODE=none`, `MCP_ALLOW_UNAUTHENTICATED=true`) -> the one `local` principal
+
+There is no self-reported identity and no fallback to one. **In the local modes every session is the same `local` principal**, so concurrent stdio and local HTTP sessions share claims and note ownership: they cannot contend with each other, and separating them needs credentials.
 
 ### `claimedBy` and PII
 
@@ -1225,9 +1058,9 @@ for the `resources:` trait/registry YAML syntax. This section covers the operato
 ### Item-keyed holder model
 
 The exclusivity subject is the **holding work item**, not the actor that triggered acquisition
-(`acquired_by_actor_id` is audit metadata only, nullable). This is deliberate: actor identity is
-optional and often self-reported or shared across processes (ten worker processes all reporting
-`actor.id: "orchestrator"` would otherwise all be treated as "the same holder," reproducing the
+(`acquired_by_actor_id` is audit metadata only, nullable). This is deliberate: a principal is often
+shared across processes (ten worker processes all holding one credential, or all running as `local`,
+would otherwise all be treated as "the same holder," reproducing the
 exact multi-instance credential-collision failure this feature exists to prevent). Practical
 consequence for operators: **you cannot release a lease by matching on actor identity** — the only
 release paths are (1) the holding item's own transition out of WORK, (2) TTL expiry, or (3) an
@@ -1345,8 +1178,7 @@ Fleet agents can eliminate the **user-facing** race window inherent in the two-c
     "select": { "orderBy": "oldest", "priority": "high" },
     "ttlSeconds": 900,
     "idempotencyKey": "<fresh key per iteration>"
-  }],
-  "actor": { "id": "worker-pod-12", "kind": "subagent" }
+  }]
 }
 ```
 
@@ -1374,10 +1206,6 @@ A migration that runs while no client is connected has no claim-state implicatio
 ### Cross-Partition Scoping
 
 Claims are per-instance. Agents do not cross-claim across partitioned TO instances (different SQLite databases). An agent talking to two instances holds two independent claims, one in each.
-
-### `actor.parent` in Fleet Mode
-
-When an external dispatcher (not a TO subagent) spawns workers, set `actor.parent` to a stable identifier that ties workers back to their dispatcher. The audit log preserves the value verbatim and it is queryable via `notes_read` body content. TO does not interpret the value - it is a string for downstream correlation.
 
 ### Reopen and Claim TTL
 

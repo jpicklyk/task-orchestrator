@@ -31,18 +31,15 @@ Agent: items_read(select="context")
 Agent: items_read(select="history", since="2026-01-14T17:00:00Z")
        → Recent transitions show orchestrator-1 dispatched 3 sub-agents yesterday
 
-Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }],
-         actor: { id: "morning-agent", kind: "subagent", parent: "orchestrator-1" })
+Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }])
        -> gate_blocked: "Item a3f28c01-... is missing 1 required notes." (detail.missing: requirements)
 
 Agent: notes_write(ops=[{ op: "upsert", itemId: "a3f28c01", key: "requirements", role: "queue",
-         body: "Validate email format, enforce password complexity..." }],
-         actor: { id: "morning-agent", kind: "subagent" })
+         body: "Validate email format, enforce password complexity..." }])
        -> results[0]: { ok: true, id: "...", version: 1, created: true }
 
-Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }],
-         actor: { id: "morning-agent", kind: "subagent" })
-       → queue → work. Actor recorded. No context rebuilding.
+Agent: advance(ops=[{ op: "transition", itemId: "a3f28c01", trigger: "start" }])
+       → queue → work. Caller recorded. No context rebuilding.
 ```
 
 ---
@@ -141,8 +138,8 @@ export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 
 Alternatively, a `client.json` (`apiUrl` only, no token) supplies the URL. Project-mode `/task-orchestrator:init` writes it beside the project config, only for a loopback server and only as a bare origin with no path, query or fragment (add `.taskorchestrator/client.json` to `.gitignore`, the URL is machine-specific); `/task-orchestrator:init --user` writes the user-level file, which works for any host. The order is the environment variable, then the project-level file, then the user-level file. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
 
-> **SECURITY:** unauthenticated REST means anyone who can reach the port has full read/write/delete
-> access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
+> **SECURITY:** unauthenticated mode (REST and `/mcp` alike) means anyone who can reach the port has full
+> read/write/delete access, as the single `local` principal. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
 > Never publish it on `0.0.0.0` or a wider interface. For shared or networked deployments use bearer
 > tokens or JWKS auth — see [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
 
@@ -237,28 +234,11 @@ Illustrated: [Work Graph](https://jpicklyk.github.io/task-orchestrator/field-gui
 
 ### Actor Attribution
 
-Every write op (an `advance` transition, a `notes_write` upsert, and the rest) accepts an optional actor claim, and the server records it on the transition or note:
+Every write is attributed to the **transport principal**: who the server knows the caller to be from how it connected, never from a field in the request. A bearer or JWT credential names its holder (`api:<id>`); stdio, and HTTP with no credential mode, run as the single `local` principal. A request body `actor` is refused as `unknown_parameter`.
 
-```json
-{
-  "actor": {
-    "id": "impl-agent-42",
-    "kind": "subagent",
-    "parent": "orchestrator-1"
-  }
-}
-```
+`notes_read` and `items_read` `history` entries carry that attribution (for callers allowed to see it): who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
 
-`notes_read` and `items_read` `history` entries carry the delegation chain (for callers allowed to see attribution): which orchestrator dispatched which sub-agent, who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
-
-To make the claim mandatory, enable actor authentication in config:
-
-```yaml
-actor_authentication:
-  enabled: true   # read by the plugin hook (workspace/user config), not the server
-```
-
-With the [Claude Code plugin](#claude-code-plugin) installed, a hook then rejects any write that lacks an actor before the call leaves the client. Other MCP clients need to supply the claim by convention. Optional JWKS verification checks that the claim is genuine; see [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
+To tell agents apart, give each its own credential: enable the REST API with `API_AUTH_MODE=bearer` or `jwks` and `/mcp` authenticates with the same token. Every stdio or local-mode session is the same `local` principal, so those sessions share claims and note ownership. See [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
 
 ### Session Continuity
 
@@ -365,7 +345,7 @@ Every tool answers one response envelope, and `describe: true` on any call retur
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | Every MCP tool: parameters, response shapes, actor attribution |
 | **[REST API Reference](current/docs/api-rest.md)** | The RPC route, resource GETs, lease admin, SSE, auth, ETag |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
-| **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST API auth, actor identity, health checks, SQLite tuning, capacity planning |
+| **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST and `/mcp` authentication, caller identity, health checks, SQLite tuning, capacity planning |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
 | **[Changelog](CHANGELOG.md)** | Release history |
 | **[Contributing](CONTRIBUTING.md)** | Developer setup and contribution process |

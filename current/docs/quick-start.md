@@ -137,7 +137,7 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
-**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to the workspace (or user-level) `.taskorchestrator/config.yaml`; the plugin hook reads it, the server does not. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+**Identity:** a call's identity is the principal its transport established, never a field in the request. Over stdio, or HTTP without a credential mode, every caller is the one `local` principal; with `API_AUTH_MODE=bearer` or `jwks`, it is the credential's holder. There is no actor to configure. See [Identity Configuration](./fleet-deployment.md#identity-configuration) in the fleet deployment guide.
 
 ### Orchestration context
 
@@ -381,12 +381,7 @@ After adding or editing this file, reconnect the MCP server:
 > }
 > ```
 > Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted. Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
->
-> **Using JWKS path verification?** Also mount `.agentlair/` so the container can read your local JWKS file:
-> ```json
-> "-v", "/absolute/path/to/your/project/.agentlair:/project/.agentlair:ro",
-> ```
-> Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Actor Authentication & Verification](./api-reference.md#actor-authentication--verification) in the API reference for details including Docker network access options.
+
 
 ---
 
@@ -448,13 +443,23 @@ docker run --rm -p 127.0.0.1:3001:3001 \
   -e MCP_HTTP_PORT=3001 \
   -e AGENT_CONFIG_DIR=/project \
   -e API_ENABLED=false \
+  -e MCP_ALLOW_UNAUTHENTICATED=true \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
+
+`MCP_ALLOW_UNAUTHENTICATED=true` is required here: with the REST API off there is no credential to check, so HTTP `/mcp` would be open to anyone who reaches the port. The server refuses to start in that state (startup failure `MCP_AUTH`) unless you opt in explicitly, and then serves every caller as the single `local` principal. Publishing on `127.0.0.1` (as above) is what keeps it private. For per-caller credentials instead, enable the REST API in `bearer` or `jwks` mode (Step 10); `/mcp` then uses the same credential.
 
 **Register the HTTP endpoint with Claude Code:**
 
 ```bash
 claude mcp add --transport http mcp-task-orchestrator http://localhost:3001/mcp
+```
+
+Against a server in a credential mode (Step 10), send the token as a header:
+
+```bash
+claude mcp add --transport http mcp-task-orchestrator http://localhost:3001/mcp \
+  --header "Authorization: Bearer YOUR_PLAINTEXT_TOKEN"
 ```
 
 Or add it to a project `.mcp.json`:
@@ -465,6 +470,20 @@ Or add it to a project `.mcp.json`:
     "mcp-task-orchestrator": {
       "type": "http",
       "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+With a credential mode, add the header to the entry (`.mcp.json` expands `${VAR}`, so keep the token in an environment variable rather than in the file):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": { "Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}" }
     }
   }
 }
@@ -481,6 +500,7 @@ Restart Claude Code and run `/mcp` to confirm the connection and that the tools 
 | `MCP_TRANSPORT` | `stdio` | Set to `http` to serve the Streamable HTTP transport instead of stdio. |
 | `MCP_HTTP_PORT` | `3001` | Port the server listens on (inside the container for Docker). |
 | `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
+| `MCP_ALLOW_UNAUTHENTICATED` | `false` | Required to start HTTP with `API_ENABLED=false`: it opts `/mcp` into serving every caller as the `local` principal, with no credential check. Without it that combination fails startup. Unneeded when the API is enabled (its auth mode decides). |
 | `API_ENABLED` | `false` | REST API off by default (MCP-only). Set `true` to opt into the REST API (Step 10), which then requires `API_AUTH_MODE`. |
 | `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
 | `MCP_ALLOWED_HOSTS` | *(empty)* | Comma-separated `Host` header allowlist (DNS-rebinding protection), **extending** the always-allowed loopback defaults (`localhost`, `127.0.0.1`, `[::1]`, any port). `host` matches any port, `host:port` matches that port only. Needed when you reach the server through a name other than loopback (a Docker Compose service name, `host.docker.internal`, a LAN hostname, a reverse-proxy `Host`). `*` disables the check entirely (not recommended). See [fleet-deployment.md](fleet-deployment.md) for the full behavior. |
@@ -489,17 +509,17 @@ Restart Claude Code and run `/mcp` to confirm the connection and that the tools 
 
 > **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
 
-The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
+The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way, including `MCP_ALLOW_UNAUTHENTICATED=true`. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
 
 ### HTTP transport security
 
-> ⚠️ **SECURITY: `/mcp` over HTTP is UNAUTHENTICATED.** The Streamable HTTP transport has **no built-in authentication**. Anyone who can reach `MCP_HTTP_HOST:MCP_HTTP_PORT` gets **full read / write / delete** access to every MCP tool. Enabling the REST API (Step 10) does **not** protect `/mcp` — REST bearer/JWKS auth gates `/api/v1/*` only; `/mcp` stays open by design so MCP clients (which send no REST token) can still connect. The server logs a loud `SECURITY:` warning at startup whenever `MCP_TRANSPORT=http`. **Never expose this port to untrusted callers** — front it with an authenticating reverse proxy / mTLS, or keep it on a private network or loopback.
+> **How `/mcp` authenticates depends on the REST API.** With `API_ENABLED=true` and `API_AUTH_MODE=bearer` or `jwks`, `/mcp` requires the same `Authorization: Bearer` credential as `/api/v1` (a missing or bad one is `401`; the failure is the JSON error envelope). With the API off and `MCP_ALLOW_UNAUTHENTICATED=true`, or with `API_AUTH_MODE=none`, `/mcp` has **no authentication**: anyone who can reach `MCP_HTTP_HOST:MCP_HTTP_PORT` gets full read / write / delete access to every MCP tool, as the single `local` principal. The server logs a loud `SECURITY:` warning at startup in those local modes. **Never expose a local-mode port to untrusted callers** — keep it on loopback or a private network, or front it with an authenticating reverse proxy / mTLS. Over stdio there is no network exposure.
 
 The Streamable HTTP transport follows the [MCP transport security requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning):
 
-- **Both `Host` and `Origin` are validated — DNS-rebinding protection.** A `Host` header allowlist guard runs first, ahead of every other plugin, and rejects any request whose `Host` isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` with `403 Forbidden`. This is what actually stops DNS rebinding: an attacker page that resolves a hostname to your loopback address can make the browser send a same-origin request, but it can't make the browser send an allowed `Host`. CORS then still rejects cross-origin browser requests with `403 Forbidden` on top of that. Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected by the CORS check, but their `Host` is still checked (a request with no `Host` header at all is allowed, since browsers always send one).
+- **The `Host` allowlist is the DNS-rebinding guard.** A `Host` header allowlist guard runs first, ahead of every other plugin, and rejects any request whose `Host` isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` with `403 Forbidden`. This is what actually stops DNS rebinding: an attacker page that resolves a hostname to your loopback address can make the browser send a same-origin request, but it can't make the browser send an allowed `Host`. `Origin`/CORS validation is only a browser defence on top: it rejects cross-origin browser requests with `403 Forbidden`, but it is neither rebinding protection nor authentication. Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected by the CORS check, but their `Host` is still checked (a request with no `Host` header at all is allowed, since browsers always send one).
 - **Bind to loopback when running locally.** For a direct (non-Docker) JAR run, set `MCP_HTTP_HOST=127.0.0.1` so the server binds loopback only. The default is `0.0.0.0` because Docker port-mapping requires the server to bind all interfaces *inside* the container — control host exposure via the `-p` mapping instead (the examples above publish as `127.0.0.1:3001:3001` so the port is reachable only from the local host). Use `-p 3001:3001` only when you intentionally need access from other hosts, and only behind a reverse proxy / mTLS.
-- **The `/mcp` endpoint is unauthenticated** (see the warning above). Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
+- **Credentials, not network position, are the real boundary.** In a credential mode `/mcp` checks the bearer token and binds each MCP session to the principal that opened it. In a local mode (see the note above) the only protection is the network boundary, so keep it on loopback or behind an authenticating reverse proxy before exposing it to untrusted callers.
 
 ---
 
@@ -643,9 +663,9 @@ Expected: `/api/v1/health` → `200`; the authenticated calls **without** the he
 ### Notes & troubleshooting
 
 - **`401` on every authenticated call** almost always means the hash in `api-tokens.yaml` doesn't match your token — re-run step 1 (usually the trailing-newline gotcha).
-- **The `/mcp` endpoint stays open** even with the API enabled (MCP clients don't send the REST token). Keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
+- **`/mcp` follows the API's mode.** In bearer mode `/mcp` requires the same token as `/api/v1` (send it as the `Authorization` header on the MCP registration, see Step 9); in unauthenticated mode it is open like the REST API, so keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
 - **Rotating a token:** generate a new one (step 1), replace `token_sha256`, then restart the container (`docker restart task-orchestrator-http`). Tokens are read once at startup.
-- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server; to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
+- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server (as the `local` principal, via `MCP_ALLOW_UNAUTHENTICATED=true`); to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
 
 See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and scopes, JWKS mode, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env-var reference.
 
