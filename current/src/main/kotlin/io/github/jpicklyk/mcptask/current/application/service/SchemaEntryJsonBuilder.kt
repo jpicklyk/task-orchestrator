@@ -103,6 +103,9 @@ fun buildFullSchemaEntriesJson(
                 if (entry.independentOf.isNotEmpty()) {
                     put("independentOf", JsonArray(entry.independentOf.map { JsonPrimitive(it) }))
                 }
+                if (entry.shared) {
+                    put("shared", JsonPrimitive(true))
+                }
             }
         }
     )
