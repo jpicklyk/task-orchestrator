@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report
 
+import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupCounts
+import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.ContentionKind
 import io.github.jpicklyk.mcptask.current.application.port.ContentionPage
 import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
@@ -8,8 +10,10 @@ import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesPage
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
+import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RunCost
+import io.github.jpicklyk.mcptask.current.application.port.SubtreeEventSpan
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
 import io.github.jpicklyk.mcptask.current.application.port.UsagePage
 import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
@@ -346,6 +350,113 @@ class SqliteReportQueries(
             }
         }
 
+    override suspend fun subtreeEventSpan(anchorId: UUID): SubtreeEventSpan? =
+        databaseManager.readTx {
+            // ONE statement: the subtree entities (SUBTREE_CTES), then MIN/MAX over their events via idx_events_entity_seq.
+            selectSql(
+                "$SUBTREE_CTES SELECT MIN(e.occurred_at), MAX(e.occurred_at) FROM events e " +
+                    "WHERE e.entity_id IN (SELECT id FROM ents)",
+                listOf(TextColumnType() to hex(anchorId))
+            ) { rs ->
+                listOfNotNull(
+                    if (rs.next()) {
+                        val first = rs.getString(1)
+                        val last = rs.getString(2)
+                        if (first != null && last != null) SubtreeEventSpan(UtcTimestamp.parse(first), UtcTimestamp.parse(last)) else null
+                    } else {
+                        null
+                    }
+                )
+            }.firstOrNull()
+        }
+
+    /**
+     * ONE statement. SUBTREE_CTES walks the subtree once; `ev` materializes the subtree events of the window (entity
+     * index per subtree item or current note); `tids` turns the subtree ids into the lower-case hyphenated text
+     * `target_ids` holds, once on the subtree side; `hits` is the DISTINCT set of matching `call_log` keys:
+     * - target path, prefiltered on `idx_call_log_root_at` by the anchor's root, then by no root (a call naming several
+     *   roots records none), each expanding `target_ids` with `json_each` and matching against `tids`;
+     * - req path: the `req_id` of every subtree event in the window, by primary key.
+     * The cost row then sums each matching row once. Every `?` is bound in the order it appears.
+     */
+    override suspend fun anchorRollup(query: AnchorRollupQuery): AnchorRollupCounts =
+        databaseManager.readTx {
+            val since = TextColumnType() to UtcTimestamp.format(query.since)
+            val until = TextColumnType() to UtcTimestamp.format(query.until)
+            val scopeSql = StringBuilder()
+            val scopeArgs = ArrayList<Pair<IColumnType<*>, Any?>>()
+            query.scopeRootIds?.let { roots ->
+                scopeSql.append(" AND c.root_id IN (${WorkViewSql.ID_SET_SELECT})")
+                scopeArgs += WorkViewSql.idSetArgument(roots)
+            }
+            val scope = scopeSql.toString()
+            val args = ArrayList<Pair<IColumnType<*>, Any?>>()
+            args += TextColumnType() to hex(query.anchorId)
+            args += since
+            args += until
+            args += TextColumnType() to hex(query.rootId)
+            args += since
+            args += until
+            args += scopeArgs
+            args += since
+            args += until
+            args += scopeArgs
+            args += since
+            args += until
+            args += scopeArgs
+            val tid =
+                "lower(substr(hex(id), 1, 8) || '-' || substr(hex(id), 9, 4) || '-' || substr(hex(id), 13, 4) || '-' || " +
+                    "substr(hex(id), 17, 4) || '-' || substr(hex(id), 21))"
+            val targetMatch = "c.target_ids IS NOT NULL AND j.value IN (SELECT tid FROM tids)"
+            val roles = LinkedHashMap<String, Long>()
+            var events = LongArray(FIGURES)
+            var cost = LongArray(FIGURES)
+            selectSql(
+                "$SUBTREE_CTES, " +
+                    "ev AS MATERIALIZED (SELECT e.type AS t, e.req_id AS req, e.data AS data FROM events e " +
+                    "WHERE e.entity_id IN (SELECT id FROM ents) AND e.occurred_at >= ? AND e.occurred_at < ?), " +
+                    "tids AS MATERIALIZED (SELECT $tid AS tid FROM sub), " +
+                    "hits AS (SELECT c.req_id AS rid FROM call_log c, json_each(c.target_ids) j " +
+                    "WHERE c.root_id = unhex(?) AND c.at >= ? AND c.at < ? AND $targetMatch$scope " +
+                    "UNION SELECT c.req_id FROM call_log c, json_each(c.target_ids) j " +
+                    "WHERE c.root_id IS NULL AND c.at >= ? AND c.at < ? AND $targetMatch$scope " +
+                    "UNION SELECT c.req_id FROM call_log c " +
+                    "WHERE c.req_id IN (SELECT req FROM ev WHERE req IS NOT NULL) AND c.at >= ? AND c.at < ?$scope) " +
+                    "SELECT 'role' AS m, w.role AS k, COUNT(*) AS n1, 0 AS n2, 0 AS n3, 0 AS n4, 0 AS n5 FROM work_items w " +
+                    "WHERE w.id IN (SELECT id FROM sub) AND w.role IS NOT NULL GROUP BY w.role " +
+                    "UNION ALL SELECT 'events', NULL, " +
+                    "COALESCE(SUM(t = '${DomainEvent.ITEM_TRANSITIONED}'), 0), " +
+                    "COALESCE(SUM(t = '${DomainEvent.ITEM_TRANSITIONED}' AND json_extract(data, '$.origin') = '$CASCADE'), 0), " +
+                    "COALESCE(SUM(t = '${DomainEvent.TRANSITION_REJECTED}'), 0), " +
+                    "COALESCE(SUM(t = '${DomainEvent.NOTE_UPSERTED}'), 0), 0 FROM ev " +
+                    "UNION ALL SELECT 'cost', NULL, COUNT(*), COALESCE(SUM(outcome = 'error'), 0), " +
+                    "COALESCE(SUM(attempts - 1), 0), COALESCE(SUM(response_bytes), 0), COALESCE(SUM(response_tokens_est), 0) " +
+                    "FROM call_log WHERE req_id IN (SELECT rid FROM hits)",
+                args
+            ) { rs ->
+                while (rs.next()) {
+                    val figures = LongArray(FIGURES) { rs.getLong("n${it + 1}") }
+                    when (rs.getString("m")) {
+                        "role" -> rs.getString("k")?.let { roles[it] = figures[0] }
+                        "events" -> events = figures
+                        "cost" -> cost = figures
+                    }
+                }
+            }
+            AnchorRollupCounts(
+                roleCounts = roles,
+                transitions = events[0],
+                cascades = events[1],
+                rejected = events[2],
+                notesWritten = events[3],
+                calls = cost[0],
+                errors = cost[1],
+                retries = cost[2],
+                responseBytes = cost[3],
+                responseTokensEst = cost[4]
+            )
+        }
+
     private fun filter(query: UsageQuery): Pair<String, List<Pair<IColumnType<*>, Any?>>> =
         filter(query.since, query.until, query.scopeRootIds, query.rootId)
 
@@ -449,7 +560,30 @@ class SqliteReportQueries(
 
         /** The result-row label prefix of a `relatedFollowThrough` signal (a fixed literal, never caller input). */
         const val FOLLOW_THROUGH_PREFIX = "followThrough:"
+
+        /**
+         * The subtree CTEs of a rollup, bound to ONE `?` (the anchor id as 32 hex digits): `walk` descends `parent_id`
+         * (idx_work_items_parent) from the anchor, inclusive, bounded at [MAX_TRAVERSAL_DEPTH] levels so cyclic data
+         * terminates; `sub` is the distinct subtree item set, whatever each item's lifecycle; `ents` adds the CURRENT
+         * notes of those items (idx_notes_item), since a note event's entity is the note.
+         */
+        const val SUBTREE_CTES =
+            "WITH RECURSIVE walk(id, lvl) AS (SELECT id, 0 FROM work_items WHERE id = unhex(?) " +
+                "UNION SELECT c.id, w.lvl + 1 FROM work_items c JOIN walk w ON c.parent_id = w.id " +
+                "WHERE w.lvl < $MAX_TRAVERSAL_DEPTH), " +
+                "sub AS MATERIALIZED (SELECT DISTINCT id FROM walk), " +
+                "ents AS MATERIALIZED (SELECT id FROM sub UNION SELECT n.id FROM notes n " +
+                "WHERE n.work_item_id IN (SELECT id FROM sub))"
+
+        /** `data.origin` of a cascaded `item.transitioned`. */
+        const val CASCADE = "cascade"
+
+        /** The numeric columns `n1`..`n5` of an anchor-rollup result row. */
+        const val FIGURES = 5
     }
+
+    /** [id] as the 32 lower-case hex digits `unhex(?)` takes. */
+    private fun hex(id: UUID): String = id.toString().replace("-", "")
 
     /**
      * The FROM source of an `events` read aliased `e`: a tag-scoped read inner-joins the item row (`w`), so an event whose

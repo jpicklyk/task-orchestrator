@@ -182,6 +182,50 @@ data class RunCost(
     }
 }
 
+/** The first and last `occurred_at` among the events of a subtree (see [AnchorRollupQuery] for which events). */
+data class SubtreeEventSpan(
+    val first: Instant,
+    val last: Instant
+)
+
+/**
+ * One anchor-rollup computation (plan R16) over the subtree of [anchorId]: the anchor and every descendant, walked
+ * through `parent_id`, whatever their lifecycle.
+ *
+ * - Items are current state and are not windowed; a lifecycle-free item (NULL role) is not counted, its descendants are.
+ * - Subtree events are the events whose `entity_id` is a subtree item or a CURRENT note of one (a `note.upserted` event
+ *   carries the note id), with `since <= occurred_at < until`. An upsert of a since-deleted note is not counted.
+ * - Cost counts the DISTINCT `call_log` rows with `since <= at < until` whose `target_ids` names a subtree item, or whose
+ *   `req_id` is that of a subtree event in the window. [rootId] (the anchor's project root) prefilters the target path:
+ *   a call naming a subtree item carries that root or none. Visibility is that of [UsageQuery.scopeRootIds]: null admits
+ *   every row, a set admits only rows whose `root_id` is in it (a row with no root never).
+ */
+data class AnchorRollupQuery(
+    val anchorId: UUID,
+    val rootId: UUID,
+    val since: Instant,
+    val until: Instant,
+    val scopeRootIds: Set<UUID>?
+)
+
+/**
+ * The raw counts of one anchor rollup. [roleCounts] maps a stored role to its subtree item count (lifecycle-free items
+ * absent, zero roles absent). [transitions] counts `item.transitioned`, [cascades] those with origin `cascade`,
+ * [rejected] `transition.rejected`, [notesWritten] `note.upserted`; the cost figures follow the usage definitions.
+ */
+data class AnchorRollupCounts(
+    val roleCounts: Map<String, Long>,
+    val transitions: Long,
+    val cascades: Long,
+    val rejected: Long,
+    val notesWritten: Long,
+    val calls: Long,
+    val errors: Long,
+    val retries: Long,
+    val responseBytes: Long,
+    val responseTokensEst: Long
+)
+
 /**
  * One `waste` computation over the `call_log` rows with `since <= at < until` (plan R12, W6 brief 3.1).
  *
@@ -276,4 +320,13 @@ interface ReportQueries {
      * the rollup: it applies no access scope, so its caller decides who may see the figure.
      */
     suspend fun runCost(runId: UUID): RunCost
+
+    /**
+     * The first and last event of the subtree of [anchorId] (the events [AnchorRollupQuery] counts, unwindowed), or null
+     * when it has none: the default rollup window. Applies no access scope.
+     */
+    suspend fun subtreeEventSpan(anchorId: UUID): SubtreeEventSpan?
+
+    /** The anchor-rollup counts [query] asks for, in ONE statement whatever the subtree, event and call counts. */
+    suspend fun anchorRollup(query: AnchorRollupQuery): AnchorRollupCounts
 }

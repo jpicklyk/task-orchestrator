@@ -41,7 +41,7 @@ class DirectorVisibilityGuardTest {
         mapOf(
             "items_read" to setOf("get", "list", "overview", "blocked"),
             "deps_read" to setOf("list", "graph"),
-            "report" to setOf("usage", "gates", "contention", "waste"),
+            "report" to setOf("usage", "gates", "contention", "waste", "rollup"),
             "runs_read" to setOf("get", "list"),
             "runs_write" to setOf("open", "close", "pause", "resume")
         )
