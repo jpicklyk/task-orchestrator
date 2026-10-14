@@ -120,7 +120,7 @@ internal class ReportFixture(
         title: String,
         tags: String? = null
     ) {
-        database.repositoryProvider().workItemRepository().create(WorkItem(id = id, title = title, tags = tags))
+        database.repositoryProvider().workItemRepository().create(WorkItem(id = id, title = title, tags = tags, rootId = id))
     }
 
     /** A depth-1 child of [parent]; its root is the parent. */
@@ -641,17 +641,39 @@ class ReportServiceTest {
     }
 
     @Test
-    fun `S9 a window of exactly 31 days is accepted and one millisecond more is invalid`(): Unit =
+    fun `S9 a window of exactly 31 days is raw and one millisecond more is served on the daily basis`(): Unit =
         runBlocking {
-            fx.ok(asRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00Z"))
-            assertInvalid(asRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00.001Z"), "31d + 1ms")
+            val raw = fx.ok(asRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00Z"))
+            assertEquals("raw", raw.window.basis, "31 days exactly")
+
+            val daily = fx.ok(asRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00.001Z"))
+            assertEquals("daily", daily.window.basis, "31d + 1ms")
+            assertEquals(Instant.parse("2026-09-01T00:00:00Z"), daily.window.since)
+            assertEquals(Instant.parse("2026-10-02T00:00:00.001Z"), daily.window.until, "no fold exists, so until is not ceiled")
         }
 
     @Test
-    fun `S9 the 31 day cap also applies when until defaults to now`(): Unit =
+    fun `S9 the 31 day raw cap also applies when until defaults to now`(): Unit =
         runBlocking {
-            fx.ok(asRequest(since = now.minus(Duration.ofDays(31)).toString()))
-            assertInvalid(asRequest(since = now.minus(Duration.ofDays(31)).minusMillis(1).toString()), "now - 31d - 1ms")
+            val raw = fx.ok(asRequest(since = now.minus(Duration.ofDays(31)).toString()))
+            assertEquals("raw", raw.window.basis)
+            assertEquals(now.minus(Duration.ofDays(31)), raw.window.since, "a raw window is not aligned")
+
+            val daily = fx.ok(asRequest(since = now.minus(Duration.ofDays(31)).minusMillis(1).toString()))
+            assertEquals("daily", daily.window.basis, "now - 31d - 1ms")
+            assertEquals(Instant.parse("2026-09-12T00:00:00Z"), daily.window.since, "floored to its UTC midnight")
+            assertEquals(now, daily.window.until)
+        }
+
+    @Test
+    fun `S9 a window of exactly 400 days is accepted and 400 days plus one millisecond is invalid at the since pointer`(): Unit =
+        runBlocking {
+            val ok = fx.ok(asRequest(since = now.minus(Duration.ofDays(400)).toString()))
+            assertEquals("daily", ok.window.basis)
+
+            val error = err(fx.usage(asRequest(since = now.minus(Duration.ofDays(400)).minusMillis(1).toString())))
+            assertEquals(ErrorCode.INVALID_REQUEST, error.code, "now - 400d - 1ms")
+            assertTrue("/since" in assertIs<ErrorDetail.InvalidRequest>(error.detail).fields.map { it.field })
         }
 
     @Test

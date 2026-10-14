@@ -21,8 +21,16 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
  * [principalsVisible] says whether the caller may see other principals' ids in an aggregate (the `report` `principal`
  * grouping, W6 decision 10). It follows ADMIN in [capabilities] unless a transport passes it explicitly.
  *
+ * [rootWritesAllowed] says whether the caller may create a new depth-0 root or move an item to the top level (a
+ * new project). A root restriction lists project roots and cannot own a root that does not exist yet, so under any
+ * restricted scope this follows ADMIN in [capabilities]; an unrestricted scope always allows it. An [unauthenticated]
+ * access never allows it.
+ *
  * [sessionId] is the caller's MCP session (null on REST and stdio); the dispatcher copies it into
  * `CallContext.sessionId` so the call's provenance carries it.
+ *
+ * REST and MCP build one from the authenticated principal the same way (its scope and capabilities); stdio and the
+ * local `/mcp` mode use [LOCAL].
  */
 data class CallAccess(
     val principal: CallPrincipal?,
@@ -30,7 +38,8 @@ data class CallAccess(
     val capabilities: Set<ApiCapability>,
     val attributionVisible: Boolean = false,
     val principalsVisible: Boolean = ApiCapability.ADMIN in capabilities,
-    val sessionId: String? = null
+    val sessionId: String? = null,
+    val rootWritesAllowed: Boolean = scope.isUnrestricted || ApiCapability.ADMIN in capabilities
 ) {
     companion object {
         /** The access of the local principal (`local`, ADMIN, unrestricted): stdio and the local `/mcp` mode. */
@@ -39,6 +48,6 @@ data class CallAccess(
 
         /** An access with no principal: every call made with it is `unauthenticated`. */
         fun unauthenticated(sessionId: String? = null): CallAccess =
-            CallAccess(null, AccessScope.unrestricted(), emptySet(), sessionId = sessionId)
+            CallAccess(null, AccessScope.unrestricted(), emptySet(), sessionId = sessionId, rootWritesAllowed = false)
     }
 }

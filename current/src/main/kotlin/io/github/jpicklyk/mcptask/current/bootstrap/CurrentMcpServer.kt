@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
@@ -12,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
+import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
@@ -82,6 +84,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Paths
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -223,6 +226,8 @@ class CurrentMcpServer(
                             composition.apiWiring.apiConfig,
                             composition.apiWiring.tokenEntries,
                             composition.apiWiring.jwksVerifier,
+                            // JWT scope.root_ids anchors must be depth-0 roots (R15), on /mcp exactly as on /api/v1.
+                            { ids -> ScopeGuard.nonRoots(ids, composition.apiWiring.effectiveProvider.workItemRepository()) },
                             { Instant.now() },
                             appConfig.mcpAllowUnauthenticated
                         )
@@ -255,10 +260,17 @@ class CurrentMcpServer(
             }
 
             // Rows older than the RETENTION_* windows are pruned in the background, first pass after readiness, then
-            // hourly. Built and registered here (AFTER Close Database, so the LIFO drain stops it first) but launched
+            // hourly. Each pass first folds the completed days of call_log into usage_daily. Built and registered here (AFTER
+            // Close Database, so the LIFO drain stops it first) but launched
             // only by the transport runner once the readiness marker is written: a start that fails before that
             // (unknown transport, bind failure, marker write) never has a pass in flight while run() closes the pools.
-            val retentionPruner = RetentionPruner(composition.unitOfWork, appConfig.retention, appConfig.apiSseBufferSize)
+            val retentionPruner =
+                RetentionPruner(
+                    composition.unitOfWork,
+                    appConfig.retention,
+                    appConfig.apiSseBufferSize,
+                    folder = UsageDailyFolder(composition.unitOfWork)
+                )
             shutdownCoordinator.addCleanupAction("Stop Retention Pruner") {
                 runBlocking { retentionPruner.stop() }
             }
@@ -782,6 +794,8 @@ internal fun Application.installRestApiRoutes(
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
+    val nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { ids -> ScopeGuard.nonRoots(ids, effectiveProvider.workItemRepository()) }
+
     // The REST safety net: an uncaught /api/v1 exception becomes a 500 `internal` body, never exception text.
     // Installed only here (API enabled) and scoped to /api/v1 paths, so API-disabled deployments are untouched.
     installApiStatusPages()
@@ -798,6 +812,8 @@ internal fun Application.installRestApiRoutes(
                 // plugin's Jwks branch finds a null verifier and 401s every request (the bug being
                 // fixed). Null in bearer/disabled modes — the plugin never reads it there.
                 this.jwksVerifier = jwksVerifier
+                // JWT scope.root_ids anchors must be depth-0 roots (R15); bearer anchors are validated at startup.
+                this.nonRootAnchors = nonRootAnchors
                 // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
                 // /api/v1, REGARDLESS of where install() is textually called (registering a route
                 // in a separate, sibling route("/api/v1") block does NOT scope it away — Ktor has
@@ -854,6 +870,7 @@ internal fun Application.installRestApiRoutes(
                     tokenEntries = apiTokenEntries,
                     allowQueryToken = allowQueryToken,
                     jwksVerifier = jwksVerifier,
+                    nonRootAnchors = nonRootAnchors,
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                     authConfig = apiConfig,
                     workItemRepository = effectiveProvider.workItemRepository(),

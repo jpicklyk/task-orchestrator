@@ -487,6 +487,39 @@ object BaselineDataset {
             "binary_version" to "3.16.0"
         )
 
+        // V33: one usage_daily row and the usage_fold singleton, every column non-empty, non-default and pairwise distinct. Both
+        // tables are absent below V33, so insert drops them there. The metric literals only have to be distinct (the pairwise guard
+        // compares columns of the one row, so `errors` differs from `calls` although this row is an error group).
+        insert(
+            conn,
+            "usage_daily",
+            "day" to "2026-03-02",
+            "root_id" to id("root:usage-daily"),
+            "tool" to "advance_item",
+            "operation" to "complete",
+            "surface" to "mcp",
+            "host" to "host-usage-daily",
+            "principal_kind" to "subagent",
+            "outcome" to "error",
+            "error_code" to "gate_blocked",
+            "calls" to 9,
+            "errors" to 4,
+            "request_bytes" to 3100,
+            "response_bytes" to 12900,
+            "response_tokens_est" to 3225,
+            "latency_ms_sum" to 411,
+            "latency_ms_max" to 87,
+            "retries" to 5,
+            "replays" to 2
+        )
+        insert(
+            conn,
+            "usage_fold",
+            "singleton" to 1,
+            "folded_through" to "2026-03-02",
+            "folded_at" to "2026-03-03 04:05:06.789"
+        )
+
         insert(
             conn,
             "project_config",

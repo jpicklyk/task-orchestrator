@@ -151,7 +151,7 @@ class ParitySeeder(
                     title = title,
                     parentId = parent,
                     depth = (p?.depth ?: -1) + 1,
-                    rootId = p?.let { it.rootId ?: it.id },
+                    rootId = p?.let { it.rootId ?: it.id } ?: id,
                     tags = tags
                 )
             )

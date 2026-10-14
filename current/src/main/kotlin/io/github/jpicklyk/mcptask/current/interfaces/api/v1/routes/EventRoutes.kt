@@ -163,6 +163,9 @@ private class SseInlineAuthConfig {
      */
     var jwksVerifier: JwksApiVerifier? = null
 
+    /** Anchor validation for JWT `scope.root_ids` (see [CredentialResolver]); the default admits every anchor. */
+    var nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() }
+
     /**
      * The resolved REST auth mode. When [ApiAuthConfig.Unauthenticated] (opt-in:
      * `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`), every SSE connection is attached
@@ -204,7 +207,12 @@ private val sseInlineAuthPlugin =
         val authConfig = pluginConfig.authConfig
         val workItemRepository = pluginConfig.workItemRepository
         val resolver =
-            credentialResolverFor(authConfig, pluginConfig.tokenEntries, pluginConfig.jwksVerifier) { Instant.now() }
+            credentialResolverFor(
+                authConfig,
+                pluginConfig.tokenEntries,
+                pluginConfig.jwksVerifier,
+                pluginConfig.nonRootAnchors
+            ) { Instant.now() }
 
         onCall { call ->
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
@@ -303,6 +311,8 @@ private val sseInlineAuthPlugin =
  * ## Scope filtering
  * `?root=<uuid>[&root=<uuid>...]` restricts events to those root subtrees.
  * Effective subscription = intersection(`?root=`, `principal.scope.rootIds`).
+ * Roots only: an event is delivered when its stamped `root_id` is a subscribed root (every listed id is a depth-0
+ * project root, validated at startup for bearer tokens and per credential for JWTs); there is no ancestor walk.
  *
  * That intersection is enforced FAIL-CLOSED, in the pre-flight plugin (see the note above on why
  * a rejection cannot come from inside `sse { }`):
@@ -350,6 +360,8 @@ private val sseInlineAuthPlugin =
  * @param allowQueryToken Whether `?token=` query param is accepted.
  * @param jwksVerifier REST JWT verifier for jwks mode; null in bearer/disabled modes. When set,
  *   a token not found among [tokenEntries] is validated as a JWT.
+ * @param nonRootAnchors JWT `scope.root_ids` anchor validation; a token whose anchors include an existing non-root
+ *   resolves to nothing (401).
  * @param authCheckIntervalSeconds Interval between token-expiry checks.
  * @param authConfig The resolved REST auth mode; only [ApiAuthConfig.Unauthenticated] changes
  *   behavior here (bypasses the token check entirely). Defaults to [ApiAuthConfig.Disabled],
@@ -366,6 +378,7 @@ fun Route.eventRoutes(
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
     allowQueryToken: Boolean = false,
     jwksVerifier: JwksApiVerifier? = null,
+    nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() },
     authCheckIntervalSeconds: Int = 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
@@ -378,6 +391,7 @@ fun Route.eventRoutes(
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
             this.jwksVerifier = jwksVerifier
+            this.nonRootAnchors = nonRootAnchors
             this.authConfig = authConfig
             this.workItemRepository = workItemRepository
         }

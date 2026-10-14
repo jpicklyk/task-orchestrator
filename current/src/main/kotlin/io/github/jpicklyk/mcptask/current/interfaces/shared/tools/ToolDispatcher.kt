@@ -100,7 +100,8 @@ class ToolDispatcher(
                     access.attributionVisible,
                     access.principalsVisible,
                     profile = profile.wire,
-                    sessionId = access.sessionId
+                    sessionId = access.sessionId,
+                    rootWritesAllowed = access.rootWritesAllowed
                 )
 
             when (val describe = describeFlag(arguments)) {

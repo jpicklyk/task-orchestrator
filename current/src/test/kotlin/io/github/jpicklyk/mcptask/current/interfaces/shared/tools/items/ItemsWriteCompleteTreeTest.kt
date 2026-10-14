@@ -94,7 +94,8 @@ class ItemsWriteCompleteTreeTest {
     private suspend fun IwKit.claimed(
         title: String,
         parent: WorkItem? = null,
-        by: String = "other-agent-77"
+        by: String = "other-agent-77",
+        id: UUID = UUID.randomUUID()
     ): WorkItem {
         val claimedAt = farFuture.minusSeconds(60)
         val item =
@@ -103,7 +104,8 @@ class ItemsWriteCompleteTreeTest {
                 role = Role.QUEUE,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                id = id,
+                rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 claimedBy = by,
                 claimedAt = claimedAt,
                 claimExpiresAt = farFuture,

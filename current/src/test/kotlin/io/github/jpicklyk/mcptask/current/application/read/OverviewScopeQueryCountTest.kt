@@ -83,7 +83,8 @@ class OverviewScopeQueryCountTest {
             role: Role = Role.QUEUE,
             parent: WorkItem? = null,
             tags: String? = null,
-            claimedBy: String? = null
+            claimedBy: String? = null,
+            id: UUID = UUID.randomUUID()
         ): WorkItem {
             val expires = if (claimedBy != null) t.plusSeconds(300) else null
             val claimedAt = expires?.minusSeconds(60)
@@ -93,7 +94,8 @@ class OverviewScopeQueryCountTest {
                     role = role,
                     parentId = parent?.id,
                     depth = (parent?.depth ?: -1) + 1,
-                    rootId = parent?.let { it.rootId ?: it.id },
+                    id = id,
+                    rootId = parent?.let { it.rootId ?: it.id } ?: id,
                     tags = tags,
                     claimedBy = claimedBy,
                     claimedAt = claimedAt,

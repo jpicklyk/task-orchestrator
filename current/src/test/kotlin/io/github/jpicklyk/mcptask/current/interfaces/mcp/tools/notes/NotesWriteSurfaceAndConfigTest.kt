@@ -135,14 +135,17 @@ class NotesWriteSurfaceAndConfigTest {
 
     private suspend fun seed(
         title: String,
-        parent: WorkItem? = null
+        parent: WorkItem? = null,
+        id: UUID = UUID.randomUUID(),
+        stamped: Boolean = true
     ): WorkItem =
         db.repositoryProvider().workItemRepository().create(
             WorkItem(
                 title = title,
                 parentId = parent?.id,
                 depth = if (parent == null) 0 else parent.depth + 1,
-                rootId = parent?.let { it.rootId ?: it.id }
+                id = id,
+                rootId = if (stamped) parent?.let { it.rootId ?: it.id } ?: id else parent?.rootId
             )
         )
 
@@ -253,7 +256,7 @@ class NotesWriteSurfaceAndConfigTest {
         runBlocking {
             val root = seed("failing root")
             val underRoot = seed("under the failing root", parent = root)
-            val rootless = seed("no root")
+            val rootless = seed("no root", stamped = false)
             val ctx =
                 ToolExecutionContext(
                     db.repositoryProvider(),

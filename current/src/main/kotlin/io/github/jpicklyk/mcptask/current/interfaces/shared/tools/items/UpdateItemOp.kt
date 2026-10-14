@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
@@ -12,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
@@ -137,15 +135,12 @@ private suspend fun WriteScope.updateItem(
             clearParent -> ParentChange.MoveToRoot
             else -> ParentChange.Keep
         }
-    // Reparent targets are authorized like a create-time parent; a move to root leaves the item its own root, which
-    // a root-scoped caller may do only when the item itself is a listed root (the 3.x rule).
+    // Reparent targets are authorized like a create-time parent; a move to root makes the item a new project root, which
+    // only an unrestricted scope or ADMIN may do (clearing the parent of an item that already is a root is a no-op).
     if (newParent != null && newParent != existing.parentId) {
         (checkItemScope(env, ctx, newParent) as? Outcome.Err)?.let { return it }
-    } else if (newParent == null && clearParent && existing.parentId != null) {
-        val roots = ctx.scope.rootIds
-        if (roots != null && id !in roots) {
-            return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() }))
-        }
+    } else if (newParent == null && clearParent && existing.parentId != null && !ctx.rootWritesAllowed) {
+        return Outcome.Err(rootWriteForbidden(ctx))
     }
 
     val command =

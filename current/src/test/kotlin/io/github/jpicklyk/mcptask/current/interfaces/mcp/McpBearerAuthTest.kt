@@ -285,7 +285,16 @@ internal class McpAuthHttpFixture(
             entries: Map<HashBytes, BearerTokenStore.TokenEntry>,
             clock: () -> Instant = { Instant.now() }
         ): McpAuthMode {
-            val resolution = McpAuthMode.resolve("http", ApiAuthConfig.Bearer(tokens = entries), entries, null, clock, false)
+            val resolution =
+                McpAuthMode.resolve(
+                    "http",
+                    ApiAuthConfig.Bearer(tokens = entries),
+                    entries,
+                    null,
+                    { emptySet() },
+                    clock,
+                    false
+                )
             return assertIs<McpAuthResolution.Resolved>(resolution).mode
         }
 
@@ -668,7 +677,7 @@ class McpBearerAuthTest {
                 algorithms = listOf("RS256"),
                 cacheTtlSeconds = 300
             )
-        val resolution = McpAuthMode.resolve("http", jwks, emptyMap(), null, { Instant.now() }, false)
+        val resolution = McpAuthMode.resolve("http", jwks, emptyMap(), null, { emptySet() }, { Instant.now() }, false)
         val mode = assertIs<McpAuthResolution.Resolved>(resolution).mode
         testApplication {
             application { with(f) { mount(mode) } }

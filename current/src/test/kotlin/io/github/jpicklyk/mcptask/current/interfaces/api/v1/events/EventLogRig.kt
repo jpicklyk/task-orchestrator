@@ -26,6 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertTrue
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 
 /** The `data` column of an event row as a JSON object. */
 internal fun EventRecord.payload(): JsonObject = Json.parseToJsonElement(data).jsonObject
@@ -88,19 +89,26 @@ internal class EventLogRig(
             is Outcome.Err -> error("unit '$op' failed: ${outcome.error.message}")
         }
 
-    /** Seeds an item through the undecorated provider (no event rows). A child inherits its parent's root. */
+    /**
+     * Seeds an item through the undecorated provider (no event rows). A child inherits its parent's root and a
+     * depth-0 item roots at its own id, as production create paths stamp; `stamped = false` leaves a depth-0 item
+     * with a null `root_id` (a legacy/orphan row) for scenarios that need one.
+     */
     suspend fun seed(
         title: String,
         parent: WorkItem? = null,
         role: Role = Role.QUEUE,
         tags: String? = null,
+        id: UUID = UUID.randomUUID(),
+        stamped: Boolean = true,
     ): WorkItem =
         raw.workItemRepository().create(
             WorkItem(
                 title = title,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                id = id,
+                rootId = if (stamped) parent?.let { it.rootId ?: it.id } ?: id else parent?.rootId,
                 role = role,
                 tags = tags,
                 type = tags?.substringBefore(",")?.trim(),

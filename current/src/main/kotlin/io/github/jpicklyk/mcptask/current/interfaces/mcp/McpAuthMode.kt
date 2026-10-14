@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashByt
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.credentialResolverFor
 import java.time.Instant
+import java.util.UUID
 
 /**
  * How `/mcp` establishes its caller (R14).
@@ -14,7 +15,8 @@ import java.time.Instant
  * - [Local]: every request runs as the local principal (`local`, ADMIN, unrestricted). Stdio, HTTP with
  *   `API_AUTH_MODE=none`, and HTTP with the API disabled under the `MCP_ALLOW_UNAUTHENTICATED=true` opt-in.
  * - [Credential]: every request must present a bearer credential that [resolver] resolves (R10's one pipeline, the
- *   same as REST). A null [resolver] (JWKS mode without a verifier) fails every credential closed, exactly as REST.
+ *   same as REST, including the R15 check that a JWT's `scope.root_ids` anchors are depth-0 roots). A null [resolver]
+ *   (JWKS mode without a verifier) fails every credential closed, exactly as REST.
  */
 sealed interface McpAuthMode {
     data object Local : McpAuthMode
@@ -34,13 +36,16 @@ sealed interface McpAuthMode {
          * - `http` + [ApiAuthConfig.Unauthenticated] -> [Local];
          * - `http` + [ApiAuthConfig.Disabled] -> [Local] when [allowUnauthenticated], else [McpAuthResolution.Refused]
          *   naming `MCP_ALLOW_UNAUTHENTICATED` (the caller fails startup);
-         * - `http` + [ApiAuthConfig.Bearer] / [ApiAuthConfig.Jwks] -> [Credential] over the REST resolver.
+         * - `http` + [ApiAuthConfig.Bearer] / [ApiAuthConfig.Jwks] -> [Credential] over the REST resolver, which
+         *   refuses a JWT whose `scope.root_ids` include an existing non-root per [nonRootAnchors] (the same check REST
+         *   applies; required, so no wiring can skip it).
          */
         fun resolve(
             transport: String,
             apiConfig: ApiAuthConfig,
             tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
             jwksVerifier: JwksApiVerifier?,
+            nonRootAnchors: suspend (Set<UUID>) -> Set<UUID>,
             clock: () -> Instant,
             allowUnauthenticated: Boolean
         ): McpAuthResolution {
@@ -59,7 +64,9 @@ sealed interface McpAuthMode {
                         )
                     }
                 is ApiAuthConfig.Bearer, is ApiAuthConfig.Jwks ->
-                    McpAuthResolution.Resolved(Credential(credentialResolverFor(apiConfig, tokenEntries, jwksVerifier, clock)))
+                    McpAuthResolution.Resolved(
+                        Credential(credentialResolverFor(apiConfig, tokenEntries, jwksVerifier, nonRootAnchors, clock))
+                    )
             }
         }
 

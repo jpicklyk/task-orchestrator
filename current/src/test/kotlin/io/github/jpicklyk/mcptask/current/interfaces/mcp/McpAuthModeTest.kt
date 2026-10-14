@@ -77,7 +77,7 @@ class McpAuthModeTest {
         api: ApiAuthConfig,
         allow: Boolean,
         entries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap()
-    ): McpAuthResolution = McpAuthMode.resolve(transport, api, entries, null, clock, allow)
+    ): McpAuthResolution = McpAuthMode.resolve(transport, api, entries, null, { emptySet() }, clock, allow)
 
     private fun mode(resolution: McpAuthResolution): McpAuthMode = assertIs<McpAuthResolution.Resolved>(resolution).mode
 

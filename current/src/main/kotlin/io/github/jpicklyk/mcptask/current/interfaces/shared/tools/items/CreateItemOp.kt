@@ -4,12 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
@@ -69,13 +67,9 @@ private suspend fun WriteScope.createItem(
     val parentId: UUID? =
         when (val ref = req.parentId) {
             null -> {
-                // A root create has no parent to anchor on: the new id can never be a listed root, and under a
-                // tag scope the tags it is created WITH must carry a listed tag.
-                val roots = ctx.scope.rootIds
-                if (roots != null) return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() }))
-                if (!tagsSatisfyScope(req.tags, ctx.scope)) {
-                    return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.TAG, ctx.scope.tagsInclude))
-                }
+                // A depth-0 create founds a new project: no restricted scope owns it (it can never be a listed root),
+                // so it needs an unrestricted scope or ADMIN.
+                if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
                 null
             }
             else -> {

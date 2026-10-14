@@ -60,6 +60,9 @@ class ApiAuthPluginConfig {
      */
     var tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap()
 
+    /** Anchor validation for JWT `scope.root_ids` (see [CredentialResolver]); the default admits every anchor. */
+    var nonRootAnchors: suspend (Set<java.util.UUID>) -> Set<java.util.UUID> = { emptySet() }
+
     /** Injectable clock for expiry testing in bearer mode. */
     var clock: () -> java.time.Instant = { java.time.Instant.now() }
 
@@ -120,7 +123,8 @@ val ApiBearerAuth =
     ) {
         val logger = LoggerFactory.getLogger("ApiBearerAuth")
         val config = pluginConfig
-        val resolver = credentialResolverFor(config.authConfig, config.tokenEntries, config.jwksVerifier, config.clock)
+        val resolver =
+            credentialResolverFor(config.authConfig, config.tokenEntries, config.jwksVerifier, config.nonRootAnchors, config.clock)
 
         onCall { call ->
             val authConfig = config.authConfig
@@ -191,14 +195,15 @@ internal fun credentialResolverFor(
     authConfig: ApiAuthConfig,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
     jwksVerifier: JwksApiVerifier?,
+    nonRootAnchors: suspend (Set<java.util.UUID>) -> Set<java.util.UUID>,
     clock: () -> java.time.Instant
 ): CredentialResolver? =
     when (authConfig) {
-        is ApiAuthConfig.Bearer -> CredentialResolver(tokenEntries, null, clock)
-        is ApiAuthConfig.Jwks -> jwksVerifier?.let { CredentialResolver(emptyMap(), it, clock) }
+        is ApiAuthConfig.Bearer -> CredentialResolver(tokenEntries, null, nonRootAnchors, clock)
+        is ApiAuthConfig.Jwks -> jwksVerifier?.let { CredentialResolver(emptyMap(), it, nonRootAnchors, clock) }
         // The SSE route resolves in Disabled mode too (tests wire it without the REST plugin); it then accepts
         // whichever source is configured, exactly as before the resolver existed.
-        is ApiAuthConfig.Disabled -> CredentialResolver(tokenEntries, jwksVerifier, clock)
+        is ApiAuthConfig.Disabled -> CredentialResolver(tokenEntries, jwksVerifier, nonRootAnchors, clock)
         is ApiAuthConfig.Unauthenticated -> null
     }
 

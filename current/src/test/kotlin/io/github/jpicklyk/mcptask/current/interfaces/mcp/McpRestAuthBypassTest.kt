@@ -90,7 +90,7 @@ class McpRestAuthBypassTest {
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             val provider = inMemoryProvider()
-            val resolution = McpAuthMode.resolve("http", apiConfig, entries, null, { Instant.now() }, false)
+            val resolution = McpAuthMode.resolve("http", apiConfig, entries, null, { emptySet() }, { Instant.now() }, false)
             val mcpAuth = assertIs<McpAuthResolution.Resolved>(resolution).mode
             application {
                 // Same wiring CurrentMcpServer uses in HTTP mode with the API enabled.

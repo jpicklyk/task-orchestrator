@@ -312,7 +312,7 @@ class SqliteClaimStore(
         if (rootIds?.isEmpty() == true || scope.rootIds?.isEmpty() == true) return ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
         val now = clock.unitNow()
         return databaseManager.readTx {
-            val resolved = rootIds?.let { ScopeResolver.resolve(it) }
+            val resolved = rootIds?.let { ScopeResolver.subtree(it) }
             if (resolved == ResolvedScope.Empty) return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
             val visible = visibilityConditions(scope) ?: return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
             val conditions = ArrayList<Op<Boolean>>(visible)
@@ -387,7 +387,7 @@ class SqliteClaimStore(
                 roleChangedAfter = query.roleChangedAfter,
                 roleChangedBefore = query.roleChangedBefore,
             )
-        val conditions = ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.resolve(it) }, now) ?: return null
+        val conditions = ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.subtree(it) }, now) ?: return null
         // The caller's access scope, in the same SQL as the selector (before paging and counting); nothing visible = nothing.
         conditions.addAll(visibilityConditions(scope) ?: return null)
         return conditions

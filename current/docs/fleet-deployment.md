@@ -15,7 +15,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the usage `report` only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport; all three are unauthenticated alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every tool its profile serves** — full read, write, and delete of the entire work-item graph.
 
 This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
 
@@ -236,7 +236,8 @@ Two columns added by migration V30 serve follow-through and rejection reports:
   `invalid_transition` with `detail.fromRole` `"none"` (an advance trigger, claim, heartbeat or flip refused for a
   lifecycle-free item) or the `invalid_request` refusing a BLOCKS dependency with a lifecycle-free endpoint. NULL
   when there were none, never 0. Both surfaces fill it (REST from `POST /api/v1/ops/{tool}` bodies; the other REST
-  routes are reads).
+  routes are reads). An idempotent replay row (`replayed = 1`) repeats the stored response and so carries the same
+  count, but it is not a new rejection: `report` `waste` leaves replayed rows out of `lifecycleFreeRejections`.
 
 Rows written before V30 read NULL in both columns.
 
@@ -299,7 +300,7 @@ never used for authorization, scoping or identity. See
 overrides that variable must add the header itself for browser clients to send it.
 
 `call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
-(`RETENTION_CALL_LOG_DAYS`) takes effect once call-log days are folded into `usage_daily`; see
+(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V33); see
 [Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
@@ -315,15 +316,23 @@ A background retention pruner deletes old rows from `events`, `resource_lease_hi
 pass right after startup (in the background, so it never delays readiness) and then hourly. Each pass deletes in
 write units of at most 5,000 rows and stops after 200,000 rows (a larger backlog drains over the following passes),
 so the writer lock is released between units and concurrent writes are delayed by one unit at most. Each pass logs
-one INFO line (`Retention pass: events=... lease_history=... call_log=... capped=...`); a failed pass logs a WARN and
+one INFO line (`Retention pass: events=... lease_history=... call_log=... folded_days=... capped=...`); a failed pass logs a WARN and
 the next pass retries. The pruner writes no `events` rows.
+
+Each pass first folds the completed UTC days of `call_log` into `usage_daily` (one row per day and dimension group), one
+write unit per day, before it deletes anything: today, and yesterday during the first hour after midnight UTC, are never
+folded, a day below the fold watermark (`usage_fold`) is never folded again, and at most 400 days fold per pass (the first
+pass on a long-lived volume folds the whole backlog, then deletes). A fold failure pauses only `call_log` pruning for that
+pass (events and lease history are still pruned; `call_log` deletes only folded days, so nothing unfolded goes) and logs a WARN
+naming the failed UTC day and the exception class and message, never row data. `usage_daily` serves the `report` `usage` select past the raw horizon (`window.basis` `daily`); it is not pruned and
+has no setting.
 
 | Variable | Default | Prunes |
 |----------|---------|--------|
 | `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `item.updated`, `transition.rejected`). |
 | `RETENTION_AUDIT_EVENTS_DAYS` | `0` | Audit-class `events` rows: `item.transitioned`, `item.created`, `item.deleted`, `item.reparented`, `item.pinned`, `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`, and the 3.x transition trail backfilled by V29. `0` keeps them forever. |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | Closed `resource_lease_history` intervals, by `released_at`. Open intervals are never pruned. |
-| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily`. Until that fold ships, no `call_log` row is pruned. |
+| `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily` (the pruner folds first; nothing is pruned while no day is folded). |
 
 Each value is a whole number of days; `0` keeps that data forever. Values are read once at startup (restart to
 change); a blank, negative or non-integer value fails startup with an error naming the variable.
@@ -420,8 +429,11 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
 - `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
-- `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
-  list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
+- `scope.root_ids` restricts access to specific project trees (absent/`null` = unrestricted; an empty
+  list `[]` fails startup rather than meaning unrestricted — omit the key instead). Every listed id must
+  be a depth-0 project root: an existing non-root anchor fails startup naming the token id and the anchor
+  (a JWT carrying one is a `401`, with one WARN per `sub`), and an anchor that does not exist yet is accepted
+  and admits nothing until the root is created. `scope` itself
   and `scope.tags_include` fail closed on any malformed shape too — see
   [api-rest.md §1](api-rest.md#1-authentication) for the full fail-closed rules
 - Token rotation requires a server restart (no live reload)
