@@ -33,12 +33,14 @@ fun interface SeatRule {
  * Note ownership, the write-time rule of who may replace or delete a note. Pure: [decide] reads nothing and writes
  * nothing; `NoteCommandService` runs it inside the write unit, against the note row re-read there.
  *
- * The owner is the note's stored actor id (the first writer, kept by every later write except on a shared key, where the
- * actor stays last-writer-wins). Rules, in order:
+ * The owner is the note's stored `owner_id`: the principal whose write created it, whose first write adopted an unowned
+ * note, or whose admin `takeover` moved it. It is kept by every other write, shared-key writes included. Attribution
+ * (`actor`, `verification`) is a separate record of the last writer and is never compared here. Rules, in order:
  * 1. `shared: true` on the key's schema entry: allowed.
  * 2. [SeatRule]: a refusal wins and is never overridden by `takeover`.
- * 3. First writer: a missing note, or a legacy note with no actor, is unowned (allowed); the note's owner `(actor id,
- *    seat)` equal to the caller's `(principalId, callerSeat)` (exact, case-sensitive) is allowed; any other caller is
+ * 3. A missing note is a create (allowed). A note with no owner (every pre-4.0 note) is adopted by a non-null caller
+ *    ([Decision.Adopted], takeover or not); a null caller leaves it unowned. An owner `(owner id, seat)` equal to the
+ *    caller's `(principalId, callerSeat)` (exact, case-sensitive) is allowed; any other caller is
  *    `note_owned_by_other`, unless `takeover` is authorized, which transfers the note to the caller.
  *
  * `takeover` is authorized eagerly, before any rule: a caller without the capability ([takeoverAllowed]) is
@@ -53,7 +55,15 @@ object NoteOwnership {
         /** The write may proceed; the note's ownership is unchanged. */
         data object Allowed : Decision
 
-        /** The write may proceed and moves the note from actor id [from] to actor id [to] (recorded as an audit event). */
+        /**
+         * The write may proceed and makes the caller the owner of an unowned existing note; [legacyActor] is that note's
+         * stored actor id (its pre-4.0 author), or null.
+         */
+        data class Adopted(
+            val legacyActor: String?
+        ) : Decision
+
+        /** The write may proceed and moves the note from owner [from] to owner [to] (recorded as an audit event). */
         data class Transferred(
             val from: String,
             val to: String
@@ -77,7 +87,11 @@ object NoteOwnership {
         if (takeover && caller?.assignmentId != null) return Outcome.Err(takeoverUnderSeat())
         if (entry?.shared == true) return Outcome.Ok(Decision.Allowed)
         seatRule.check(itemId, key, existing, callerSeat)?.let { return Outcome.Err(it) }
-        val owner = existing?.actorClaim?.id ?: return Outcome.Ok(Decision.Allowed)
+        if (existing == null) return Outcome.Ok(Decision.Allowed)
+        val owner = existing.ownerId
+        if (owner == null) {
+            return Outcome.Ok(if (caller != null) Decision.Adopted(existing.actorClaim?.id) else Decision.Allowed)
+        }
         if (caller != null && owner == caller.principalId && ownerSeat == callerSeat) return Outcome.Ok(Decision.Allowed)
         if (takeover && caller != null) return Outcome.Ok(Decision.Transferred(owner, caller.principalId))
         return Outcome.Err(ownedByOther(itemId, key, ownerSeat))

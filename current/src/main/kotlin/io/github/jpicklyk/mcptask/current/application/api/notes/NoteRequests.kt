@@ -56,7 +56,7 @@ data class NoteUpsertRequest(
     )
     val bodyFromFile: String? = null,
     @Doc(NoteDocs.EXPECTED_VERSION) val expectedVersion: Long? = null,
-    @Doc("Admin only: take over a note first written by another actor. Never with a seat token.") val takeover: Boolean? = null
+    @Doc("Admin only: take over a note owned by another principal. Never with a seat token.") val takeover: Boolean? = null
 )
 
 /** `notes_write delete`: remove one note. */

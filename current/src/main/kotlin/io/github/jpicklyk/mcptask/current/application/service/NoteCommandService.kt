@@ -223,7 +223,7 @@ class NoteCommandService(
                         )
                     }
                 val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
-                val transfer =
+                val decision =
                     when (
                         val decided =
                             NoteOwnership.decide(
@@ -238,11 +238,17 @@ class NoteCommandService(
                             )
                     ) {
                         is Outcome.Err -> return@writeUnit UnitResult.Rollback(decided)
-                        is Outcome.Ok -> decided.value as? NoteOwnership.Decision.Transferred
+                        is Outcome.Ok -> decided.value
                     }
                 cmd.expectedVersion?.let { expected ->
                     versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
                 }
+                val ownerId =
+                    when (decision) {
+                        is NoteOwnership.Decision.Adopted -> cmd.caller?.principalId
+                        is NoteOwnership.Decision.Transferred -> decision.to
+                        else -> if (existing == null) cmd.caller?.principalId else existing.ownerId
+                    }
                 val note =
                     try {
                         Note(
@@ -252,7 +258,8 @@ class NoteCommandService(
                             role = prepared.role,
                             body = prepared.body,
                             actorClaim = cmd.actorClaim,
-                            verification = cmd.verification
+                            verification = cmd.verification,
+                            ownerId = ownerId
                         )
                     } catch (e: ValidationException) {
                         return@writeUnit UnitResult.Rollback(
@@ -261,7 +268,13 @@ class NoteCommandService(
                     }
                 val stored = noteRepo.upsert(note)
                 val rootId = eventRootOf(item, repositoryProvider.workItemRepository())
-                if (transfer != null) events.record(noteOwnershipTransferredEvent(stored, rootId, transfer.from, transfer.to))
+                when (decision) {
+                    is NoteOwnership.Decision.Adopted ->
+                        events.record(noteOwnershipTransferredEvent(stored, rootId, null, ownerId!!, decision.legacyActor))
+                    is NoteOwnership.Decision.Transferred ->
+                        events.record(noteOwnershipTransferredEvent(stored, rootId, decision.from, decision.to))
+                    else -> Unit
+                }
                 events.record(noteUpsertedEvent(stored, rootId, cmd.bodyFromFile))
                 links.syncNote(stored.id, rootId, stored.body, existing?.body, now)
                 UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))

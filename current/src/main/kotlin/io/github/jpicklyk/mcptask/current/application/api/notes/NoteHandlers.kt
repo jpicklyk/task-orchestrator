@@ -273,7 +273,7 @@ object NoteHandlers {
             modifiedAt = note.modifiedAt,
             actor = if (ctx.attributionVisible) note.actorClaim else null,
             verification = if (ctx.attributionVisible) note.verification else null,
-            owner = if (ctx.attributionVisible) note.actorClaim?.let { NoteOwner(it.id) } else null
+            owner = if (ctx.attributionVisible) note.ownerId?.let { NoteOwner(it) } else null
         )
 
     private fun entry(
@@ -293,7 +293,7 @@ object NoteHandlers {
             modifiedAt = row.modifiedAt,
             actor = if (ctx.attributionVisible) row.actorClaim else null,
             verification = if (ctx.attributionVisible) row.verification else null,
-            owner = if (ctx.attributionVisible) row.actorClaim?.let { NoteOwner(it.id) } else null
+            owner = if (ctx.attributionVisible) row.ownerId?.let { NoteOwner(it) } else null
         )
 
     private fun noteNotFound(

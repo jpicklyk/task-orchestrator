@@ -34,13 +34,17 @@ internal fun noteUpsertedEvent(
         bodyFromFile = bodyFromFile
     )
 
-/** `note.ownership_transferred` for [note] under [root]: the actor id [from] gave the note up to [to]. */
+/**
+ * `note.ownership_transferred` for [note] under [root]: owner [from] (null for an unowned note, whose pre-4.0 author is
+ * [legacyActor]) gave the note up to [to].
+ */
 internal fun noteOwnershipTransferredEvent(
     note: Note,
     root: UUID,
-    from: String,
-    to: String
-): DomainEvent = DomainEvent.NoteOwnershipTransferred(note.id, root, note.itemId, note.key, from, to)
+    from: String?,
+    to: String,
+    legacyActor: String? = null
+): DomainEvent = DomainEvent.NoteOwnershipTransferred(note.id, root, note.itemId, note.key, from, to, legacyActor)
 
 /** `note.deleted` for [note] under [root]. */
 internal fun noteDeletedEvent(

@@ -976,6 +976,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   A per-root config that cannot be read answers `unavailable` (`retryAfterMs`). A config head that exists but cannot be loaded answers `config_invalid` (permanent).
 - **Attribution.** The note records the call's principal (`api:<id>` for a credential, `local` for the local
   principal) with its verification, on every transport; a body `actor` is `unknown_parameter`.
+- **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. Another principal's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other`; only an admin `takeover` moves an owned note. `notes_read` shows `owner{id}` under the attribution rule and omits it for an unowned note.
 
 ```json
 {
@@ -1008,7 +1009,7 @@ Create, replace or delete notes on work items, in batches. Every element commits
 | `body` | string | no | Inline note text (may be empty). Exactly one of body and bodyFromFile is required. |
 | `bodyFromFile` | string | no | Server-side path whose text becomes the body. Exactly one of body and bodyFromFile is required. Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; a regular UTF-8 file of at most 65536 bytes; CRLF becomes LF. An idempotency replay does not re-read the file. |
 | `expectedVersion` | integer | no | Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
-| `takeover` | boolean | no | Admin only: take over a note first written by another actor. Never with a seat token. |
+| `takeover` | boolean | no | Admin only: take over a note owned by another principal. Never with a seat token. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `note_owned_by_other`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_pinned_conflict`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 

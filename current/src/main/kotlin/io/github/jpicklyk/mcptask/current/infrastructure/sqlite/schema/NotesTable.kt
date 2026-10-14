@@ -38,6 +38,9 @@ object NotesTable : IdTable<UUID>("notes") {
     /** V28: 1 on create, +1 on every successful upsert of an existing note (written by the note store). */
     val version = long("version").default(1L)
 
+    /** V34: the owning principal id; NULL = unowned (every pre-4.0 note). */
+    val ownerId = text("owner_id").nullable()
+
     init {
         foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         uniqueIndex(itemId, key)

@@ -677,8 +677,8 @@ paths:
       description: |
         A thin translation to `notes_read select=list`: the answer is the response envelope, byte-equal to
         `POST /ops/notes_read` for the same arguments apart from `meta.reqId`. `data.items[]` are note summaries
-        `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?}` ordered by key
-        and never carry a body (read one with the single-note route). `actor` and `verification` are present only when
+        `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?, owner?}` ordered by key
+        and never carry a body (read one with the single-note route). `actor`, `verification` and `owner` (`{id}`, the owning principal; omitted for an unowned note) are present only when
         the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); `verification` is
         `{proofStatus (verified | verified_stale | issued | none | rejected), verifier?, reason?}`; proof evidence is never
         shown. `data.page` is `{total, truncated, next?}` with an opaque cursor (envelope amendment U22): `total` is the
@@ -745,7 +745,7 @@ paths:
       tags: [notes]
       description: |
         A thin translation to `notes_read select=get`: the answer is the response envelope whose `data` is
-        `{id, key, role, version, body, modifiedAt, actor?, verification?}`. The `ETag` response header is `"v{version}"`;
+        `{id, key, role, version, body, modifiedAt, actor?, verification?, owner?}`. The `ETag` response header is `"v{version}"`;
         an `If-None-Match` naming it (or `*`) answers 304 with no body. Writes have no resource route: use
         `POST /ops/notes_write` (`upsert`, `delete`, each with an optional `expectedVersion`; an `upsert` may carry the admin-only `takeover` flag, and a write to another principal's non-shared note is `note_owned_by_other`). The route takes no query
         parameter.
