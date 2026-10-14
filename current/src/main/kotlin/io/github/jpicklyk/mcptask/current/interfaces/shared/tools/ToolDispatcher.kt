@@ -4,17 +4,14 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.BatchElement
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.configName
 import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -23,14 +20,10 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -55,25 +48,23 @@ data class Dispatched(
  * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments.
  *
  * Order (task-scope D2):
- * 0. **Access** (Q6). A transport that authenticated the caller passes a [CallAccess]: its principal replaces the
- *    body `actor` (which is then ignored, never decoded), its scope reaches handlers as `CallContext.scope`, and
- *    its capabilities are checked against each select/op (`Set<ApiCapability>.grants`; ADMIN grants all). A
- *    select lacking the capability answers the whole call `forbidden`; an op element lacking it fails
- *    `forbidden` alone and is never executed or stored. `describe` needs no capability.
- * 1. **Actor lift** (D6). An absent `actor` is no principal. A present one is decoded strictly as
- *    `{id, kind, parent?, proof?}` (an unknown key is `unknown_parameter` `/actor/<key>`; a non-object,
- *    missing or wrong-typed member, or an unknown kind is `invalid_request` under `/actor`), then verified
- *    with the [ActorVerifier] and recorded on the call telemetry. No trust policy is applied here.
- * 2. **`describe`** (D7). It must be a boolean. `true` answers with [ToolDescriber.describe]; only `actor`
- *    and the selector (`select`, or `ops` whose elements hold only `op`) may narrow it, any other key is
- *    `invalid_request` "not allowed with describe".
+ * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`
+ *    before anything in the arguments is read (no describe, no selector, no decode). No request body names its own
+ *    actor: `actor` is an ordinary unknown key. The principal is recorded on the call telemetry.
+ * 1. **Access** (Q6). The access's scope reaches handlers as `CallContext.scope`, and its capabilities are checked
+ *    against each select/op (`Set<ApiCapability>.grants`; ADMIN grants all). A select lacking the capability answers
+ *    the whole call `forbidden`; an op element lacking it fails `forbidden` alone and is never executed or stored.
+ *    `describe` needs no capability.
+ * 2. **`describe`** (D7). It must be a boolean. `true` answers with [ToolDescriber.describe]; only the selector
+ *    (`select`, or `ops` whose elements hold only `op`) may narrow it, any other key is `invalid_request` "not allowed
+ *    with describe".
  * 3. **Selector** (D3). A missing `select` is `invalid_request` `/select` "is required"; an unknown or
  *    profile-hidden one is `invalid_request` `/select` listing the visible names (a hidden name looks
  *    absent, never `forbidden`).
  * 4. **Decode** with [RequestDecoder] (a field of another select/op is `unknown_parameter`, D4).
  * 5. **Run** inside `withConfigSession` and with the principal installed as the event actor ([withEventActor]), so
  *    every `events` row a select or op records is attributed to the caller (q18 D3: one install for every handler);
- *    an ops tool runs every element through [BatchRunner] (D5).
+ *    an ops tool runs every element through [BatchRunner] (D5), keyed elements under the principal's audited id.
  *
  * An escaping exception (D9): cancellation is rethrown; a persistence fault that translates to a code other
  * than `internal` is encoded as that error; anything else is the fixed `internal` envelope, the exception
@@ -81,7 +72,6 @@ data class Dispatched(
  */
 class ToolDispatcher(
     private val decoder: RequestDecoder,
-    private val actorVerifier: ActorVerifier,
     private val batchRunner: BatchRunner,
     private val env: ToolExecutionContext
 ) {
@@ -93,18 +83,14 @@ class ToolDispatcher(
         arguments: JsonObject,
         reqId: String,
         surface: String,
-        access: CallAccess = CallAccess.UNRESTRICTED
+        access: CallAccess = CallAccess.LOCAL
     ): Dispatched {
         // What the call log learns as dispatch progresses; kept when an exception escapes later.
         var operation: String? = null
         val batchSize = if (spec is OpsToolSpec<*>) (arguments["ops"] as? JsonArray)?.size else null
         return try {
-            val principal =
-                access.principal
-                    ?: when (val lifted = liftActor(arguments)) {
-                        is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
-                        is Outcome.Ok -> lifted.value
-                    }
+            val principal = access.principal ?: return Dispatched(EnvelopeEncoder.error(noPrincipal(), reqId), null, batchSize)
+            recordCallPrincipal(principal.claim, principal.verification)
             val ctx =
                 CallContext(
                     reqId,
@@ -113,7 +99,9 @@ class ToolDispatcher(
                     access.scope,
                     access.attributionVisible,
                     access.principalsVisible,
-                    profile = profile.wire
+                    profile = profile.wire,
+                    sessionId = access.sessionId,
+                    rootWritesAllowed = access.rootWritesAllowed
                 )
 
             when (val describe = describeFlag(arguments)) {
@@ -139,7 +127,7 @@ class ToolDispatcher(
                     val envelope =
                         when (val bound = select.decode(decoder, arguments)) {
                             is Outcome.Err -> EnvelopeEncoder.error(bound.error, reqId)
-                            is Outcome.Ok -> withEventActor(ctx.principal?.claim) { withConfigSession { bound.value.run(env, ctx) } }
+                            is Outcome.Ok -> withEventActor(ctx.principal.claim) { withConfigSession { bound.value.run(env, ctx) } }
                         }
                     Dispatched(envelope, select.name, null)
                 }
@@ -164,64 +152,6 @@ class ToolDispatcher(
         }
     }
 
-    // ---- actor ------------------------------------------------------------------------------------------
-
-    @Serializable
-    private data class ActorRequest(
-        val id: String,
-        val kind: KindWire,
-        val parent: String? = null,
-        val proof: String? = null
-    )
-
-    @Serializable
-    private enum class KindWire(
-        val kind: ActorKind
-    ) {
-        @SerialName("orchestrator")
-        ORCHESTRATOR(ActorKind.ORCHESTRATOR),
-
-        @SerialName("subagent")
-        SUBAGENT(ActorKind.SUBAGENT),
-
-        @SerialName("user")
-        USER(ActorKind.USER),
-
-        @SerialName("external")
-        EXTERNAL(ActorKind.EXTERNAL)
-    }
-
-    private suspend fun liftActor(arguments: JsonObject): Outcome<CallPrincipal?> {
-        val raw = arguments[ACTOR] ?: return Outcome.Ok(null)
-        val request =
-            when (val decoded = decoder.decode(ActorRequest.serializer(), raw, reserved = emptySet())) {
-                is Outcome.Err -> return Outcome.Err(prefix(decoded.error, "/$ACTOR"))
-                is Outcome.Ok -> decoded.value
-            }
-        // ActorClaim's own bounds, reported as field faults instead of its constructor's exception.
-        val bounds = ArrayList<FieldViolation>()
-        if (request.id.isBlank()) bounds.add(FieldViolation("/$ACTOR/id", "must not be blank", request.id))
-        if (request.id.length > MAX_ACTOR_ID) bounds.add(FieldViolation("/$ACTOR/id", "must be at most $MAX_ACTOR_ID characters"))
-        if ((request.parent?.length ?: 0) > MAX_ACTOR_ID) {
-            bounds.add(FieldViolation("/$ACTOR/parent", "must be at most $MAX_ACTOR_ID characters"))
-        }
-        if ((request.proof?.length ?: 0) > MAX_ACTOR_PROOF) {
-            bounds.add(FieldViolation("/$ACTOR/proof", "must be at most $MAX_ACTOR_PROOF characters"))
-        }
-        if (bounds.isNotEmpty()) return Outcome.Err(invalidFields(bounds))
-        val claim = ActorClaim(request.id, request.kind.kind, request.parent, request.proof)
-        // Forensic hash, computed here (not in the verifier) so every verifier gets identical evidence: set whenever a
-        // non-blank proof was presented, whatever the verification outcome. The raw proof itself is never persisted.
-        val verified = actorVerifier.verify(claim)
-        val verification =
-            claim.proof
-                ?.takeIf { it.isNotBlank() }
-                ?.let { verified.copy(proofSha256 = sha256Hex(it.toByteArray(Charsets.UTF_8))) }
-                ?: verified
-        recordCallPrincipal(claim, verification)
-        return Outcome.Ok(CallPrincipal(claim, verification))
-    }
-
     // ---- describe ---------------------------------------------------------------------------------------
 
     private fun describeFlag(arguments: JsonObject): Outcome<Boolean> {
@@ -240,7 +170,7 @@ class ToolDispatcher(
         val selector = if (spec is SelectToolSpec) SELECT else OPS
         val faults = ArrayList<FieldViolation>()
         for (key in arguments.keys) {
-            if (key != ACTOR && key != DESCRIBE && key != selector) faults.add(FieldViolation(pointer(key), NOT_WITH_DESCRIBE))
+            if (key != DESCRIBE && key != selector) faults.add(FieldViolation(pointer(key), NOT_WITH_DESCRIBE))
         }
         val only = LinkedHashSet<String>()
         var narrowed = false
@@ -362,9 +292,6 @@ class ToolDispatcher(
                 if (keyRaw != null && key == null) {
                     return@mapIndexed failed<R>(invalidField("$at/$IDEMPOTENCY_KEY", "must be a string", received(keyRaw)), obj)
                 }
-                if (key != null && ctx.principal == null) {
-                    return@mapIndexed failed<R>(invalidField("$at/$IDEMPOTENCY_KEY", "requires an actor"), obj)
-                }
                 // The fingerprint input: the element as sent, minus its key.
                 val fingerprint = JsonObject(obj.filterKeys { it != IDEMPOTENCY_KEY })
                 when (val bound = op.decode(decoder, obj)) {
@@ -380,9 +307,9 @@ class ToolDispatcher(
             }
         onOperation(operation)
 
-        val principalId = ctx.principal?.claim?.id ?: NO_PRINCIPAL
+        val principalId = ctx.principal.claim.id
         val execution =
-            withEventActor(ctx.principal?.claim) {
+            withEventActor(ctx.principal.claim) {
                 withConfigSession {
                     batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { index, pending ->
                         when (pending) {
@@ -397,8 +324,8 @@ class ToolDispatcher(
 
     /**
      * Re-roots the field pointers a handler reported for its element: a pointer starting with `/` is relative to the
-     * element (`/ttlSeconds` becomes `/ops/<index>/ttlSeconds`). `/actor` names the call's top-level actor, not an
-     * element field, and keeps its pointer; a field without a leading `/` is left as the handler wrote it.
+     * element (`/ttlSeconds` becomes `/ops/<index>/ttlSeconds`); a field without a leading `/` is left as the handler
+     * wrote it.
      */
     private fun <R> rootHandlerFields(
         outcome: Outcome<R>,
@@ -407,13 +334,7 @@ class ToolDispatcher(
         val error = (outcome as? Outcome.Err)?.error ?: return outcome
         val detail = error.detail as? ErrorDetail.InvalidRequest ?: return outcome
         val at = "/$OPS/$index"
-        return Outcome.Err(
-            invalidFields(
-                detail.fields.map { f ->
-                    if (f.field.startsWith("/") && f.field != ACTOR_POINTER) f.copy(field = at + f.field) else f
-                }
-            )
-        )
+        return Outcome.Err(invalidFields(detail.fields.map { f -> if (f.field.startsWith("/")) f.copy(field = at + f.field) else f }))
     }
 
     /** The `forbidden` error of a caller lacking [required]; `required` is the kebab-case capability name. */
@@ -447,13 +368,9 @@ class ToolDispatcher(
     ): FieldViolation = FieldViolation(field, "must be one of: ${visible.joinToString(", ")}", received(raw))
 
     companion object {
-        const val ACTOR = "actor"
         const val DESCRIBE = "describe"
         const val SELECT = "select"
         const val OPS = "ops"
-
-        /** The pointer of the call's top-level `actor`, which a handler may report as invalid (see [rootHandlerFields]). */
-        const val ACTOR_POINTER = "/actor"
         const val OP = "op"
         const val ATOMIC = "atomic"
         const val IDEMPOTENCY_KEY = "idempotencyKey"
@@ -465,18 +382,17 @@ class ToolDispatcher(
         const val MIXED_OPERATION = "mixed"
 
         /** The top-level keys an ops tool accepts. */
-        val OPS_TOP_LEVEL: Set<String> = setOf(ACTOR, DESCRIBE, OPS, ATOMIC)
+        val OPS_TOP_LEVEL: Set<String> = setOf(DESCRIBE, OPS, ATOMIC)
+
+        /** The message of a call refused because its transport established no principal. */
+        const val NO_PRINCIPAL_MESSAGE = "The call has no authenticated principal."
 
         private const val NOT_WITH_DESCRIBE = "not allowed with describe"
         private const val ROOT = "$"
         private const val MAX_RECEIVED = 100
 
-        /** [ActorClaim]'s own limits on `id`/`parent` and `proof`. */
-        private const val MAX_ACTOR_ID = 500
-        private const val MAX_ACTOR_PROOF = 10000
-
-        /** Principal id handed to [BatchRunner] when there is no actor; only unkeyed elements reach it then. */
-        private const val NO_PRINCIPAL = ""
+        /** The `unauthenticated` error of a call made without a principal; nothing in its arguments was read. */
+        private fun noPrincipal(): DomainError = DomainError(ErrorCode.UNAUTHENTICATED, NO_PRINCIPAL_MESSAGE)
 
         /** RFC 6901 pointer of a top-level key. */
         private fun pointer(key: String): String = "/" + key.replace("~", "~0").replace("/", "~1")

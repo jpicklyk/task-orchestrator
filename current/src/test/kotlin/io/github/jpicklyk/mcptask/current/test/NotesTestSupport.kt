@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -12,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -52,20 +50,18 @@ suspend fun ToolExecutionContext.putNote(
 
 /**
  * One 4.0 tool call through the real [buildToolDispatcher] at MCP surface, in [profile] (orchestration by default; a
- * director-only tool such as `report` needs DIRECTOR); returns the envelope body.
+ * director-only tool such as `report` needs DIRECTOR); returns the envelope body. With the default [access], a top-level
+ * `actor` fixture in [arguments] selects the caller and is removed first ([liftTestActor]).
  */
 suspend fun ToolExecutionContext.callTool(
     tool: String,
     arguments: JsonObject,
-    access: CallAccess = CallAccess.UNRESTRICTED,
+    access: CallAccess = CallAccess.LOCAL,
     profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())[tool]) { "no 4.0 tool named $tool" }
-    val dispatched =
-        withContext(ActorVerificationScope()) {
-            buildToolDispatcher(this@callTool).dispatch(spec, profile, arguments, "testreq0", "mcp", access)
-        }
-    return dispatched.envelope.body
+    val (args, effective) = if (access === CallAccess.LOCAL) liftTestActor(arguments) else arguments to access
+    return buildToolDispatcher(this).dispatch(spec, profile, args, "testreq0", "mcp", effective).envelope.body
 }
 
 /** A top-level `actor` argument. */
@@ -119,7 +115,7 @@ suspend fun ToolExecutionContext.upsertNoteVia(
 suspend fun ToolExecutionContext.getNoteVia(
     itemId: UUID,
     key: String,
-    access: CallAccess = CallAccess.UNRESTRICTED
+    access: CallAccess = CallAccess.LOCAL
 ): JsonObject =
     callTool(
         "notes_read",
@@ -134,7 +130,7 @@ suspend fun ToolExecutionContext.getNoteVia(
 /** `notes_read list` of an item's notes; the answer is the envelope body. */
 suspend fun ToolExecutionContext.listNotesVia(
     itemId: UUID,
-    access: CallAccess = CallAccess.UNRESTRICTED
+    access: CallAccess = CallAccess.LOCAL
 ): JsonObject =
     callTool(
         "notes_read",

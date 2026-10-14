@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
@@ -50,6 +51,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
@@ -267,6 +269,11 @@ class ServerComposition(
                 throw e
             }
 
+        // Every bearer entry's scope.root_ids anchor that EXISTS must be a depth-0 root. A missing anchor is accepted (it
+        // admits nothing until the project root is created through the running server). The database is already
+        // migrated here. JWT anchors are checked per credential by the CredentialResolver.
+        if (apiConfig is ApiAuthConfig.Bearer) validateBearerScopeAnchors(apiConfig, rawProvider)
+
         val allowQueryToken = appConfig.apiAllowQueryTokenForSse
         if (allowQueryToken) {
             logger.warn(
@@ -328,6 +335,25 @@ class ServerComposition(
             jwksVerifier = jwksVerifier,
             eventRecorder = recorder,
         )
+    }
+
+    /** Fails startup naming the token id and the anchor when a bearer entry's `scope.root_ids` names an existing non-root. */
+    private fun validateBearerScopeAnchors(
+        apiConfig: ApiAuthConfig.Bearer,
+        rawProvider: RepositoryProvider,
+    ) {
+        val anchors =
+            apiConfig.tokens.values.flatMap { entry ->
+                entry.principal.scope.rootIds
+                    .orEmpty()
+                    .map { entry.principal.id to it }
+            }
+        if (anchors.isEmpty()) return
+        val nonRoots = runBlocking { ScopeGuard.nonRoots(anchors.mapTo(HashSet()) { it.second }, rawProvider.workItemRepository()) }
+        val (tokenId, anchor) = anchors.firstOrNull { it.second in nonRoots } ?: return
+        val message = "API token file: token '$tokenId' scope.root_ids anchor $anchor is not a depth-0 root"
+        logger.error("REST API configuration error: {}", message)
+        throw IllegalArgumentException(message)
     }
 
     /**

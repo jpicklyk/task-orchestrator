@@ -440,7 +440,7 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `D-kind a lifted actor is recorded as an agent whatever kind it declares and no actor records no opener`() {
+    fun `D-kind a supplied principal is recorded as an agent whatever kind it declares and no principal records the local opener`() {
         val rig = rig(seeded)
         val withActor =
             mcp(
@@ -469,8 +469,11 @@ class RunsToolsSurfaceTest {
                 ToolProfile.ORCHESTRATION
             )
         assertFalse(anonymous.isError, anonymous.structured.toString())
-        assertFalse("openedBy" in anonymous.structured.toString(), "no actor, no opener: ${anonymous.structured}")
-        assertFalse("openedByKind" in anonymous.structured.toString(), anonymous.structured.toString())
+        assertTrue(
+            "\"openedBy\":\"local\"" in anonymous.structured.toString(),
+            "R14: a principal-less call runs as the local principal: ${anonymous.structured}"
+        )
+        assertTrue("\"openedByKind\":\"agent\"" in anonymous.structured.toString(), anonymous.structured.toString())
     }
 
     @Test

@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -164,10 +164,13 @@ private class SseInlineAuthConfig {
      */
     var jwksVerifier: JwksApiVerifier? = null
 
+    /** Anchor validation for JWT `scope.root_ids` (see [CredentialResolver]); the default admits every anchor. */
+    var nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() }
+
     /**
      * The resolved REST auth mode. When [ApiAuthConfig.Unauthenticated] (opt-in:
      * `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`), every SSE connection is attached
-     * [LOCAL_UNAUTH_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
+     * [LOCAL_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
      * Unauthenticated branch so unauthenticated mode does not 401 every SSE connection.
      */
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
@@ -205,7 +208,12 @@ private val sseInlineAuthPlugin =
         val authConfig = pluginConfig.authConfig
         val workItemRepository = pluginConfig.workItemRepository
         val resolver =
-            credentialResolverFor(authConfig, pluginConfig.tokenEntries, pluginConfig.jwksVerifier) { Instant.now() }
+            credentialResolverFor(
+                authConfig,
+                pluginConfig.tokenEntries,
+                pluginConfig.jwksVerifier,
+                pluginConfig.nonRootAnchors
+            ) { Instant.now() }
 
         onCall { call ->
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
@@ -213,8 +221,8 @@ private val sseInlineAuthPlugin =
             // mirrors ApiBearerAuth's Unauthenticated branch. Must run before the header/?token=
             // resolution below, or a credential-less SSE connection is 401'd in this mode too.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
-                if (respondIfRootQueryRejected(call, LOCAL_UNAUTH_PRINCIPAL)) return@onCall
-                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL.withHostOf(call))
+                if (respondIfRootQueryRejected(call, LOCAL_PRINCIPAL)) return@onCall
+                call.attributes.put(SsePrincipalKey, LOCAL_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 
@@ -304,6 +312,8 @@ private val sseInlineAuthPlugin =
  * ## Scope filtering
  * `?root=<uuid>[&root=<uuid>...]` restricts events to those root subtrees.
  * Effective subscription = intersection(`?root=`, `principal.scope.rootIds`).
+ * Roots only: an event is delivered when its stamped `root_id` is a subscribed root (every listed id is a depth-0
+ * project root, validated at startup for bearer tokens and per credential for JWTs); there is no ancestor walk.
  *
  * That intersection is enforced FAIL-CLOSED, in the pre-flight plugin (see the note above on why
  * a rejection cannot come from inside `sse { }`):
@@ -351,6 +361,8 @@ private val sseInlineAuthPlugin =
  * @param allowQueryToken Whether `?token=` query param is accepted.
  * @param jwksVerifier REST JWT verifier for jwks mode; null in bearer/disabled modes. When set,
  *   a token not found among [tokenEntries] is validated as a JWT.
+ * @param nonRootAnchors JWT `scope.root_ids` anchor validation; a token whose anchors include an existing non-root
+ *   resolves to nothing (401).
  * @param authCheckIntervalSeconds Interval between token-expiry checks.
  * @param authConfig The resolved REST auth mode; only [ApiAuthConfig.Unauthenticated] changes
  *   behavior here (bypasses the token check entirely). Defaults to [ApiAuthConfig.Disabled],
@@ -367,6 +379,7 @@ fun Route.eventRoutes(
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
     allowQueryToken: Boolean = false,
     jwksVerifier: JwksApiVerifier? = null,
+    nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() },
     authCheckIntervalSeconds: Int = 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
@@ -379,6 +392,7 @@ fun Route.eventRoutes(
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
             this.jwksVerifier = jwksVerifier
+            this.nonRootAnchors = nonRootAnchors
             this.authConfig = authConfig
             this.workItemRepository = workItemRepository
         }

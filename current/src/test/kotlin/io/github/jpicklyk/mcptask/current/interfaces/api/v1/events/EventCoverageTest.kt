@@ -134,8 +134,8 @@ class EventCoverageTest {
                     ?.title
             )
             assertTrue(row.seq > EventStore.SEQ_FLOOR)
-            assertNull(row.principalId, "an actorless write has null principal columns (F6)")
-            assertNull(row.principalKind)
+            assertEquals("local", row.principalId, "a write with no actor fixture runs as the local principal (R14)")
+            assertEquals("external", row.principalKind)
         }
 
     @Test
@@ -177,7 +177,7 @@ class EventCoverageTest {
             assertEquals(listOf("item.created", "item.pinned"), rows.types())
             for (row in rows) {
                 assertEquals("agent-p8", row.principalId, "${row.type} carries the call actor")
-                assertEquals("subagent", row.principalKind)
+                assertEquals("external", row.principalKind, "every transport principal is audited as external")
             }
         }
 
@@ -352,7 +352,7 @@ class EventCoverageTest {
     ): Unit =
         runBlocking {
             val rig = rig(dir)
-            val root = rig.seed("S15 root")
+            val root = rig.seed("S15 root", stamped = false)
             assertNull(root.rootId, "fixture: a depth-0 seed has no stored root id")
             val orphanChild =
                 rig.raw.workItemRepository().create(

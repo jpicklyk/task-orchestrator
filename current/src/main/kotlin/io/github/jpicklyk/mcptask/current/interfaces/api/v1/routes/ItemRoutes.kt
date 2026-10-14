@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagForVersion
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
@@ -125,9 +123,7 @@ private suspend fun ApplicationCall.dispatchItemsRead(
     arguments: JsonObject,
     reqId: String,
 ): EncodedEnvelope {
-    val principal =
-        attributes.getOrNull(ApiPrincipalKey)
-            ?: return EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId)
+    val principal = apiPrincipal()
     val spec = registry[ItemsReadTool.NAME] ?: error("the tool registry has no ${ItemsReadTool.NAME}")
     val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, principal.toCallAccess(redactNoteAttribution))
     return dispatched.envelope

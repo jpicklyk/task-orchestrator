@@ -12,10 +12,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import java.util.UUID
 
 /**
- * What a parity scenario is for (task-scope D4). Only [HAPPY] and [SCOPE_FORBIDDEN] count toward coverage; [OTHER] scenarios
- * (not-found, capability-forbidden, atomic, mixed batches) run through the same harness but satisfy neither requirement.
+ * What a parity scenario is for (task-scope D4). [HAPPY] and [SCOPE_FORBIDDEN] count toward the per-member coverage; an
+ * [UNAUTHENTICATED] scenario (R14) counts toward the per-TOOL coverage: the same call is sent over REST without an
+ * Authorization header and over MCP with an access that carries no principal, and both must answer 401 `unauthenticated` and
+ * write nothing. [OTHER] scenarios (not-found, capability-forbidden, atomic, mixed batches) run through the same harness but
+ * satisfy no requirement.
  */
-enum class ParityKind { HAPPY, SCOPE_FORBIDDEN, OTHER }
+enum class ParityKind { HAPPY, SCOPE_FORBIDDEN, UNAUTHENTICATED, OTHER }
 
 /**
  * A bearer token identity for a scenario. The REST leg authenticates with [raw]; the MCP leg is handed the same principal,
@@ -84,6 +87,7 @@ data class ScopeExempt(
 
 data class MissingParity(
     val tool: String,
+    /** The select or op name, or [ParityCoverage.TOOL_WIDE] for a requirement on the whole tool (UNAUTHENTICATED). */
     val member: String,
     val kind: ParityKind
 ) {
@@ -96,6 +100,9 @@ data class MissingParity(
  * [ScopeExempt].
  */
 object ParityCoverage {
+    /** The `member` of a [MissingParity] that names a whole tool rather than one select or op. */
+    const val TOOL_WIDE = "*"
+
     /** Every (tool name, select-or-op name) pair of [registry], in registration order. */
     fun members(registry: ToolRegistry): List<Pair<String, String>> =
         registry.tools.flatMap { spec ->
@@ -142,7 +149,7 @@ object ParityCoverage {
     }
 
     /**
-     * The required scenarios [scenarios] do not provide.
+     * The required scenarios [scenarios] do not provide: per member a HAPPY and a SCOPE_FORBIDDEN one, per tool an UNAUTHENTICATED one.
      *
      * @throws IllegalArgumentException for an exemption with a blank reason, or one naming a tool/member that is not registered
      */
@@ -164,6 +171,12 @@ object ParityCoverage {
                 val exempt = exemptions.any { it.tool == tool && it.member == member }
                 val scoped = mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted }
                 if (!exempt && !scoped) add(MissingParity(tool, member, ParityKind.SCOPE_FORBIDDEN))
+            }
+            // R14: every registered tool needs one UNAUTHENTICATED scenario; a scope exemption never waives it.
+            for (tool in registry.tools.map { it.name }.distinct()) {
+                if (scenarios.none { it.tool == tool && it.kind == ParityKind.UNAUTHENTICATED }) {
+                    add(MissingParity(tool, TOOL_WIDE, ParityKind.UNAUTHENTICATED))
+                }
             }
         }
     }
@@ -502,11 +515,14 @@ object ItemsReadParityScenarios {
  * `DocsParityScenarios`, run in `DocsParityTest`.
  */
 object ProductionParity {
-    val scenarios: List<ParityScenario> =
+    /** Every per-member scenario; the per-tool UNAUTHENTICATED scenarios are derived from these (R14). */
+    private val memberScenarios: List<ParityScenario> =
         ItemsWriteParity.scenarios + ItemsWriteTreeParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios +
             AdvanceParityScenarios.all +
             ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios + ConfigParityScenarios.scenarios +
             ReportParityScenarios.scenarios + RunsParityScenarios.scenarios
+
+    val scenarios: List<ParityScenario> = memberScenarios + UnauthenticatedParityScenarios.derive(memberScenarios)
     val exemptions: List<ScopeExempt> =
         NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
             DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions + ReportParityScenarios.exemptions +

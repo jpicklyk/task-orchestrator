@@ -36,11 +36,9 @@ import java.util.UUID
  * applies before the window), the rank order and the window. Nothing is filtered after the fact.
  *
  * **Access-scope pushdown.** The SQL predicates are written to be equivalent to the REST authorization rules:
- * - `rootIds`: an owning item is visible when its ancestor chain (itself included) contains a listed id. A listed
- *   id that is a stamped depth-0 root (`parent_id IS NULL AND root_id = id`, the same test as the item store's
- *   `ScopeResolver` fast path) admits every item whose denormalized `root_id` is that id (indexed); any other
- *   listed id (below root, or an unstamped root) admits its bounded subtree (recursive walk, cycle-bounded).
- *   Orphans (`root_id` NULL, not under a walked id) are never admitted.
+ * - `rootIds`: an owning item is visible when its denormalized, indexed `root_id` is a listed id (listed ids are
+ *   project roots by contract). No ancestor walk; an id that is not a root admits nothing, and an item with a NULL
+ *   `root_id` is never admitted.
  * - `traitsAny`: the owning item carries at least one listed trait name in `item_traits` (exact, case-sensitive).
  * - `principalTagsAny`: the owning item's comma-separated `tags` is split, every element trimmed of whitespace (the
  *   characters Kotlin's `Char.isWhitespace` accepts), and an element must EQUAL a listed tag: case-sensitive, no
@@ -376,18 +374,9 @@ class SqliteSearchEngine(
             var needsItemRow = false
             filter.rootIds?.let { roots ->
                 val placeholders = roots.joinToString(", ") { "?" }
-                // A stamped depth-0 root (parent_id NULL, root_id = its own id) admits its tree through the indexed
-                // root_id column; every other listed id (below root, unstamped, or missing) is walked.
-                ctes +=
-                    subtreeCte(
-                        "scope_subtree",
-                        "id IN ($placeholders) AND (parent_id IS NOT NULL OR root_id IS NULL OR root_id <> id)",
-                    )
-                roots.forEach { cteArgs += uuidType to it }
-                where +=
-                    "(wi.root_id IN (SELECT id FROM work_items" +
-                    " WHERE id IN ($placeholders) AND parent_id IS NULL AND root_id = id)" +
-                    " OR $owner IN (SELECT id FROM scope_subtree))"
+                // Roots only: the owning item's denormalized, indexed root_id must be a listed id. No walk; an id that
+                // is not a project root admits nothing.
+                where += "wi.root_id IN ($placeholders)"
                 roots.forEach { whereArgs += uuidType to it }
                 needsItemRow = true
             }

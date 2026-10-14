@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.blocksDep
 import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.relatesDep
@@ -178,7 +179,7 @@ class LifecycleFlipRuleTest {
                     put("actor", IW_ACTOR)
                     put("ops", JsonArray(listOf(element)))
                 }
-            return buildToolDispatcher(rig.ctx).dispatch(spec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp").envelope.body
+            return buildToolDispatcher(rig.ctx).dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp").envelope.body
         }
 
         fun column(

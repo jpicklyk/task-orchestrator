@@ -1175,12 +1175,17 @@ internal object RunsParityScenarios {
                 principalKind("coordinator,director,human"),
                 seed = seedOpenA
             ),
-            failed(
-                "close by a body actor named like the coordinator is still refused on the token principal",
+            sc(
+                "close by a body actor is unknown_parameter on /actor and stores nothing",
+                WRITE_TOOL,
                 "close",
+                ParityKind.OTHER,
                 other,
                 ops(close(ra, "cancelled"), top = ""","actor":{"id":"api:rw-coord","kind":"subagent"}"""),
-                principalKind("coordinator,director,human"),
+                400,
+                "unknown_parameter",
+                listOf("/actor"),
+                dbChanged = false,
                 seed = seedOpenA
             ),
             failed(
@@ -1718,7 +1723,7 @@ class RunsParityTest {
         for (name in listOf(
             "close by another service token is refused and the run stays open",
             "close cancelled by an agent token of another principal is refused",
-            "close by a body actor named like the coordinator is still refused on the token principal",
+            "close by a body actor is unknown_parameter on /actor and stores nothing",
             "mark that would be the 33rd mark of a run"
         )) {
             val o = harness.run(named(name))

@@ -179,12 +179,6 @@ class McpCallLogRootTest {
 
     private suspend fun write(vararg ops: JsonObject): CallToolResult = call("items_write", "ops" to JsonArray(ops.toList()))
 
-    private val actor: JsonObject =
-        buildJsonObject {
-            put("id", "agent-r2")
-            put("kind", "subagent")
-        }
-
     private fun transition(
         itemId: UUID,
         trigger: String,
@@ -197,8 +191,7 @@ class McpCallLogRootTest {
             if (key != null) put("idempotencyKey", key)
         }
 
-    private suspend fun advance(vararg ops: JsonObject): CallToolResult =
-        call("advance", "ops" to JsonArray(ops.toList()), "actor" to actor)
+    private suspend fun advance(vararg ops: JsonObject): CallToolResult = call("advance", "ops" to JsonArray(ops.toList()))
 
     /** Two roots, each with two children: the fixture that makes "which root" decidable. */
     private class Forest(

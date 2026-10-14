@@ -15,14 +15,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toCallPrincipal
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -44,6 +44,11 @@ import kotlin.test.assertTrue
  * Domain invariants satisfied by construction: a [Run] needs only its root, open instant and stall window (the rest default), which
  * are supplied; a [Principal] has no validation beyond its types; the call principal of a REST context is produced by the production
  * `toCallPrincipal()` from the same [Principal], so claim, verification and principal agree.
+ *
+ * Merge ruling (4), orchestrator-merge-rulings note: since R14 a principal-less CallContext no longer exists (the dispatcher refuses it), so
+ * the null-principal scenarios (no callerId, null openerKind, null matching null, anonymous coordinating) are removed by design and
+ * re-expressed with the local principal (id `local`, kind agent) or credential principals; the F1 lifted-actor spoof is replaced by its
+ * credential form (the same id with a different credential kind is not the coordinator).
  *
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
  */
@@ -82,8 +87,9 @@ class RunPermissionsTest {
         profile = profile
     )
 
-    private fun anonymous(profile: String? = "orchestration") =
-        CallContext(reqId = "perm-t", surface = "mcp", principal = null, profile = profile)
+    /** The local principal's context (the MCP default since R14): claim id `local`, credential kind agent. */
+    private fun local(profile: String? = "orchestration") =
+        CallContext(reqId = "perm-t", surface = "mcp", principal = LOCAL_PRINCIPAL.toCallPrincipal(), profile = profile)
 
     /** A run as the opener would have recorded it: an opener is always recorded with its kind, none with neither (D-kind). */
     private fun runOpenedBy(
@@ -100,10 +106,10 @@ class RunPermissionsTest {
     // ------------------------------------------------------------------ callerId
 
     @Test
-    fun `callerId is api-prefixed for a REST principal, the lifted id for an MCP actor and null without an actor`() {
+    fun `callerId is api-prefixed for a REST principal, the lifted id for an MCP actor and local for the local principal`() {
         assertEquals("api:rw-coord", RunPermissions.callerId(rest("rw-coord")))
         assertEquals("orchestrator-1", RunPermissions.callerId(lifted("orchestrator-1")))
-        assertNull(RunPermissions.callerId(anonymous()))
+        assertEquals("local", RunPermissions.callerId(local()))
     }
 
     @Test
@@ -137,9 +143,9 @@ class RunPermissionsTest {
     }
 
     @Test
-    fun `openerKind is null when there is no principal at all`() {
-        assertNull(RunPermissions.openerKind(anonymous()))
-        assertEquals("agent", RunPermissions.openerKind(lifted("x")), "control: with an actor it is not null")
+    fun `openerKind is agent for the local principal, the kind of its credential`() {
+        assertEquals("agent", RunPermissions.openerKind(local()))
+        assertEquals("service", RunPermissions.openerKind(rest("x", PrincipalKind.SERVICE)), "control: another credential kind differs")
     }
 
     // ------------------------------------------------------------------ isDirector (V3: a profile)
@@ -151,8 +157,8 @@ class RunPermissionsTest {
             assertFalse(RunPermissions.isDirector(rest("a", profile = profile)), "profile '$profile'")
         }
         assertTrue(RunPermissions.isDirector(lifted("a", profile = "director")), "an MCP call on the director profile is the director")
-        assertFalse(RunPermissions.isDirector(anonymous(profile = "orchestration")))
-        assertTrue(RunPermissions.isDirector(anonymous(profile = "director")), "the director is a profile, not a principal attribute")
+        assertFalse(RunPermissions.isDirector(local(profile = "orchestration")))
+        assertTrue(RunPermissions.isDirector(local(profile = "director")), "the director is a profile, not a principal attribute")
     }
 
     @Test
@@ -169,7 +175,7 @@ class RunPermissionsTest {
         assertTrue(RunPermissions.isHuman(rest("h", PrincipalKind.HUMAN)))
         assertFalse(RunPermissions.isHuman(rest("s", PrincipalKind.SERVICE)))
         assertFalse(RunPermissions.isHuman(rest("a", PrincipalKind.AGENT)))
-        assertFalse(RunPermissions.isHuman(anonymous()))
+        assertFalse(RunPermissions.isHuman(local()), "the local principal is an agent, never human")
     }
 
     @Test
@@ -200,14 +206,11 @@ class RunPermissionsTest {
     }
 
     @Test
-    fun `null matches null, so an anonymous call coordinates a run opened without an actor and no one else's`() {
-        assertTrue(RunPermissions.isCoordinator(anonymous(), runOpenedBy(null)), "D-coord: null matching null")
-        assertFalse(RunPermissions.isCoordinator(anonymous(), runOpenedBy("api:rw-coord")), "no actor is not the named opener")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord"), runOpenedBy(null)), "an actor is not the absent opener")
-        assertFalse(
-            RunPermissions.isCoordinator(lifted("orchestrator-1"), runOpenedBy(null)),
-            "control: a lifted actor is not the absent opener"
-        )
+    fun `the local principal coordinates only runs opened by local`() {
+        assertTrue(RunPermissions.isCoordinator(local(), runOpenedBy("local", "agent")), "opened by local as an agent")
+        assertFalse(RunPermissions.isCoordinator(local(), runOpenedBy("api:rw-coord")), "another opener's run")
+        assertFalse(RunPermissions.isCoordinator(local(), runOpenedBy("local", "service")), "the id local with another recorded kind")
+        assertFalse(RunPermissions.isCoordinator(rest("rw-coord"), runOpenedBy("local", "agent")), "another caller is not local")
     }
 
     @Test
@@ -252,10 +255,10 @@ class RunPermissionsTest {
     }
 
     @Test
-    fun `a lifted MCP actor declaring the api id of a REST opener is not the coordinator and cannot update its run`() {
-        // The spoof case: the run was opened by REST principal api:rw-coord (credential kind service).
+    fun `a credential with the same id but a different kind is not the coordinator and cannot update or close the run`() {
+        // The run was opened by REST principal api:rw-coord whose credential kind is service.
         val run = runOpenedBy("api:rw-coord", "service")
-        val spoof = lifted("api:rw-coord", ActorKind.SUBAGENT)
+        val spoof = rest("rw-coord", PrincipalKind.AGENT)
         assertEquals("api:rw-coord", RunPermissions.callerId(spoof), "the spoof carries the identical caller id")
         assertFalse(RunPermissions.isCoordinator(spoof, run))
         assertFalse(RunPermissions.mayUpdate(spoof, run), "update requires the coordinator, so the spoof is refused")
@@ -263,12 +266,10 @@ class RunPermissionsTest {
         val refusal = assertIs<ErrorDetail.Forbidden>(RunPermissions.refuse(RunPermissions.UPDATE_REQUIRED).detail)
         assertEquals(ForbiddenScope.PRINCIPAL_KIND, refusal.scope)
         assertEquals("coordinator", refusal.required)
-        // controls: the genuine REST opener is the coordinator, and a lifted actor that opened its own run is too
+        // controls: the genuine opener credential is the coordinator, and the local principal is for its own runs
         assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), run))
         assertTrue(RunPermissions.mayUpdate(rest("rw-coord", PrincipalKind.SERVICE), run))
-        assertTrue(RunPermissions.isCoordinator(lifted("orch-1"), runOpenedBy("orch-1", "agent")))
-        // a principal-less call matches only a run with no opener
-        assertFalse(RunPermissions.isCoordinator(anonymous(), run))
+        assertTrue(RunPermissions.isCoordinator(local(), runOpenedBy("local", "agent")))
     }
 
     // ------------------------------------------------------------------ the three rows, as a truth table
@@ -325,15 +326,13 @@ class RunPermissionsTest {
     }
 
     @Test
-    fun `an anonymous call coordinates a run opened without an actor, so it may close and update it but not pause it`() {
-        val unowned = runOpenedBy(null)
-        assertTrue(RunPermissions.mayClose(anonymous(), unowned))
-        assertTrue(RunPermissions.mayUpdate(anonymous(), unowned))
-        assertFalse(RunPermissions.mayPauseOrResume(anonymous()))
-        assertFalse(
-            RunPermissions.mayClose(anonymous(), runOpenedBy("api:rw-coord")),
-            "control: it does not coordinate a named opener's run"
-        )
+    fun `the local principal coordinates its own run, so it may close and update it but not pause it`() {
+        val own = runOpenedBy("local", "agent")
+        assertTrue(RunPermissions.mayClose(local(), own))
+        assertTrue(RunPermissions.mayUpdate(local(), own))
+        assertFalse(RunPermissions.mayPauseOrResume(local()))
+        assertTrue(RunPermissions.mayPauseOrResume(local(profile = "director")), "control: the director profile may pause")
+        assertFalse(RunPermissions.mayUpdate(local(), runOpenedBy("api:rw-coord")), "control: not a named opener's run")
     }
 
     // ------------------------------------------------------------------ refuse

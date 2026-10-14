@@ -95,14 +95,15 @@ class ProfileVisibilityAllowlistTest {
 
     private companion object {
         /**
-         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9's report usage (aggregates only) and R20's runs
-         * get, list, open, close, pause and resume. Nothing that can carry a note, document or transition body.
+         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9 report usage, R11 report gates and contention,
+         * R12 report waste (aggregates only) and R20's runs get, list, open, close, pause and resume. Nothing that can carry a
+         * note, document or transition body.
          */
         val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
             mapOf(
                 "items_read" to setOf("get", "list", "overview", "blocked"),
                 "deps_read" to setOf("list", "graph"),
-                "report" to setOf("usage"),
+                "report" to setOf("usage", "gates", "contention", "waste"),
                 "runs_read" to setOf("get", "list"),
                 "runs_write" to setOf("open", "close", "pause", "resume")
             )

@@ -158,7 +158,13 @@ class McpDirectorProfileTest {
     private fun Application.mountAll(
         s: Servers,
         appConfig: AppConfig = cfg()
-    ) = installMcpStreamableHttp(s.orchestration, appConfig, knowledgeServer = s.knowledge, directorServer = s.director)
+    ) = installMcpStreamableHttp(
+        s.orchestration,
+        appConfig,
+        knowledgeServer = s.knowledge,
+        directorServer = s.director,
+        mcpAuth = McpAuthMode.Local
+    )
 
     private class Reply(
         val status: HttpStatusCode,
@@ -290,7 +296,7 @@ class McpDirectorProfileTest {
             assertEquals(directorTools, names, "R5 AC3 and R9: exactly the director tools")
             assertEquals(directorSelects, listing.tool("items_read").enumOf("select"), "items_read director selects")
             assertEquals(setOf("list", "graph"), listing.tool("deps_read").enumOf("select"), "deps_read director selects")
-            assertEquals(setOf("usage"), listing.tool("report").enumOf("select"), "report director selects")
+            assertEquals(setOf("usage", "gates", "contention", "waste"), listing.tool("report").enumOf("select"), "report director selects")
         }
     }
 
@@ -607,7 +613,7 @@ class McpDirectorProfileTest {
     fun `S14 when no director server is passed the director path is not mounted and the others are unaffected`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val absent = client.rpc("/mcp/director", initializeBody)
             assertEquals(HttpStatusCode.NotFound, absent.status, "a null directorServer means /mcp/director is not mounted: ${absent.body}")
@@ -623,7 +629,7 @@ class McpDirectorProfileTest {
     fun `S14 a director server without a knowledge server mounts director only`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), directorServer = s.director) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), directorServer = s.director, mcpAuth = McpAuthMode.Local) }
 
             val (d, _) = client.handshake("/mcp/director")
             assertEquals(directorTools, client.listTools("/mcp/director", d).toolNames)
@@ -1043,7 +1049,16 @@ class McpDirectorProfileTest {
                 version = "test",
                 shutdownCoordinator = coordinator,
                 appConfig =
-                    appConfigFor("s4-http", "http", "director", mapOf("MCP_HTTP_HOST" to "127.0.0.1", "MCP_HTTP_PORT" to port.toString()))
+                    appConfigFor(
+                        "s4-http",
+                        "http",
+                        "director",
+                        mapOf(
+                            "MCP_HTTP_HOST" to "127.0.0.1",
+                            "MCP_HTTP_PORT" to port.toString(),
+                            "MCP_ALLOW_UNAUTHENTICATED" to "true"
+                        )
+                    )
             )
         val run = startRun(server)
         try {

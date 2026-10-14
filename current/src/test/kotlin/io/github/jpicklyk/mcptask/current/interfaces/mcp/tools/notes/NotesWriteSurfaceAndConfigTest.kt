@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -30,7 +29,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -127,7 +125,7 @@ class NotesWriteSurfaceAndConfigTest {
         arguments: JsonObject
     ): JsonObject {
         val spec = checkNotNull(ToolRegistry(buildToolSpecs())["notes_write"])
-        return withContext(ActorVerificationScope()) {
+        return run {
             buildToolDispatcher(ctx).dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "r2req000", surface)
         }.envelope.body
     }
@@ -137,14 +135,17 @@ class NotesWriteSurfaceAndConfigTest {
 
     private suspend fun seed(
         title: String,
-        parent: WorkItem? = null
+        parent: WorkItem? = null,
+        id: UUID = UUID.randomUUID(),
+        stamped: Boolean = true
     ): WorkItem =
         db.repositoryProvider().workItemRepository().create(
             WorkItem(
                 title = title,
                 parentId = parent?.id,
                 depth = if (parent == null) 0 else parent.depth + 1,
-                rootId = parent?.let { it.rootId ?: it.id }
+                id = id,
+                rootId = if (stamped) parent?.let { it.rootId ?: it.id } ?: id else parent?.rootId
             )
         )
 
@@ -255,7 +256,7 @@ class NotesWriteSurfaceAndConfigTest {
         runBlocking {
             val root = seed("failing root")
             val underRoot = seed("under the failing root", parent = root)
-            val rootless = seed("no root")
+            val rootless = seed("no root", stamped = false)
             val ctx =
                 ToolExecutionContext(
                     db.repositoryProvider(),

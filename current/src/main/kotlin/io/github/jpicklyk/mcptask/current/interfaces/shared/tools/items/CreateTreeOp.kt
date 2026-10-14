@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -18,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
@@ -90,16 +88,8 @@ private suspend fun WriteScope.createTree(
                     is Outcome.Ok -> r.value
                 }
         else -> {
-            // A new top-level root can never be a listed root, and under a tag scope it must be created with a listed tag.
-            val roots = ctx.scope.rootIds
-            if (roots != null) return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() }))
-            if (!tagsSatisfyScope(
-                    req.root.tags,
-                    ctx.scope
-                )
-            ) {
-                return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.TAG, ctx.scope.tagsInclude))
-            }
+            // A new top-level root founds a new project: unrestricted scope or ADMIN only.
+            if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
     }
     val request =
@@ -117,8 +107,8 @@ private suspend fun WriteScope.createTree(
             docSlug = req.docRef?.slug,
             // Matched against the tree's own root, never looked up: a foreign id is invalid_request, not an existence oracle.
             docRootRef = req.docRef?.rootId?.raw,
-            actorClaim = ctx.principal?.claim,
-            verification = ctx.principal?.verification
+            actorClaim = ctx.principal.claim,
+            verification = ctx.principal.verification
         )
     val service = workTreeService(env)
     val plan =

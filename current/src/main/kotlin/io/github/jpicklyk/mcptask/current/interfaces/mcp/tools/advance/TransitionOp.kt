@@ -83,7 +83,7 @@ private suspend fun WriteScope.runTransition(
             is Outcome.Ok -> loaded.value
         }
 
-    val claim = ctx.principal?.claim
+    val claim = ctx.principal.claim
     val outcome =
         try {
             env.advanceServiceFactory().forItem(item).advance(
@@ -91,7 +91,7 @@ private suspend fun WriteScope.runTransition(
                 trigger = req.trigger.wire,
                 summary = req.summary?.takeIf { it.isNotBlank() },
                 actorClaim = claim,
-                verification = ctx.principal?.verification,
+                verification = ctx.principal.verification,
                 degradedModePolicy = env.degradedModePolicy,
                 enforceOwnership = true,
                 credentialRefs = refs,

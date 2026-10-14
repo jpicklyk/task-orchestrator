@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
@@ -12,8 +13,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.RetentionPruner
+import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -29,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.directorOpsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
@@ -36,7 +40,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceR
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthResolution
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installHostAllowlist
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -75,6 +83,8 @@ import org.slf4j.LoggerFactory
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Paths
+import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -205,6 +215,29 @@ class CurrentMcpServer(
             // stays lifecycle-only.
             val composition =
                 ServerComposition(appConfig, databaseManager, shutdownCoordinator, extraDataSteps = extraDataSteps).build()
+            // How /mcp establishes its caller (R14). HTTP with the REST API disabled serves /mcp only under the
+            // MCP_ALLOW_UNAUTHENTICATED=true opt-in (V9); otherwise the start fails here, before any background worker,
+            // transport or readiness marker exists.
+            val mcpAuth =
+                when (
+                    val resolution =
+                        McpAuthMode.resolve(
+                            appConfig.mcpTransport,
+                            composition.apiWiring.apiConfig,
+                            composition.apiWiring.tokenEntries,
+                            composition.apiWiring.jwksVerifier,
+                            // JWT scope.root_ids anchors must be depth-0 roots (R15), on /mcp exactly as on /api/v1.
+                            { ids -> ScopeGuard.nonRoots(ids, composition.apiWiring.effectiveProvider.workItemRepository()) },
+                            { Instant.now() },
+                            appConfig.mcpAllowUnauthenticated
+                        )
+                ) {
+                    is McpAuthResolution.Refused -> {
+                        logger.error(resolution.detail)
+                        return@runBlocking Failed(Reason.MCP_AUTH, resolution.detail)
+                    }
+                    is McpAuthResolution.Resolved -> resolution.mode
+                }
             // Data steps run after Flyway and before anything else touches the data: no background writer, no
             // transport and no readiness marker exist yet. A failed step or an unapplied once step fails the start.
             try {
@@ -227,10 +260,17 @@ class CurrentMcpServer(
             }
 
             // Rows older than the RETENTION_* windows are pruned in the background, first pass after readiness, then
-            // hourly. Built and registered here (AFTER Close Database, so the LIFO drain stops it first) but launched
+            // hourly. Each pass first folds the completed days of call_log into usage_daily. Built and registered here (AFTER
+            // Close Database, so the LIFO drain stops it first) but launched
             // only by the transport runner once the readiness marker is written: a start that fails before that
             // (unknown transport, bind failure, marker write) never has a pass in flight while run() closes the pools.
-            val retentionPruner = RetentionPruner(composition.unitOfWork, appConfig.retention, appConfig.apiSseBufferSize)
+            val retentionPruner =
+                RetentionPruner(
+                    composition.unitOfWork,
+                    appConfig.retention,
+                    appConfig.apiSseBufferSize,
+                    folder = UsageDailyFolder(composition.unitOfWork)
+                )
             shutdownCoordinator.addCleanupAction("Stop Retention Pruner") {
                 runBlocking { retentionPruner.stop() }
             }
@@ -258,7 +298,15 @@ class CurrentMcpServer(
             val registry = ToolRegistry(buildToolSpecs())
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
             val toolDispatcher = buildToolDispatcher(toolContext)
-            val operationAdapter = McpOperationAdapter(toolDispatcher, callLog = callLogWriter)
+            // HTTP: a tool call runs as the principal its session is bound to (McpBearerAuth binds it). Stdio: the local principal.
+            val sessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution)
+            val stdioAccess = LOCAL_PRINCIPAL.toCallAccess(appConfig.apiRedactNoteAttribution)
+            val operationAdapter =
+                McpOperationAdapter(
+                    toolDispatcher,
+                    callLog = callLogWriter,
+                    access = if (appConfig.mcpTransport == "http") sessionPrincipals::access else { _ -> stdioAccess }
+                )
 
             fun serverFor(profile: ToolProfile): Server = buildProfileServer(profile, serverName, version, registry, operationAdapter)
             logger.info(
@@ -304,6 +352,8 @@ class CurrentMcpServer(
                             degradedModePolicy,
                             composition.actorAuthEnabled,
                             readinessMarker,
+                            mcpAuth,
+                            sessionPrincipals,
                             callLogWriter,
                             registry,
                             toolDispatcher,
@@ -415,6 +465,8 @@ class CurrentMcpServer(
         degradedModePolicy: DegradedModePolicy,
         actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
+        mcpAuth: McpAuthMode,
+        sessionPrincipals: McpSessionPrincipals,
         callLog: CallLogSink = CallLogSink.NONE,
         toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
         toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
@@ -424,36 +476,24 @@ class CurrentMcpServer(
         val port = appConfig.mcpHttpPort
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
-        // SECURITY WARNING: the /mcp Streamable HTTP endpoint is UNAUTHENTICATED by design — MCP
-        // clients reach it with no REST bearer token, so the ApiBearerAuth plugin exempts /mcp even
-        // when the REST API is enabled (see installRestApiRoutes / McpRestAuthBypassTest). Anyone who
-        // can reach $host:$port gets full read/write/delete via every MCP tool. This MUST be fronted
-        // by a reverse proxy / mTLS / network fencing before exposing the port. Bind is controlled by
-        // MCP_HTTP_HOST (default 0.0.0.0 so Docker port-mapping works; set 127.0.0.1 for loopback-only
-        // local runs). Logged loudly at startup so operators cannot miss it.
-        logger.warn(
-            "SECURITY: /mcp over HTTP is UNAUTHENTICATED. Anyone who can reach {}:{} has full " +
-                "read/write/delete access to all MCP tools. Front it with a reverse proxy, mTLS, or a " +
-                "private network — do NOT expose this port to untrusted callers. Bind address is set " +
-                "via MCP_HTTP_HOST (currently '{}'); use 127.0.0.1 for loopback-only local runs.",
-            host,
-            port,
-            host,
-        )
-        if (apiWiring.apiConfig !is ApiAuthConfig.Disabled) {
-            logger.warn(
-                "SECURITY: API_ENABLED=true authenticates /api/v1 routes but does NOT protect /mcp. " +
-                    "The /mcp endpoint remains unauthenticated regardless of the REST API auth mode.",
-            )
-        }
+        // SECURITY: /mcp authenticates exactly like /api/v1 when the API runs a credential mode (McpBearerAuth over the
+        // same resolver). The two local modes below serve every caller as the local principal (ADMIN, unrestricted):
+        // logged loudly so operators cannot miss it.
         if (apiWiring.apiConfig is ApiAuthConfig.Unauthenticated) {
             logger.warn(
-                "SECURITY: API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true — the /api/v1 REST " +
-                    "API is UNAUTHENTICATED. Anyone who can reach {}:{} has full read/write/delete " +
-                    "access to all config and data via the REST API (same exposure as /mcp above). " +
-                    "This MUST be fronted by a reverse proxy / mTLS / private network, or bound to " +
-                    "127.0.0.1 for a loopback-only local run — do NOT expose this port to untrusted " +
-                    "callers.",
+                "SECURITY: API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true  -  the /api/v1 REST API and /mcp are " +
+                    "UNAUTHENTICATED. Anyone who can reach {}:{} has full read/write/delete access to all config and " +
+                    "data as the local principal. This MUST be fronted by a reverse proxy / mTLS / private network, or " +
+                    "bound to 127.0.0.1 for a loopback-only local run  -  do NOT expose this port to untrusted callers.",
+                host,
+                port,
+            )
+        } else if (mcpAuth is McpAuthMode.Local) {
+            logger.warn(
+                "SECURITY: MCP_ALLOW_UNAUTHENTICATED=true with the REST API disabled  -  /mcp is UNAUTHENTICATED. " +
+                    "Anyone who can reach {}:{} has full read/write/delete access to all MCP tools as the local " +
+                    "principal. Front it with a reverse proxy, mTLS, or a private network, or bind it to 127.0.0.1 " +
+                    "(MCP_HTTP_HOST) for a loopback-only local run.",
                 host,
                 port,
             )
@@ -482,7 +522,7 @@ class CurrentMcpServer(
                 // installMcpStreamableHttp() and installRestApiRoutes() so the SAME production code
                 // path is exercised by tests (see McpStreamableHttpTransportTest). The MCP mount must
                 // come first: mcpStreamableHttp installs the SSE plugin that the events route reuses.
-                installMcpStreamableHttp(server, appConfig, knowledgeServer, directorServer)
+                installMcpStreamableHttp(server, appConfig, knowledgeServer, directorServer, mcpAuth, sessionPrincipals)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = eventBus,
@@ -615,7 +655,6 @@ internal fun buildProfileServer(
 internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =
     ToolDispatcher(
         RequestDecoder(),
-        toolContext.actorVerifier(),
         BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
         toolContext
     )
@@ -635,7 +674,11 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin). With Host
  *    already pinned to the allowlist by step 0, a same-origin request here implies an allowlisted
  *    host too.
- * 3. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0+).
+ * 3. [McpBearerAuth]  -  route-scoped on the MCP mount (`/mcp`, or `/mcp/{profile?}` with profile servers), installed
+ *    before [mcpStreamableHttp] on the same route node (Ktor merges the two), so every `/mcp` request is
+ *    authenticated per [mcpAuth] and bound to its session in [sessionPrincipals] before the SDK sees it. A refusal is
+ *    the 4.0 error envelope. In [installRestApiRoutes], `ApiBearerAuth` delegates `/mcp` to it.
+ * 4. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0+).
  *    Therefore callers MUST NOT `install(SSE)` separately: a second install throws
  *    `DuplicatePluginException` at startup and the HTTP server never comes up. The SSE plugin
  *    installed here is reused by the `/api/v1/events` route in [installRestApiRoutes].
@@ -650,13 +693,17 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  * `Origin` protection is given up: in its default form (`allowedOrigins = null`) the SDK guard
  * checks `Host` only. A foreign `Origin` is rejected by [CORS] in step 2, on every request.
  *
- * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable.
+ * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable. Production passes
+ * [mcpAuth] and [sessionPrincipals] explicitly (the latter shared with the MCP adapter); [mcpAuth] has no default (a forgotten
+ * argument must not fail open to local mode); the default binding table serves tests that exercise the transport alone.
  */
 internal fun Application.installMcpStreamableHttp(
     server: Server,
     appConfig: AppConfig,
     knowledgeServer: Server? = null,
     directorServer: Server? = null,
+    mcpAuth: McpAuthMode,
+    sessionPrincipals: McpSessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution),
 ) {
     installHostAllowlist(appConfig)
     install(ContentNegotiation) {
@@ -671,7 +718,20 @@ internal fun Application.installMcpStreamableHttp(
             if (knowledgeServer != null) put(MCP_KNOWLEDGE_PATH, knowledgeServer)
             if (directorServer != null) put(MCP_DIRECTOR_PATH, directorServer)
         }
+
+    fun authenticate(path: String) {
+        routing {
+            route(path) {
+                install(McpBearerAuth) {
+                    mode = mcpAuth
+                    sessions = sessionPrincipals
+                    directorPath = MCP_DIRECTOR_PATH
+                }
+            }
+        }
+    }
     if (profileServers.isEmpty()) {
+        authenticate(MCP_PATH)
         mcpStreamableHttp(enableDnsRebindingProtection = false) {
             server
         }
@@ -689,10 +749,17 @@ internal fun Application.installMcpStreamableHttp(
             finish()
         }
     }
-    mcpStreamableHttp(path = "/mcp/{profile?}", enableDnsRebindingProtection = false) {
+    authenticate(MCP_PROFILE_ROUTE)
+    mcpStreamableHttp(path = MCP_PROFILE_ROUTE, enableDnsRebindingProtection = false) {
         profileServers[call.request.path()] ?: server
     }
 }
+
+/** The MCP endpoint path (the SDK's default mount). */
+internal const val MCP_PATH = "/mcp"
+
+/** The route of the MCP mount when profile servers are served: `/mcp` plus one optional profile segment. */
+private const val MCP_PROFILE_ROUTE = "/mcp/{profile?}"
 
 /** The exact, case-sensitive path of the knowledge-profile MCP endpoint. */
 internal const val MCP_KNOWLEDGE_PATH = "/mcp/knowledge"
@@ -727,6 +794,8 @@ internal fun Application.installRestApiRoutes(
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
+    val nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { ids -> ScopeGuard.nonRoots(ids, effectiveProvider.workItemRepository()) }
+
     // The REST safety net: an uncaught /api/v1 exception becomes a 500 `internal` body, never exception text.
     // Installed only here (API enabled) and scoped to /api/v1 paths, so API-disabled deployments are untouched.
     installApiStatusPages()
@@ -743,22 +812,26 @@ internal fun Application.installRestApiRoutes(
                 // plugin's Jwks branch finds a null verifier and 401s every request (the bug being
                 // fixed). Null in bearer/disabled modes — the plugin never reads it there.
                 this.jwksVerifier = jwksVerifier
+                // JWT scope.root_ids anchors must be depth-0 roots (R15); bearer anchors are validated at startup.
+                this.nonRootAnchors = nonRootAnchors
                 // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
                 // /api/v1, REGARDLESS of where install() is textually called (registering a route
                 // in a separate, sibling route("/api/v1") block does NOT scope it away — Ktor has
                 // no route-scoping for plugins installed via createApplicationPlugin; only
-                // createRouteScopedPlugin gets that). Two independent exemptions are needed via the
-                // plugin's public-path bypass:
-                // - /mcp: a separate protocol/transport that must remain reachable WITHOUT a REST
-                //   bearer token, or enabling the REST API 401s MCP-over-HTTP clients (which send no
-                //   REST token). See McpRestAuthBypassTest.
+                // createRouteScopedPlugin gets that). Two paths have another authority:
+                // - /mcp (and /mcp/knowledge, /mcp/director): McpBearerAuth, route-scoped on the MCP
+                //   mount, authenticates them with the same resolver (installMcpStreamableHttp).
+                //   They are DELEGATED, never public: this plugin neither checks nor attaches a
+                //   principal there, so /mcp is never unauthenticated by omission and never
+                //   authenticated twice.
                 // - /api/v1/events: the SSE endpoint performs its own real authentication inline (see
                 //   sseInlineAuthPlugin in EventRoutes.kt, including the opt-in ?token= query-param
                 //   path and unauthenticated-mode handling) and must not be pre-empted by
                 //   ApiBearerAuth's header-only check. publicPaths matches on the request path with
                 //   NO query string (see AuthenticationPlugin.kt), so this exact entry also matches
                 //   "/api/v1/events?token=<...>".
-                publicPaths = publicPaths + "/mcp" + MCP_KNOWLEDGE_PATH + MCP_DIRECTOR_PATH + "/api/v1/events"
+                delegatedPrefixes = setOf(MCP_PATH)
+                publicPaths = publicPaths + "/api/v1/events"
             }
             serviceRoutes(
                 repositoryProvider = effectiveProvider,
@@ -797,6 +870,7 @@ internal fun Application.installRestApiRoutes(
                     tokenEntries = apiTokenEntries,
                     allowQueryToken = allowQueryToken,
                     jwksVerifier = jwksVerifier,
+                    nonRootAnchors = nonRootAnchors,
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                     authConfig = apiConfig,
                     workItemRepository = effectiveProvider.workItemRepository(),

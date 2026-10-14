@@ -181,6 +181,7 @@ class McpProfileStdioTest {
             buildMap {
                 put("DATABASE_PATH", home.resolve("profile.db").toString())
                 put("MCP_TRANSPORT", transport)
+                put("MCP_ALLOW_UNAUTHENTICATED", "true")
                 put("READINESS_FILE", home.resolve("ready").toString())
                 put("AGENT_CONFIG_DIR", agent.toString())
                 if (profile != null) put("MCP_TOOL_PROFILE", profile)

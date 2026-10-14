@@ -65,13 +65,15 @@ class ItemStoreTraitsContractTest {
         role: Role = Role.QUEUE,
         priority: Priority = Priority.MEDIUM,
         tags: String? = null,
+        id: UUID = UUID.randomUUID(),
     ): WorkItem =
         items.create(
             WorkItem(
                 title = title,
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
+                id = id,
+                rootId = parent?.let { it.rootId ?: it.id } ?: id,
                 role = role,
                 priority = priority,
                 tags = tags,

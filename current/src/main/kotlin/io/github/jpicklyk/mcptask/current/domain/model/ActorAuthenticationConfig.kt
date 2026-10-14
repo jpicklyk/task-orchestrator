@@ -168,9 +168,8 @@ sealed class VerifierConfig {
      *   When enabled, every verified token must carry a non-blank `jti` claim, and the
      *   `(iss, jti)` pair may be presented only once per [JtiReplayCache] retention window
      *   (`exp + 60s`). Off by default because the same proof is legitimately re-verified multiple
-     *   times within a single MCP call (idempotency keys, multi-transition batches); the
-     *   per-call memo ([io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope])
-     *   keeps that in-call reuse from tripping the cache even when this is enabled.
+     *   times within a single MCP call (idempotency keys, multi-transition batches). No request body carries a
+     *   proof since R14 (the call's principal comes from its transport), so nothing re-verifies one per call today.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,

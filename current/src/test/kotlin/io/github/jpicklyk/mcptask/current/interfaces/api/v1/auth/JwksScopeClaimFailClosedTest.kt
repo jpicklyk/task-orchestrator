@@ -27,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVer
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
@@ -375,7 +376,7 @@ class JwksScopeClaimFailClosedTest {
     private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksScopeTestApp(verifier: JwksApiVerifier) {
-        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv())
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = defaultConfig,

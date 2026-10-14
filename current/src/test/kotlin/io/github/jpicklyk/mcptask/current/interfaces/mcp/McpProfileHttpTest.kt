@@ -260,7 +260,7 @@ class McpProfileHttpTest {
     fun `S1 mcp lists the eleven orchestration tools and both paths mount in one application`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val (session, _) = client.handshake("/mcp")
             val names = assertNotNull(client.listTools("/mcp", session).toolNames, "tools/list must return a tools result")
@@ -274,7 +274,7 @@ class McpProfileHttpTest {
     fun `S1 orchestration control - select context next blocked and the tree ops are offered on mcp`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
             val (session, _) = client.handshake("/mcp")
             val listing = client.listTools("/mcp", session)
 
@@ -289,7 +289,7 @@ class McpProfileHttpTest {
     fun `S2 mcp knowledge lists exactly the eight knowledge tools with the orchestration-only selects and ops hidden`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val (session, _) = client.handshake("/mcp/knowledge")
             val listing = client.listTools("/mcp/knowledge", session)
@@ -313,7 +313,7 @@ class McpProfileHttpTest {
     fun `S5 initialize instructions name the profile mention describe and list no tool names`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val byProfile =
                 listOf(
@@ -351,7 +351,7 @@ class McpProfileHttpTest {
     fun `S7 a knowledge session refuses select context as invalid_request at select and orchestration answers the same call`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
             val item = s.rig.seed("S7 probe")
 
             val (k, _) = client.handshake("/mcp/knowledge")
@@ -371,7 +371,7 @@ class McpProfileHttpTest {
     fun `S7 a knowledge session cannot run advance and the item role is unchanged while orchestration moves its item`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
             val target = s.rig.seed("S7 advance target")
             val controlItem = s.rig.seed("S7 advance control")
 
@@ -391,7 +391,7 @@ class McpProfileHttpTest {
     fun `S7 a knowledge session cannot reach the 3x leftovers or the tree ops`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
             val root = s.rig.seed("S7 rules root")
             val treeArgs = """{"ops":[${twTree(twRoot("Hidden tree"))}]}"""
 
@@ -416,7 +416,7 @@ class McpProfileHttpTest {
     fun `S11 a knowledge session id replayed on mcp never lists or runs orchestration-only tools`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
             val target = s.rig.seed("S11 advance target")
 
             val (k, _) = client.handshake("/mcp/knowledge")
@@ -451,7 +451,7 @@ class McpProfileHttpTest {
     fun `S9 sibling paths under mcp are 404 with no session while the two real paths initialize`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             assertEquals(HttpStatusCode.OK, client.rpc("/mcp", initializeBody).status, "control: /mcp initializes")
             assertEquals(HttpStatusCode.OK, client.rpc("/mcp/knowledge", initializeBody).status, "control: /mcp/knowledge initializes")
@@ -476,7 +476,7 @@ class McpProfileHttpTest {
     fun `S9 when no knowledge server is passed the knowledge path is not mounted and mcp is unaffected`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg()) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), mcpAuth = McpAuthMode.Local) }
 
             val absent = client.rpc("/mcp/knowledge", initializeBody)
             assertEquals(HttpStatusCode.NotFound, absent.status, "null knowledgeServer means /mcp/knowledge is not mounted: ${absent.body}")
@@ -511,7 +511,7 @@ class McpProfileHttpTest {
         appConfig: AppConfig
     ) {
         val (apiConfig, entries) = bearer()
-        installMcpStreamableHttp(s.orchestration, appConfig, knowledgeServer = s.knowledge)
+        installMcpStreamableHttp(s.orchestration, appConfig, knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = null,
@@ -586,7 +586,7 @@ class McpProfileHttpTest {
     fun `S10 a non-allowlisted Host is refused on mcp knowledge exactly as on mcp`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val orchestration = client.rpc("/mcp", initializeBody, host = rebindHost)
             val knowledge = client.rpc("/mcp/knowledge", initializeBody, host = rebindHost)
@@ -611,7 +611,8 @@ class McpProfileHttpTest {
                 installMcpStreamableHttp(
                     s.orchestration,
                     cfg("MCP_ALLOWED_HOSTS" to "tohost.lan, box.lan:8443"),
-                    knowledgeServer = s.knowledge
+                    knowledgeServer = s.knowledge,
+                    mcpAuth = McpAuthMode.Local
                 )
             }
 
@@ -640,7 +641,7 @@ class McpProfileHttpTest {
     fun `S10 a foreign Origin is refused on mcp knowledge exactly as on mcp`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             for (origin in listOf("http://evil.example.com", rebindOrigin)) {
                 val orchestration = client.rpc("/mcp", initializeBody, origin = origin)
@@ -661,7 +662,8 @@ class McpProfileHttpTest {
                 installMcpStreamableHttp(
                     s.orchestration,
                     cfg("CORS_ALLOWED_ORIGINS" to "https://dash.example.com"),
-                    knowledgeServer = s.knowledge
+                    knowledgeServer = s.knowledge,
+                    mcpAuth = McpAuthMode.Local
                 )
             }
 

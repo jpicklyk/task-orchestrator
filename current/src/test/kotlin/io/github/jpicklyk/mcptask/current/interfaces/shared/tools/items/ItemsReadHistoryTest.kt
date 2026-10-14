@@ -758,7 +758,7 @@ class ItemsReadHistoryTest {
 
             suspend fun knowledge(args: JsonObject) =
                 dispatcher
-                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.UNRESTRICTED)
+                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.LOCAL)
                     .envelope.body
 
             val refused = knowledge(buildJsonObject { put("select", "history") })

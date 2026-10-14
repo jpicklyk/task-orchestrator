@@ -3,11 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
+import io.github.jpicklyk.mcptask.current.application.telemetry.HostName
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -19,6 +19,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
+import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
@@ -42,8 +44,9 @@ import kotlin.time.TimeSource
  *
  * Registration uses the SDK `Tool` from [toolFor]: name, rendered description, generated input schema
  * and MCP annotations. Per call: a fresh [ReqId], MDC correlation fields
- * (`transport`, `tool`, `sessionId`, `reqId`, a length-capped `actorId`), an [ActorVerificationScope] and
- * a [CallTelemetry] for the MCP surface. The result carries the envelope body as `structuredContent`,
+ * (`transport`, `tool`, `sessionId`, `reqId`, and a length-capped `actorId`: the audited id of the call's principal)
+ * and a [CallTelemetry] for the MCP surface. The call runs under the [access] of its session; the principal's `host`
+ * is the MCP client's `clientInfo.name` when the client sent one. The result carries the envelope body as `structuredContent`,
  * `isError = !ok`, one text content (`ok`, or `<code>: <message>`) and `_meta.reqId`. One `call_log`
  * record is submitted, and one INFO `tool call:` line is logged inside the call's MDC, per call that was not
  * cancelled; the line carries the tool name, operation, outcome, error code, latency and response bytes, never an
@@ -53,8 +56,11 @@ class McpOperationAdapter(
     private val dispatcher: ToolDispatcher,
     private val callLog: CallLogSink = CallLogSink.NONE,
     private val clock: Clock = Clock.SYSTEM,
-    /** The access of a call by MCP session. MCP stays unscoped until W4; the parity harness passes the REST principal's. */
-    private val access: (sessionId: String?) -> CallAccess = { CallAccess.UNRESTRICTED }
+    /**
+     * The access of a call by MCP session: production passes [McpSessionPrincipals.access] over HTTP and the local
+     * principal's access over stdio; the parity harness passes the REST principal's. The default is the local access.
+     */
+    private val access: (sessionId: String?) -> CallAccess = { CallAccess.LOCAL }
 ) {
     private val logger = LoggerFactory.getLogger(McpOperationAdapter::class.java)
 
@@ -67,11 +73,20 @@ class McpOperationAdapter(
         for (spec in registry.tools) {
             val tool = toolFor(spec, profile) ?: continue
             server.addTool(tool) { request ->
-                handle(spec, profile, request.arguments, sessionId, server.sessions[sessionId]?.clientVersion?.name)
+                val session = server.sessions[sessionId]
+                handle(spec, profile, request.arguments, transportSessionId(session) ?: sessionId, session?.clientVersion?.name)
             }
             logger.debug("Registered 4.0 tool '{}' ({} profile)", spec.name, profile.wire)
         }
     }
+
+    /**
+     * The session id the client sees: over Streamable HTTP, the transport's id, the one the SDK echoes in
+     * `Mcp-Session-Id` and the one [McpBearerAuth] binds the principal under. The SDK's own `ServerSession.sessionId`
+     * (the `ClientConnection.sessionId` a tool handler receives) is an unrelated random UUID, so looking the binding up
+     * by it never finds one. Null for a transport without a session id (stdio); the caller then keeps the SDK's id.
+     */
+    private fun transportSessionId(session: ServerSession?): String? = (session?.transport as? StreamableHttpServerTransport)?.sessionId
 
     private suspend fun handle(
         spec: ToolSpec,
@@ -85,21 +100,22 @@ class McpOperationAdapter(
         val startedAt = clock.now()
         val started = TimeSource.Monotonic.markNow()
         val telemetry = CallTelemetryFactory.mcp(reqId, sessionId, clientName)
+        val callAccess = withClientHost(access(sessionId), clientName)
         val correlationFields =
             buildMap {
                 put("transport", "mcp")
                 put("tool", spec.name)
                 sessionId?.let { put("sessionId", it) }
                 put("reqId", reqId)
-                actorIdFrom(arguments)?.let { put("actorId", MdcValues.bounded(it, max = ACTOR_ID_MDC_MAX_LENGTH)) }
+                callAccess.principal?.let { put("actorId", MdcValues.bounded(it.claim.id, max = ACTOR_ID_MDC_MAX_LENGTH)) }
             }
         // A cancellation propagates out of withContext and writes no record and no log line.
         return withContext(
-            MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope() + telemetry
+            MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + telemetry
         ) {
             val dispatched =
                 try {
-                    dispatcher.dispatch(spec, profile, arguments, reqId, CallLogRecord.SURFACE_MCP, access(sessionId))
+                    dispatcher.dispatch(spec, profile, arguments, reqId, CallLogRecord.SURFACE_MCP, callAccess)
                 } catch (e: Exception) {
                     // The dispatcher translates escaping exceptions itself; this is a last-resort net.
                     e.rethrowIfCancellation()
@@ -234,11 +250,15 @@ class McpOperationAdapter(
             return "$code: $message"
         }
 
-        /** The self-reported `actor.id` string for MDC correlation only, else null. */
-        private fun actorIdFrom(arguments: JsonObject): String? {
-            val actor = arguments["actor"] as? JsonObject ?: return null
-            val id = actor["id"] as? JsonPrimitive ?: return null
-            return if (id.isString) id.content else null
+        /** [access] with its principal's `host` set to the MCP client's `clientInfo.name`, when the client sent one. */
+        private fun withClientHost(
+            access: CallAccess,
+            clientName: String?
+        ): CallAccess {
+            val host = HostName.normalize(clientName) ?: return access
+            val callPrincipal = access.principal ?: return access
+            val principal = callPrincipal.principal ?: return access
+            return access.copy(principal = callPrincipal.copy(principal = principal.copy(host = host)))
         }
     }
 }

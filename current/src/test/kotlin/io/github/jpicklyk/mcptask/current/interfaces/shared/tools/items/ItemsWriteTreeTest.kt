@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.results
@@ -164,7 +165,7 @@ internal suspend fun IwKit.callIn(
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(rig.ctx).dispatch(spec, profile, args, "k7f3q9ab", "mcp")
+    return buildToolDispatcher(rig.ctx).dispatchAsTestActor(spec, profile, args, "k7f3q9ab", "mcp")
 }
 
 /** Row counts of every table a tree can write to (the events table included). */
@@ -1517,13 +1518,13 @@ class ItemsWriteTreeTest {
             for (type in listOf("item.created", "dependency.added", "note.upserted", "document.adopted")) {
                 for (row in of(type)) {
                     assertEquals("agent-1", row.principalId, "$type principal id")
-                    assertEquals("subagent", row.principalKind, "$type principal kind")
+                    assertEquals("external", row.principalKind, "$type principal kind: every transport principal is external")
                 }
             }
         }
 
     @Test
-    fun `S18 a rolled-back tree emits no event row, and without an actor the control tree records no principal`(): Unit =
+    fun `S18 a rolled-back tree emits no event row, and without an actor fixture the control tree records the local principal`(): Unit =
         runBlocking {
             val k = kit()
             val kids = listOf(twChild("c1"), twChild("c2"))
@@ -1546,12 +1547,13 @@ class ItemsWriteTreeTest {
                         .okResult()
                 }
             assertEquals(3, okRows.count { it.type == "item.created" }, "control: the same shape without the cycle emits")
-            assertNull(
+            assertEquals(
+                "local",
                 okRows
                     .first {
                         it.type == "item.created"
                     }.principalId,
-                "an anonymous call records no principal, so the actor assertion can fail"
+                "a fixture-less call records the local principal, so the actor assertion can fail"
             )
         }
 
@@ -1687,21 +1689,31 @@ class ItemsWriteTreeTest {
         }
 
     @Test
-    fun `S12 tag scope - a root create needs a listed tag in tags, a parent is judged on its own tags`(): Unit =
+    fun `S12 tag scope - a root create is forbidden root regardless of tags, a parent is judged on its own tags`(): Unit =
         runBlocking {
             val k = seeded()
             val before = k.snapshot()
             val counts = k.tableCounts()
+            // R15 ruling (test-plan S8, D4): a tag-only principal may never create a depth-0 root, with or without a listed tag.
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("NoTag", extra = listOf("tags" to JsonArray(emptyList()))))).errorAt(),
-                "tag",
-                "alpha"
+                "root",
+                ""
             )
-            assertForbidden(k.callScoped(tagScoped, twTree(twRoot("NoTagAtAll"))).errorAt(), "tag", "alpha")
+            assertForbidden(k.callScoped(tagScoped, twTree(twRoot("NoTagAtAll"))).errorAt(), "root", "")
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("Beta", extra = listOf("tags" to strings("beta"))))).errorAt(),
-                "tag",
-                "alpha"
+                "root",
+                ""
+            )
+            assertForbidden(
+                k
+                    .callScoped(
+                        tagScoped,
+                        twTree(twRoot("Alpha", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))
+                    ).errorAt(),
+                "root",
+                ""
             )
             assertForbidden(
                 k.callScoped(tagScoped, twTree(twRoot("Under"), extra = listOf("parentId" to jstr(r2.toString())))).errorAt(),
@@ -1714,12 +1726,11 @@ class ItemsWriteTreeTest {
                 "alpha"
             )
             assertUntouched(k, before, counts)
-            k.callScoped(tagScoped, twTree(twRoot("Alpha", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))).okResult()
             k.callScoped(tagScoped, twTree(twRoot("Under"), extra = listOf("parentId" to jstr(c1.toString())))).okResult()
             assertEquals(
-                counts.getValue("work_items") + 3,
+                counts.getValue("work_items") + 1,
                 k.tableCounts().getValue("work_items"),
-                "control: a listed tag and an in-scope parent write"
+                "control: an in-scope parent writes"
             )
         }
 

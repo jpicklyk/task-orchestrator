@@ -132,7 +132,7 @@ class DnsRebindingHostAllowlistTest {
         provider: DefaultRepositoryProvider = inMemoryProvider(),
         server: Server = emptyServer(),
     ) {
-        installMcpStreamableHttp(server, appConfig)
+        installMcpStreamableHttp(server, appConfig, mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = null,

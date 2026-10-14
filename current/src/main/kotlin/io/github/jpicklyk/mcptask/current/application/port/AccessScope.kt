@@ -9,13 +9,13 @@ import java.util.UUID
  * Two forms:
  * - [unrestricted] — everything. The MCP tools use it explicitly (one call site each), so introducing a principal
  *   scope on MCP changes exactly those call sites.
- * - [principal] — a REST principal's scope: [rootIds] (an item is visible when its ancestor chain, itself
- *   included, contains one of them; ids need not be depth-0) and [tagsInclude] (the item, or the note's owning
+ * - [principal] — a REST principal's scope: [rootIds] (an item is visible when its stamped `root_id` is one of
+ *   them; roots only, every listed id must be a depth-0 project root, so there is no ancestor walk) and [tagsInclude] (the item, or the note's owning
  *   item, carries one of these tags: the comma-separated `tags` column is split, each element trimmed, and an
  *   element must equal a listed tag exactly — case-sensitive, empty elements never match). The interfaces layer
  *   builds it from the authenticated principal.
  *
- * @property rootIds Root allowlist, or null for no root restriction. An empty set admits nothing.
+ * @property rootIds Root allowlist (depth-0 project roots only), or null for no root restriction. An empty set admits nothing.
  * @property tagsInclude Tag allowlist; empty means no tag restriction.
  */
 class AccessScope private constructor(

@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.AUDIT_ID_PREFIX
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.AUDIT_ID_PREFIX
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 
 /**
@@ -14,10 +14,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
  * the scope check, so a refusal here never reveals whether a run outside the callers scope exists.
  *
  * - director: the call was served by the director profile (a profile, not a principal attribute).
- * - human: the credential is a human one; a request-body `actor` can never be human.
- * - coordinator: until the coordinator token exists (R22), the caller that opened the run. A lifted body `actor` is
- *   never the same caller as a credential: it cannot take over the `api:` id space of the credentials, and a credential
- *   is the opener only when the run records its kind.
+ * - human: the credential is a human one.
+ * - coordinator: until the coordinator token exists (R22), the caller that opened the run: the caller's principal id
+ *   equals `run.openedBy` AND its credential kind equals `run.openedByKind`. Every call carries a transport principal
+ *   (R14: a principal-less call is refused `unauthenticated` before any handler runs, and no request body names its
+ *   own actor); the local principal (stdio, `/mcp` local mode) is id `local`, kind `agent`. A call principal without
+ *   a credential exists only when a test builds one by hand; it is never the same caller as a credential (it cannot
+ *   take over the `api:` id space), and it is the opener only of a run recorded with kind `agent`.
  */
 internal object RunPermissions {
     const val CLOSE_REQUIRED = "coordinator,director,human"
@@ -26,32 +29,30 @@ internal object RunPermissions {
 
     private const val LIFTED_KIND = "agent"
 
-    /** The audited id of the caller: the credential `api:<id>` or the lifted body actor id; null when there is none. */
-    fun callerId(ctx: CallContext): String? = ctx.principal?.claim?.id
+    /** The audited id of the caller: the credential `api:<id>`, or `local` for the local principal. */
+    fun callerId(ctx: CallContext): String = ctx.principal.claim.id
 
-    /** The `opened_by_kind` to record: the credential kind, `agent` for a lifted body actor, null with no principal. */
-    fun openerKind(ctx: CallContext): String? {
-        val call = ctx.principal ?: return null
-        return call.principal?.kind?.wire ?: LIFTED_KIND
-    }
+    /** The `opened_by_kind` to record: the credential kind (`agent` for the local principal). */
+    fun openerKind(ctx: CallContext): String =
+        ctx.principal.principal
+            ?.kind
+            ?.wire ?: LIFTED_KIND
 
     fun isDirector(ctx: CallContext): Boolean = ctx.profile == ToolProfile.DIRECTOR.wire
 
-    fun isHuman(ctx: CallContext): Boolean = ctx.principal?.principal?.kind == PrincipalKind.HUMAN
+    fun isHuman(ctx: CallContext): Boolean = ctx.principal.principal?.kind == PrincipalKind.HUMAN
 
     fun isCoordinator(
         ctx: CallContext,
         run: Run
     ): Boolean {
-        val call = ctx.principal
         val id = callerId(ctx)
         if (id != run.openedBy) return false
-        if (call == null) return true
-        val credential = call.principal
+        val credential = ctx.principal.principal
         return if (credential != null) {
             run.openedByKind == credential.kind.wire
         } else {
-            !id.orEmpty().startsWith(AUDIT_ID_PREFIX) && run.openedByKind == LIFTED_KIND
+            !id.startsWith(AUDIT_ID_PREFIX) && run.openedByKind == LIFTED_KIND
         }
     }
 

@@ -312,7 +312,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ S12 body actor on REST
 
     @Test
-    fun `S12 a body actor named like the coordinator does not make a REST token the coordinator`() =
+    fun `S12 a body actor is unknown_parameter on actor and nothing is written, so it never makes a REST token the coordinator`() =
         withApp {
             val runId = client.open()
             val spoof =
@@ -320,16 +320,17 @@ class RunsDirectorRouteTest {
                     ops.ops(ops.close(runId, "cancelled"), top = ""","actor":{"id":"api:rw-coord","kind":"subagent"}"""),
                     other
                 )
-            assertEquals(207, spoof.status.value)
-            assertTrue("\"scope\":\"principal_kind\"" in spoof.text(), spoof.text())
+            assertEquals(400, spoof.status.value, spoof.text())
+            assertTrue("unknown_parameter" in spoof.text() && "/actor" in spoof.text(), spoof.text())
             assertEquals("open", client.statusOf(runId))
             val updateSpoof =
                 client.plain(
                     ops.ops(ops.update(runId, ""","hints":{"x":"y"}"""), top = ""","actor":{"id":"api:rw-coord","kind":"subagent"}"""),
                     other
                 )
-            assertEquals(207, updateSpoof.status.value)
-            assertTrue("\"required\":\"coordinator\"" in updateSpoof.text(), updateSpoof.text())
+            assertEquals(400, updateSpoof.status.value, updateSpoof.text())
+            assertTrue("unknown_parameter" in updateSpoof.text() && "/actor" in updateSpoof.text(), updateSpoof.text())
+            assertEquals(listOf("run.opened"), runEventTypes())
             // control: the real coordinator token closes
             assertEquals(200, client.plain(ops.ops(ops.close(runId, "cancelled")), coord).status.value)
         }

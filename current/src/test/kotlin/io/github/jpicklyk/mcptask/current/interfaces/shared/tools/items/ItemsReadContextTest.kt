@@ -80,7 +80,7 @@ internal suspend fun EventLogRig.vwMake(
             summary = summary,
             parentId = parent?.id,
             depth = (parent?.depth ?: -1) + 1,
-            rootId = parent?.let { it.rootId ?: it.id },
+            rootId = parent?.let { it.rootId ?: it.id } ?: id,
             role = role,
             previousRole = previousRole,
             priority = priority,
@@ -920,7 +920,7 @@ class ItemsReadContextTest {
 
             suspend fun knowledge(args: JsonObject) =
                 dispatcher
-                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.UNRESTRICTED)
+                    .dispatch(spec, ToolProfile.KNOWLEDGE, args, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.LOCAL)
                     .envelope.body
 
             for (hidden in listOf("context", "next", "blocked")) {

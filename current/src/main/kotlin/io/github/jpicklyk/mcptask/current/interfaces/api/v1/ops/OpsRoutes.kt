@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
@@ -37,7 +37,8 @@ import kotlinx.serialization.json.JsonObject
  * is the tool's MCP arguments; the answer is the envelope, byte-equal to what MCP returns for the same
  * arguments and access, with the HTTP status derived from the error code.
  *
- * The principal comes from the bearer credential (`api:<tokenId>`, never a body `actor`, which is ignored),
+ * The principal comes from the bearer credential (`api:<tokenId>`, or `local` in unauthenticated mode; a body
+ * `actor` is an unknown parameter),
  * so idempotency is namespaced per token. Capability is checked per select/op by the dispatcher with the
  * shared `grants` predicate, so this route installs no capability wrapper; scope reaches handlers through
  * `CallContext.scope`. Every fault answers an envelope: no authenticated principal is `unauthenticated`
@@ -90,11 +91,7 @@ private suspend fun serveOps(
     run {
         val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
 
-        val principal = call.attributes.getOrNull(ApiPrincipalKey)
-        if (principal == null) {
-            call.respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId))
-            return
-        }
+        val principal = call.apiPrincipal()
 
         // CSRF guard: a cross-site form post cannot set a JSON Content-Type without a preflight.
         if (!hasJsonContentType(call)) {

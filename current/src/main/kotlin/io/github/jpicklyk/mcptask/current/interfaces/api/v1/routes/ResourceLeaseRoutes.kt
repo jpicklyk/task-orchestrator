@@ -18,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -181,17 +181,16 @@ private fun reqId(call: ApplicationCall): String = call.response.headers[REQ_ID_
 
 /**
  * The authenticated principal when it grants [required]; otherwise the envelope answer is sent here and null is
- * returned (no principal is `unauthenticated`, a missing capability is `forbidden`).
+ * returned (a missing capability is `forbidden`).
  */
 private suspend fun authorize(
     call: ApplicationCall,
     reqId: String,
     required: ApiCapability
 ): Principal? {
-    val principal = call.attributes.getOrNull(ApiPrincipalKey)
+    val principal = call.apiPrincipal()
     val error =
         when {
-            principal == null -> DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal.")
             !principal.capabilities.grants(required) ->
                 DomainError(
                     code = ErrorCode.FORBIDDEN,

@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerT
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
@@ -134,7 +135,7 @@ class SseAuthFullWiringTest {
         tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
         allowQueryToken: Boolean,
     ) {
-        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv())
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = bus,

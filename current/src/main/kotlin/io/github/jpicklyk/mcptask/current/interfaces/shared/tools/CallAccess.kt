@@ -3,31 +3,51 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 
 /**
- * What a transport established about a call before the dispatcher runs: who made it ([principal], null
- * means the dispatcher lifts the body `actor`, the MCP default), what it may see ([scope]) and what it may
- * do ([capabilities]).
+ * What a transport established about a call before the dispatcher runs: who made it ([principal]), what it may see
+ * ([scope]) and what it may do ([capabilities]).
+ *
+ * A null [principal] means no transport established one: the dispatcher answers the call `unauthenticated` before it
+ * reads anything else (no request body ever names its own actor).
  *
  * [attributionVisible] says whether the caller may see who wrote a note and how that actor was verified (a note view's
- * `actor` and `verification`); it defaults to false so an access nobody decided about hides attribution. REST computes it
- * with the `API_REDACT_NOTE_ATTRIBUTION` rule (visible unless redaction is on and the caller lacks ADMIN). Proof evidence
- * (the proof hash and verified claims) is never visible on any surface, whatever this says.
+ * `actor` and `verification`); it defaults to false so an access nobody decided about hides attribution. Every transport
+ * computes it with the `API_REDACT_NOTE_ATTRIBUTION` rule (visible unless redaction is on and the caller lacks ADMIN).
+ * Proof evidence (the proof hash and verified claims) is never visible on any surface, whatever this says.
  *
  * [principalsVisible] says whether the caller may see other principals' ids in an aggregate (the `report` `principal`
  * grouping, W6 decision 10). It follows ADMIN in [capabilities] unless a transport passes it explicitly.
  *
- * REST builds one from the authenticated bearer principal. MCP stays [UNRESTRICTED] until W4; the parity
- * harness passes the same access to both transports.
+ * [rootWritesAllowed] says whether the caller may create a new depth-0 root or move an item to the top level (a
+ * new project). A root restriction lists project roots and cannot own a root that does not exist yet, so under any
+ * restricted scope this follows ADMIN in [capabilities]; an unrestricted scope always allows it. An [unauthenticated]
+ * access never allows it.
+ *
+ * [sessionId] is the caller's MCP session (null on REST and stdio); the dispatcher copies it into
+ * `CallContext.sessionId` so the call's provenance carries it.
+ *
+ * REST and MCP build one from the authenticated principal the same way (its scope and capabilities); stdio and the
+ * local `/mcp` mode use [LOCAL].
  */
 data class CallAccess(
     val principal: CallPrincipal?,
     val scope: AccessScope,
     val capabilities: Set<ApiCapability>,
     val attributionVisible: Boolean = false,
-    val principalsVisible: Boolean = ApiCapability.ADMIN in capabilities
+    val principalsVisible: Boolean = ApiCapability.ADMIN in capabilities,
+    val sessionId: String? = null,
+    val rootWritesAllowed: Boolean = scope.isUnrestricted || ApiCapability.ADMIN in capabilities
 ) {
     companion object {
-        val UNRESTRICTED = CallAccess(null, AccessScope.unrestricted(), setOf(ApiCapability.ADMIN), attributionVisible = true)
+        /** The access of the local principal (`local`, ADMIN, unrestricted): stdio and the local `/mcp` mode. */
+        val LOCAL =
+            CallAccess(LOCAL_PRINCIPAL.toCallPrincipal(), AccessScope.unrestricted(), setOf(ApiCapability.ADMIN), attributionVisible = true)
+
+        /** An access with no principal: every call made with it is `unauthenticated`. */
+        fun unauthenticated(sessionId: String? = null): CallAccess =
+            CallAccess(null, AccessScope.unrestricted(), emptySet(), sessionId = sessionId, rootWritesAllowed = false)
     }
 }

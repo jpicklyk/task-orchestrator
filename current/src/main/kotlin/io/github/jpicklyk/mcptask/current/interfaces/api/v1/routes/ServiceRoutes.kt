@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.envelopeReqId
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
@@ -49,8 +49,7 @@ fun Route.serviceRoutes(
 ) {
     // GET /api/v1/info — requires auth (auth plugin is installed on the parent route block)
     get("/info") {
-        val principal = call.attributes.getOrNull(ApiPrincipalKey)
-        val capabilities = principal?.capabilities?.map { it.name.lowercase().replace('_', '-') } ?: emptyList()
+        val capabilities = call.apiPrincipal().capabilities.map { it.name.lowercase().replace('_', '-') }
         // A server-head fault answers as the config tool's typed head faults: unreadable -> unavailable, unloadable ->
         // config_invalid.
         val configWarnings =
