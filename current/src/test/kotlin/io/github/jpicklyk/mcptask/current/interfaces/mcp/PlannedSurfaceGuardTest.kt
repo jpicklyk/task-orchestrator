@@ -473,7 +473,7 @@ class PlannedSurfaceGuardTest {
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the six delta files of decision D5, the runs tools (R20) and notes_write (R21) now real`() {
+    fun `S17 the planned directory holds exactly the six delta files of D5, the runs tools (R20) and notes_write (R21) now real`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
         // stale; what the later items still add stays reserved as deltas.
         assertEquals(
