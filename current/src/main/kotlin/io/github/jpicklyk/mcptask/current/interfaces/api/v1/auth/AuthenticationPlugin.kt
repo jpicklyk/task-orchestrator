@@ -108,7 +108,7 @@ class ApiAuthPluginConfig {
  *
  * When [ApiAuthConfig.Unauthenticated] is configured (opt-in: `API_AUTH_MODE=none` +
  * `API_ALLOW_UNAUTHENTICATED=true`), every call is attached [LOCAL_PRINCIPAL] with no
- * credential check at all — see [LOCAL_PRINCIPAL] for the ADMIN/unrestricted rationale.
+ * credential check at all  -  see [LOCAL_PRINCIPAL] for the ADMIN/unrestricted rationale.
  *
  * Paths under [ApiAuthPluginConfig.delegatedPrefixes] (`/mcp`) are skipped in every mode: their own plugin
  * authenticates them.

@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
@@ -82,11 +82,7 @@ private suspend fun ApplicationCall.runNotesRead(
     allowed: Set<String>
 ): EncodedEnvelope? {
     val reqId = response.headers[REQ_ID_HEADER] ?: ReqId.generate()
-    val principal = attributes.getOrNull(ApiPrincipalKey)
-    if (principal == null) {
-        respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId))
-        return null
-    }
+    val principal = apiPrincipal()
     val unknown =
         request.queryParameters
             .names()

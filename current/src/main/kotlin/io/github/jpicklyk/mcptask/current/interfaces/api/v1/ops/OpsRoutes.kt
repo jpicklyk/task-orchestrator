@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
@@ -91,11 +91,7 @@ private suspend fun serveOps(
     run {
         val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
 
-        val principal = call.attributes.getOrNull(ApiPrincipalKey)
-        if (principal == null) {
-            call.respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId))
-            return
-        }
+        val principal = call.apiPrincipal()
 
         // CSRF guard: a cross-site form post cannot set a JSON Content-Type without a preflight.
         if (!hasJsonContentType(call)) {

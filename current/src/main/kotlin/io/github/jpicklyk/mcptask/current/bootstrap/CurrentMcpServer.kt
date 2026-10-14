@@ -469,16 +469,16 @@ class CurrentMcpServer(
         // logged loudly so operators cannot miss it.
         if (apiWiring.apiConfig is ApiAuthConfig.Unauthenticated) {
             logger.warn(
-                "SECURITY: API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true — the /api/v1 REST API and /mcp are " +
+                "SECURITY: API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true  -  the /api/v1 REST API and /mcp are " +
                     "UNAUTHENTICATED. Anyone who can reach {}:{} has full read/write/delete access to all config and " +
                     "data as the local principal. This MUST be fronted by a reverse proxy / mTLS / private network, or " +
-                    "bound to 127.0.0.1 for a loopback-only local run — do NOT expose this port to untrusted callers.",
+                    "bound to 127.0.0.1 for a loopback-only local run  -  do NOT expose this port to untrusted callers.",
                 host,
                 port,
             )
         } else if (mcpAuth is McpAuthMode.Local) {
             logger.warn(
-                "SECURITY: MCP_ALLOW_UNAUTHENTICATED=true with the REST API disabled — /mcp is UNAUTHENTICATED. " +
+                "SECURITY: MCP_ALLOW_UNAUTHENTICATED=true with the REST API disabled  -  /mcp is UNAUTHENTICATED. " +
                     "Anyone who can reach {}:{} has full read/write/delete access to all MCP tools as the local " +
                     "principal. Front it with a reverse proxy, mTLS, or a private network, or bind it to 127.0.0.1 " +
                     "(MCP_HTTP_HOST) for a loopback-only local run.",
@@ -662,7 +662,7 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin). With Host
  *    already pinned to the allowlist by step 0, a same-origin request here implies an allowlisted
  *    host too.
- * 3. [McpBearerAuth] — route-scoped on the MCP mount (`/mcp`, or `/mcp/{profile?}` with profile servers), installed
+ * 3. [McpBearerAuth]  -  route-scoped on the MCP mount (`/mcp`, or `/mcp/{profile?}` with profile servers), installed
  *    before [mcpStreamableHttp] on the same route node (Ktor merges the two), so every `/mcp` request is
  *    authenticated per [mcpAuth] and bound to its session in [sessionPrincipals] before the SDK sees it. A refusal is
  *    the 4.0 error envelope. In [installRestApiRoutes], `ApiBearerAuth` delegates `/mcp` to it.
@@ -682,15 +682,15 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  * checks `Host` only. A foreign `Origin` is rejected by [CORS] in step 2, on every request.
  *
  * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable. Production passes
- * [mcpAuth] and [sessionPrincipals] explicitly (the latter shared with the MCP adapter); the defaults (local mode, a
- * fresh binding table) serve tests that exercise the transport alone.
+ * [mcpAuth] and [sessionPrincipals] explicitly (the latter shared with the MCP adapter); [mcpAuth] has no default (a forgotten
+ * argument must not fail open to local mode); the default binding table serves tests that exercise the transport alone.
  */
 internal fun Application.installMcpStreamableHttp(
     server: Server,
     appConfig: AppConfig,
     knowledgeServer: Server? = null,
     directorServer: Server? = null,
-    mcpAuth: McpAuthMode = McpAuthMode.Local,
+    mcpAuth: McpAuthMode,
     sessionPrincipals: McpSessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution),
 ) {
     installHostAllowlist(appConfig)

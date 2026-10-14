@@ -26,8 +26,8 @@ internal val McpPrincipalKey: AttributeKey<Principal> = AttributeKey("McpPrincip
 
 /** Configuration of [McpBearerAuth]. */
 class McpBearerAuthConfig {
-    /** How a request establishes its caller. Production always sets it; [McpAuthMode.Local] is a test default. */
-    var mode: McpAuthMode = McpAuthMode.Local
+    /** How a request establishes its caller. Required: the plugin refuses to install without it (no fail-open default). */
+    var mode: McpAuthMode? = null
 
     /** The session bindings shared with the MCP adapter (its tool calls read them). */
     var sessions: McpSessionPrincipals = McpSessionPrincipals(redactNoteAttribution = true)
@@ -58,7 +58,7 @@ val McpBearerAuth =
         createConfiguration = ::McpBearerAuthConfig,
     ) {
         val logger = LoggerFactory.getLogger("McpBearerAuth")
-        val mode = pluginConfig.mode
+        val mode = checkNotNull(pluginConfig.mode) { "McpBearerAuth requires an explicit McpAuthMode; none was configured." }
         val sessions = pluginConfig.sessions
         val directorPath = pluginConfig.directorPath
 

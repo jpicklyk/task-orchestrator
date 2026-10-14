@@ -158,7 +158,13 @@ class McpDirectorProfileTest {
     private fun Application.mountAll(
         s: Servers,
         appConfig: AppConfig = cfg()
-    ) = installMcpStreamableHttp(s.orchestration, appConfig, knowledgeServer = s.knowledge, directorServer = s.director)
+    ) = installMcpStreamableHttp(
+        s.orchestration,
+        appConfig,
+        knowledgeServer = s.knowledge,
+        directorServer = s.director,
+        mcpAuth = McpAuthMode.Local
+    )
 
     private class Reply(
         val status: HttpStatusCode,
@@ -607,7 +613,7 @@ class McpDirectorProfileTest {
     fun `S14 when no director server is passed the director path is not mounted and the others are unaffected`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
 
             val absent = client.rpc("/mcp/director", initializeBody)
             assertEquals(HttpStatusCode.NotFound, absent.status, "a null directorServer means /mcp/director is not mounted: ${absent.body}")
@@ -623,7 +629,7 @@ class McpDirectorProfileTest {
     fun `S14 a director server without a knowledge server mounts director only`() {
         val s = newServers()
         testApplication {
-            application { installMcpStreamableHttp(s.orchestration, cfg(), directorServer = s.director) }
+            application { installMcpStreamableHttp(s.orchestration, cfg(), directorServer = s.director, mcpAuth = McpAuthMode.Local) }
 
             val (d, _) = client.handshake("/mcp/director")
             assertEquals(directorTools, client.listTools("/mcp/director", d).toolNames)

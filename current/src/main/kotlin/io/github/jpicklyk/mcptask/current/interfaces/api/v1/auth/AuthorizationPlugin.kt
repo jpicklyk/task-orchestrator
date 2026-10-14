@@ -27,11 +27,7 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
     createRouteScopedPlugin("RequireCapability-$cap", ::CapabilityPluginConfig) {
         pluginConfig.requiredCapability = cap
         onCall { call ->
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            if (principal == null) {
-                call.respondEnvelopeError(unauthenticated("No authenticated principal."))
-                return@onCall
-            }
+            val principal = call.apiPrincipal()
 
             val allowed = principal.capabilities.grants(pluginConfig.requiredCapability)
 

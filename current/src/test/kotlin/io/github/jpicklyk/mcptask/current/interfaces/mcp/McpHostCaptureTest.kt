@@ -553,7 +553,7 @@ class McpHostCaptureTest {
             servers += server
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
-            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv()) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
 
             val alpha = client.initSession("HttpAlpha")
             val beta = client.initSession("HttpBeta")
