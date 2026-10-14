@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -38,7 +40,9 @@ internal data class SeedNote(
     val itemId: UUID,
     val key: String,
     val role: String,
-    val body: String
+    val body: String,
+    /** The note's stored actor id (its owner); null seeds a NULL-actor note, which is unowned. */
+    val actorId: String? = null
 )
 
 /** A parity scenario plus the notes it needs to exist beforehand (the stock `ParitySeeder` seeds work items only). */
@@ -64,6 +68,7 @@ internal object NotesParityCatalog {
     val reader = ParityToken("np-reader", setOf(ApiCapability.READ))
     val writer = ParityToken("np-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES))
     val rootReader = ParityToken("np-root-reader", setOf(ApiCapability.READ), rootIds = setOf(r1))
+    val admin = ParityToken("np-admin", setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES, ApiCapability.ADMIN))
     val rootWriter = ParityToken("np-root-writer", setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES), rootIds = setOf(r1))
     val tagReader = ParityToken("np-tag-reader", setOf(ApiCapability.READ), tagsInclude = setOf("alpha"))
 
@@ -77,6 +82,9 @@ internal object NotesParityCatalog {
     private val alphaNote = SeedNote(note1, c1, "spec", "queue", "alpha spec")
     private val betaNote = SeedNote(note2, r2, "spec", "queue", "beta spec")
     private val alphaSecond = SeedNote(note3, c1, "zeta", "work", "second")
+
+    /** R21: the alpha note again, now first written by another actor (its owner). */
+    private val ownedAlpha = SeedNote(note1, c1, "spec", "queue", "alpha spec", actorId = "np-original-owner")
 
     private fun get(
         item: UUID,
@@ -335,6 +343,88 @@ internal object NotesParityCatalog {
                 expectCode = "forbidden",
                 expectContains = listOf("\"index\":1", "\"scope\":\"root\""),
                 expectDbChanged = false
+            ),
+            // R21 (item 190f1bdd). The seeded note's actor is "np-original-owner"; the callers are other bearer principals.
+            case(
+                "notes_write upsert note_owned_by_other per element",
+                WRITE_TOOL,
+                "upsert",
+                ParityKind.OTHER,
+                writer,
+                """{"ops":[${upsert(c1, "spec", "hijack")}]}""",
+                207,
+                notes = listOf(ownedAlpha, betaNote),
+                expectCode = "partial_failure",
+                expectContains = listOf("\"code\":\"note_owned_by_other\"", "\"itemId\":\"$c1\"", "\"key\":\"spec\""),
+                expectAbsent = listOf("np-original-owner", "ownerSeat", "hijack"),
+                expectDbChanged = false
+            ),
+            case(
+                "notes_write upsert note_owned_by_other atomic",
+                WRITE_TOOL,
+                "upsert",
+                ParityKind.OTHER,
+                writer,
+                """{"ops":[${upsert(c1, "spec", "hijack")}],"atomic":true}""",
+                403,
+                notes = listOf(ownedAlpha, betaNote),
+                expectCode = "note_owned_by_other",
+                expectContains = listOf("\"itemId\":\"$c1\"", "\"key\":\"spec\""),
+                expectAbsent = listOf("np-original-owner", "ownerSeat"),
+                expectDbChanged = false
+            ),
+            case(
+                "notes_write delete note_owned_by_other atomic",
+                WRITE_TOOL,
+                "delete",
+                ParityKind.OTHER,
+                writer,
+                """{"ops":[${delete(c1, "spec")}],"atomic":true}""",
+                403,
+                notes = listOf(ownedAlpha, betaNote),
+                expectCode = "note_owned_by_other",
+                expectContains = listOf("\"itemId\":\"$c1\"", "\"key\":\"spec\""),
+                expectAbsent = listOf("np-original-owner", "ownerSeat"),
+                expectDbChanged = false
+            ),
+            case(
+                "notes_write delete note_owned_by_other per element",
+                WRITE_TOOL,
+                "delete",
+                ParityKind.OTHER,
+                writer,
+                """{"ops":[${delete(c1, "spec")}]}""",
+                207,
+                notes = listOf(ownedAlpha, betaNote),
+                expectCode = "partial_failure",
+                expectContains = listOf("\"code\":\"note_owned_by_other\""),
+                expectAbsent = listOf("np-original-owner", "ownerSeat"),
+                expectDbChanged = false
+            ),
+            case(
+                "notes_write upsert takeover by an admin",
+                WRITE_TOOL,
+                "upsert",
+                ParityKind.OTHER,
+                admin,
+                """{"ops":[${upsert(c1, "spec", "taken", ""","takeover":true""")}]}""",
+                200,
+                notes = listOf(ownedAlpha, betaNote),
+                expectContains = listOf("\"version\":2", "\"id\":\"$note1\""),
+                expectDbChanged = true
+            ),
+            case(
+                "notes_write upsert takeover without admin is forbidden capability",
+                WRITE_TOOL,
+                "upsert",
+                ParityKind.OTHER,
+                writer,
+                """{"ops":[${upsert(c1, "spec", "taken", ""","takeover":true""")}],"atomic":true}""",
+                403,
+                notes = listOf(ownedAlpha, betaNote),
+                expectCode = "forbidden",
+                expectContains = listOf("\"scope\":\"capability\"", "\"required\":\"admin\""),
+                expectDbChanged = false
             )
         )
 
@@ -374,7 +464,17 @@ internal class NotesParityRunner(
                 case.scenario.seed(ParitySeeder(db.repositoryProvider().workItemRepository()))
                 val notes = db.repositoryProvider().noteRepository()
                 for (n in case.notes) {
-                    notes.upsert(Note(id = n.id, itemId = n.itemId, key = n.key, role = n.role, body = n.body, modifiedAt = PARITY_NOW))
+                    notes.upsert(
+                        Note(
+                            id = n.id,
+                            itemId = n.itemId,
+                            key = n.key,
+                            role = n.role,
+                            body = n.body,
+                            actorClaim = n.actorId?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
+                            modifiedAt = PARITY_NOW
+                        )
+                    )
                 }
             }
             return Leg(db, dir, rig)

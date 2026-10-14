@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -30,6 +31,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -505,7 +507,10 @@ class NoteCommandServiceTest {
             val svc = service()
             val claim = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
 
-            val first = svc.upsert(NoteUpsertCommand(item.id, "k", "Work", "x\r\ny", claim, null, caller = null)).ok()
+            // R21: a note stamped with an actor is owned by it, so the rewrite below must come from the same principal
+            // (the caller identity is the claim id) or it would be note_owned_by_other.
+            val owner = ClaimHolder("agent-1")
+            val first = svc.upsert(NoteUpsertCommand(item.id, "k", "Work", "x\r\ny", claim, null, caller = owner)).ok()
             assertTrue(first.created)
             assertEquals("work", first.note.role)
             assertEquals("x\ny", first.note.body)
@@ -517,7 +522,7 @@ class NoteCommandServiceTest {
             assertEquals("x\ny", stored.body)
             assertEquals("agent-1", stored.actorClaim?.id)
 
-            val second = svc.upsert(NoteUpsertCommand(item.id, "k", "WORK", "z", claim, null, caller = null)).ok()
+            val second = svc.upsert(NoteUpsertCommand(item.id, "k", "WORK", "z", claim, null, caller = owner)).ok()
             assertTrue(!second.created, "re-upsert of the same (item, key) is an update")
             assertEquals(first.note.id, second.note.id)
             assertEquals(
@@ -719,5 +724,371 @@ class NoteCommandServiceTest {
                     .findByItemIdAndKey(item.id, "k")!!
                     .version
             )
+        }
+
+    // ---------------------------------------------------------------------------------------------
+    // R21 note ownership (item 190f1bdd, test-author seat). Oracle: frozen task-scope "What to build" 2-3,
+    // D1-D8 and AC2-AC4, AC7; scenario ids are the test-plan's (S2-S13). The caller identity is
+    // ClaimHolder.principalId (D2) and the owner is the stored actor claim id (D1).
+    // ---------------------------------------------------------------------------------------------
+
+    private val ownerA = "owner-zq7x"
+    private val callerB = "caller-w4k9"
+    private val adminId = "admin-p2m6"
+
+    private fun ownershipSchema(): ConfigDocument =
+        schema(
+            entries =
+                listOf(
+                    NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10),
+                    NoteSchemaEntry(key = "sh", role = Role.WORK, shared = true),
+                    NoteSchemaEntry(key = "own", role = Role.WORK, shared = false)
+                )
+        )
+
+    private fun write(
+        item: WorkItem,
+        key: String,
+        who: String?,
+        body: String = "body",
+        role: String = "work",
+        takeover: Boolean = false,
+        takeoverAllowed: Boolean = false,
+        assignment: UUID? = null,
+        expectedVersion: Long? = null
+    ) = NoteUpsertCommand(
+        itemId = item.id,
+        key = key,
+        role = role,
+        body = body,
+        actorClaim = who?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
+        verification = null,
+        caller = who?.let { ClaimHolder(it, assignment) },
+        expectedVersion = expectedVersion,
+        takeover = takeover,
+        takeoverAllowed = takeoverAllowed
+    )
+
+    private suspend fun stored(
+        item: WorkItem,
+        key: String
+    ): Note? = db.repositoryProvider().noteRepository().findByItemIdAndKey(item.id, key)
+
+    private fun <T> Outcome<T>.assertOwnedByOther(
+        item: WorkItem,
+        key: String,
+        label: String
+    ) {
+        val error = err()
+        assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, error.code, "$label: ${error.message}")
+        assertEquals(ErrorDetail.NoteOwnedByOther(item.id, key, null), error.detail, label)
+        assertFalse(ownerA in error.message, "$label: the owner id is in no message: ${error.message}")
+        assertFalse(ownerA in error.detail.toString(), "$label: the owner id is in no detail")
+        assertFalse(error.fix?.contains(ownerA) == true, "$label: the owner id is in no fix: ${error.fix}")
+        assertTrue(error.fixArgs.values.none { ownerA in it }, "$label: the owner id is in no fix argument: ${error.fixArgs}")
+    }
+
+    @Test
+    fun `R21 S2 the first writer rewrites and deletes its own note`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+
+            assertTrue(svc.upsert(write(item, "own", ownerA)).ok().created)
+            assertEquals(
+                2L,
+                svc
+                    .upsert(write(item, "own", ownerA, body = "v2"))
+                    .ok()
+                    .note.version
+            )
+            assertEquals("own", svc.delete(item.id, "own", null, ClaimHolder(ownerA)).ok().key)
+            assertNull(stored(item, "own"))
+        }
+
+    @Test
+    fun `R21 S3 another principal cannot upsert or delete a non-shared note - nothing changes and the owner id leaks nowhere`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+            svc.upsert(write(item, "own", ownerA, body = "original")).ok()
+
+            svc.upsert(write(item, "own", callerB, body = "hijack")).assertOwnedByOther(item, "own", "upsert")
+            svc.delete(item.id, "own", null, ClaimHolder(callerB)).assertOwnedByOther(item, "own", "delete")
+
+            val row = assertNotNull(stored(item, "own"), "the refused delete kept the note")
+            assertEquals("original", row.body)
+            assertEquals(1L, row.version, "the refused upsert did not bump the version")
+            assertEquals(ownerA, row.actorClaim?.id, "the refused upsert did not re-stamp the actor")
+            // control: the owner's identical call is accepted, so the refusals above are the ownership rule
+            assertEquals(
+                2L,
+                svc
+                    .upsert(write(item, "own", ownerA, body = "by owner"))
+                    .ok()
+                    .note.version
+            )
+        }
+
+    @Test
+    fun `R21 S3 an off-schema key and a schema-free item are non-shared too`(): Unit =
+        runBlocking {
+            val schemaItem = persist(limItem())
+            val plain = persist(plainItem())
+            val svc = service(ownershipSchema())
+            svc.upsert(write(schemaItem, "ghost-key", ownerA)).ok()
+            svc.upsert(write(plain, "any", ownerA)).ok()
+
+            svc.upsert(write(schemaItem, "ghost-key", callerB)).assertOwnedByOther(schemaItem, "ghost-key", "off-schema key")
+            svc.upsert(write(plain, "any", callerB)).assertOwnedByOther(plain, "any", "schema-free item")
+        }
+
+    @Test
+    fun `R21 S3 a null caller on an owned note is refused, on an unowned or missing note allowed`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            svc.upsert(write(item, "owned", ownerA)).ok()
+            db
+                .repositoryProvider()
+                .noteRepository()
+                .upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
+
+            svc
+                .upsert(NoteUpsertCommand(item.id, "owned", "work", "x", null, null, caller = null))
+                .assertOwnedByOther(item, "owned", "null caller, upsert")
+            svc.delete(item.id, "owned", null, null).assertOwnedByOther(item, "owned", "null caller, delete")
+            assertNotNull(stored(item, "owned"))
+
+            assertTrue(
+                svc
+                    .upsert(NoteUpsertCommand(item.id, "legacy", "work", "x", null, null, caller = null))
+                    .ok()
+                    .note.version == 2L
+            )
+            assertTrue(svc.upsert(NoteUpsertCommand(item.id, "fresh", "work", "x", null, null, caller = null)).ok().created)
+        }
+
+    @Test
+    fun `R21 S3 probe an owner id that differs by case or whitespace is a different principal`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            svc.upsert(write(item, "k", "Agent-One")).ok()
+
+            for (spelling in listOf("agent-one", "AGENT-ONE", "Agent-One ", " Agent-One")) {
+                val error = svc.upsert(write(item, "k", spelling)).err()
+                assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, error.code, "spelling [$spelling]")
+            }
+            assertEquals("Agent-One", stored(item, "k")?.actorClaim?.id)
+            assertEquals(
+                2L,
+                svc
+                    .upsert(write(item, "k", "Agent-One"))
+                    .ok()
+                    .note.version,
+                "control: the exact spelling"
+            )
+        }
+
+    @Test
+    fun `R21 S4 a shared key is last-writer-wins - a second principal rewrites it and becomes its actor, and may delete it`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+            svc.upsert(write(item, "sh", ownerA, body = "first")).ok()
+
+            val second = svc.upsert(write(item, "sh", callerB, body = "second")).ok()
+
+            assertEquals(2L, second.note.version)
+            assertEquals(callerB, stored(item, "sh")?.actorClaim?.id, "on a shared key the actor is the last writer")
+            assertEquals("second", stored(item, "sh")?.body)
+            assertEquals("sh", svc.delete(item.id, "sh", null, ClaimHolder(ownerA)).ok().key, "the former owner may delete it now too")
+            assertNull(stored(item, "sh"))
+        }
+
+    @Test
+    fun `R21 S5 a NULL-actor note is unowned - the first actor-stamped writer owns it afterwards`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            val notes = db.repositoryProvider().noteRepository()
+            notes.upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
+            notes.upsert(Note(itemId = item.id, key = "legacy-del", role = "work", body = "orig"))
+
+            svc.upsert(write(item, "legacy", callerB, body = "claimed")).ok()
+            assertEquals(callerB, stored(item, "legacy")?.actorClaim?.id)
+            svc.upsert(write(item, "legacy", "third-party")).assertOwnedByOther(item, "legacy", "after B stamped it")
+            assertEquals("legacy-del", svc.delete(item.id, "legacy-del", null, ClaimHolder("anyone")).ok().key)
+            assertNull(stored(item, "legacy-del"))
+        }
+
+    @Test
+    fun `R21 S6 an ADMIN takeover writes another principal's note, stamps the admin as actor, and moves ownership`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            svc.upsert(write(item, "k", ownerA, body = "original")).ok()
+
+            val taken = svc.upsert(write(item, "k", adminId, body = "taken", takeover = true, takeoverAllowed = true)).ok()
+
+            assertEquals(2L, taken.note.version)
+            val row = assertNotNull(stored(item, "k"))
+            assertEquals("taken", row.body)
+            assertEquals(adminId, row.actorClaim?.id)
+            // ownership moved: the former owner is now the non-owner
+            svc.upsert(write(item, "k", ownerA, body = "back")).assertOwnedByOther(item, "k", "former owner after the takeover")
+            assertEquals("taken", stored(item, "k")?.body)
+        }
+
+    @Test
+    fun `R21 S7 takeover without the capability is forbidden capability admin and writes nothing`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            svc.upsert(write(item, "foreign", ownerA, body = "original")).ok()
+            svc.upsert(write(item, "mine", callerB, body = "mine")).ok()
+
+            for (key in listOf("foreign", "mine", "missing")) {
+                val error = svc.upsert(write(item, key, callerB, body = "TAKEN", takeover = true, takeoverAllowed = false)).err()
+                assertEquals(ErrorCode.FORBIDDEN, error.code, key)
+                assertEquals(ErrorDetail.Forbidden(ForbiddenScope.CAPABILITY, "admin"), error.detail, key)
+            }
+            assertEquals("original", stored(item, "foreign")?.body)
+            assertEquals(ownerA, stored(item, "foreign")?.actorClaim?.id)
+            assertEquals("mine", stored(item, "mine")?.body)
+            assertNull(stored(item, "missing"))
+            // control: with the capability the same own-note write goes through
+            assertEquals(
+                2L,
+                svc
+                    .upsert(write(item, "mine", callerB, body = "ok", takeover = true, takeoverAllowed = true))
+                    .ok()
+                    .note.version
+            )
+        }
+
+    @Test
+    fun `R21 S8 takeover under a seat assignment is invalid_request at slash takeover and writes nothing`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+            svc.upsert(write(item, "k", ownerA, body = "original")).ok()
+
+            val error =
+                svc
+                    .upsert(
+                        write(item, "k", adminId, body = "TAKEN", takeover = true, takeoverAllowed = true, assignment = UUID.randomUUID())
+                    ).err()
+
+            assertEquals(ErrorCode.INVALID_REQUEST, error.code)
+            assertEquals("/takeover", assertIs<ErrorDetail.InvalidRequest>(error.detail).fields.single().field)
+            assertEquals("original", stored(item, "k")?.body)
+            assertEquals(ownerA, stored(item, "k")?.actorClaim?.id)
+            // control: the same call without an assignment takes the note over
+            assertEquals(
+                2L,
+                svc
+                    .upsert(write(item, "k", adminId, body = "TAKEN", takeover = true, takeoverAllowed = true))
+                    .ok()
+                    .note.version
+            )
+        }
+
+    @Test
+    fun `R21 S9 an ADMIN takeover where no transfer is needed is an ordinary write`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+            db
+                .repositoryProvider()
+                .noteRepository()
+                .upsert(Note(itemId = item.id, key = "legacy", role = "work", body = "orig"))
+            svc.upsert(write(item, "own", adminId)).ok()
+            svc.upsert(write(item, "sh", ownerA)).ok()
+
+            for (key in listOf("legacy", "own", "sh", "fresh")) {
+                val result = svc.upsert(write(item, key, adminId, takeover = true, takeoverAllowed = true)).ok()
+                assertEquals(adminId, stored(item, key)?.actorClaim?.id, key)
+                assertTrue(result.note.version >= 1L, key)
+            }
+        }
+
+    @Test
+    fun `R21 S11 order - ownership precedes the version compare, body policy and the claim fence precede ownership`(): Unit =
+        runBlocking {
+            val item = persist(limItem())
+            val svc = service(ownershipSchema())
+            svc.upsert(write(item, "own", ownerA)).ok()
+
+            svc.upsert(write(item, "own", callerB, expectedVersion = 99)).assertOwnedByOther(item, "own", "stale expectedVersion")
+            assertEquals(
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                svc.upsert(write(item, "own", callerB, body = "a".repeat(65537))).err().code,
+                "a body over the cap is a body policy error and wins"
+            )
+            assertEquals(
+                ErrorCode.INVALID_REQUEST,
+                svc.upsert(write(item, "own", callerB, role = "bogus")).err().code,
+                "an invalid role is a body policy error and wins"
+            )
+            // control: the owner with the same stale version gets the version conflict, so the order is observable
+            assertEquals(ErrorCode.VERSION_CONFLICT, svc.upsert(write(item, "own", ownerA, expectedVersion = 99)).err().code)
+
+            db.repositoryProvider().workItemRepository().claim(item.id, "claimer-c", ttlSeconds = 900)
+            assertEquals(
+                ErrorCode.NOT_CLAIM_HOLDER,
+                svc.upsert(write(item, "own", callerB)).err().code,
+                "a non-holder non-owner on a claimed item is fenced first"
+            )
+        }
+
+    @Test
+    fun `R21 S13 delete resolves the schema - an unreadable per-root config propagates and the note is kept`(): Unit =
+        runBlocking {
+            val root = persist(WorkItem(title = "failing root"))
+            val item = persist(limItem(root.id))
+            val plain = persist(plainItem())
+            val notes = db.repositoryProvider().noteRepository()
+            notes.upsert(Note(itemId = item.id, key = "lim", role = "work", body = "keep me"))
+            notes.upsert(Note(itemId = plain.id, key = "k", role = "work", body = "control"))
+            val svc = service(perRoot = ThrowingPerRoot)
+
+            assertFailsWith<PerRootConfigUnavailableException> { svc.delete(item.id, "lim", null, null) }
+            assertEquals("keep me", stored(item, "lim")?.body, "nothing was deleted")
+            // control: an item without a root never consults the per-root source, so the same call shape deletes
+            assertEquals("k", svc.delete(plain.id, "k", null, null).ok().key)
+        }
+
+    @Test
+    fun `R21 probe a per-root shared true overrides a global non-shared declaration for the items of that root only`(): Unit =
+        runBlocking {
+            val repos = db.repositoryProvider()
+            val sharedRoot = persist(WorkItem(title = "shared root"))
+            val bareRoot = persist(WorkItem(title = "bare root"))
+            repos.configStore().upsert(
+                sharedRoot.id,
+                "work_item_schemas:\n  $limTag:\n    notes:\n      - key: pr\n        role: work\n        shared: true\n"
+            )
+            val perRoot = PerRootConfigService(repos.configStore())
+            val svc = service(schema(entries = listOf(NoteSchemaEntry(key = "pr", role = Role.WORK))), perRoot)
+            val sharedItem = persist(limItem(sharedRoot.id))
+            val bareItem = persist(limItem(bareRoot.id))
+            svc.upsert(write(sharedItem, "pr", ownerA)).ok()
+            svc.upsert(write(bareItem, "pr", ownerA)).ok()
+
+            assertEquals(
+                callerB,
+                svc
+                    .upsert(write(sharedItem, "pr", callerB))
+                    .ok()
+                    .note.actorClaim
+                    ?.id,
+                "per-root shared: true wins"
+            )
+            svc
+                .upsert(
+                    write(bareItem, "pr", callerB)
+                ).assertOwnedByOther(bareItem, "pr", "no per-root declaration, the global non-shared applies")
         }
 }
