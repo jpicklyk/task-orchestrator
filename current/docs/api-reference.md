@@ -2341,7 +2341,7 @@ transition trail (`items_read` `history`) never returns them either. They are st
 
 Stored rows keep the older spellings and are read through one mapping: `unchecked` with verifier `api-bearer` is `issued`,
 any other `unchecked` and the legacy `absent`, `unverified` and `unavailable` are `none`, and the legacy `failed` is
-`rejected`; an unknown value is skipped. Nothing on a wire says `unchecked`, `absent` or `unavailable`.
+`rejected`; an unknown value is skipped. Nothing on a wire says `unchecked`, `absent` or `unavailable`. A note row stores only the older vocabulary (a stale-verified principal is stored as `verified`, an issued token as `unchecked`); no writer stores `verified_stale`, `issued` or `none` in a note, and a note row holding one would be skipped with a warning.
 
 **Metadata fields (history only).** Rows written by earlier versions may carry these keys; a 4.0 server writes none of them.
 
@@ -2362,7 +2362,7 @@ server accepts no body `actor`.
 
 ### `actor_authentication` is inert
 
-No request body carries an actor claim or proof, so the actor verifier configured by the `actor_authentication:` block in `.taskorchestrator/config.yaml` is not consulted on any tool call. The block is still parsed and validated by the server at startup from the global file (a malformed block, or a leftover `degraded_mode_policy` key, fails startup), but it changes no call. Caller identity is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [fleet-deployment.md](fleet-deployment.md#actor_authentication-in-40-inert) for what is still validated and [config-reference.md](config-reference.md) for the key's ownership.
+No request body carries an actor claim or proof, so the actor verifier configured by the `actor_authentication:` block in `.taskorchestrator/config.yaml` is not consulted on any tool call. The block is still parsed and validated by the server at startup from the global file (a malformed block, or a leftover `degraded_mode_policy` key, fails startup), but it authenticates and attributes no call; its only remaining effect is the `actorAuthenticationEnabled` field of `GET /api/v1/info`, which gates nothing. Caller identity is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [fleet-deployment.md](fleet-deployment.md#actor_authentication-in-40-inert) for what is still validated and [config-reference.md](config-reference.md) for the key's ownership.
 
 ### No degraded-mode policy
 

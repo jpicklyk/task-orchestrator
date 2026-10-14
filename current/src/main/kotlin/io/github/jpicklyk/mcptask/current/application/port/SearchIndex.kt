@@ -69,8 +69,9 @@ data class TextQuery(
  *
  * @property itemId Only content owned by this item.
  * @property ancestorId Only content owned by this item or its descendants (bounded walk).
- * @property rootIds Access scope: only content owned by an item whose ancestor chain (itself included) contains one
- *   of these ids. Null means unrestricted; an EMPTY set means nothing is visible. Ids need not be depth-0.
+ * @property rootIds Access scope: roots only. Only content owned by an item whose stamped root id is one of these ids
+ *   (no ancestor walk; an id that is not a project root admits nothing). Null means unrestricted; an EMPTY set means
+ *   nothing is visible.
  * @property roles Only content whose owning item is in one of these roles. Null or empty means any role.
  * @property tagsAny The caller's tag filter: the owning item carries at least one of these tags, compared
  *   case-insensitively. Null or empty means no tag filter.

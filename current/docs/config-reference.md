@@ -25,7 +25,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
 | `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
-| `actor_authentication` | server only | yes | rejected | Inert in 4.0: validated at startup, consulted by no call (see [below](#actor_authentication)). |
+| `actor_authentication` | server only | yes | rejected | Inert in 4.0: validated at startup, sets only `/info` `actorAuthenticationEnabled`, consulted by no call (see [below](#actor_authentication)). |
 | `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
 | `schema_resolution` | removed | warning | rejected | Removed in 4.0; schemas resolve by one fixed precedence rule. |
 
@@ -55,7 +55,7 @@ fix is to move them under `extensions.claude-code`. Documents already stored fro
 
 Server-only: it is read from the global file, rejected in a per-root document, and **inert in 4.0**. No request carries an
 `actor` or an `actor.proof` any more (the caller is the transport principal, established by `API_AUTH_MODE`), so nothing
-consults the verifier it configures. The block is still validated at startup, and a malformed one fails startup:
+consults the verifier it configures. The block is still validated at startup, and a malformed one fails startup. Its only other effect is the `actorAuthenticationEnabled` field of `GET /api/v1/info`, which gates nothing:
 
 - `verifier.max_stale_seconds`, when present, must be greater than 0 and at least `cache_ttl_seconds`; the default is
   `max(3600, cache_ttl_seconds)`.

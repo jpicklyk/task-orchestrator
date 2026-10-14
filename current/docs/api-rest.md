@@ -238,7 +238,10 @@ collection checks cannot drift apart.
   outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
   scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
   existence oracle; children outside the scope are left out of the page and not counted
-- Writes (`POST /ops/{tool}`) - `403 forbidden` (`detail.scope` `root` or `tag`) if the target item is outside scope
+- Writes (`POST /ops/{tool}`) - `403 forbidden` (`detail.scope` `root` or `tag`) if the target item is outside scope.
+  Known residual under a TAG scope: a write's cascade may still advance an ancestor that does not carry the tag (for
+  example a parent completing when its last child does), because cascades are ownership-fenced and root-scope-checked
+  but not tag-checked
 - Every tool resolves a caller-supplied id by the same scope-aware rule (Q32): under a restricted scope a prefix that
   matches nothing, or only items outside the scope, is the same `403 forbidden`, and an ambiguous prefix lists only the
   candidates the scope admits (one admitted candidate resolves)
@@ -382,7 +385,7 @@ request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/`
 `payload_too_large`, ...) as the row's `error_code`; `http_<status>` is the fallback for a body that is not an envelope. The row's `tool` is
 the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
-on REST rows is the authenticated API principal (`api:<id>`); MCP rows carry the principal of the `/mcp` call the same way (`api:<id>`, or `local`), with `proof_status` distinguishing verified ids. `X-Req-Id` is in the default
+on REST rows is the authenticated API principal (`api:<id>`; bare `local` under `API_AUTH_MODE=none`); MCP rows carry the principal of the `/mcp` call the same way (`api:<id>`, or `local` for stdio and the unauthenticated local modes), with `proof_status` distinguishing verified ids. `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 
@@ -429,7 +432,7 @@ so a client must not assume it is always present.
 }
 ```
 
-For REST API writes, `id` is always `"api:<id>"` and `kind` is always `"external"` (server-synthesized; a body `actor` is refused as `unknown_parameter`, never silently dropped).
+For REST API writes, `id` is `"api:<id>"` (bare `"local"` under `API_AUTH_MODE=none`, on stdio, and under `MCP_ALLOW_UNAUTHENTICATED`) and `kind` is always `"external"` (server-synthesized; a body `actor` is refused as `unknown_parameter`, never silently dropped).
 
 ### Config DTOs
 
@@ -831,7 +834,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
 `verifier` is the API credential verifier in force: `none` (unauthenticated mode), `bearer` (token file) or `jwks`.
 With `jwks`, `maxStale` (integer seconds) is also present: the `API_JWKS_MAX_STALE_SECONDS` bound of the key set, the oldest a cached
 key set may be and still be served after a failed refresh. `actorAuthenticationEnabled` is the separate
-`actor_authentication.verifier` setting and is unchanged.
+`actor_authentication.verifier` setting; that block is inert in 4.0 (see fleet-deployment.md), so the flag reflects only whether it is configured and gates nothing.
 
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the

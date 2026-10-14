@@ -215,7 +215,7 @@ traits:
     </div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Self-reported unless verified</h3><p class="small">The actor is whatever string the caller sent. Pair the check with actor authentication and <code>require_verified: true</code> to compare proven identities.</p></div>
+    <div class="rule"><h3>Credential identity, not a claim</h3><p class="small">The actor is the principal of the credential that wrote the note, never a string the caller sent. Separate seats need separate credentials: stdio and unauthenticated sessions all share the one <code>local</code> principal. <code>require_verified: true</code> additionally demands a cryptographically verified JWT credential.</p></div>
     <div class="rule"><h3>Last writer wins</h3><p class="small">Re-upserting a note replaces its actor. No history is kept, so the plugin's orchestrator never rewrites a note a seat owns.</p></div>
     <div class="rule"><h3>The waiver is self-service</h3><p class="small">Whoever writes the note can add the waiver line. Treat <code>reject</code> as a discipline aid for cooperating agents. It is not a security control.</p></div>
   </div>

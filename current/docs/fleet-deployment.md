@@ -661,11 +661,12 @@ To authenticate callers, configure the credential mode ([Enabling the REST API](
 
 ### `actor_authentication` in 4.0 (inert)
 
-The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is still **parsed and validated at startup**, and a JWKS actor verifier is still constructed from it, but **it changes no call**: no request carries an `actor` or an `actor.proof` any more, so nothing consults the verifier. What stays observable:
+The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is still **parsed and validated at startup**, and a JWKS actor verifier is still constructed from it, but **it authenticates and attributes no call**: no request carries an `actor` or an `actor.proof` any more, so nothing in the request path consults the verifier or the parsed block. What stays observable:
 
 - A malformed block still fails startup, closed, before the readiness marker is written: an unrecognized `verifier.type`, a non-mapping `verifier`, `type: jwks` with no key source (or more than one), a `verifier` field of the wrong type, or a non-positive or too-small `max_stale_seconds`.
 - A leftover `degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable still fails startup naming it.
-- The keys it still accepts are `verifier.type`, `oidc_discovery`, `jwks_uri`, `jwks_path`, `issuer`, `audience`, `algorithms`, `cache_ttl_seconds`, `stale_on_error`, `max_stale_seconds`, `max_token_lifetime_seconds`, `allow_insecure_url`, `require_sub_match`, `jti_replay_protection`, `did_allowlist`, `did_pattern`, `did_loose_kid_match` and `did_strict_relationship`. None of them affects a request: `require_sub_match`, `jti_replay_protection`, DID trust and the loose-kid match lived only on the removed actor path.
+- `GET /api/v1/info` still reports `actorAuthenticationEnabled` (true when `verifier.type` is not the no-op). It is the only reader of the block outside startup validation, and it gates nothing.
+- The keys it still accepts are `verifier.type`, `oidc_discovery`, `jwks_uri`, `jwks_path`, `issuer`, `audience`, `algorithms`, `cache_ttl_seconds`, `stale_on_error`, `max_stale_seconds`, `max_token_lifetime_seconds`, `allow_insecure_url`, `require_sub_match`, `jti_replay_protection`, `did_allowlist`, `did_pattern`, `did_loose_kid_match` and `did_strict_relationship`. None of them affects authentication or attribution of a request: `require_sub_match`, `jti_replay_protection`, DID trust and the loose-kid match lived only on the removed actor path.
 
 Remove the block when convenient; it is safe to delete. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not here. See [config-reference.md](config-reference.md) for the key's ownership.
 
@@ -742,6 +743,14 @@ JWKS key material is cached for `API_JWKS_CACHE_TTL_SECONDS` (default: 300). Whe
 | Expired, refresh fails, and no prior fetch or a prior fetch older than the stale bound | The key set is unavailable: `503 unavailable` (`retryAfterMs` 15000), no `WWW-Authenticate`; the token is neither accepted nor called invalid |
 
 Operators can alert on the `503` rate and on `verified_stale` in the call log's `proof_status` column to see prolonged JWKS outages.
+
+Refresh behavior behind the table:
+
+- **Backoff.** After a failed refresh the next attempt is deferred 15 s, doubling per consecutive failure up to 300 s, and reset by a success. Calls between attempts take the fast path and are served the stale set (inside the bound) instead of each re-fetching.
+- **Unknown `kid`.** A token naming a `kid` the cached set lacks forces one refresh, at most once per 30 s per provider, and not at all while the source is in failure backoff.
+- **Failed forced refresh.** If that forced refresh fails on an entry still inside its TTL, the entry is marked failed and backed off like any other, so a call can report `verifiedFromCache=true` before the TTL has elapsed.
+- **Cold start during an outage.** With no cached entry there is nothing to serve or back off: concurrent callers serialize on one lock and each attempts a fetch, so every call fails `503 unavailable` until a fetch succeeds.
+- **Redirects.** The fetch does not follow redirects; a `3xx` is a failed fetch.
 
 ### JWT `exp` vs Claim TTL
 

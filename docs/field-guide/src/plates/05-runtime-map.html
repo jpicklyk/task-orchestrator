@@ -323,7 +323,7 @@ API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
   <div class="grid3">
     <div class="rule"><h3>Local is one principal</h3><p class="small">Every stdio or local-mode session is the same <code>local</code> caller, so they share claims and note ownership and never contend. Telling agents apart takes a credential for each.</p></div>
     <div class="rule"><h3>Sessions stick to a caller</h3><p class="small">An MCP session is bound to the principal that opened it, and another principal on that session gets a 401. A director credential reaches only the director endpoint. A wrong token is the JSON error envelope, not a JSON-RPC error.</p></div>
-    <div class="rule"><h3>Old identity settings do nothing</h3><p class="small">The <code>actor_authentication</code> block is still checked at startup, but no request carries an actor or a proof any more, so it changes no call. The degraded-mode policy is gone, and a leftover one stops the server from starting.</p></div>
+    <div class="rule"><h3>Old identity settings do nothing</h3><p class="small">The <code>actor_authentication</code> block is still checked at startup, but no request carries an actor or a proof any more, so it authenticates and attributes no call (the info page still shows its on/off flag). The degraded-mode policy is gone, and a leftover one stops the server from starting.</p></div>
   </div>
 </section>
 

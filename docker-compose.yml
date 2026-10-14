@@ -52,8 +52,9 @@ services:
       LOG_LEVEL: INFO
       AGENT_CONFIG_DIR: /project
       MCP_SERVER_NAME: mcp-task-orchestrator
-      # MCP-over-HTTP only. The REST API is an opt-in layer that hard-requires an auth mode
-      # (API_AUTH_MODE=bearer|jwks); leaving it enabled with no auth mode is a fatal startup error.
+      # MCP-over-HTTP only. The REST API is an opt-in layer that needs an explicit auth mode
+      # (API_AUTH_MODE=bearer|jwks, or none with API_ALLOW_UNAUTHENTICATED=true as in the http-rest profile);
+      # leaving it enabled with no auth mode is a fatal startup error.
       # To enable the REST API, set API_ENABLED: "true" and add API_AUTH_MODE + token/JWKS config
       # (see current/docs/quick-start.md "Enabling the REST API").
       API_ENABLED: "false"
