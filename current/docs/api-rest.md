@@ -246,7 +246,9 @@ collection checks cannot drift apart.
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 10) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
-- `POST /ops/report` - `usage` reads `call_log`, whose rows carry no tags: a `tags_include` token is
+- `POST /ops/report` - `gates` and `contention` read events: a `tags_include` token sees only the events whose item
+  currently carries an allowed tag (no `403`), a `root_ids` token only the events of its roots. `usage` and `waste` read
+  `call_log`, whose rows carry no tags: a `tags_include` token is
   `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
   recorded against one of its roots (calls with no root are never visible to it), filtered before grouping so
   `page.total` counts only visible groups; `groupBy: principal` needs the `admin` capability (`403 forbidden`,
@@ -266,8 +268,8 @@ that already is a root stays a no-op. A reparent under another parent is checked
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
 `ancestors`, an `items_read` `history` page) gets `200 OK` with an empty or partially filtered result; `403` is
-reserved for a single item named directly. The one exception is `report` `usage`, an aggregate over call rows that
-carry no tags at all: a tag-scoped caller is refused outright rather than shown a silently empty report.
+reserved for a single item named directly. The exceptions are `report` `usage` and `waste`, aggregates over call rows
+that carry no tags at all: a tag-scoped caller is refused outright rather than shown a silently empty report.
 
 **Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
 caller gets full pages and an exact `page.total` of visible items; the 3.x bounded candidate window for
@@ -909,16 +911,19 @@ carry one of the listed tags (exact, case-sensitive match on the trimmed comma-s
 and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
 existence oracle; the one exception is an id that is itself one of the token's listed roots, which is admitted
 under a root restriction (as in 3.x) and then answers the tool's own `not_found`, revealing nothing beyond
-the token's own scope. List reads filter out-of-scope entities instead of failing, except `report` `usage`, which
-refuses a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call rows carry no tags) and aggregates only
+the token's own scope. List reads filter out-of-scope entities instead of failing, except `report` `usage` and `waste`, which
+refuse a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call rows carry no tags) and aggregates only
 a `root_ids` token's own roots (§3).
 
-**Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its `usage` select
+**Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its selects are `usage`
+(windows at most 400 days), `gates` and `contention` (at most 31 days) and `waste` (at most 7 days). The `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
-31): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
+400; a window of at most 31 days inside the raw horizon (an empty `call_log` with a fold present counts as before it) reads `call_log` with `basis` `raw`, any other reads the per-day
+summaries `usage_daily` plus the raw tail with `basis` `daily`, `since` floored and a folded `until` ceiled to UTC midnight;
+`groupBy` `principal` is raw-only): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
-field reference is in [`api-reference.md`](api-reference.md#report).
+field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`.
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 
