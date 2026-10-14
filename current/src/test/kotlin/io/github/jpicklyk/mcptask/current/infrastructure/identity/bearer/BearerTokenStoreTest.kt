@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
+import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -443,7 +444,7 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNull(result, "Expired token should return null at lookup time")
     }
 
@@ -469,7 +470,7 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNotNull(result, "Valid non-expired token should return a principal")
         assertEquals("valid", result!!.id)
     }
@@ -494,7 +495,7 @@ class BearerTokenStoreTest {
         val store = BearerTokenStore(path)
         val entries = store.loadWithEntries()
 
-        val result = runBlocking { CredentialResolver(entries, null).resolve("wrong-secret")?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull("wrong-secret")?.principal }
         assertNull(result, "Wrong token should return null")
     }
 }

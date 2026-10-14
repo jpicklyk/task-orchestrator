@@ -181,7 +181,6 @@ class SearchRequestShapeTest {
             actorAuthEnabled = rig.rig.composition.actorAuthEnabled,
             serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
-            degradedModePolicy = rig.rig.composition.degradedModePolicy,
             callLog = rig.writer,
             appConfig = AppConfig.fromEnv(),
         )

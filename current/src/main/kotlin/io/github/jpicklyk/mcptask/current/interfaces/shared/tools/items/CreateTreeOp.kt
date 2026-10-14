@@ -95,11 +95,7 @@ private suspend fun WriteScope.createTree(
             if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
     }
-    val caller =
-        when (val resolved = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)) {
-            is Outcome.Err -> return resolved
-            is Outcome.Ok -> resolved.value
-        }
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
     val request =
         WorkTreeRequest(
             root =

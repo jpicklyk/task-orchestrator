@@ -73,11 +73,7 @@ private suspend fun WriteScope.runClaim(
     ctx: CallContext,
     req: ClaimRequest
 ): Outcome<JsonElement> {
-    val holder =
-        when (val resolved = AdvanceSupport.holder(env, ctx)) {
-            is Outcome.Err -> return resolved
-            is Outcome.Ok -> resolved.value
-        }
+    val holder = AdvanceSupport.holder(ctx)
     if ((req.itemId == null) == (req.select == null)) {
         return Outcome.Err(invalidField("/itemId", "exactly one of itemId or select is required"))
     }

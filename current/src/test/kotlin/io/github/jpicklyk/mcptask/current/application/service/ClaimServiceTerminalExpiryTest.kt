@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
@@ -57,8 +56,9 @@ class ClaimServiceTerminalExpiryTest {
 
     private suspend fun AdvanceService.trigger(
         item: WorkItem,
-        trigger: String
-    ): AdvanceOutcome = advance(item, trigger, null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+        trigger: String,
+        holder: String? = null
+    ): AdvanceOutcome = advance(item, trigger, null, holder?.let { ActorClaim(id = it, kind = ActorKind.EXTERNAL) }, null)
 
     private fun List<EventRecord>.claimTypes() = map { it.type }.filter { it.startsWith("claim.") }
 
@@ -121,7 +121,7 @@ class ClaimServiceTerminalExpiryTest {
             rig.service.claim(i.id, "agent-a", 60).ok()
             clock.set(e.minusMillis(1))
 
-            val (outcome, rows) = rig.written { advanceService(rig).trigger(rig.reload(i.id), "complete") }
+            val (outcome, rows) = rig.written { advanceService(rig).trigger(rig.reload(i.id), "complete", holder = "agent-a") }
 
             assertIs<AdvanceOutcome.Success>(outcome)
             assertTrue(rows.claimTypes().none { it == "claim.expired" }, "an active claim never expires: $rows")

@@ -5,7 +5,6 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -534,8 +533,28 @@ class YamlActorAuthenticationConfigServiceTest {
     // degraded_mode_policy parsing
     // -------------------------------------------------------------------------
 
+    private fun assertPolicyKeyFailsClosed(
+        value: String,
+        what: String
+    ) {
+        val configFile =
+            createConfigFile(
+                """
+                actor_authentication:
+                  enabled: true
+                  degraded_mode_policy: $value
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlActorAuthenticationConfigService(configFile)
+        val ex = assertThrows(IllegalArgumentException::class.java, { service.getConfig() }, what)
+        assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
+        assertTrue(ex.message?.contains(configFile.toString()) == true, "Expected the config path in: ${ex.message}")
+    }
+
     @Test
-    fun `degraded_mode_policy defaults to ACCEPT_CACHED when absent`() {
+    fun `absent degraded_mode_policy loads with no warnings`() {
         val configFile =
             createConfigFile(
                 """
@@ -546,83 +565,28 @@ class YamlActorAuthenticationConfigServiceTest {
                 """.trimIndent()
             )
         val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+        assertEquals(ActorAuthenticationConfig(), service.getConfig())
         assertTrue(service.getWarnings().isEmpty())
     }
 
     @Test
-    fun `degraded_mode_policy accept-cached is parsed correctly`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: accept-cached
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isEmpty())
-    }
+    fun `degraded_mode_policy accept-cached now fails closed`() = assertPolicyKeyFailsClosed("accept-cached", "accept-cached")
 
     @Test
-    fun `degraded_mode_policy accept-self-reported is parsed correctly`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: accept-self-reported
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isEmpty())
-    }
+    fun `degraded_mode_policy accept-self-reported now fails closed`() =
+        assertPolicyKeyFailsClosed("accept-self-reported", "accept-self-reported")
 
     @Test
-    fun `degraded_mode_policy reject is parsed correctly`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: reject
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isEmpty())
-    }
+    fun `degraded_mode_policy reject now fails closed`() = assertPolicyKeyFailsClosed("reject", "reject")
 
     @Test
-    fun `degraded_mode_policy unknown value throws IllegalArgumentException naming the value`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: banana
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
-
-        // Fail-closed per diagnosis D2: an unrecognized degraded_mode_policy is fatal, not a
-        // silent fallback to ACCEPT_CACHED.
-        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
-        assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
-    }
+    fun `degraded_mode_policy unknown value still fails closed`() = assertPolicyKeyFailsClosed("banana", "banana")
 
     @Test
-    fun `ActorAuthenticationConfig default has degraded_mode_policy ACCEPT_CACHED`() {
+    fun `degraded_mode_policy null value fails closed`() = assertPolicyKeyFailsClosed("null", "null")
+
+    @Test
+    fun `config without an actor_authentication section loads the defaults`() {
         val configFile =
             createConfigFile(
                 """
@@ -634,122 +598,32 @@ class YamlActorAuthenticationConfigServiceTest {
                 """.trimIndent()
             )
         val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+        assertEquals(ActorAuthenticationConfig(), service.getConfig())
     }
 
     // -------------------------------------------------------------------------
-    // DEGRADED_MODE_POLICY environment variable override
+    // DEGRADED_MODE_POLICY environment variable (removed: any value fails startup)
     // -------------------------------------------------------------------------
 
     @Test
-    fun `DEGRADED_MODE_POLICY env unset falls through to YAML default`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: reject
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        // No env var set — YAML value should be used
+    fun `DEGRADED_MODE_POLICY env unset loads the YAML`() {
+        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
         val service = YamlActorAuthenticationConfigService(configFile, envResolver = { null })
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+        assertEquals(ActorAuthenticationConfig(), service.getConfig())
     }
 
     @Test
-    fun `DEGRADED_MODE_POLICY env var overrides YAML value`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: reject
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        // Env var set to accept-self-reported; YAML says reject
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-self-reported" else null }
-            )
-        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, service.getConfig().degradedModePolicy)
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env var accept-cached overrides YAML reject`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: reject
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-cached" else null }
-            )
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env var is case-insensitive — REJECT uppercase`() {
-        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "REJECT" else null }
-            )
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env var is case-insensitive — mixed case Reject`() {
-        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "Reject" else null }
-            )
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env var is case-insensitive — lowercase reject`() {
-        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "reject" else null }
-            )
-        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env var invalid value throws IllegalArgumentException`() {
-        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
-        val service =
-            YamlActorAuthenticationConfigService(
-                configFile,
-                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "banana" else null }
-            )
-        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
-        assertTrue(ex.message!!.contains("accept-cached, accept-self-reported, reject"))
-        assertTrue(ex.message!!.contains("banana"))
-    }
-
-    @Test
-    fun `DEGRADED_MODE_POLICY env unset with no YAML section defaults to ACCEPT_CACHED`() {
-        val configFile = createConfigFile("note_schemas:\n  default: []")
-        val service = YamlActorAuthenticationConfigService(configFile, envResolver = { null })
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+    fun `DEGRADED_MODE_POLICY env var set to any value fails closed naming the variable`() {
+        for (value in listOf("accept-cached", "accept-self-reported", "reject", "REJECT", "banana", "")) {
+            val configFile = createConfigFile("actor_authentication:\n  enabled: true")
+            val service =
+                YamlActorAuthenticationConfigService(
+                    configFile,
+                    envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") value else null }
+                )
+            val ex = assertThrows(IllegalArgumentException::class.java, { service.getConfig() }, "value '$value'")
+            assertTrue(ex.message!!.contains("DEGRADED_MODE_POLICY"), "Expected the variable in: ${ex.message}")
+        }
     }
 
     // -------------------------------------------------------------------------

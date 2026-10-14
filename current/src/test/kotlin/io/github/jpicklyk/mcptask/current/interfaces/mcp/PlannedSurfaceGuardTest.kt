@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -474,25 +473,16 @@ class PlannedSurfaceGuardTest {
                 .associate { it.fileName.toString() to Json.parseToJsonElement(Files.readString(it)).jsonObject }
         }
 
-    private fun JsonObject.enumAt(vararg path: String): Set<String> {
-        var node: JsonObject = this
-        for (key in path.dropLast(1)) node = node.getValue(key).jsonObject
-        return (node.getValue(path.last()) as JsonArray).map { it.jsonPrimitive.content }.toSet()
-    }
-
-    private fun JsonObject.selectNames(): Set<String> = enumAt("inputSchema", "properties", "select", "enum")
-
-    private fun JsonObject.opNames(): Set<String> = enumAt("inputSchema", "properties", "ops", "items", "properties", "op", "enum")
-
     @Test
-    fun `S17 the planned directory holds exactly the eight files of decision D5, report now a rollup delta (R9)`() {
-        // R9 made report visible in director, so its full planned entry became stale; the rollup inputs stay reserved as a delta.
+    fun `S17 the planned directory holds exactly the eight delta files of decision D5, the runs tools now real (R20)`() {
+        // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
+        // stale; what the later items still add stays reserved as deltas.
         assertEquals(
             setOf(
-                "runs_read.orchestration.json",
-                "runs_read.director.json",
-                "runs_write.orchestration.json",
-                "runs_write.director.json",
+                "runs_read.orchestration.delta.json",
+                "runs_read.director.delta.json",
+                "runs_write.orchestration.delta.json",
+                "runs_write.director.delta.json",
                 "report.director.delta.json",
                 "advance.orchestration.delta.json",
                 "notes_write.knowledge.delta.json",
@@ -510,40 +500,45 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S17 each planned entry names the tool and members decision D5 gives`() {
-        val files = planned()
-        assertEquals(setOf("get", "list", "frontier", "seats"), files.getValue("runs_read.orchestration.json").selectNames())
-        assertEquals(setOf("get", "list", "frontier", "decisions", "decision"), files.getValue("runs_read.director.json").selectNames())
-        assertEquals(
-            setOf("open", "update", "close", "assign", "end_seat", "raise"),
-            files.getValue("runs_write.orchestration.json").opNames()
-        )
-        assertEquals(
-            setOf("open", "close", "ack", "answer", "pause", "resume", "withdraw"),
-            files.getValue("runs_write.director.json").opNames()
-        )
-        for ((file, tool) in listOf(
-            "runs_read.orchestration.json" to "runs_read",
-            "runs_read.director.json" to "runs_read",
-            "runs_write.orchestration.json" to "runs_write",
-            "runs_write.director.json" to "runs_write"
-        )) {
-            assertEquals(
-                tool,
-                files
-                    .getValue(file)
-                    .getValue("name")
-                    .jsonPrimitive.content,
-                "$file names its tool"
-            )
+    fun `S17 no full planned entry remains for a runs tool, so every runs fixture is a delta`() {
+        val names = planned().keys
+        for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
+            assertTrue("$file.json" !in names, "$file.json is stale once the tool is visible and must be replaced by a delta")
+            assertTrue("$file.delta.json" in names, "$file.delta.json keeps the budget of the members R20 does not ship")
         }
     }
 
     @Test
-    fun `S17 the four deltas add exactly the properties decision D5 and R9 give`() {
+    fun `S17 the runs deltas add exactly the properties of the members R20 does not ship`() {
+        val files = planned()
+        assertEquals(setOf("itemId", "ended"), files.getValue("runs_read.orchestration.delta.json").keys)
+        assertEquals(setOf("decisionId", "overdue"), files.getValue("runs_read.director.delta.json").keys)
+        assertEquals(
+            setOf(
+                "itemId",
+                "seat",
+                "outcome",
+                "links",
+                "class",
+                "question",
+                "options",
+                "recommended",
+                "context",
+                "dedupeKey",
+                "severity",
+                "block",
+                "summary"
+            ),
+            files.getValue("runs_write.orchestration.delta.json").keys
+        )
+        assertEquals(setOf("decisionId", "option", "text", "rationale"), files.getValue("runs_write.director.delta.json").keys)
+    }
+
+    @Test
+    fun `S17 the other four deltas add exactly the properties decision D5 and R9 give`() {
         val files = planned()
         assertEquals(setOf("usage", "reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
-        assertEquals(setOf("runId", "anchorId"), files.getValue("report.director.delta.json").keys)
+        assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.knowledge.delta.json").keys)
         assertEquals(setOf("takeover"), files.getValue("notes_write.orchestration.delta.json").keys)
     }

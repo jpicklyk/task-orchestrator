@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -15,7 +14,6 @@ import org.junit.jupiter.api.io.TempDir
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -31,7 +29,7 @@ import kotlin.test.assertTrue
  * Oracle source: the item's frozen `diagnosis` note (decisions D1, D3, D5) and `test-plan` note
  * (queue phase) -- never this file's own reading of the fixed source. All scenarios here are
  * EXISTING-SURFACE per the test-plan: [ServerComposition]'s constructor (including its `logger`
- * parameter) and `build()`, [CurrentMcpServer]'s constructor and `run()`, and [DegradedModePolicy]
+ * parameter) and `build()`, [CurrentMcpServer]'s constructor and `run()`
  * were all public before this fix. Only the *behavior* on a broken or absent global config, and
  * the new startup WARN for a real jwks verifier under `accept-cached`, are new -- both reachable
  * via a plain revert of the fix, which therefore yields behavioral red directly.
@@ -63,10 +61,10 @@ class GlobalConfigStartupFailClosedTest {
         return AppConfig.fromEnv { key -> env[key] }
     }
 
-    private fun jwksConfig(policy: String): String =
+    private fun jwksConfig(policy: String?): String =
         """
         actor_authentication:
-          degraded_mode_policy: $policy
+          ${if (policy != null) "degraded_mode_policy: $policy" else "enabled: true"}
           verifier:
             type: jwks
             audience: "test-audience"
@@ -92,7 +90,6 @@ class GlobalConfigStartupFailClosedTest {
                 shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, composition.degradedModePolicy)
         assertNull(runBlocking { composition.serverConfig.layer() }?.fingerprint)
         assertFalse(composition.actorAuthEnabled)
     }
@@ -103,7 +100,7 @@ class GlobalConfigStartupFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 build() logs exactly one accept-cached WARN for a real jwks verifier (static JWKS)`(
+    fun `S3 build() logs no accept-cached WARN for a real jwks verifier (static JWKS)`(
         @TempDir tempDir: Path
     ) {
         writeGlobalConfig(
@@ -123,11 +120,11 @@ class GlobalConfigStartupFailClosedTest {
 
         ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
 
     @Test
-    fun `S3 build() logs exactly one accept-cached WARN for a real jwks verifier (DID-trust)`(
+    fun `S3 build() logs no accept-cached WARN for a real jwks verifier (DID-trust)`(
         @TempDir tempDir: Path
     ) {
         writeGlobalConfig(
@@ -146,7 +143,7 @@ class GlobalConfigStartupFailClosedTest {
 
         ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
 
     // -------------------------------------------------------------------------
@@ -232,27 +229,17 @@ class GlobalConfigStartupFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S13 jwks with YAML reject logs zero accept-cached WARNs`(
+    fun `S13 jwks with a YAML degraded_mode_policy key fails build closed`(
         @TempDir tempDir: Path
     ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 jwks with YAML accept-self-reported logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "accept-self-reported"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        for (policy in listOf("reject", "accept-self-reported", "accept-cached")) {
+            writeGlobalConfig(tempDir, jwksConfig(policy = policy))
+            val ex =
+                assertFailsWith<IllegalArgumentException>("policy $policy") {
+                    ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
+                }
+            assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
+        }
     }
 
     @Test
@@ -275,28 +262,17 @@ class GlobalConfigStartupFailClosedTest {
     }
 
     @Test
-    fun `S13 jwks YAML accept-cached overridden by env reject logs zero accept-cached WARNs`(
+    fun `S13 a set DEGRADED_MODE_POLICY variable fails build closed whatever its value`(
         @TempDir tempDir: Path
     ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "accept-cached"))
-        val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "reject"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 jwks YAML reject overridden by env accept-cached logs exactly one accept-cached WARN`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
-        val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "accept-cached"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        writeGlobalConfig(tempDir, jwksConfig(policy = null))
+        for (value in listOf("reject", "accept-cached", "accept-self-reported")) {
+            val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to value))
+            val ex =
+                assertFailsWith<IllegalArgumentException>("value $value") {
+                    ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator()).build()
+                }
+            assertTrue(ex.message?.contains("DEGRADED_MODE_POLICY") == true, "Expected the variable in: ${ex.message}")
+        }
     }
 }

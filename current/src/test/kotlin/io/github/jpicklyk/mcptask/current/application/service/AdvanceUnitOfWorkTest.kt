@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -83,7 +82,7 @@ class AdvanceUnitOfWorkTest {
                     )
 
                 val outcome =
-                    service.advance(created, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+                    service.advance(created, "start", null, null, null)
 
                 val result = assertIs<AdvanceOutcome.Success>(outcome, "start must apply: $outcome").result
                 assertEquals(Role.WORK, result.newRole)

@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialReso
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
@@ -66,7 +67,7 @@ class AuthenticationPluginTest {
     fun `valid bearer token resolves to principal`() {
         val entries = makeEntries("secret-token" to "my-service")
         val store = BearerTokenStore("/unused")
-        val result = runBlocking { CredentialResolver(entries, null).resolve("secret-token")?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull("secret-token")?.principal }
         assertNotNull(result)
         assertEquals("my-service", result!!.id)
     }
@@ -75,7 +76,7 @@ class AuthenticationPluginTest {
     fun `missing bearer token returns null`() {
         val entries = makeEntries("correct-secret" to "my-service")
         val store = BearerTokenStore("/unused")
-        val result = runBlocking { CredentialResolver(entries, null).resolve("wrong-secret")?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull("wrong-secret")?.principal }
         assertNull(result)
     }
 
@@ -93,7 +94,7 @@ class AuthenticationPluginTest {
             )
         val fixedClock: () -> Instant = { Instant.now() } // real clock, token is in the past
         val store = BearerTokenStore("/unused")
-        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNull(result, "Expired token should return null")
     }
 
@@ -110,7 +111,7 @@ class AuthenticationPluginTest {
                     ),
             )
         val store = BearerTokenStore("/unused")
-        val result = runBlocking { CredentialResolver(entries, null).resolve(rawToken)?.principal }
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNotNull(result)
         assertEquals("future-user", result!!.id)
     }
@@ -124,9 +125,9 @@ class AuthenticationPluginTest {
         val entries = makeEntries(tokenA to "alpha-user")
         val store = BearerTokenStore("/unused")
 
-        assertNotNull(runBlocking { CredentialResolver(entries, null).resolve(tokenA)?.principal }, "tokenA should resolve")
+        assertNotNull(runBlocking { CredentialResolver(entries, null).resolveOrNull(tokenA)?.principal }, "tokenA should resolve")
         assertNull(
-            runBlocking { CredentialResolver(entries, null).resolve(tokenB)?.principal },
+            runBlocking { CredentialResolver(entries, null).resolveOrNull(tokenB)?.principal },
             "tokenB should NOT resolve for tokenA's entry"
         )
     }
@@ -141,10 +142,10 @@ class AuthenticationPluginTest {
             )
         val store = BearerTokenStore("/unused")
 
-        assertEquals("reader", runBlocking { CredentialResolver(entries, null).resolve("token-read")?.principal }?.id)
-        assertEquals("writer", runBlocking { CredentialResolver(entries, null).resolve("token-write")?.principal }?.id)
-        assertEquals("admin", runBlocking { CredentialResolver(entries, null).resolve("token-admin")?.principal }?.id)
-        assertNull(runBlocking { CredentialResolver(entries, null).resolve("token-unknown")?.principal })
+        assertEquals("reader", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-read")?.principal }?.id)
+        assertEquals("writer", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-write")?.principal }?.id)
+        assertEquals("admin", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-admin")?.principal }?.id)
+        assertNull(runBlocking { CredentialResolver(entries, null).resolveOrNull("token-unknown")?.principal })
     }
 
     // -------------------------------------------------------------------------

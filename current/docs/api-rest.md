@@ -166,9 +166,14 @@ resolves to nothing), then JWT verification in JWKS mode.
 **Failing requests receive** (bodies are the 4.0 error envelope, §6):
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
+- `503 unavailable` (no `WWW-Authenticate`, `error.detail.retryAfterMs` 15000) — a JWT arrived while the JWKS key set is unavailable (never fetched, or older than `max_stale_seconds`): the token is neither accepted nor called invalid. The same answer applies to `/mcp` and to the SSE `?token=` path; retry after the hint. A key set older than its TTL but younger than `max_stale_seconds` is still served (the principal's proof is `verified_stale`)
 - `403 forbidden` with `detail: {scope: "capability", required: "<capability>"}` -- token valid but lacks the required capability
 
-**`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
+**Verification fails closed.** There is no degraded-mode policy (`actor_authentication.degraded_mode_policy` and
+`DEGRADED_MODE_POLICY` were removed in 4.0 and fail startup if still set). A JWT is accepted, rejected (`401`) or, when
+the key set cannot be had, answered `503 unavailable`; no request is ever served under a guessed or self-reported
+identity. `proofStatus` is the whole vocabulary of how a principal was proven: `verified`, `verified_stale`, `issued`
+and `none`; `rejected` appears only in stored history (a rejected credential yields no principal).
 
 ### Unauthenticated Mode (`API_AUTH_MODE=none`, opt-in)
 
@@ -205,7 +210,7 @@ Each token grants a set of additive capabilities:
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset` (checked per op by the dispatcher, section 20a). Grants no `docs_write` op. |
 | `WRITE_DOCS` | `write-docs` | `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
-| `RUNS` | `runs` | Reserved for the run tools; parsed and grantable, no endpoint checks it yet |
+| `RUNS` | `runs` | Every `runs_write` op (`open`, `update`, `close`, `pause`, `resume`, `mark`), checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
 | `DECIDE` | `decide` | Reserved for decision answering; parsed and grantable, no endpoint checks it yet |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
 
@@ -247,8 +252,8 @@ collection checks cannot drift apart.
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
 - `POST /ops/report` - `gates` and `contention` read events: a `tags_include` token sees only the events whose item
-  currently carries an allowed tag (no `403`), a `root_ids` token only the events of its roots. `usage` and `waste` read
-  `call_log`, whose rows carry no tags: a `tags_include` token is
+  currently carries an allowed tag (no `403`), a `root_ids` token only the events of its roots. `usage`, `waste` and
+  `rollup` (whose cost reads call rows) read `call_log`, whose rows carry no tags: a `tags_include` token is
   `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
   recorded against one of its roots (calls with no root are never visible to it), filtered before grouping so
   `page.total` counts only visible groups; `groupBy: principal` needs the `admin` capability (`403 forbidden`,
@@ -268,8 +273,8 @@ that already is a root stays a no-op. A reparent under another parent is checked
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
 `ancestors`, an `items_read` `history` page) gets `200 OK` with an empty or partially filtered result; `403` is
-reserved for a single item named directly. The exceptions are `report` `usage` and `waste`, aggregates over call rows
-that carry no tags at all: a tag-scoped caller is refused outright rather than shown a silently empty report.
+reserved for a single item named directly. The exceptions are `report` `usage`, `waste` and `rollup`, aggregates over
+call rows that carry no tags at all: a tag-scoped caller is refused outright rather than shown a silently empty report.
 
 **Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
 caller gets full pages and an exact `page.total` of visible items; the 3.x bounded candidate window for
@@ -815,10 +820,16 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "actorAuthenticationEnabled": false,
+  "verifier": "bearer",
   "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
   "configWarnings": []
 }
 ```
+
+`verifier` is the API credential verifier in force: `none` (unauthenticated mode), `bearer` (token file) or `jwks`.
+With `jwks`, `maxStale` (integer seconds) is also present: the `max_stale_seconds` of the key set, the oldest a cached
+key set may be and still be served after a failed refresh. `actorAuthenticationEnabled` is the separate
+`actor_authentication.verifier` setting and is unchanged.
 
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the
@@ -911,19 +922,46 @@ carry one of the listed tags (exact, case-sensitive match on the trimmed comma-s
 and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
 existence oracle; the one exception is an id that is itself one of the token's listed roots, which is admitted
 under a root restriction (as in 3.x) and then answers the tool's own `not_found`, revealing nothing beyond
-the token's own scope. List reads filter out-of-scope entities instead of failing, except `report` `usage` and `waste`, which
+the token's own scope. List reads filter out-of-scope entities instead of failing, except `report` `usage`, `waste` and `rollup`, which
 refuse a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call rows carry no tags) and aggregates only
 a `root_ids` token's own roots (§3).
 
 **Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its selects are `usage`
-(windows at most 400 days), `gates` and `contention` (at most 31 days) and `waste` (at most 7 days). The `usage` select
+(windows at most 400 days), `gates`, `contention` and `rollup` (at most 31 days) and `waste` (at most 7 days). The `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
 400; a window of at most 31 days inside the raw horizon (an empty `call_log` with a fold present counts as before it) reads `call_log` with `basis` `raw`, any other reads the per-day
 summaries `usage_daily` plus the raw tail with `basis` `daily`, `since` floored and a folded `until` ceiled to UTC midnight;
 `groupBy` `principal` is raw-only): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
-field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`.
+field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes a required
+`anchorId` (any item, any depth; absent is `400 invalid_request` on `/anchorId`) and answers one object for the anchor's
+subtree, inclusive: `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
+transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst,
+basis: "targets"}}`, short ids only. Items are current state (lifecycle-free items not counted); transitions and notes come
+from the subtree's events in the window; cost counts the distinct calls in the window that named a subtree item or wrote
+one of its events, a lower bound. With neither `since` nor `until`, the window runs from the subtree's first event to its
+last event plus 1 ms, clamped to 31 days (`window.clamped: true`). It has the visibility of `usage`.
+
+**Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (newest
+first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unmarked`, a mark key that keeps only closed
+runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`). `POST /ops/runs_write`
+serves `open`, `update`, `close`, `pause`, `resume` and `mark`, each needing `runs`. A run is as visible as its root:
+`get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
+permission rule and before `not_found` could differ, and `list` leaves such runs out. Under a restricted scope an
+unknown run id or prefix is `forbidden` as well (never `not_found`), and an ambiguous prefix lists only the runs the
+scope admits (none is `forbidden`, one resolves); an unrestricted token keeps `not_found` and the full candidate list.
+Who may do what: `open` any `runs`
+caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for a request-body
+actor); `close` (any reason but the server-only `budget_exhausted`) the coordinator, the director profile or a human
+token; `pause` and `resume` the director profile or a human token (a service or agent token on `/ops/runs_write`
+is refused, the same token on `/ops/director/runs_write` is not); `update` the coordinator only; `mark` any `runs`
+caller. A refusal is `forbidden` with `detail: {scope: "principal_kind", required}` naming the allowed kinds. Until the
+coordinator token exists the coordinator is the caller that opened the run. `mark` is REST only (it is on no MCP
+profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
+nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
+`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `version`, ...); `close` adds `snapshot`, `mark` adds
+`marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 
@@ -964,7 +1002,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get` and `list`; `runs_write` `open`, `close`, `pause` and `resume`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
@@ -1036,8 +1074,10 @@ connection-time check, distinct from the per-event filtering described below.
 **Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
 via the same `allowsItemTags` predicate the REST collection endpoints use (§3). A connection whose
-principal has no `tags_include` (or an event with no `itemId`, i.e. a bus-level event) is unaffected.
-Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
+principal has no `tags_include` is unaffected. An event with no `itemId` is judged on its type: the control events
+(`sync.lost`, `auth.expired`) always pass; a `run.*` event passes only when its `rootId` is in the principal's root set
+(when it has one) and, for a `tags_include` principal, the run's root item is admitted by the tag allowlist (the same
+cached decision as the item events); any other event without an `itemId` is dropped. Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
 the result is cached per connection for `item.*`/`scope.*` events (which also refresh the cache, so a
 mid-stream tag change on an item takes effect immediately) and reused for `note.*`/`dependency.*`
 events on the same item. See §24 for the `item.deleted` fail-closed gap this scheme has.
@@ -1105,14 +1145,16 @@ Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authe
 - `kind` = `"external"` for every REST principal, whatever its own kind (`human`, `agent`, `service`; §1), which
   travels with the call instead of the audit actor
 - `parent` = `null`
-- `verification` = `verified` (verifier `api-jwks`) for a JWT, fresh or stale; `unchecked` for a token-file token
-  (`api-bearer`) and for unauthenticated mode (`api-unauthenticated`)
+- `verification` = stored as `verified` (verifier `api-jwks`) for a JWT, fresh or stale; `unchecked` for a token-file
+  token (`api-bearer`) and for the local principal (`local`). Every wire reads it as a proof status: a token-file token
+  is `issued`, the local principal `none`, and a JWT `verified` (`verified_stale` on the call log and the call's
+  provenance, where the principal's own proof is known)
 
 **Attribution redaction (applies to notes and the `items_read` `history` select):**
 - Non-admin callers: `actor` and `verification` fields are omitted from responses
 - Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION`
 - Proof evidence (a SHA-256 hash of the proof, and the verified JWT claims `iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`
-  when the proof was `verified`) is stored but never returned: `verification` is `{status, verifier?, reason?}` for every
+  when the proof was `verified`) is stored but never returned: `verification` is `{proofStatus, verifier?, reason?}` for every
   caller, `ADMIN` included (3.x showed `verification.proof` to `ADMIN`).
 
 **Redaction env vars:**

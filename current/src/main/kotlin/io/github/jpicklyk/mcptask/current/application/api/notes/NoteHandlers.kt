@@ -132,11 +132,7 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val caller =
-            when (val resolved = caller(env, ctx)) {
-                is Outcome.Err -> return resolved
-                is Outcome.Ok -> resolved.value
-            }
+        val caller = caller(ctx)
         val text =
             if (file != null) {
                 when (val read = env.bodySource.read(file)) {
@@ -201,11 +197,7 @@ object NoteHandlers {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
-        val caller =
-            when (val resolved = caller(env, ctx)) {
-                is Outcome.Err -> return resolved
-                is Outcome.Ok -> resolved.value
-            }
+        val caller = caller(ctx)
         val deleted = env.noteCommandService.delete(itemId, req.key, expected, caller)
         return when (deleted) {
             is Outcome.Err -> deleted
@@ -215,11 +207,8 @@ object NoteHandlers {
 
     // ---- shared steps -------------------------------------------------------------------------------------
 
-    /** The claim fence's caller: the call principal's trusted id ([ClaimHolder.resolve]); a policy rejection is `unauthenticated`. */
-    private fun caller(
-        env: ToolExecutionContext,
-        ctx: CallContext
-    ): Outcome<ClaimHolder> = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)
+    /** The claim fence's caller: the call principal's audited id ([ClaimHolder.resolve]). */
+    private fun caller(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim)
 
     /**
      * Resolves [rawItemId] by the one scope-aware rule ([ScopedIds.resolveTarget]): `not_found` / `ambiguous_id` for an

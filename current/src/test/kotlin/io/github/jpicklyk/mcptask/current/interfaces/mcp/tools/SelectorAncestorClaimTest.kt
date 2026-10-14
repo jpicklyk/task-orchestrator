@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -101,7 +100,6 @@ class SelectorAncestorClaimTest {
         ToolExecutionContext(
             InterloperProvider(sqlite.db.repositoryProvider(), repository),
             actorVerifier = NoOpActorVerifier,
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             unitOfWork = sqlite.db.unitOfWork()
         )
 

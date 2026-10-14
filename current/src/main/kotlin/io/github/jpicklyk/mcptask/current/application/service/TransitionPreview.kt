@@ -37,8 +37,10 @@ class PreviewView(
  * `evaluate(item, START) is Decision.Allow`, so a preview never disagrees with the advance it predicts
  * on the same state.
  *
- * Claim ownership is not part of a preview (no caller identity): [OwnershipInput.NONE]. Resource leases
- * are evaluated when the deployment kill switch ([leasesEnforced], read per call) is on.
+ * Claim ownership is not part of a preview (no caller identity): a preview models [OwnershipInput.NONE]
+ * (decision D9), so on an item another principal holds it can predict an advance that the OWNERSHIP gate (and the
+ * write fence, [FenceGuard]) then refuses for that caller. Resource leases are evaluated when the deployment kill
+ * switch ([leasesEnforced], read per call) is on.
  *
  * Config is read inside the read unit, like the advance it predicts: a unit has no last-known-good
  * fallback, so a per-root config read fault propagates as a `PerRootConfigUnavailableException`.

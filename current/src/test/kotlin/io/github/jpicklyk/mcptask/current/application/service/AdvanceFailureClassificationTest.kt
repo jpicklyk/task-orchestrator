@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -33,7 +32,7 @@ import kotlin.test.assertIs
  * kept as `DomainError?` and every `error` initialiser returning null - the code assertions then fail for the causes
  * the task-scope lists as previously null (unknown trigger, policy rejection, not-applicable transition).
  *
- * Oracles: [T] task-scope Build step 1 (unknown trigger -> INVALID_REQUEST, PolicyRejected -> UNAUTHENTICATED,
+ * Oracles: [T] task-scope Build step 1 (unknown trigger -> INVALID_REQUEST,
  * NotApplicable -> INVALID_TRANSITION) and the legacy wire-code to catalog assignments (`gate_blocked` ->
  * GATE_BLOCKED, `dependency_blocked` -> DEPENDENCY_UNMET, `not_claim_holder` -> NOT_CLAIM_HOLDER); [M] the
  * `advance_item` error-code list in api-reference at the base commit, which fixes which cause carries which wire code.
@@ -64,11 +63,9 @@ class AdvanceFailureClassificationTest {
         subject: WorkItem,
         trigger: String,
         actor: ActorClaim? = null,
-        verification: VerificationResult? = null,
-        policy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-        enforceOwnership: Boolean = false
+        verification: VerificationResult? = null
     ): AdvanceFailure {
-        val outcome = advance(subject, trigger, null, actor, verification, policy, enforceOwnership)
+        val outcome = advance(subject, trigger, null, actor, verification)
         return assertIs<AdvanceOutcome.Failure>(outcome, "expected a failure for '$trigger' on ${subject.role}, got $outcome").failure
     }
 
@@ -86,25 +83,6 @@ class AdvanceFailureClassificationTest {
             val failure = service().failureOf(item("cascade attempt"), "cascade")
 
             assertEquals(ErrorCode.INVALID_REQUEST, failure.error.code)
-        }
-
-    @Test
-    fun `S7 a degraded-policy rejection fails with UNAUTHENTICATED`(): Unit =
-        runBlocking {
-            val actor = ActorClaim(id = "unverifiable", kind = ActorKind.SUBAGENT)
-            val unavailable = VerificationResult(status = VerificationStatus.UNAVAILABLE, verifier = "jwks", reason = "JWKS endpoint down")
-
-            val failure =
-                service().failureOf(
-                    item("policy rejected"),
-                    "start",
-                    actor = actor,
-                    verification = unavailable,
-                    policy = DegradedModePolicy.REJECT,
-                    enforceOwnership = true
-                )
-
-            assertEquals(ErrorCode.UNAUTHENTICATED, failure.error.code)
         }
 
     @Test
@@ -158,23 +136,9 @@ class AdvanceFailureClassificationTest {
             val me = ActorClaim(id = "me", kind = ActorKind.SUBAGENT)
             val unchecked = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
-            val failure = service().failureOf(reread, "start", actor = me, verification = unchecked, enforceOwnership = true)
+            val failure = service().failureOf(reread, "start", actor = me, verification = unchecked)
 
             assertEquals(ErrorCode.NOT_CLAIM_HOLDER, failure.error.code)
-        }
-
-    @Test
-    fun `S7 probe the same ownership conflict with ownership not enforced is not a failure`(): Unit =
-        runBlocking {
-            val held = item("held but not enforced")
-            items.claim(held.id, "other-agent", 900)
-            val reread = items.getById(held.id)!!
-            val rest = ActorClaim(id = "api:token", kind = ActorKind.EXTERNAL)
-            val unchecked = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
-
-            val outcome = service().advance(reread, "start", null, rest, unchecked, DegradedModePolicy.ACCEPT_CACHED, false)
-
-            assertIs<AdvanceOutcome.Success>(outcome)
         }
 
     @Test
@@ -183,19 +147,11 @@ class AdvanceFailureClassificationTest {
             val failures =
                 listOf(
                     service().failureOf(item("a"), "bogus"),
-                    service().failureOf(item("b", Role.TERMINAL), "start"),
-                    service().failureOf(
-                        item("c"),
-                        "start",
-                        actor = ActorClaim(id = "x", kind = ActorKind.SUBAGENT),
-                        verification = VerificationResult(status = VerificationStatus.ABSENT, verifier = "jwks"),
-                        policy = DegradedModePolicy.REJECT,
-                        enforceOwnership = true
-                    )
+                    service().failureOf(item("b", Role.TERMINAL), "start")
                 )
 
             assertEquals(
-                listOf(ErrorCode.INVALID_REQUEST, ErrorCode.INVALID_TRANSITION, ErrorCode.UNAUTHENTICATED),
+                listOf(ErrorCode.INVALID_REQUEST, ErrorCode.INVALID_TRANSITION),
                 failures.map { it.error.code }
             )
             failures.forEach { assertEquals(false, it.error.message.isBlank(), "message must not be blank: ${it.error}") }

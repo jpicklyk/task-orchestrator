@@ -18,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -30,6 +29,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Defau
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -267,7 +267,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S5[$label]: malformed root_ids must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S5[$label]: malformed root_ids must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -292,7 +292,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S6[$label]: malformed tags_include must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S6[$label]: malformed tags_include must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -319,7 +319,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S7[$label]: malformed to_scope must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S7[$label]: malformed to_scope must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -395,7 +395,6 @@ class JwksScopeClaimFailClosedTest {
                     perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,
             appConfig = AppConfig.fromEnv(),
         )

@@ -171,7 +171,7 @@ private fun shapeFaults(
 /**
  * Steps c to e of the per-element check order: scope over every named item, then existence, then ONE
  * createInUnit over all edges, which is what makes a pattern atomic. The service fences every endpoint for the call's
- * caller ([ClaimHolder.resolve]; a policy rejection is `unauthenticated`).
+ * caller ([ClaimHolder.resolve]).
  */
 private suspend fun WriteScope.createEdges(
     env: ToolExecutionContext,
@@ -184,11 +184,7 @@ private suspend fun WriteScope.createEdges(
     val items = stores.workItemRepository()
     DepsSupport.forbiddenIfAny(ctx, ids, items)?.let { return Outcome.Err(it) }
     DepsSupport.missingItem(ids, items)?.let { return Outcome.Err(it) }
-    val caller =
-        when (val resolved = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)) {
-            is Outcome.Err -> return resolved
-            is Outcome.Ok -> resolved.value
-        }
+    val caller = ClaimHolder.resolve(ctx.principal.claim)
     val deps =
         edges.map { (from, to) ->
             Dependency(

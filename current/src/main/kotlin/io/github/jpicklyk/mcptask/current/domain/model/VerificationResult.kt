@@ -67,3 +67,40 @@ data class VerificationResult(
     val proofSha256: String? = null,
     val proofClaims: ProofClaims? = null
 )
+
+/**
+ * The ONE mapping from a stored verification (`notes.verification_status`, `events.proof_status`,
+ * `call_log.proof_status`) to the proof vocabulary, as wire spellings. `application.api.ProofStatus.fromStored` is this
+ * mapping typed; the layers that cannot import `application.api` (services, telemetry) use [VerificationResult.proofWire].
+ *
+ * `verified`, `verified_stale`, `issued`, `none` and `rejected` map to themselves; `unchecked` is `issued` when
+ * [verifier] is `api-bearer` (case-insensitive) and `none` for any other verifier; the legacy `absent`, `unverified`
+ * and `unavailable` are `none`; the legacy `failed` is `rejected`. [status] is trimmed and case-insensitive.
+ */
+object ProofVocabulary {
+    const val VERIFIED = "verified"
+    const val VERIFIED_STALE = "verified_stale"
+    const val ISSUED = "issued"
+    const val NONE = "none"
+    const val REJECTED = "rejected"
+
+    /** The proof wire spelling of the stored [status] under [verifier], or null for a status the vocabulary does not know. */
+    fun fromStored(
+        status: String,
+        verifier: String?
+    ): String? =
+        when (status.trim().lowercase()) {
+            "verified" -> VERIFIED
+            "verified_stale" -> VERIFIED_STALE
+            "issued" -> ISSUED
+            "none" -> NONE
+            "rejected" -> REJECTED
+            "unchecked" -> if (verifier?.trim().equals("api-bearer", ignoreCase = true)) ISSUED else NONE
+            "absent", "unverified", "unavailable" -> NONE
+            "failed" -> REJECTED
+            else -> null
+        }
+}
+
+/** This verification in the proof vocabulary, as a wire spelling ([ProofVocabulary.fromStored]); never null for a known status. */
+fun VerificationResult.proofWire(): String? = ProofVocabulary.fromStored(status.toJsonString(), verifier)

@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -87,7 +88,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).plusNanos(1)
-            val result = verifierAt(now).verifyWithExpiry(jwt)
+            val result = verifierAt(now).verifyWithExpiryOrNull(jwt)
             assertNull(
                 result,
                 "one nanosecond past exp+60s the token must be rejected as expired -- a truncated " +
@@ -100,7 +101,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).plusNanos(500_000)
-            val result = verifierAt(now).verifyWithExpiry(jwt)
+            val result = verifierAt(now).verifyWithExpiryOrNull(jwt)
             assertNull(
                 result,
                 "500 microseconds past exp+60s the token must be rejected as expired -- still within " +
@@ -114,7 +115,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).minusMillis(1)
-            val result = verifierAt(now).verifyWithExpiry(jwt)
+            val result = verifierAt(now).verifyWithExpiryOrNull(jwt)
             assertNotNull(
                 result,
                 "one millisecond before the exp+60s boundary the token must still be accepted -- proves " +

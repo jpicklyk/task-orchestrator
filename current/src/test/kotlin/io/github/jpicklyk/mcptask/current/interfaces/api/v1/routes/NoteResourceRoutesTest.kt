@@ -472,7 +472,7 @@ class NoteResourceRoutesTest {
                 val asAdmin = getAs(admin, path).bodyAsText()
                 assertTrue("\"actor\":{\"id\":\"agent-rest\"" in asAdmin, "$path admin: the actor is visible: $asAdmin")
                 assertTrue(
-                    "\"verification\":{\"status\":\"verified\"" in asAdmin,
+                    "\"verification\":{\"proofStatus\":\"verified\"" in asAdmin,
                     "$path admin: the verification status is visible: $asAdmin"
                 )
                 assertNoProofEvidence("$path admin", asAdmin)

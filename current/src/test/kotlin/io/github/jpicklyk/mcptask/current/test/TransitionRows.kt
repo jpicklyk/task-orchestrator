@@ -34,6 +34,19 @@ suspend fun RepositoryProvider.transitionsOf(itemId: UUID): List<RoleTransition>
 private val rowJson = Json
 private val rowLogger = LoggerFactory.getLogger("TransitionRows")
 
+/**
+ * The domain [VerificationStatus] a stored `events.proof_status` stands for: the proof vocabulary (`verified`,
+ * `verified_stale`, `issued`, `none`, `rejected`) read back as the status the audit claim carried (`issued` and `none`
+ * are both an unchecked credential), a legacy value through [VerificationStatus.fromString].
+ */
+private fun String.toVerificationStatus(): VerificationStatus =
+    when (trim().lowercase()) {
+        "verified", "verified_stale" -> VerificationStatus.VERIFIED
+        "issued", "none" -> VerificationStatus.UNCHECKED
+        "rejected" -> VerificationStatus.REJECTED
+        else -> VerificationStatus.fromString(this)
+    }
+
 /** Rebuilds the [RoleTransition] an `item.transitioned` row describes. */
 fun EventRecord.toRoleTransition(): RoleTransition {
     val data = rowJson.parseToJsonElement(data) as JsonObject
@@ -46,7 +59,7 @@ fun EventRecord.toRoleTransition(): RoleTransition {
     val verification =
         proofStatus?.let { status ->
             VerificationResult(
-                status = VerificationStatus.fromString(status),
+                status = status.toVerificationStatus(),
                 verifier = str("verifier"),
                 reason = str("verificationReason"),
                 proofSha256 = str("actorProofSha256"),

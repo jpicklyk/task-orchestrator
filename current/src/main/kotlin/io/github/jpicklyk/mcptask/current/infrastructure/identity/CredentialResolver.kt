@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.ApiTokenVerdict
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
@@ -27,18 +28,43 @@ data class Resolved(
 )
 
 /**
+ * The decision on one presented credential: [Trusted] (the credential establishes a [Resolved] principal),
+ * [Unauthenticated] (it proves nothing: answered 401), or [Unavailable] (it could not be judged because the JWKS key
+ * set is unavailable: answered 503 with `retryAfterMs`). There is no fourth outcome and no fallback to a
+ * self-reported identity: verification fails closed.
+ */
+sealed class TrustDecision {
+    data class Trusted(
+        val resolved: Resolved
+    ) : TrustDecision()
+
+    data object Unauthenticated : TrustDecision()
+
+    /** [reason] is for the operator's log line only (never the token); [retryAfterMs] is the client's retry hint. */
+    data class Unavailable(
+        val retryAfterMs: Long,
+        val reason: String = "JWKS key set unavailable"
+    ) : TrustDecision()
+}
+
+/** The retry hint of a [TrustDecision.Unavailable]: the key-set provider's base refresh backoff (a constant). */
+const val KEY_SET_RETRY_AFTER_MS = 15_000L
+
+/**
  * The ONE bearer pipeline: every REST credential (the `Authorization` header and the SSE `?token=`) is resolved
  * here, and nothing else hashes a presented token or calls the JWT verifier.
  *
  * Order: the SHA-256 digest of the raw token is looked up among [tokenEntries] (constant-time key equality via
  * [HashBytes]; an entry past its `expires_at` per [clock] resolves to nothing, it does not fall through to the JWT
- * path); on a miss, the token is verified as a JWT by [jwtVerifier] when one is configured; otherwise null.
+ * path); on a miss, the token is verified as a JWT by [jwtVerifier] when one is configured; otherwise
+ * [TrustDecision.Unauthenticated]. A rejected JWT is [TrustDecision.Unauthenticated]; an unavailable key set is
+ * [TrustDecision.Unavailable]; a verified JWT (fresh or from the stale cache) is [TrustDecision.Trusted].
  *
  * @param tokenEntries The token file's entries, loaded once at startup ([BearerTokenStore.loadWithEntries]).
  * @param jwtVerifier The REST JWT verifier (JWKS mode), or null.
  * @param nonRootAnchors Returns the subset of a set of `scope.root_ids` anchors that name an existing item which is
- *   not a depth-0 root (anchor validation, R15). A JWT whose anchors include one resolves to null (unauthenticated),
- *   with one WARN per `sub`; a lookup fault resolves to null too (fail closed). Bearer entries are validated once at
+ *   not a depth-0 root (anchor validation, R15). A JWT whose anchors include one is [TrustDecision.Unauthenticated],
+ *   with one WARN per `sub`; a lookup fault is too (fail closed). Bearer entries are validated once at
  *   startup instead. Defaults to "none".
  * @param clock The time source for entry expiry.
  */
@@ -53,19 +79,24 @@ class CredentialResolver(
     /** Subs already warned about a non-root anchor; bounded, cleared when full, so a hostile issuer cannot grow it. */
     private val warnedSubs: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
-    /** Resolves [raw] (the presented token, already stripped of its scheme), or null when it proves nothing. */
-    suspend fun resolve(raw: String): Resolved? {
-        if (raw.isEmpty()) return null
+    /** Decides [raw] (the presented token, already stripped of its scheme). */
+    suspend fun resolve(raw: String): TrustDecision {
+        if (raw.isEmpty()) return TrustDecision.Unauthenticated
         val entry = tokenEntries[HashBytes(sha256(raw))]
         if (entry != null) {
             val expiry = entry.expiresAt
             if (expiry != null && clock().isAfter(expiry)) {
                 logger.debug("Bearer token '{}' is expired (expires_at={})", entry.principal.id, expiry)
-                return null
+                return TrustDecision.Unauthenticated
             }
-            return Resolved(entry.principal, expiry, entry.profile)
+            return TrustDecision.Trusted(Resolved(entry.principal, expiry, entry.profile))
         }
-        val verified = jwtVerifier?.verifyWithExpiry(raw) ?: return null
+        val verified =
+            when (val verdict = jwtVerifier?.verifyWithExpiry(raw) ?: return TrustDecision.Unauthenticated) {
+                is ApiTokenVerdict.Rejected -> return TrustDecision.Unauthenticated
+                is ApiTokenVerdict.Unavailable -> return TrustDecision.Unavailable(KEY_SET_RETRY_AFTER_MS, verdict.reason)
+                is ApiTokenVerdict.Verified -> verdict.token
+            }
         val anchors = verified.principal.scope.rootIds
         if (!anchors.isNullOrEmpty()) {
             val bad =
@@ -74,14 +105,14 @@ class CredentialResolver(
                 } catch (e: Exception) {
                     e.rethrowIfCancellation()
                     logger.warn("JWT scope anchor validation failed; the credential is refused: {}", e.message)
-                    return null
+                    return TrustDecision.Unauthenticated
                 }
             if (bad.isNotEmpty()) {
                 warnOnce(verified.principal.id, bad.minOf { it.toString() })
-                return null
+                return TrustDecision.Unauthenticated
             }
         }
-        return Resolved(verified.principal, verified.expiresAt, profile = null)
+        return TrustDecision.Trusted(Resolved(verified.principal, verified.expiresAt, profile = null))
     }
 
     private fun warnOnce(

@@ -15,7 +15,7 @@ of proceeding here.
 
 One operator escape hatch worth knowing when launching the container: `RESOURCE_LEASES_ENFORCED=false`
 (env, default true) disables resource-lease gate enforcement server-wide — a kill switch for lease
-contention incidents, same gate-policy category as `DEGRADED_MODE_POLICY`. Configuring which resources
+contention incidents. Configuring which resources
 exist and which traits declare them stays in `/manage-schemas`; this skill only knows the switch.
 
 The full fragment catalog (exact env tuples, loopback caveat, Windows/MSYS caveat, `.mcp.json` shapes)

@@ -5,11 +5,13 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.telemetry.HostName
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.Resolved
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -167,14 +169,21 @@ val ApiBearerAuth =
                 return@onCall
             }
 
-            val resolved = resolver?.resolve(token)
-            if (resolved == null) {
-                if (resolver == null) logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
-                logger.debug("Authentication failed for request to {}", call.request.local.uri)
-                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
-                return@onCall
-            }
+            val resolved =
+                when (val decision = resolver?.resolve(token) ?: TrustDecision.Unauthenticated) {
+                    is TrustDecision.Trusted -> decision.resolved
+                    is TrustDecision.Unavailable -> {
+                        call.respondEnvelopeError(keySetUnavailable(decision, logger))
+                        return@onCall
+                    }
+                    is TrustDecision.Unauthenticated -> {
+                        if (resolver == null) logger.error("JWKS auth mode configured but no JwksApiVerifier provided")
+                        logger.debug("Authentication failed for request to {}", call.request.local.uri)
+                        call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                        call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
+                        return@onCall
+                    }
+                }
 
             if (resolved.isDirectorOnly() && !isDirectorOpsPath(path)) {
                 logger.debug("Director-profile credential '{}' refused outside the director path", resolved.principal.id)
@@ -231,6 +240,23 @@ internal fun Principal.withHostOf(call: ApplicationCall): Principal =
  * next to it keeps its `error=` attribute; the body is the 4.0 error envelope.
  */
 internal fun unauthenticated(message: String): DomainError = DomainError(ErrorCode.UNAUTHENTICATED, message)
+
+/**
+ * The `unavailable` error (503) of a credential that could not be judged because the JWKS key set is unavailable
+ * (never fetched, or past `max_stale_seconds`): retryable, carries `retryAfterMs`, and sets NO `WWW-Authenticate`
+ * (the credential was not found invalid). Logs one WARN naming the reason, never the token.
+ */
+internal fun keySetUnavailable(
+    decision: TrustDecision.Unavailable,
+    logger: org.slf4j.Logger
+): DomainError {
+    logger.warn("Credential not judged, the JWKS key set is unavailable: {}", decision.reason)
+    return DomainError(
+        ErrorCode.UNAVAILABLE,
+        "Authentication is temporarily unavailable; retry shortly.",
+        ErrorDetail.Unavailable(decision.retryAfterMs)
+    )
+}
 
 /**
  * Parses an `Authorization` header value for the `Bearer` auth-scheme (RFC 7235 §2.1,

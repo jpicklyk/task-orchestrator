@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceErrors
@@ -28,12 +27,11 @@ import java.util.UUID
 internal object AdvanceSupport {
     /**
      * The holder of a claim, release or heartbeat, and the caller every fenced write passes: [ClaimHolder.resolve] over
-     * the call's principal under the degraded-mode policy; a policy rejection is `unauthenticated`.
+     * the audited claim of the call's principal (`api:<id>` for an authenticated caller, `local` for the
+     * unauthenticated local principal). The principal always exists and there is no policy to reject it, so this cannot
+     * fail.
      */
-    fun holder(
-        env: ToolExecutionContext,
-        ctx: CallContext
-    ): Outcome<ClaimHolder> = ClaimHolder.resolve(ctx.principal.claim, ctx.principal.verification, env.degradedModePolicy)
+    fun holder(ctx: CallContext): ClaimHolder = ClaimHolder.resolve(ctx.principal.claim)
 
     /** Resolves [ref] to an item id the call's scope admits ([ScopedIds.resolveTarget]): never an existence oracle. */
     suspend fun resolveInScope(

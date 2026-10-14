@@ -38,7 +38,6 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -64,7 +63,7 @@ import java.util.UUID
 sealed class AdvanceFailure {
     /**
      * The catalog error behind this failure: the policy rejection's own ([Decision.Reject.error]) or one
-     * built here for failures raised outside the policy (unknown trigger, degraded-mode policy, credential
+     * built here for failures raised outside the policy (unknown trigger, credential
      * refs, a missing row, an apply-time lease contention, a store fault). Always present: the MCP and REST
      * mappers read the failure's `kind` from it. The 3.x wire code and message stay each variant's own.
      */
@@ -73,12 +72,6 @@ sealed class AdvanceFailure {
     /** The caller does not hold the active claim on an actively-claimed item. */
     data class OwnershipRejected(
         val message: String,
-        override val error: DomainError
-    ) : AdvanceFailure()
-
-    /** The configured [DegradedModePolicy] rejected the actor's verification status. */
-    data class PolicyRejected(
-        val reason: String,
         override val error: DomainError
     ) : AdvanceFailure()
 
@@ -284,7 +277,7 @@ data class AdvanceResult(
  * idempotency-keyed element and is otherwise the only unit:
  *
  * 1. **Pre-policy** — trigger parse; the item is re-read by id inside the unit (no decision on a
- *    stale copy); the degraded-mode policy resolves the caller's trusted id (MCP only).
+ *    stale copy); ownership is always enforced against the caller's principal id.
  * 2. **Snapshot** — [TransitionSnapshotLoader] loads the facts the policy reads.
  * 3. **Policy** — [TransitionPolicy.evaluate]: OWNERSHIP, TABLE, WARRANT, HOLD, DEPENDENCY, NOTE, LEASE
  *    in that order. A rejection records its `transition.rejected` / `lease.rejected` row through
@@ -377,16 +370,12 @@ class AdvanceService(
      * @param summary optional human-readable transition summary.
      * @param actorClaim optional actor attribution recorded on the transition.
      * @param verification optional verification result attached to the actor claim.
-     * @param degradedModePolicy the deployment's degraded-mode policy.
-     * @param enforceOwnership when true, the claim-ownership gate runs (MCP); when false it is skipped
-     *   (REST) — the actor is still recorded for audit.
      * @param credentialRefs optional audit list of opaque credential labels consumed by this
      *   transition (never raw secret material). For an item that declares resources and enters WORK
      *   with the lease gate active, every ref must be a declared or registered resource key.
-     * @param enforceResourceLeases when true (the default), the resource-lease gate and acquisition run.
-     *   **Deliberately INDEPENDENT of [enforceOwnership]**: the REST route passes
-     *   `enforceOwnership = false` but `enforceResourceLeases = true`; only an explicit ADMIN-only
-     *   `overrideResourceLeases` request flag lowers it. ANDed with [resourceLeasesEnforced].
+     * @param enforceResourceLeases when true (the default), the resource-lease gate and acquisition run;
+     *   only an explicit ADMIN-only `overrideResourceLeases` request flag lowers it. ANDed with
+     *   [resourceLeasesEnforced].
      */
     suspend fun advance(
         item: WorkItem,
@@ -394,8 +383,6 @@ class AdvanceService(
         summary: String?,
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
-        degradedModePolicy: DegradedModePolicy,
-        enforceOwnership: Boolean,
         credentialRefs: List<String> = emptyList(),
         enforceResourceLeases: Boolean = true
     ): AdvanceOutcome {
@@ -407,17 +394,6 @@ class AdvanceService(
                         AdvanceErrors.invalidField("trigger", "unknown trigger", trigger, "Unknown trigger: '$trigger'")
                     )
                 )
-
-        // Degraded-mode policy (MCP only): resolve the caller's trusted id, or reject outright.
-        var callerId: String? = null
-        if (enforceOwnership && actorClaim != null && verification != null) {
-            when (val resolution = ActorTrustPolicy.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)) {
-                is PolicyResolution.Rejected -> return AdvanceOutcome.Failure(
-                    AdvanceFailure.PolicyRejected(resolution.reason, AdvanceErrors.unauthenticated(resolution.reason))
-                )
-                is PolicyResolution.Trusted -> callerId = resolution.trustedId
-            }
-        }
 
         val leaseGateActive = enforceResourceLeases && resourceLeasesEnforced
         // Config (schema, independence policy, requirements, registry, labels) is read INSIDE the unit, against
@@ -431,7 +407,7 @@ class AdvanceService(
                 summary = summary,
                 actorClaim = actorClaim,
                 verification = verification,
-                ownership = OwnershipInput(enforceOwnership, callerId),
+                ownership = OwnershipInput(enforced = true, callerId = actorClaim?.id),
                 leaseGateActive = leaseGateActive,
                 credentialRefs = credentialRefs
             )
@@ -1309,8 +1285,7 @@ internal object AdvanceErrors {
             detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(field, reason, received)))
         )
 
-    fun unauthenticated(reason: String): DomainError =
-        DomainError(ErrorCode.UNAUTHENTICATED, reason.ifBlank { "Actor verification rejected by the degraded-mode policy" })
+    fun unauthenticated(reason: String): DomainError = DomainError(ErrorCode.UNAUTHENTICATED, reason.ifBlank { "Authentication required" })
 
     fun itemNotFound(id: UUID): DomainError =
         DomainError(

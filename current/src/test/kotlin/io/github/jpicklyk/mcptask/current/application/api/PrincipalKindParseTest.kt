@@ -85,9 +85,12 @@ class PrincipalKindParseTest {
     }
 
     @Test
-    fun `the proof vocabulary is exactly verified, verified_stale, issued and none with those wire spellings`() {
-        assertEquals(listOf("verified", "verified_stale", "issued", "none"), ProofStatus.entries.map { it.wire })
-        assertEquals(setOf("VERIFIED", "VERIFIED_STALE", "ISSUED", "NONE"), ProofStatus.entries.map { it.name }.toSet())
+    fun `the proof vocabulary is exactly verified, verified_stale, issued, none and rejected with those wire spellings`() {
+        assertEquals(listOf("verified", "verified_stale", "issued", "none", "rejected"), ProofStatus.entries.map { it.wire })
+        assertEquals(
+            setOf("VERIFIED", "VERIFIED_STALE", "ISSUED", "NONE", "REJECTED"),
+            ProofStatus.entries.map { it.name }.toSet()
+        )
     }
 
     @Test

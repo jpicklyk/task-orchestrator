@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -110,7 +109,6 @@ class EventActorRootIdTest {
         return ToolExecutionContext(
             repositoryProvider = provider,
             actorVerifier = NoOpActorVerifier,
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             unitOfWork = unitOfWork,
         )
     }
@@ -254,7 +252,7 @@ class EventActorRootIdTest {
                     schemaResolver = { null },
                     unitOfWork = unitOfWork,
                     claimService = testClaimService(wired.workItemRepository(), null, unitOfWork)
-                ).advance(renamed, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+                ).advance(renamed, "start", null, null, null)
             assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
             provider.deleteItem(child.id)
 

@@ -45,11 +45,7 @@ private suspend fun WriteScope.runHeartbeat(
     ctx: CallContext,
     req: HeartbeatRequest
 ): Outcome<JsonElement> {
-    val holder =
-        when (val resolved = AdvanceSupport.holder(env, ctx)) {
-            is Outcome.Err -> return resolved
-            is Outcome.Ok -> resolved.value
-        }
+    val holder = AdvanceSupport.holder(ctx)
     if (req.ttlSeconds !in 1..ClaimRequest.MAX_TTL_SECONDS) {
         return Outcome.Err(invalidField("/ttlSeconds", "must be between 1 and ${ClaimRequest.MAX_TTL_SECONDS}", req.ttlSeconds.toString()))
     }

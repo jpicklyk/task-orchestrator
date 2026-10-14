@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
@@ -343,8 +342,6 @@ class P7ClaimClockStoreTest {
                     null,
                     ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT),
                     VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop"),
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true
                 )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)

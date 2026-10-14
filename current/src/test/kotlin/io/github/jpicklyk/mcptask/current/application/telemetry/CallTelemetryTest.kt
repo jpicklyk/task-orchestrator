@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.telemetry
 
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -133,6 +134,6 @@ class CallTelemetryTest {
             val principal = t.principal
             assertEquals("a1", principal?.id, "first claim wins")
             assertEquals("subagent", principal?.kind)
-            assertEquals(VerificationStatus.ABSENT.toJsonString(), principal?.proofStatus)
+            assertEquals(ProofStatus.NONE.wire, principal?.proofStatus)
         }
 }

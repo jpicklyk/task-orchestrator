@@ -118,13 +118,13 @@ class McpDirectorProfileTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
             """"clientInfo":{"name":"director-profile-test","version":"1.0"}}}"""
 
-    /** R5 AC3's two director tools plus R9's `report`. */
-    private val directorTools = setOf("items_read", "deps_read", "report")
+    /** R5 AC3's two director tools, R9's `report` and R20's `runs_read` and `runs_write`. */
+    private val directorTools = setOf("items_read", "deps_read", "report", "runs_read", "runs_write")
 
     private val knowledgeTools =
         setOf("items_read", "items_write", "notes_read", "notes_write", "deps_read", "deps_write", "docs_read", "docs_write")
 
-    private val orchestrationTools = knowledgeTools + setOf("advance", "config")
+    private val orchestrationTools = knowledgeTools + setOf("advance", "config", "runs_read", "runs_write")
 
     private val directorSelects = setOf("get", "list", "overview", "blocked")
 
@@ -296,7 +296,11 @@ class McpDirectorProfileTest {
             assertEquals(directorTools, names, "R5 AC3 and R9: exactly the director tools")
             assertEquals(directorSelects, listing.tool("items_read").enumOf("select"), "items_read director selects")
             assertEquals(setOf("list", "graph"), listing.tool("deps_read").enumOf("select"), "deps_read director selects")
-            assertEquals(setOf("usage", "gates", "contention", "waste"), listing.tool("report").enumOf("select"), "report director selects")
+            assertEquals(
+                setOf("usage", "gates", "contention", "waste", "rollup"),
+                listing.tool("report").enumOf("select"),
+                "report director selects"
+            )
         }
     }
 
@@ -668,7 +672,6 @@ class McpDirectorProfileTest {
             actorAuthEnabled = s.rig.composition.actorAuthEnabled,
             serverConfig = s.rig.composition.serverConfig,
             toolContext = s.rig.ctx,
-            degradedModePolicy = s.rig.composition.degradedModePolicy,
             appConfig = appConfig
         )
     }

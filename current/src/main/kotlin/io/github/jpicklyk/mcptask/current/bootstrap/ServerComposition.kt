@@ -20,7 +20,6 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
@@ -96,7 +95,6 @@ class CompositionResult(
     val apiWiring: ApiWiring,
     /** The server-scope config layer: the DB head, read per call (the REST `/config*` routes view it per request). */
     val serverConfig: ServerConfigSource,
-    val degradedModePolicy: DegradedModePolicy,
     val actorAuthEnabled: Boolean,
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
@@ -169,7 +167,7 @@ class ServerComposition(
         // readiness marker is ever written) rather than on first incidental use deep in a request.
         globalConfigFile.layer()
         val actorAuthConfigService = YamlActorAuthenticationConfigService(globalConfigFile, envResolver = appConfig.envResolver)
-        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService, configBaseDir)
+        val actorVerifier = createActorVerifier(actorAuthConfigService, configBaseDir)
 
         // Resolve the REST/SSE API wiring ONCE, EARLY, before the tool context is built, so the
         // SAME recorder (and, with the API on, the SAME event bus) feeds BOTH the MCP tool context
@@ -203,7 +201,6 @@ class ServerComposition(
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
                 actorVerifier = actorVerifier,
-                degradedModePolicy = degradedModePolicy,
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
                 configResolver = configResolver,
@@ -220,7 +217,7 @@ class ServerComposition(
         )
 
         // actor_authentication status surfaced via /info (HTTP transport) — derived from the SAME
-        // actorAuthConfigService instance createActorVerifierAndPolicy used above (no second parse).
+        // actorAuthConfigService instance createActorVerifier used above (no second parse).
         val actorAuthEnabled =
             actorAuthConfigService
                 .getConfig()
@@ -230,7 +227,6 @@ class ServerComposition(
             toolContext = toolContext,
             apiWiring = apiWiring,
             serverConfig = perRootConfigService,
-            degradedModePolicy = degradedModePolicy,
             actorAuthEnabled = actorAuthEnabled,
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),
@@ -357,26 +353,16 @@ class ServerComposition(
     }
 
     /**
-     * Creates the appropriate [ActorVerifier] and reads [DegradedModePolicy] from configuration.
-     * Returns a [Pair] of (verifier, policy) so both can be wired into [ToolExecutionContext].
-     *
-     * When the effective (post-env-override) configuration is a real ([VerifierConfig.Jwks])
-     * verifier under [DegradedModePolicy.ACCEPT_CACHED], logs one startup WARN: under that policy,
-     * a [io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED] result is
-     * still resolved to the self-reported actor id (see
-     * [io.github.jpicklyk.mcptask.current.application.service.ActorTrustPolicy.resolveTrustedActorId]) — an
-     * operator running a real verifier should know that up front, once, rather than only from a
-     * per-call WARN buried in request logs. This is intentionally NOT added to
-     * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large
-     * number of existing jwks-config tests, and is reserved for actual parse warnings.
+     * Creates the appropriate [ActorVerifier] from configuration. There is no degraded-mode policy: a leftover
+     * `degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable already failed startup in
+     * [YamlActorAuthenticationConfigService] before this runs.
      */
-    private fun createActorVerifierAndPolicy(
+    private fun createActorVerifier(
         configService: YamlActorAuthenticationConfigService,
         configBaseDir: Path,
-    ): Pair<ActorVerifier, DegradedModePolicy> {
+    ): ActorVerifier {
         configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()
-        logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())
         val verifier =
             when (val vc = config.verifier) {
                 is VerifierConfig.Noop -> {
@@ -390,14 +376,6 @@ class ServerComposition(
                         vc.jwksPath ?: "none",
                         vc.oidcDiscovery ?: "none",
                     )
-                    if (config.degradedModePolicy == DegradedModePolicy.ACCEPT_CACHED) {
-                        logger.warn(
-                            "degraded_mode_policy=accept-cached with a jwks verifier configured: a " +
-                                "REJECTED verification result (e.g. bad signature, wrong issuer/audience) " +
-                                "still falls back to the self-reported actor.id. Use degraded_mode_policy=" +
-                                "reject for cross-org deployments that must not trust an unverified claim.",
-                        )
-                    }
                     JwksActorVerifier(vc, DefaultJwksKeySetProvider(vc.toKeySource(), configBaseDir)).also { jwksVerifier ->
                         shutdownCoordinator.addCleanupAction("Close JWKS ActorVerifier") {
                             jwksVerifier.close()
@@ -405,7 +383,7 @@ class ServerComposition(
                     }
                 }
             }
-        return Pair(verifier, config.degradedModePolicy)
+        return verifier
     }
 
     private companion object {

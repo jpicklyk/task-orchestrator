@@ -211,8 +211,8 @@ object GatePredicate {
     }
 
     /**
-     * Identity of a note: verification.proofClaims.sub when verification.status == VERIFIED
-     * and that sub is non-null, else actorClaim.id (may be null when the note is actor-less).
+     * Identity of a note: verification.proofClaims.sub when the verification is a cryptographic proof
+     * (`status == VERIFIED`) and that sub is non-null, else actorClaim.id (may be null when the note is actor-less).
      */
     private fun identityOf(note: Note): String? {
         val verification = note.verification
@@ -222,6 +222,12 @@ object GatePredicate {
         return note.actorClaim?.id
     }
 
+    /**
+     * True only for a cryptographic proof. A note's stored status is [VerificationStatus.VERIFIED] exactly when its
+     * proof status is `verified` (the stored vocabulary does not distinguish `verified_stale`, and the audit
+     * records a stale-verified principal as VERIFIED); `issued` (a server-issued token: UNCHECKED, `api-bearer`),
+     * `none` and `rejected` are all unverified, on purpose: attestation wants cryptographic proof.
+     */
     private fun isVerified(note: Note): Boolean = note.verification?.status == VerificationStatus.VERIFIED
 
     /** True when [body]'s first line, CR-stripped and trimmed, equals [TEMPORAL_ONLY_WAIVER] exactly. */

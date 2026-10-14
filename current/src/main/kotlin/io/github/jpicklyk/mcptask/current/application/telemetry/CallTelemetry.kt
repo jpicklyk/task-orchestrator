@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.proofWire
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -127,7 +128,7 @@ class CallTelemetry(
         fieldsRef.compareAndSet(null, names.toSortedSet().toList())
     }
 
-    /** Who made the call, as first recorded: the claim's id and kind and the verification status wire value. */
+    /** Who made the call, as first recorded: the claim's id and kind and the proof status wire value. */
     data class Principal(
         val id: String,
         val kind: String,
@@ -213,10 +214,13 @@ suspend fun currentReqId(): String? = coroutineContext[CallTelemetry]?.reqId
 
 suspend fun recordCallPrincipal(
     claim: ActorClaim,
-    verification: VerificationResult
+    verification: VerificationResult,
+    proofStatus: String? = null
 ) {
+    // The proof vocabulary: the transport principal's own proof when the caller has one (it alone knows
+    // `verified_stale`), else the stored verification read through the one mapping.
     currentCallTelemetry()?.setPrincipal(
-        CallTelemetry.Principal(claim.id, claim.kind.toJsonString(), verification.status.toJsonString())
+        CallTelemetry.Principal(claim.id, claim.kind.toJsonString(), proofStatus ?: verification.proofWire())
     )
 }
 

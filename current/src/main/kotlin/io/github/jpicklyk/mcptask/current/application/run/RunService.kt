@@ -61,6 +61,9 @@ class RunService(
     private val runs: RunStore get() = repositoryProvider.runStore()
     private val items get() = repositoryProvider.workItemRepository()
 
+    /** The number of seat assignments of [runId] that are still active (0 until seats exist). */
+    suspend fun activeSeats(runId: UUID): Int = seats.activeCount(runId)
+
     // -------------------------------------------------------------------------
     // open
     // -------------------------------------------------------------------------
@@ -266,6 +269,32 @@ class RunService(
         }
 
     // -------------------------------------------------------------------------
+    // mark
+    // -------------------------------------------------------------------------
+
+    /**
+     * Sets the named mark [key] on a run to now. Marks are bookkeeping, not lifecycle: allowed in every status (marking
+     * a closed run is the purpose) and first-write-wins, so a key already set returns the run unchanged with
+     * `marked = false` and records nothing. A run holds at most [MAX_MARKS] marks.
+     */
+    suspend fun mark(
+        runId: UUID,
+        key: String
+    ): Outcome<RunMarkResult> =
+        unitOfWork.write(OP_MARK) {
+            val run = runs.getById(runId) ?: return@write err(runNotFound(runId))
+            if (key in run.marks) return@write Outcome.Ok(RunMarkResult(run, marked = false))
+            if (run.marks.size >= MAX_MARKS) {
+                return@write err(invalid("key", "a run holds at most $MAX_MARKS marks", key))
+            }
+            val stored =
+                runs.update(run.copy(marks = run.marks + (key to now)), run.version)
+                    ?: return@write err(conflictAfterRead(runId, run.version))
+            events.record(DomainEvent.RunMarked(runId, run.rootId, listOf(key)))
+            Outcome.Ok(RunMarkResult(stored, marked = true))
+        }
+
+    // -------------------------------------------------------------------------
     // Checks
     // -------------------------------------------------------------------------
 
@@ -327,6 +356,13 @@ class RunService(
         return if (violations.isEmpty()) null else invalidFields(violations, "Run label or title is too long")
     }
 
+    /** [micro] micro-USD as decimal US dollars, the way the cost field is expressed on the wire. */
+    private fun usd(micro: Long): String =
+        java.math.BigDecimal
+            .valueOf(micro, 6)
+            .stripTrailingZeros()
+            .toPlainString()
+
     /** Fields of [budget] that are not positive, or exceed the matching configured ceiling of [ceilings]. */
     private fun budgetViolations(
         budget: RunBudget,
@@ -343,7 +379,8 @@ class RunService(
             if (value <= 0) {
                 out += FieldViolation("budget.$name", "must be greater than 0", value.toString())
             } else if (ceiling != null && value > ceiling) {
-                out += FieldViolation("budget.$name", "exceeds the configured ceiling $ceiling", value.toString())
+                val shown = if (name == "costMicroUsd") usd(ceiling) else ceiling.toString()
+                out += FieldViolation("budget.$name", "exceeds the configured ceiling $shown", value.toString())
             }
         }
         check("tokens", budget.tokens, ceilings?.tokens)
@@ -424,6 +461,10 @@ class RunService(
         private const val OP_PAUSE = "RunService.pause"
         private const val OP_RESUME = "RunService.resume"
         private const val OP_CLOSE = "RunService.close"
+        private const val OP_MARK = "RunService.mark"
+
+        /** The most marks one run may hold. */
+        const val MAX_MARKS = 32
 
         private const val FIELD_ROOT_ID = "rootId"
         private const val FIELD_ITEMS = "items"

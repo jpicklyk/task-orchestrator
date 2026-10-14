@@ -1,15 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.util.UUID
 
 /**
- * Who a write is made by, as the claim columns see it: the trusted principal id and, from R22 on, the seat assignment
- * the write is made under. [assignmentId] is always null until R22 and is not compared by [holds].
+ * Who a write is made by, as the claim columns see it: the principal id and, from R22 on, the seat assignment the write
+ * is made under. [assignmentId] is always null until R22 and is not compared by [holds].
  *
  * The holder id is an identity: no error a fence answers names it.
  */
@@ -22,20 +19,14 @@ data class ClaimHolder(
 
     companion object {
         /**
-         * The holder of a call made by the principal ([claim], [verification]): the trusted id
-         * [ActorTrustPolicy.resolveTrustedActorId] yields under [policy]. A policy rejection is `unauthenticated`.
+         * The holder of a call made by the principal whose audited claim is [claim]: its id (`api:<id>` for an
+         * authenticated caller, `local` for the unauthenticated local principal). There is no self-declared actor and
+         * no policy to reject the principal, so this cannot fail; it is the id the OWNERSHIP gate compares
+         * (`callerId = actorClaim?.id`).
          *
-         * Takes the principal's parts rather than the `CallPrincipal` itself: `application/service` may not reach
-         * `application.api` (IdentityPackageTest S7).
+         * Takes the principal's audited claim rather than the `CallPrincipal` itself: `application/service` may not
+         * reach `application.api` (IdentityPackageTest S7).
          */
-        fun resolve(
-            claim: ActorClaim,
-            verification: VerificationResult,
-            policy: DegradedModePolicy
-        ): Outcome<ClaimHolder> =
-            when (val resolved = ActorTrustPolicy.resolveTrustedActorId(claim, verification, policy)) {
-                is PolicyResolution.Trusted -> Outcome.Ok(ClaimHolder(resolved.trustedId))
-                is PolicyResolution.Rejected -> Outcome.Err(AdvanceErrors.unauthenticated(resolved.reason))
-            }
+        fun resolve(claim: ActorClaim): ClaimHolder = ClaimHolder(claim.id)
     }
 }

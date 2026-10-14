@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteView
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
+import io.github.jpicklyk.mcptask.current.application.api.proofStatus
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -22,7 +24,7 @@ import java.util.UUID
 /**
  * The wire shapes of `notes_read` and `notes_write` (nulls omitted, keys in the order the design lists them).
  *
- * A note's `actor` is `{id, kind, parent?}` and its `verification` `{status, verifier?, reason?}`. Proof evidence
+ * A note's `actor` is `{id, kind, parent?}` and its `verification` `{proofStatus, verifier?, reason?}`. Proof evidence
  * (the proof hash and the verified claims) has no mapping here, so it can never reach a wire.
  */
 internal object NoteJson {
@@ -35,7 +37,7 @@ internal object NoteJson {
 
     fun verification(verification: VerificationResult): JsonObject =
         buildJsonObject {
-            put("status", verification.status.toJsonString())
+            put("proofStatus", (verification.proofStatus ?: ProofStatus.NONE).wire)
             verification.verifier?.let { put("verifier", it) }
             verification.reason?.let { put("reason", it) }
         }

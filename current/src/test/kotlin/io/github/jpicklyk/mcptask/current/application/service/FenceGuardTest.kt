@@ -6,16 +6,12 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -221,13 +217,11 @@ class FenceGuardTest {
     }
 
     @Test
-    fun `S1 resolve under accept-cached builds a holder for the claimed actor id with no assignment`() {
-        val actor = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT)
-        val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
+    fun `S1 resolve builds a holder for the claim id with no assignment`() {
+        val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT)
 
-        val resolved = ClaimHolder.resolve(actor, verification, DegradedModePolicy.ACCEPT_CACHED)
+        val holder = ClaimHolder.resolve(claim)
 
-        val holder = assertIs<Outcome.Ok<ClaimHolder>>(resolved).value
         assertEquals("agent-a", holder.principalId)
         assertNull(holder.assignmentId, "assignmentId stays null until R22")
     }

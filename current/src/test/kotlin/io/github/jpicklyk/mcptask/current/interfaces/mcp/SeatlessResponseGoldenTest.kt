@@ -199,7 +199,6 @@ class SeatlessResponseGoldenTest {
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
         val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
-        val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
     )
 
     /**
@@ -292,7 +291,6 @@ class SeatlessResponseGoldenTest {
             toolContext = composition.toolContext,
             repositoryProvider = repo,
             serverConfig = composition.serverConfig,
-            degradedModePolicy = composition.degradedModePolicy,
         )
     }
 
@@ -556,7 +554,6 @@ class SeatlessResponseGoldenTest {
                     actorAuthEnabled = false,
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
                     appConfig = AppConfig.fromEnv(),
                 )
             }
@@ -584,7 +581,6 @@ class SeatlessResponseGoldenTest {
                     actorAuthEnabled = false,
                     serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
                     appConfig = AppConfig.fromEnv(),
                 )
             }

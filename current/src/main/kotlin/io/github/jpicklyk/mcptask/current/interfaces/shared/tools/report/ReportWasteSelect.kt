@@ -20,7 +20,8 @@ internal val reportWasteSelect =
     SelectSpec.Single<ReportWasteRequest, WasteReport>(
         name = "waste",
         doc =
-            "Waste signals over [since, until), at most 7 days, each {value?, numerator, denominator, basis?}: value is " +
+            "Waste signals over [since, until), default the 7 days before now, " +
+                "at most 7 days, each {value?, numerator, denominator, basis?}: value is " +
                 "numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, " +
                 "readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only " +
                 "(basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as " +

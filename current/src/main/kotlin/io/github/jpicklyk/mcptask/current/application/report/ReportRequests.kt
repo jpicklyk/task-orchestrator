@@ -58,12 +58,9 @@ enum class ReportGroupBy(
  * must carry the same schema (and therefore the same description) in every select that declares it (`ToolRegistry`).
  */
 internal object ReportFieldDocs {
-    const val ROOT_ID =
-        "Only this project root (depth 0): a UUID or a hex prefix of 8 to 32 characters. Default every root you may see."
-    const val SINCE = "Window start, inclusive: ISO 8601 with Z or an offset. Default until minus 7 days."
-    const val UNTIL =
-        "Window end, exclusive: ISO 8601 with Z or an offset. Default now. " +
-            "At most 400 days after since for usage, 7 for waste, 31 for other selects."
+    const val ROOT_ID = "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see."
+    const val SINCE = "Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe)."
+    const val UNTIL = "Window end, exclusive: ISO 8601 with Z or an offset."
 }
 
 /** `report usage`: call_log aggregates over a half-open window, grouped by one column. */
@@ -78,7 +75,7 @@ data class ReportUsageRequest(
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
     @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
-    @Doc("The page.next value of the previous page.") val cursor: String? = null
+    @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
 /** `report gates`: transition.rejected aggregates over a half-open window. The fields and docs match [ReportUsageRequest] (one name, one schema). */
@@ -93,7 +90,7 @@ data class ReportGatesRequest(
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
     @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
-    @Doc("The page.next value of the previous page.") val cursor: String? = null
+    @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
 /** `report contention`: claim and lease aggregates over a half-open window. The fields and docs match [ReportUsageRequest]. */
@@ -108,7 +105,7 @@ data class ReportContentionRequest(
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
     @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
-    @Doc("The page.next value of the previous page.") val cursor: String? = null
+    @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
 /** `report waste`: waste signals over a half-open window of at most 7 days; one object, no grouping and no page. */
@@ -122,4 +119,20 @@ data class ReportWasteRequest(
     val until: String? = null
 )
 
-private const val GROUP_BY_DOC = "Row grouping; each select accepts its own subset and default, see describe."
+/**
+ * `report rollup` over one subtree (plan R16): [anchorId] is required (absent is `invalid_request` on `/anchorId`);
+ * R28 adds `runId` and the exactly-one rule. One object, no grouping and no page.
+ */
+@Serializable
+data class ReportRollupRequest(
+    @Doc("Roll up this item and every descendant (UUID or 8-32 hex prefix).")
+    val anchorId: IdRef? = null,
+    @Doc(ReportFieldDocs.SINCE)
+    val since: String? = null,
+    @Doc(ReportFieldDocs.UNTIL)
+    val until: String? = null
+)
+
+private const val GROUP_BY_DOC = "Row grouping; subset and default per select, see describe."
+
+private const val CURSOR_DOC = "page.next of the previous page."

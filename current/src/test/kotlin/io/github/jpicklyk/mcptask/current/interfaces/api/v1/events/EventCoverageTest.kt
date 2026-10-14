@@ -1046,6 +1046,7 @@ class EventCoverageTest {
                     "advance" to emptyArray(),
                     "docs_write" to emptyArray(),
                     "config" to emptyArray(),
+                    "runs_write" to emptyArray(),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
@@ -1058,6 +1059,7 @@ class EventCoverageTest {
                             "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
                             "config" -> rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG))
                             "docs_write" -> rig.ctx.callTool("docs_write", docsUpsert(root.id))
+                            "runs_write" -> rig.ctx.callTool("runs_write", runsOpen(root.id))
                             else -> error("unhandled write tool $name")
                         }
                     }
@@ -1078,6 +1080,7 @@ class EventCoverageTest {
                     "items_read" to emptyArray(),
                     "docs_read" to emptyArray(),
                     "report" to emptyArray(),
+                    "runs_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
@@ -1086,6 +1089,7 @@ class EventCoverageTest {
                         "notes_read" -> rig.ctx.listNotesVia(child.id)
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
                         "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
+                        "runs_read" -> rig.ctx.callTool("runs_read", runsList())
                         "docs_read" -> rig.ctx.callTool("docs_read", docsGet(root.id))
                         "report" -> rig.ctx.callTool("report", buildJsonObject { put("select", "usage") }, profile = ToolProfile.DIRECTOR)
                         else -> error("unhandled read tool $name")
@@ -1132,6 +1136,7 @@ class EventCoverageTest {
                 "advance" to setOf("item.transitioned"),
                 "docs_write" to setOf("document.created"),
                 "config" to setOf("config.version_created"),
+                "runs_write" to setOf("run.opened"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */
@@ -1142,6 +1147,7 @@ class EventCoverageTest {
                 "items_read",
                 "docs_read",
                 "report",
+                "runs_read",
             )
 
         /** An `advance` call starting [id] (queue -> work). */
@@ -1235,6 +1241,25 @@ class EventCoverageTest {
                 put("kind", "plan")
                 put("slug", "s17-plan")
             }
+
+        /** A `runs_write` open of an empty run under [root]. */
+        fun runsOpen(root: UUID): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "open")
+                                put("rootId", root.toString())
+                            }
+                        )
+                    }
+                )
+            }
+
+        /** A `runs_read` list call with no filters. */
+        fun runsList(): JsonObject = buildJsonObject { put("select", "list") }
 
         /** An `items_read` get of [item]. */
         fun itemsGet(item: UUID): JsonObject =

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -106,8 +105,7 @@ class ClaimServiceExpiryTest {
             claimService = rig.service
         )
 
-    private suspend fun AdvanceService.start(item: WorkItem): AdvanceOutcome =
-        advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+    private suspend fun AdvanceService.start(item: WorkItem): AdvanceOutcome = advance(item, "start", null, null, null)
 
     // ---------------------------------------------------------------------------------------------
     // S7 -- the exact boundary: E - 1 ms still held, E is expired
