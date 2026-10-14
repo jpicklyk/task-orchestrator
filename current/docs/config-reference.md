@@ -25,7 +25,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
 | `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
-| `actor_authentication` | server only | yes | rejected | Validated by the actor-authentication service. |
+| `actor_authentication` | server only | yes | rejected | Inert in 4.0: validated at startup, sets only `/info` `actorAuthenticationEnabled`, consulted by no call (see [below](#actor_authentication)). |
 | `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
 | `schema_resolution` | removed | warning | rejected | Removed in 4.0; schemas resolve by one fixed precedence rule. |
 
@@ -50,6 +50,27 @@ In 3.x these three sections sat at the top level (`orchestration`, `retrospectiv
 parser no longer knows them there: pushing them at the top level is rejected (`/orchestration` and so on) and the
 fix is to move them under `extensions.claude-code`. Documents already stored from 3.x keep loading (see
 [Parse modes](#parse-modes)).
+
+### `actor_authentication`
+
+Server-only: it is read from the global file, rejected in a per-root document, and **inert in 4.0**. No request carries an
+`actor` or an `actor.proof` any more (the caller is the transport principal, established by `API_AUTH_MODE`), so nothing
+consults the verifier it configures. The block is still validated at startup, and a malformed one fails startup. Its only other effect is the `actorAuthenticationEnabled` field of `GET /api/v1/info`, which gates nothing:
+
+- `verifier.max_stale_seconds`, when present, must be greater than 0 and at least `cache_ttl_seconds`; the default is
+  `max(3600, cache_ttl_seconds)`.
+- A `degraded_mode_policy` key (any value, `null` included) or a `DEGRADED_MODE_POLICY` environment variable fails
+  startup naming it; both were removed in 4.0.
+
+It is safe to delete. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables; see
+[Fleet Deployment](fleet-deployment.md#actor_authentication-in-40-inert).
+
+### Note entry `shared`
+
+A note entry in `work_item_schemas.<type>.notes` (or a trait's `notes`) may set `shared: true` (default `false`). A note
+is owned by the principal whose write created it, and another principal's `upsert` or `delete` of an owned note is
+`note_owned_by_other`; `shared: true` exempts that key from ownership, so any principal that may write notes can write
+it. Use it for notes several seats legitimately co-author. See [`notes_write`](api-reference.md#notes_write).
 
 ## Strict validation
 

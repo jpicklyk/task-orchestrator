@@ -137,7 +137,7 @@ The principal's id is the JWT's `sub` claim. Kind, scope and capabilities are de
 custom claims the issuer sets:
 
 - `to_kind` — optional: `human`, `agent` or `service` (trimmed, case-insensitive). Absent (or `null`), the kind is
-  `service`, except on the actor DID path (`sub` equals `iss` and starts with `did:`), where it is `agent`. A
+  `service`, except for a `sub` that equals `iss` and starts with `did:`, where it is `agent`. A
   non-string or unknown value fails closed like `to_scope`: the whole JWT is rejected with `401 invalid_token` and a
   WARN names the claim.
 
@@ -163,10 +163,12 @@ unauthenticated mode. `host` is the `X-Client-Host` header, else the `User-Agent
 the header and the SSE `?token=` alike, is resolved by one pipeline: the token-file lookup first (an expired entry
 resolves to nothing), then JWT verification in JWKS mode.
 
+**`/mcp` uses the same credential.** With a credential mode (`bearer` or `jwks`) the MCP endpoints (`/mcp`, `/mcp/knowledge`, `/mcp/director`) authenticate with the same `Authorization: Bearer` credential as `/api/v1`, through the same pipeline, so one credential names one principal on both surfaces. A refusal on `/mcp` is the 4.0 error envelope below (never a JSON-RPC error); an MCP session is bound to the principal that opened it and refuses another (`401`); a `profile: director` credential reaches only `/mcp/director`. See [fleet-deployment.md](fleet-deployment.md#mcp-authentication---read-first) for the three `/mcp` modes (credential, local with the API off and `MCP_ALLOW_UNAUTHENTICATED=true`, local with `API_AUTH_MODE=none`).
+
 **Failing requests receive** (bodies are the 4.0 error envelope, §6):
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 unauthenticated` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
-- `503 unavailable` (no `WWW-Authenticate`, `error.detail.retryAfterMs` 15000) — a JWT arrived while the JWKS key set is unavailable (never fetched, or older than `max_stale_seconds`): the token is neither accepted nor called invalid. The same answer applies to `/mcp` and to the SSE `?token=` path; retry after the hint. A key set older than its TTL but younger than `max_stale_seconds` is still served (the principal's proof is `verified_stale`)
+- `503 unavailable` (no `WWW-Authenticate`, `error.detail.retryAfterMs` 15000) — a JWT arrived while the JWKS key set is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`): the token is neither accepted nor called invalid. The same answer applies to `/mcp` and to the SSE `?token=` path; retry after the hint. A key set older than its TTL but younger than `API_JWKS_MAX_STALE_SECONDS` is still served (the principal's proof is `verified_stale`)
 - `403 forbidden` with `detail: {scope: "capability", required: "<capability>"}` -- token valid but lacks the required capability
 
 **Verification fails closed.** There is no degraded-mode policy (`actor_authentication.degraded_mode_policy` and
@@ -186,9 +188,9 @@ API_ALLOW_UNAUTHENTICATED=true
 
 Setting `API_AUTH_MODE=none` alone still fails startup with an error naming the confirm flag. Setting `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored — it only takes effect combined with `none`.
 
-When both are set, every request — with or without an `Authorization` header — is attached a synthetic principal with `ADMIN` capability (implies all others) and unrestricted scope (`root_ids: null`), kind `agent` and proof status `none`. No token is required or checked. Audit records attribute writes to the actor `api:local-unauth`.
+When both are set, every request — with or without an `Authorization` header — runs as the one `local` principal: `ADMIN` capability (implies all others), unrestricted scope (`root_ids: null`), kind `agent` and proof status `none`. No token is required or checked. Audit records attribute writes to the bare id `local` (verifier `local`), the same principal stdio and `/mcp` local mode use, so every caller of such a server shares claims and note ownership.
 
-> **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, identical to the existing `/mcp` exposure. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
+> **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, on `/mcp` as well as `/api/v1`. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
 
 Unauthenticated mode also covers `GET /api/v1/events` (SSE, §21) — the SSE route's dedicated
 pre-flight auth plugin short-circuits with the synthetic unauthenticated principal exactly like
@@ -236,7 +238,10 @@ collection checks cannot drift apart.
   outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
   scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
   existence oracle; children outside the scope are left out of the page and not counted
-- Writes (`POST /ops/{tool}`) - `403 forbidden` (`detail.scope` `root` or `tag`) if the target item is outside scope
+- Writes (`POST /ops/{tool}`) - `403 forbidden` (`detail.scope` `root` or `tag`) if the target item is outside scope.
+  Known residual under a TAG scope: a write's cascade may still advance an ancestor that does not carry the tag (for
+  example a parent completing when its last child does), because cascades are ownership-fenced and root-scope-checked
+  but not tag-checked
 - Every tool resolves a caller-supplied id by the same scope-aware rule (Q32): under a restricted scope a prefix that
   matches nothing, or only items outside the scope, is the same `403 forbidden`, and an ambiguous prefix lists only the
   candidates the scope admits (one admitted candidate resolves)
@@ -380,7 +385,7 @@ request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/`
 `payload_too_large`, ...) as the row's `error_code`; `http_<status>` is the fallback for a body that is not an envelope. The row's `tool` is
 the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
-on REST rows is the authenticated API principal (`api:<id>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
+on REST rows is the authenticated API principal (`api:<id>`; bare `local` under `API_AUTH_MODE=none`); MCP rows carry the principal of the `/mcp` call the same way (`api:<id>`, or `local` for stdio and the unauthenticated local modes), with `proof_status` distinguishing verified ids. `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 
@@ -427,7 +432,7 @@ so a client must not assume it is always present.
 }
 ```
 
-For REST API writes, `id` is always `"api:<id>"` and `kind` is always `"external"` (server-synthesized; client-supplied actor fields are silently dropped).
+For REST API writes, `id` is `"api:<id>"` (bare `"local"` under `API_AUTH_MODE=none`, on stdio, and under `MCP_ALLOW_UNAUTHENTICATED`) and `kind` is always `"external"` (server-synthesized; a body `actor` is refused as `unknown_parameter`, never silently dropped).
 
 ### Config DTOs
 
@@ -827,9 +832,9 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
 ```
 
 `verifier` is the API credential verifier in force: `none` (unauthenticated mode), `bearer` (token file) or `jwks`.
-With `jwks`, `maxStale` (integer seconds) is also present: the `max_stale_seconds` of the key set, the oldest a cached
+With `jwks`, `maxStale` (integer seconds) is also present: the `API_JWKS_MAX_STALE_SECONDS` bound of the key set, the oldest a cached
 key set may be and still be served after a failed refresh. `actorAuthenticationEnabled` is the separate
-`actor_authentication.verifier` setting and is unchanged.
+`actor_authentication.verifier` setting; that block is inert in 4.0 (see fleet-deployment.md), so the flag reflects only whether it is configured and gates nothing.
 
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the
@@ -895,8 +900,8 @@ batch, otherwise the code's own status, e.g. `404 not_found`, `403 forbidden`); 
 hand. Errors use the envelope, as on every other route (§6).
 
 **Principal.** The caller's principal comes from the bearer token (audited as `api:<id>`, kind `external`). A body
-`actor` is ignored, never decoded, so a token holder cannot spoof attribution (MCP, which has no bearer
-credential, still lifts the body `actor`). Idempotency keys (`ops[].idempotencyKey`) are therefore namespaced
+`actor` is `unknown_parameter` (on MCP too, where the same credential or the `local` principal is the caller), so a token
+holder cannot spoof attribution. Idempotency keys (`ops[].idempotencyKey`) are therefore namespaced
 per token principal: the same key and payload sent from two different tokens is two different calls, not a
 replay. A reused key with a different payload from the same token is `idempotency_mismatch`, as in §5.
 
@@ -1062,8 +1067,8 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 This route is exempted from the global `AuthenticationPlugin` via `publicPaths`/`publicPrefixes`
 (matched against the request path only, not the full URI — so a `?token=` or any other query
-string on the exempted path still matches). `CurrentMcpServer.kt` registers `/mcp`, `/mcp/knowledge`,
-`/mcp/director` and `/api/v1/events` as public paths; a Ktor application plugin like `AuthenticationPlugin` is never
+string on the exempted path still matches). `CurrentMcpServer.kt` registers `/api/v1/events` as the only public path
+(`/mcp*` is delegated: the MCP authentication plugin authenticates it, so it is not public); a Ktor application plugin like `AuthenticationPlugin` is never
 route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the global plugin from
 401'ing this route before the SSE pre-flight plugin gets a chance to run its own check.
 
@@ -1139,7 +1144,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Actor and rootId (domain events only).** Every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) may carry two additive fields; the control events (`sync.lost`, `auth.expired`) never do.
 
-- `actor` - `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the MCP tool's `actor`, per transition for `advance` -- a cascaded parent advance carries the triggering transition's actor - or the synthesized `api:<tokenId>` / `external` claim for REST writes), then none. A write with no actor (a tool call without `actor`, a background sweep) emits no `actor` field.
+- `actor` - `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the call's principal, per transition for `advance` -- a cascaded parent advance carries the triggering transition's actor -- synthesized as the `api:<id>` claim on REST and MCP alike, or `local`), then none. A write with no actor (a background sweep) emits no `actor` field.
 - `rootId` -- the item's depth-0 ancestor (`scope.left` carries the OLD root, `scope.entered` the NEW root). Always present on a domain event since 4.0 (a root item uses its own id), live and on replay alike. `rootId` is scope metadata and is never redacted.
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
@@ -1170,7 +1175,7 @@ recorder's commit listener directly; a fan-out failure is logged and never fails
 
 ## 22. Audit Model
 
-Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** - callers cannot override audit attribution.
+Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authenticated principal. A client-supplied `actor` in the request body is refused as `unknown_parameter` (on MCP and REST alike), so callers cannot override audit attribution.
 
 **Synthesized actor:**
 - `id` = `"api:<id>"`, the principal id (e.g., `"api:dashboard-editor"`)

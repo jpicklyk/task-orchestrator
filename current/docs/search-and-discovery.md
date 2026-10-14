@@ -125,8 +125,8 @@ and `note` kinds only; see [Kinds](#kinds).
 A token's `root_ids` and `tags_include` are applied the same way: inside the query, before ranking and
 the 100-hit cap, so a restricted token gets a full page of in-scope hits. `tags_include` is exact and
 case-sensitive against the item's own tags (for a note hit, its owning item's tags; for a document hit,
-its root item's tags); `root_ids` admits an item whose ancestor chain, itself included, contains a listed
-id, at any depth. A document is visible exactly when its root item is, so a token scoped to an id below
+its root item's tags); `root_ids` is roots only: it admits an item whose stamped root id is a listed id (no
+ancestor walk), so an id that is not a project root admits nothing. Only a request's own `ancestorId` traverses a subtree. A document is visible exactly when its root item is, so a token scoped to an id below
 the root, or by a tag the root does not carry, does not see the root's documents.
 
 ---

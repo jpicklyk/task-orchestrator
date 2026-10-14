@@ -109,7 +109,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `guidance` | no | string | Project-specific authoring instructions — fetched via `query_items(operation="schema")`; `get_context`/`advance_item` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
 | `maxLength` | no | integer | Max note body length (chars). Enforced on every note write path (`manage_notes` inline `body` or `bodyFromFile`, REST `PUT /items/{id}/notes/{key}`, `create_work_tree` notes) per top-level `note_limits.mode` |
-| `shared` | no | boolean | Default `false`. `true` exempts the key from note ownership: any caller may upsert or delete it (last writer wins). Without it, a note is owned by the actor that first wrote it, and another principal's `notes_write` upsert or delete is refused `note_owned_by_other`. A non-boolean value is ignored with a warning (an error in a pushed document); an off-schema key is never shared |
+| `shared` | no | boolean | Default `false`. `true` exempts the key from the note-ownership check: any caller allowed to write the item may upsert or delete it, and a shared-key write never changes the note's owner (`notes.owner_id`). Attribution (`actor`) is always the last writer. Without it, a note is owned by the principal that first wrote it, and another principal's `notes_write` upsert or delete is refused `note_owned_by_other`. A tag-scoped token's write cascade can still advance an untagged ancestor. A non-boolean value is ignored with a warning (an error in a pushed document); an off-schema key is never shared |
 
 ### `guidance` vs `skill` — when to use which
 
