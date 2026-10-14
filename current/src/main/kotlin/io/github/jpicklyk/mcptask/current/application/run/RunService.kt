@@ -356,6 +356,13 @@ class RunService(
         return if (violations.isEmpty()) null else invalidFields(violations, "Run label or title is too long")
     }
 
+    /** [micro] micro-USD as decimal US dollars, the way the cost field is expressed on the wire. */
+    private fun usd(micro: Long): String =
+        java.math.BigDecimal
+            .valueOf(micro, 6)
+            .stripTrailingZeros()
+            .toPlainString()
+
     /** Fields of [budget] that are not positive, or exceed the matching configured ceiling of [ceilings]. */
     private fun budgetViolations(
         budget: RunBudget,
@@ -372,7 +379,8 @@ class RunService(
             if (value <= 0) {
                 out += FieldViolation("budget.$name", "must be greater than 0", value.toString())
             } else if (ceiling != null && value > ceiling) {
-                out += FieldViolation("budget.$name", "exceeds the configured ceiling $ceiling", value.toString())
+                val shown = if (name == "costMicroUsd") usd(ceiling) else ceiling.toString()
+                out += FieldViolation("budget.$name", "exceeds the configured ceiling $shown", value.toString())
             }
         }
         check("tokens", budget.tokens, ceilings?.tokens)

@@ -920,7 +920,10 @@ first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unma
 runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`). `POST /ops/runs_write`
 serves `open`, `update`, `close`, `pause`, `resume` and `mark`, each needing `runs`. A run is as visible as its root:
 `get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
-permission rule and before `not_found` could differ, and `list` leaves such runs out. Who may do what: `open` any `runs`
+permission rule and before `not_found` could differ, and `list` leaves such runs out. Under a restricted scope an
+unknown run id or prefix is `forbidden` as well (never `not_found`), and an ambiguous prefix lists only the runs the
+scope admits (none is `forbidden`, one resolves); an unrestricted token keeps `not_found` and the full candidate list.
+Who may do what: `open` any `runs`
 caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for a request-body
 actor); `close` (any reason but the server-only `budget_exhausted`) the coordinator, the director profile or a human
 token; `pause` and `resume` the director profile or a human token (a service or agent token on `/ops/runs_write`
@@ -1043,8 +1046,10 @@ connection-time check, distinct from the per-event filtering described below.
 **Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
 via the same `allowsItemTags` predicate the REST collection endpoints use (§3). A connection whose
-principal has no `tags_include` (or an event with no `itemId`, i.e. a bus-level event) is unaffected.
-Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
+principal has no `tags_include` is unaffected. An event with no `itemId` is judged on its type: the control events
+(`sync.lost`, `auth.expired`) always pass; a `run.*` event passes only when its `rootId` is in the principal's root set
+(when it has one) and, for a `tags_include` principal, the run's root item is admitted by the tag allowlist (the same
+cached decision as the item events); any other event without an `itemId` is dropped. Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
 the result is cached per connection for `item.*`/`scope.*` events (which also refresh the cache, so a
 mid-stream tag change on an item takes effect immediately) and reused for `note.*`/`dependency.*`
 events on the same item. See §24 for the `item.deleted` fail-closed gap this scheme has.

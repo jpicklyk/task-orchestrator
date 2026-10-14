@@ -3,9 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunBudgetRequest
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -25,20 +27,34 @@ internal object RunsSupport {
 
     private const val UUID_LENGTH = 36
     private const val PREFIX_PROBE = 2
+    private const val RESTRICTED_PREFIX_PROBE = 200
 
     /**
-     * Resolves a run id as the caller wrote it: a full UUID resolves with no read, a hex prefix through
-     * [io.github.jpicklyk.mcptask.current.application.port.RunStore.findIdsByPrefix] (no match is `not_found`, two or
-     * more `ambiguous_id`). Whether a full UUID names a run is the loader question.
+     * Resolves a run id as the caller wrote it, under the call scope (the ScopedIds rule, for runs): a full UUID
+     * resolves with no read, a hex prefix through
+     * [io.github.jpicklyk.mcptask.current.application.port.RunStore.findIdsByPrefix]. Unrestricted scope: no match is
+     * `not_found`, two or more `ambiguous_id`. Restricted scope: no match is `forbidden` (never `not_found`), and an
+     * ambiguous prefix keeps only the candidates [ScopeGuard] admits (none is `forbidden`, one resolves, two or more
+     * is `ambiguous_id` listing only those). Whether a full UUID names a run is the loader question.
      */
     suspend fun resolveRunId(
         stores: RepositoryProvider,
+        scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> {
         if (ref.raw.length == UUID_LENGTH) return Outcome.Ok(UUID.fromString(ref.raw))
-        val hits = stores.runStore().findIdsByPrefix(ref.raw, PREFIX_PROBE)
+        val restricted = !scope.isUnrestricted
+        val probe = if (restricted) RESTRICTED_PREFIX_PROBE else PREFIX_PROBE
+        var hits = stores.runStore().findIdsByPrefix(ref.raw, probe)
+        if (restricted) {
+            hits =
+                hits.filter { id ->
+                    val run = stores.runStore().getById(id)
+                    run != null && ScopeGuard.check(scope, run.rootId, stores.workItemRepository()) is Outcome.Ok
+                }
+        }
         return when (hits.size) {
-            0 -> Outcome.Err(runNotFound(ref.raw))
+            0 -> Outcome.Err(if (restricted) ScopedIds.denied(scope) else runNotFound(ref.raw))
             1 -> Outcome.Ok(hits.single())
             else ->
                 Outcome.Err(
@@ -54,7 +70,8 @@ internal object RunsSupport {
 
     /**
      * Resolves and loads the run [ref], then checks the call scope against the run root BEFORE the caller can reach
-     * any kind or coordinator predicate: a run out of scope is `forbidden`, never an existence oracle.
+     * any kind or coordinator predicate: a run out of scope is `forbidden`, never an existence oracle, and under a
+     * restricted scope an unknown run is `forbidden` too.
      */
     suspend fun loadRun(
         stores: RepositoryProvider,
@@ -62,11 +79,13 @@ internal object RunsSupport {
         ref: IdRef
     ): Outcome<Run> {
         val id =
-            when (val r = resolveRunId(stores, ref)) {
+            when (val r = resolveRunId(stores, ctx.scope, ref)) {
                 is Outcome.Ok -> r.value
                 is Outcome.Err -> return r
             }
-        val run = stores.runStore().getById(id) ?: return Outcome.Err(runNotFound(id.toString()))
+        val run =
+            stores.runStore().getById(id)
+                ?: return Outcome.Err(if (ctx.scope.isUnrestricted) runNotFound(id.toString()) else ScopedIds.denied(ctx.scope))
         return when (val guard = ScopeGuard.check(ctx.scope, run.rootId, stores.workItemRepository())) {
             is Outcome.Err -> guard
             is Outcome.Ok -> Outcome.Ok(run)
