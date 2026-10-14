@@ -40,6 +40,8 @@ internal object AdvanceParityScenarios {
         ttl: Int? = null
     ) = """{"op":"heartbeat","itemId":"$id"${if (ttl != null) ""","ttlSeconds":$ttl""" else ""}}"""
 
+    private fun heartbeatWithUsage(id: UUID) = """{"op":"heartbeat","itemId":"$id","usage":{"tokens":10,"costUsd":0.5}}"""
+
     private fun ops(
         vararg elements: String,
         top: String = ""
@@ -201,6 +203,33 @@ internal object AdvanceParityScenarios {
                 expectCode = "partial_failure",
                 expectContains = listOf("\"code\":\"not_claim_holder\"", "\"itemId\":\"$r1\""),
                 expectAbsent = listOf("\"refreshed\""),
+                expectDbChanged = false
+            ),
+            // R22 (decision D9): `usage` is a seat's spend, so a call with no seat token cannot carry it. Atomic, so the failing
+            // element is the whole-call error with its index and the claim before it is rolled back.
+            scenario(
+                "advance heartbeat usage without a seat token is invalid_request on the usage pointer",
+                "heartbeat",
+                ParityKind.OTHER,
+                agent,
+                ops(claim(r1), heartbeatWithUsage(r1), top = ""","atomic":true"""),
+                400,
+                expectCode = "invalid_request",
+                expectContains = listOf("\"index\":1", "/usage", "requires a seat token"),
+                expectAbsent = listOf("\"refreshed\""),
+                expectDbChanged = false
+            ),
+            // R22 (decision D1/D2): a seat token that no live assignment issued is the fixed 401 before any op is read.
+            scenario(
+                "advance with an unknown seat token is unauthenticated and claims nothing",
+                "claim",
+                ParityKind.OTHER,
+                agent,
+                ops(claim(r1), top = ""","seatToken":"${"u".repeat(43)}""""),
+                401,
+                expectCode = "unauthenticated",
+                expectContains = listOf("The seat token is not accepted."),
+                expectAbsent = listOf("\"claimed\":true", "u".repeat(43)),
                 expectDbChanged = false
             )
         )

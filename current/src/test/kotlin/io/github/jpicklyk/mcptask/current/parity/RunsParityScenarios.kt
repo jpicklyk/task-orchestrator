@@ -301,6 +301,23 @@ internal object RunsParityScenarios {
         extra: String = ""
     ) = """{"op":"mark","runId":"$runId","key":"$key"$extra}"""
 
+    fun assign(
+        runId: Any,
+        itemId: Any,
+        seat: String,
+        extra: String = ""
+    ) = """{"op":"assign","runId":"$runId","itemId":"$itemId","seat":"$seat"$extra}"""
+
+    fun endSeat(
+        outcome: String,
+        extra: String = ""
+    ) = """{"op":"end_seat","outcome":"$outcome"$extra}"""
+
+    fun seats(
+        runId: Any,
+        extra: String = ""
+    ) = """{"select":"seats","runId":"$runId"$extra}"""
+
     private fun ids(vararg ids: Any) = ids.joinToString(",", "[", "]") { "\"$it\"" }
 
     private fun scopeRoot(required: UUID = r1) = listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"$required\"")
@@ -1449,10 +1466,245 @@ internal object RunsParityScenarios {
             )
         )
 
-    val scenarios: List<ParityScenario> = happy + reads + writes
+    // ------------------------------------------------------------------ R22: seats (assign, end_seat, the seats select)
 
-    /** Every runs member touches a run that belongs to a root, so each carries a SCOPE_FORBIDDEN scenario and none is exempt. */
-    val exemptions: List<ScopeExempt> = emptyList()
+    /** A seat token no assignment ever issued: 43 base64url characters, so it is well formed and still unknown. */
+    private val unknownSeatToken = "u".repeat(43)
+
+    /**
+     * The seat members' scenarios. Oracles: task-scope D1 (a top-level `seatToken` that no live assignment issued is the fixed 401
+     * `unauthenticated` before anything else is read), D2 (message `The seat token is not accepted.`), D3 (`assign` is the
+     * coordinator TOKEN only, the refusal is `forbidden{principal_kind, required: "coordinator"}`; `end_seat` needs the seat's own
+     * token, `required: "seat"`), D5 (the run is loaded in scope first, so a scope refusal and an unknown run precede the token
+     * check) and the envelope statuses.
+     *
+     * Not authored here (reported in the test-manifest): a HAPPY `assign` / `end_seat` scenario and a heartbeat `usage` one. They
+     * need a live seat token, which is random per run: the harness would have to seed a seat row with a known token hash
+     * (`ParitySeeder` has no seat seeding) and mask the issued token in the compared bodies. Both are harness edits that this
+     * item's declarations do not grant, so those happy paths are covered by `RunsSeatOpsTest` over the same dispatcher.
+     */
+    val seatScenarios: List<ParityScenario> =
+        listOf(
+            read(
+                "seats happy",
+                "seats",
+                ParityKind.HAPPY,
+                reader,
+                seats(ra),
+                absent = listOf("seatToken", "coordinatorToken", "tokenHash", "token_hash"),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats scope root",
+                "seats",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                seats(rb),
+                403,
+                "forbidden",
+                scopeRoot(),
+                absent = listOf("not_found"),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats of an unknown run",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(ghost),
+                404,
+                "not_found",
+                listOf("\"kind\":\"run\""),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats without the read capability",
+                "seats",
+                ParityKind.OTHER,
+                runsOnly,
+                seats(ra),
+                403,
+                "forbidden",
+                listOf("\"scope\":\"capability\"", "\"required\":\"read\""),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats with an unknown field",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(ra, ""","bogus":1"""),
+                400,
+                "unknown_parameter",
+                listOf("/bogus"),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats with a non-boolean ended",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(ra, ""","ended":"yes""""),
+                400,
+                "invalid_request",
+                listOf("/ended"),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats with an item prefix that is too short",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                seats(ra, ""","itemId":"abc""""),
+                400,
+                "invalid_request",
+                listOf("/itemId"),
+                seed = seedOpenAB
+            ),
+            read(
+                "seats with an unknown seat token",
+                "seats",
+                ParityKind.OTHER,
+                reader,
+                """{"seatToken":"$unknownSeatToken","select":"seats","runId":"$ra"}""",
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                absent = listOf(unknownSeatToken),
+                seed = seedOpenAB
+            ),
+            failed(
+                "assign scope root",
+                "assign",
+                rootScoped,
+                ops(assign(rb, d1, "implementer")),
+                scopeRoot(),
+                absent = listOf("principal_kind"),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedOpenAB
+            ),
+            failed(
+                "assign without a token is refused on the kind, whoever opened the run",
+                "assign",
+                coord,
+                ops(assign(ra, c1, "implementer")),
+                principalKind("coordinator"),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign by a human without a token is refused on the kind",
+                "assign",
+                human,
+                ops(assign(ra, c1, "implementer")),
+                principalKind("coordinator"),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign of an unknown run is not_found before the token is looked at",
+                "assign",
+                coord,
+                ops(assign(ghost, c1, "implementer")),
+                listOf("\"code\":\"not_found\"", "\"kind\":\"run\""),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign with a run id that is too short",
+                "assign",
+                coord,
+                ops(assign("ab00000", c1, "implementer")),
+                listOf("\"code\":\"invalid_request\"", "/runId"),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign without a seat",
+                "assign",
+                coord,
+                ops("""{"op":"assign","runId":"$ra","itemId":"$c1"}"""),
+                listOf("\"code\":\"invalid_request\"", "/seat"),
+                seed = seedOpenA
+            ),
+            failed(
+                "assign with a field of another op",
+                "assign",
+                coord,
+                ops(assign(ra, c1, "implementer", ""","reason":"cancelled"""")),
+                listOf("\"code\":\"unknown_parameter\""),
+                seed = seedOpenA
+            ),
+            sc(
+                "assign with an unknown seat token is unauthenticated",
+                WRITE_TOOL,
+                "assign",
+                ParityKind.OTHER,
+                coord,
+                ops(assign(ra, c1, "implementer"), top = ""","seatToken":"$unknownSeatToken""""),
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                absent = listOf(unknownSeatToken),
+                dbChanged = false,
+                seed = seedOpenA
+            ),
+            sc(
+                "assign with an empty seat token is unauthenticated",
+                WRITE_TOOL,
+                "assign",
+                ParityKind.OTHER,
+                coord,
+                ops(assign(ra, c1, "implementer"), top = ""","seatToken":"""""),
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                dbChanged = false,
+                seed = seedOpenA
+            ),
+            failed(
+                "end_seat without a token is refused on the kind seat",
+                "end_seat",
+                coord,
+                ops(endSeat("done")),
+                principalKind("seat"),
+                seed = seedOpenA
+            ),
+            failed(
+                "end_seat with a field of another op",
+                "end_seat",
+                coord,
+                ops(endSeat("done", ""","seat":"implementer"""")),
+                listOf("\"code\":\"unknown_parameter\""),
+                seed = seedOpenA
+            ),
+            sc(
+                "end_seat with an unknown seat token is unauthenticated",
+                WRITE_TOOL,
+                "end_seat",
+                ParityKind.OTHER,
+                coord,
+                ops(endSeat("done"), top = ""","seatToken":"$unknownSeatToken""""),
+                401,
+                "unauthenticated",
+                listOf("The seat token is not accepted."),
+                absent = listOf(unknownSeatToken),
+                dbChanged = false,
+                seed = seedOpenA
+            )
+        )
+
+    val scenarios: List<ParityScenario> = happy + reads + writes + seatScenarios
+
+    /**
+     * Every runs member but one touches a run that belongs to a root, so each carries a SCOPE_FORBIDDEN scenario. `end_seat` names
+     * no run and no item: it acts on the caller's own seat, identified by the seat token, and only the principal the seat was
+     * assigned to can present that token, so no request can make it reach a root outside the caller's scope.
+     */
+    val exemptions: List<ScopeExempt> =
+        listOf(
+            ScopeExempt(
+                WRITE_TOOL,
+                "end_seat",
+                "names no run or item: it ends the caller's own seat, identified by its token, which only the assigned principal can present"
+            )
+        )
 
     val members: List<Pair<String, String>> =
         listOf(
@@ -1463,7 +1715,10 @@ internal object RunsParityScenarios {
             WRITE_TOOL to "close",
             WRITE_TOOL to "pause",
             WRITE_TOOL to "resume",
-            WRITE_TOOL to "mark"
+            WRITE_TOOL to "mark",
+            READ_TOOL to "seats",
+            WRITE_TOOL to "assign",
+            WRITE_TOOL to "end_seat"
         )
 }
 

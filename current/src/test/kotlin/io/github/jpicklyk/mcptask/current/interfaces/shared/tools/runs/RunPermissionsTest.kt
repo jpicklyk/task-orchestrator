@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.api.SeatContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -32,8 +33,10 @@ import kotlin.test.assertTrue
  * Oracles (never read from a run): task-scope planner additions, "Permissions": the caller id is `ctx.principal?.claim?.id` (a REST
  * bearer principal is audited as `api:<id>`, an MCP call carries the lifted actor id, a call with no actor has none); the director
  * is a PROFILE (`ctx.profile == "director"`), not a principal attribute; a human is a credential kind (`PrincipalKind.HUMAN`) and a
- * request-body actor can never be human (V2); the coordinator before R22 is the caller whose id equals `run.openedBy`, null matching
- * null (D-coord); close is coordinator, director or human; pause and resume are director or human only (the opener may not pause);
+ * request-body actor can never be human (V2); since R22 (decision D3) the coordinator is the caller whose call resolved the
+ * coordinator seat token of THAT run (`ctx.seat` is the run-scoped `coordinator` pseudo-seat of the run), never the opener by
+ * identity, and under any seat token the caller is neither a human nor the director (a seat is always an agent); `update` and
+ * `assign` need the coordinator token, `end_seat` a member seat token; close is coordinator, director or human; pause and resume are director or human only (the opener may not pause);
  * update is the coordinator only; a refusal is `forbidden` with scope `principal_kind` and the listed `required` string; `openedByKind`
  * is the credential's `kind.wire`, `"agent"` for a lifted body actor whatever its [ActorKind] (D-kind), null with no principal.
  * Expected values are literals or the truth table of those clauses, never what the code returns.
@@ -194,147 +197,194 @@ class RunPermissionsTest {
         }
     }
 
-    // ------------------------------------------------------------------ isCoordinator (D-coord)
+    // ------------------------------------------------------------------ isCoordinator (D3: the coordinator TOKEN, R22)
+
+    /** The seat context a coordinator token resolves to for [run] (the run-scoped pseudo-seat has no item). */
+    private fun coordinatorSeat(run: Run) =
+        SeatContext(runId = run.id, assignmentId = UUID.randomUUID(), itemId = null, seat = "coordinator")
+
+    /** The seat context of a member seat token for [run]. */
+    private fun memberSeat(
+        run: Run,
+        seat: String = "implementer"
+    ) = SeatContext(runId = run.id, assignmentId = UUID.randomUUID(), itemId = UUID.randomUUID(), seat = seat)
+
+    private fun CallContext.under(seat: SeatContext?): CallContext = copy(seat = seat)
 
     @Test
-    fun `the coordinator is the caller whose id equals the opener`() {
+    fun `the coordinator is the caller presenting the coordinator seat of that run, whatever its identity`() {
         val run = runOpenedBy("api:rw-coord")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord"), run))
-        assertFalse(RunPermissions.isCoordinator(rest("rw-other"), run))
-        assertTrue(RunPermissions.isCoordinator(lifted("orchestrator-1"), runOpenedBy("orchestrator-1", "agent")))
-        assertFalse(RunPermissions.isCoordinator(lifted("orchestrator-2"), runOpenedBy("orchestrator-1", "agent")))
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(run)), run), "the coordinator token of this run")
+        // the dispatcher bound the token to its principal before the context was built, so identity plays no part once a token resolved
+        assertTrue(RunPermissions.isCoordinator(rest("rw-other").under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isCoordinator(lifted("orchestrator-1").under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isCoordinator(local().under(coordinatorSeat(run)), run))
     }
 
     @Test
-    fun `the local principal coordinates only runs opened by local`() {
-        assertTrue(RunPermissions.isCoordinator(local(), runOpenedBy("local", "agent")), "opened by local as an agent")
-        assertFalse(RunPermissions.isCoordinator(local(), runOpenedBy("api:rw-coord")), "another opener's run")
-        assertFalse(RunPermissions.isCoordinator(local(), runOpenedBy("local", "service")), "the id local with another recorded kind")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord"), runOpenedBy("local", "agent")), "another caller is not local")
+    fun `the opener without a token is not the coordinator - for every way the opener can be identified`() {
+        val byRest = runOpenedBy("api:rw-coord", "service")
+        assertFalse(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), byRest), "same id, same kind, no token")
+        val byLifted = runOpenedBy("orchestrator-1", "agent")
+        assertFalse(RunPermissions.isCoordinator(lifted("orchestrator-1"), byLifted), "a lifted actor that opened the run")
+        val byLocal = runOpenedBy("local", "agent")
+        assertFalse(RunPermissions.isCoordinator(local(), byLocal), "the local principal that opened the run")
+        // control: the same three callers presenting the coordinator token of their run are the coordinator
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE).under(coordinatorSeat(byRest)), byRest))
+        assertTrue(RunPermissions.isCoordinator(lifted("orchestrator-1").under(coordinatorSeat(byLifted)), byLifted))
+        assertTrue(RunPermissions.isCoordinator(local().under(coordinatorSeat(byLocal)), byLocal))
     }
 
     @Test
-    fun `the coordinator comparison is exact - case, prefix and whitespace differences are different callers`() {
+    fun `a coordinator token of another run does not make the caller the coordinator of this one`() {
         val run = runOpenedBy("api:rw-coord")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord"), run), "control: the exact id matches")
-        assertFalse(RunPermissions.isCoordinator(rest("RW-COORD"), run), "case differs")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord "), run), "trailing space differs")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coor"), run), "a prefix of the id is not the id")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord2"), run), "an extension of the id is not the id")
-        assertFalse(RunPermissions.isCoordinator(lifted("rw-coord"), run), "a lifted id without the api: prefix is not the REST caller")
+        val other = runOpenedBy("api:rw-coord")
+        assertFalse(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(other)), run), "the seat names another run")
+        assertTrue(
+            RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(other)), other),
+            "control: it is the coordinator of its own"
+        )
     }
 
     @Test
-    fun `a REST token whose id already starts with api is not the coordinator of a run opened by the token it imitates`() {
+    fun `a member seat token is not the coordinator, whatever the seat is called`() {
         val run = runOpenedBy("api:rw-coord")
-        // the token id is literally "api:rw-coord", so its audited identity is "api:api:rw-coord"
-        assertEquals("api:api:rw-coord", RunPermissions.callerId(rest("api:rw-coord")))
-        assertFalse(RunPermissions.isCoordinator(rest("api:rw-coord"), run))
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord"), run), "control: the real token is")
+        for (seat in listOf(
+            "implementer",
+            "planner",
+            "Coordinator",
+            "COORDINATOR",
+            "coordinator ",
+            " coordinator",
+            "coordinators",
+            "coord"
+        )) {
+            assertFalse(RunPermissions.isCoordinator(rest("rw-coord").under(memberSeat(run, seat)), run), "member seat [$seat]")
+        }
+        // control: the exact pseudo-seat name on a run-scoped context is the coordinator
+        assertTrue(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(run)), run))
     }
 
     @Test
-    fun `the coordinator does not depend on the served profile, for each credential kind the opener recorded`() {
+    fun `the coordinator does not depend on the served profile or the credential kind`() {
+        val run = runOpenedBy("api:rw-coord")
         for (kind in PrincipalKind.entries) {
-            val run = runOpenedBy("api:rw-coord", kind.wire)
             for (profile in listOf("rest", "director", "orchestration", null)) {
-                assertTrue(RunPermissions.isCoordinator(rest("rw-coord", kind, profile), run), "kind $kind profile $profile")
+                assertTrue(
+                    RunPermissions.isCoordinator(rest("rw-coord", kind, profile).under(coordinatorSeat(run)), run),
+                    "kind $kind profile $profile"
+                )
+                assertFalse(RunPermissions.isCoordinator(rest("rw-coord", kind, profile), run), "no token: kind $kind profile $profile")
             }
         }
     }
 
     @Test
-    fun `the coordinator is the caller whose id AND kind equal the recorded opener, so the same id with another recorded kind is not`() {
-        // Orchestrator ruling (decisions note, item 3) amending TS-P: id equality plus the caller kind equal to openedByKind.
-        val recordedService = runOpenedBy("api:rw-coord", "service")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), recordedService), "same id, same kind")
-        val recordedHuman = runOpenedBy("api:rw-coord", "human")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), recordedHuman), "same id, different kind")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.HUMAN), recordedHuman), "control: same id, matching kind")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-other", PrincipalKind.SERVICE), recordedService), "control: another id is not")
+    fun `under any seat token the caller is neither a human nor the director`() {
+        val run = runOpenedBy("api:rw-coord")
+        for (seat in listOf(coordinatorSeat(run), memberSeat(run))) {
+            assertFalse(RunPermissions.isHuman(rest("h", PrincipalKind.HUMAN).under(seat)), "a human credential under ${seat.seat}")
+            assertFalse(RunPermissions.isDirector(rest("a", profile = "director").under(seat)), "the director profile under ${seat.seat}")
+            assertFalse(RunPermissions.isDirector(lifted("a", profile = "director").under(seat)), "a lifted director under ${seat.seat}")
+        }
+        // controls: the same contexts without a token are human and director
+        assertTrue(RunPermissions.isHuman(rest("h", PrincipalKind.HUMAN)))
+        assertTrue(RunPermissions.isDirector(rest("a", profile = "director")))
     }
 
-    @Test
-    fun `a credential with the same id but a different kind is not the coordinator and cannot update or close the run`() {
-        // The run was opened by REST principal api:rw-coord whose credential kind is service.
-        val run = runOpenedBy("api:rw-coord", "service")
-        val spoof = rest("rw-coord", PrincipalKind.AGENT)
-        assertEquals("api:rw-coord", RunPermissions.callerId(spoof), "the spoof carries the identical caller id")
-        assertFalse(RunPermissions.isCoordinator(spoof, run))
-        assertFalse(RunPermissions.mayUpdate(spoof, run), "update requires the coordinator, so the spoof is refused")
-        assertFalse(RunPermissions.mayClose(spoof, run), "close needs coordinator, director or human; the spoof is none")
-        val refusal = assertIs<ErrorDetail.Forbidden>(RunPermissions.refuse(RunPermissions.UPDATE_REQUIRED).detail)
-        assertEquals(ForbiddenScope.PRINCIPAL_KIND, refusal.scope)
-        assertEquals("coordinator", refusal.required)
-        // controls: the genuine opener credential is the coordinator, and the local principal is for its own runs
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), run))
-        assertTrue(RunPermissions.mayUpdate(rest("rw-coord", PrincipalKind.SERVICE), run))
-        assertTrue(RunPermissions.isCoordinator(local(), runOpenedBy("local", "agent")))
-    }
+    // ------------------------------------------------------------------ the rows, as a truth table over (token, director, human)
 
-    // ------------------------------------------------------------------ the three rows, as a truth table
-
-    /** A context that is (or is not) the coordinator, the director and a human, independently. */
+    /** A context that is (or is not) a human credential and on the director profile, optionally under [seat]. */
     private fun ctx(
-        coordinator: Boolean,
         director: Boolean,
-        human: Boolean
+        human: Boolean,
+        seat: SeatContext? = null
     ) = rest(
-        id = if (coordinator) "rw-coord" else "rw-stranger",
+        id = "rw-caller",
         kind = if (human) PrincipalKind.HUMAN else PrincipalKind.SERVICE,
         profile = if (director) "director" else "rest"
-    )
+    ).under(seat)
 
-    /** The run the coordinator of a combination opened, recorded with the kind that combination's credential has. */
-    private fun runFor(human: Boolean) = runOpenedBy("api:rw-coord", if (human) "human" else "service")
-
-    private val combinations: List<Triple<Boolean, Boolean, Boolean>> =
-        listOf(false, true).flatMap { c -> listOf(false, true).flatMap { d -> listOf(false, true).map { h -> Triple(c, d, h) } } }
+    private val combinations: List<Pair<Boolean, Boolean>> = listOf(false, true).flatMap { d -> listOf(false, true).map { h -> d to h } }
 
     @Test
-    fun `mayClose is coordinator or director or human, for all eight combinations`() {
-        for ((c, d, h) in combinations) {
-            assertEquals(c || d || h, RunPermissions.mayClose(ctx(c, d, h), runFor(h)), "coordinator=$c director=$d human=$h")
+    fun `mayClose without a token is director or human, and the opener gets nothing from having opened`() {
+        val run = runOpenedBy("api:rw-caller", "service")
+        for ((d, h) in combinations) {
+            assertEquals(d || h, RunPermissions.mayClose(ctx(d, h), run), "no token: director=$d human=$h")
+        }
+        assertFalse(RunPermissions.mayClose(ctx(director = false, human = false), run), "the opener without a token may not close")
+    }
+
+    @Test
+    fun `mayClose with the coordinator token is true for every credential, and with a member token is false for every credential`() {
+        val run = runOpenedBy("api:rw-caller", "service")
+        for ((d, h) in combinations) {
+            assertTrue(RunPermissions.mayClose(ctx(d, h, coordinatorSeat(run)), run), "coordinator token: director=$d human=$h")
+            assertFalse(RunPermissions.mayClose(ctx(d, h, memberSeat(run)), run), "member token: director=$d human=$h")
         }
     }
 
     @Test
-    fun `mayPauseOrResume is director or human only - the coordinator alone may not, for all eight combinations`() {
-        for ((c, d, h) in combinations) {
-            assertEquals(d || h, RunPermissions.mayPauseOrResume(ctx(c, d, h)), "coordinator=$c director=$d human=$h")
+    fun `mayPauseOrResume is director or human without a token and never under a token, for all four combinations`() {
+        val run = runOpenedBy("api:rw-caller", "service")
+        for ((d, h) in combinations) {
+            assertEquals(d || h, RunPermissions.mayPauseOrResume(ctx(d, h)), "no token: director=$d human=$h")
+            assertFalse(RunPermissions.mayPauseOrResume(ctx(d, h, coordinatorSeat(run))), "coordinator token: director=$d human=$h")
+            assertFalse(RunPermissions.mayPauseOrResume(ctx(d, h, memberSeat(run))), "member token: director=$d human=$h")
         }
-        assertFalse(RunPermissions.mayPauseOrResume(ctx(coordinator = true, director = false, human = false)), "the opener may not pause")
     }
 
     @Test
-    fun `mayUpdate is the coordinator only - neither the director nor a human may, for all eight combinations`() {
-        for ((c, d, h) in combinations) {
-            assertEquals(c, RunPermissions.mayUpdate(ctx(c, d, h), runFor(h)), "coordinator=$c director=$d human=$h")
+    fun `mayUpdate and mayAssign are the coordinator token only - neither the director, a human nor the opener may`() {
+        val run = runOpenedBy("api:rw-caller", "service")
+        for ((d, h) in combinations) {
+            assertFalse(RunPermissions.mayUpdate(ctx(d, h), run), "no token: director=$d human=$h")
+            assertFalse(RunPermissions.mayAssign(ctx(d, h), run), "no token: director=$d human=$h")
+            assertFalse(RunPermissions.mayUpdate(ctx(d, h, memberSeat(run)), run), "member token: director=$d human=$h")
+            assertFalse(RunPermissions.mayAssign(ctx(d, h, memberSeat(run)), run), "member token: director=$d human=$h")
+            assertTrue(RunPermissions.mayUpdate(ctx(d, h, coordinatorSeat(run)), run), "coordinator token: director=$d human=$h")
+            assertTrue(RunPermissions.mayAssign(ctx(d, h, coordinatorSeat(run)), run), "coordinator token: director=$d human=$h")
         }
-        assertFalse(RunPermissions.mayUpdate(ctx(coordinator = false, director = true, human = true), runFor(true)))
+        // a coordinator token of another run authorizes nothing here
+        assertFalse(RunPermissions.mayUpdate(ctx(false, false, coordinatorSeat(runOpenedBy("api:rw-caller"))), run))
+        assertFalse(RunPermissions.mayAssign(ctx(false, false, coordinatorSeat(runOpenedBy("api:rw-caller"))), run))
     }
 
     @Test
-    fun `the predicates for a lifted body actor follow the actor id and the profile, never a kind it declares`() {
+    fun `isMemberSeat is true for a member seat token only - not for no token and not for the coordinator token`() {
+        val run = runOpenedBy("api:rw-coord")
+        assertTrue(RunPermissions.isMemberSeat(rest("a").under(memberSeat(run))))
+        assertTrue(RunPermissions.isMemberSeat(rest("a").under(memberSeat(run, "planner"))))
+        assertFalse(RunPermissions.isMemberSeat(rest("a")), "no token")
+        assertFalse(RunPermissions.isMemberSeat(rest("a").under(coordinatorSeat(run))), "the coordinator token is refused by end_seat")
+    }
+
+    @Test
+    fun `the predicates for a lifted body actor and for the local principal follow the token, never the id the actor claims`() {
         val opener = runOpenedBy("orchestrator-1", "agent")
-        assertTrue(RunPermissions.mayClose(lifted("orchestrator-1", ActorKind.SUBAGENT), opener))
+        assertFalse(RunPermissions.mayClose(lifted("orchestrator-1", ActorKind.SUBAGENT), opener), "the opener without a token")
         assertFalse(RunPermissions.mayClose(lifted("orchestrator-2", ActorKind.USER), opener), "declaring user does not make a human")
         assertFalse(RunPermissions.mayPauseOrResume(lifted("orchestrator-1", ActorKind.USER)), "declaring user does not make a human")
         assertTrue(RunPermissions.mayPauseOrResume(lifted("orchestrator-2", profile = "director")), "the director profile may")
-        assertTrue(RunPermissions.mayUpdate(lifted("orchestrator-1"), opener))
-        assertFalse(RunPermissions.mayUpdate(lifted("orchestrator-2", profile = "director"), opener))
-    }
+        assertFalse(RunPermissions.mayUpdate(lifted("orchestrator-1"), opener), "the opener without a token may not update")
+        assertTrue(
+            RunPermissions.mayUpdate(lifted("orchestrator-1").under(coordinatorSeat(opener)), opener),
+            "control: with the token it may"
+        )
+        assertTrue(
+            RunPermissions.mayClose(lifted("orchestrator-1").under(coordinatorSeat(opener)), opener),
+            "control: with the token it may"
+        )
 
-    @Test
-    fun `the local principal coordinates its own run, so it may close and update it but not pause it`() {
         val own = runOpenedBy("local", "agent")
-        assertTrue(RunPermissions.mayClose(local(), own))
-        assertTrue(RunPermissions.mayUpdate(local(), own))
-        assertFalse(RunPermissions.mayPauseOrResume(local()))
+        assertFalse(RunPermissions.mayClose(local(), own), "the local principal that opened the run, without a token")
+        assertFalse(RunPermissions.mayUpdate(local(), own), "the local principal that opened the run, without a token")
+        assertTrue(RunPermissions.mayClose(local().under(coordinatorSeat(own)), own), "control: with the token")
+        assertTrue(RunPermissions.mayUpdate(local().under(coordinatorSeat(own)), own), "control: with the token")
+        assertFalse(RunPermissions.mayPauseOrResume(local().under(coordinatorSeat(own))), "a token never pauses")
         assertTrue(RunPermissions.mayPauseOrResume(local(profile = "director")), "control: the director profile may pause")
-        assertFalse(RunPermissions.mayUpdate(local(), runOpenedBy("api:rw-coord")), "control: not a named opener's run")
     }
-
     // ------------------------------------------------------------------ refuse
 
     @Test
@@ -342,11 +392,19 @@ class RunPermissionsTest {
         assertEquals("coordinator,director,human", RunPermissions.CLOSE_REQUIRED)
         assertEquals("director,human", RunPermissions.PAUSE_REQUIRED)
         assertEquals("coordinator", RunPermissions.UPDATE_REQUIRED)
+        assertEquals("coordinator", RunPermissions.ASSIGN_REQUIRED)
+        assertEquals("seat", RunPermissions.END_SEAT_REQUIRED)
     }
 
     @Test
     fun `refuse is forbidden with the principal_kind scope and the given required string`() {
-        for (required in listOf(RunPermissions.CLOSE_REQUIRED, RunPermissions.PAUSE_REQUIRED, RunPermissions.UPDATE_REQUIRED)) {
+        for (required in listOf(
+            RunPermissions.CLOSE_REQUIRED,
+            RunPermissions.PAUSE_REQUIRED,
+            RunPermissions.UPDATE_REQUIRED,
+            RunPermissions.ASSIGN_REQUIRED,
+            RunPermissions.END_SEAT_REQUIRED
+        )) {
             val error = RunPermissions.refuse(required)
             assertEquals(ErrorCode.FORBIDDEN, error.code, required)
             val detail = assertIs<ErrorDetail.Forbidden>(error.detail, required)

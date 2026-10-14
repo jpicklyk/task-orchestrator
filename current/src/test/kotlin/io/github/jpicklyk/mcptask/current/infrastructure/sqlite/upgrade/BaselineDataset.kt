@@ -204,6 +204,8 @@ object BaselineDataset {
             "claimed_at" to if (claim) TS else null,
             "claim_expires_at" to if (claim) "2026-03-01 11:15:30" else null,
             "original_claimed_at" to if (claim) DB_TS else null,
+            // V35: a claim held under a seat assignment (dropped below V35, where the column does not exist yet).
+            "claim_assignment_id" to if (claim) id("claim-assignment:$name") else null,
             // V26 lifecycle and pin set on EVERY row (absent below V26, so insert drops them): see pinColumns.
             *pinColumns()
         )
@@ -251,7 +253,9 @@ object BaselineDataset {
             // V28: a non-default version (dropped below V28, where the column does not exist yet).
             "version" to if (key == "notes-extra") 3 else 1,
             // V34: a non-default owner (dropped below V34, where the column does not exist yet).
-            "owner_id" to if (key == "task-scope") "api:baseline-owner" else null
+            "owner_id" to if (key == "task-scope") "api:baseline-owner" else null,
+            // V35: the owner's seat (dropped below V35, where the column does not exist yet).
+            "seat" to if (key == "task-scope") "implementer" else null
         )
         note("feature", "feature-summary", "queue", "Summary of the baseline feature")
         note("feature", "notes-extra", "work", "A second note for the feature", proofStatus = "REJECTED")
@@ -726,6 +730,74 @@ object BaselineDataset {
             "run_id" to id("run:closed"),
             "item_id" to id("task2"),
             "added_at" to TS_PLUS_3
+        )
+
+        // V35 table (skipped below V35, where it does not exist): one active seat on the paused run, one ended seat on the closed
+        // run and the active coordinator pseudo-seat (no item) of the paused run. Every column carries a non-default value in at
+        // least one row and no two columns agree in every row, so BaselineColumnCoverageTest sees each one (all timestamps are
+        // 23 characters, every token hash 64 lowercase hex characters).
+        insert(
+            conn,
+            "run_seats",
+            "id" to id("run-seat:active"),
+            "run_id" to id("run:paused"),
+            "item_id" to id("task1"),
+            "seat" to "implementer",
+            "attempt" to 2,
+            "principal_id" to "actor-one",
+            "token_hash" to "1d".repeat(32),
+            "status" to "active",
+            "outcome" to null,
+            "summary" to null,
+            "links" to "[]",
+            "hints" to "{\"model\":\"opus\"}",
+            "assigned_at" to TS,
+            "ended_at" to null,
+            "last_seen_at" to TS_PLUS_2,
+            "usage_tokens" to 1200,
+            "usage_cost_micro" to 3400
+        )
+        insert(
+            conn,
+            "run_seats",
+            "id" to id("run-seat:ended"),
+            "run_id" to id("run:closed"),
+            "item_id" to id("task2"),
+            "seat" to "planner",
+            "attempt" to 1,
+            "principal_id" to "api:token-two",
+            "token_hash" to "2e".repeat(32),
+            "status" to "ended",
+            "outcome" to "run_closed",
+            "summary" to "Ended with the run",
+            "links" to "[{\"kind\":\"commit\",\"ref\":\"abc123\"}]",
+            "hints" to null,
+            "assigned_at" to TS_PLUS_1,
+            "ended_at" to TS_PLUS_3,
+            "last_seen_at" to null,
+            "usage_tokens" to 0,
+            "usage_cost_micro" to 0
+        )
+        insert(
+            conn,
+            "run_seats",
+            "id" to id("run-seat:coordinator"),
+            "run_id" to id("run:paused"),
+            "item_id" to null,
+            "seat" to "coordinator",
+            "attempt" to 1,
+            "principal_id" to "actor-one",
+            "token_hash" to "3f".repeat(32),
+            "status" to "active",
+            "outcome" to null,
+            "summary" to null,
+            "links" to null,
+            "hints" to null,
+            "assigned_at" to TS_PLUS_2,
+            "ended_at" to null,
+            "last_seen_at" to TS_PLUS_3,
+            "usage_tokens" to 0,
+            "usage_cost_micro" to 0
         )
     }
 }

@@ -699,7 +699,9 @@ class RunServiceTest {
             assertEquals("p#s1", rig.reload(f.a.id).claimedBy)
             assertEquals("other", rig.reload(f.b.id).claimedBy)
             assertEquals(1, rig.leasesOf(f.b.id), "a completed close releases no lease")
-            assertEquals(emptyList(), rig.seats.endedFor, "a completed close ends no seat")
+            // R22 (decision D7): the coordinator pseudo-seat is a seat row of the run, so even a completed close asks the seat port to
+            // end the run's seats (the coordinator token dies with the run); the cascade rows above are still absent.
+            assertEquals(listOf(f.run.id), rig.seats.endedFor, "a completed close ends the coordinator row of THIS run, once")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -733,6 +735,11 @@ class RunServiceTest {
             rig.seats.active = 0
             val accepted = rig.close(f.run, RunTerminalReason.COMPLETED).ok()
             assertEquals(RunStatus.CLOSED, accepted.run.status, "control: the same close succeeds once no seat is active")
+            assertEquals(
+                listOf(f.run.id),
+                rig.seats.endedFor,
+                "the accepted completed close ended the run's seats once; the refusal asked for none"
+            )
         }
 
     // ---------------------------------------------------------------------------------------------

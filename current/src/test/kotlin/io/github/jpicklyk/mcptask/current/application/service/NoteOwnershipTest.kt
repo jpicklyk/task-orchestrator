@@ -202,6 +202,56 @@ class NoteOwnershipTest {
         decide(noteOwnedBy(ownerId), ClaimHolder(otherId, UUID.randomUUID())).assertOwnedByOther(label = "a non-owner under an assignment")
     }
 
+    // ------------------------------------------------------------------ R22: the (principal, seat) pair under a real seat context
+
+    @Test
+    fun `R22 a seat holder is judged by the pair - same seat is allowed, another seat of the principal is refused with ownerSeat`() {
+        val assignment = ClaimHolder(ownerId, assignmentId = UUID.fromString("5ea75ea7-0000-4000-8000-000000000001"))
+        val existing = noteOwnedBy(ownerId)
+
+        decide(existing, assignment, callerSeat = "implementer", ownerSeat = "implementer").assertAllowed("same pair")
+        decide(existing, assignment, callerSeat = "checker", ownerSeat = "implementer")
+            .assertOwnedByOther(ownerSeat = "implementer", label = "same principal, another seat")
+        // control: the other principal under the owner's seat name is refused too, so the principal is half of the pair
+        decide(existing, ClaimHolder(otherId, assignment.assignmentId), callerSeat = "implementer", ownerSeat = "implementer")
+            .assertOwnedByOther(ownerSeat = "implementer", label = "another principal, same seat name")
+    }
+
+    @Test
+    fun `R22 a seated caller adopts an unowned note and creates a missing one, and is refused on an owned one`() {
+        val assignment = ClaimHolder(otherId, assignmentId = UUID.fromString("5ea75ea7-0000-4000-8000-000000000002"))
+
+        decide(noteOwnedBy(null), assignment, callerSeat = "implementer").assertAdopted(null, "unowned note, seated caller")
+        decide(null, assignment, callerSeat = "implementer").assertAllowed("no note, seated caller")
+        // control: the same caller against a note that has an owner is refused
+        decide(noteOwnedBy(ownerId), assignment, callerSeat = "implementer").assertOwnedByOther(label = "owned note, seated caller")
+    }
+
+    @Test
+    fun `R22 a takeover under a seat assignment is invalid_request at slash takeover, or forbidden without the capability`() {
+        val assignment = ClaimHolder(adminId, assignmentId = UUID.fromString("5ea75ea7-0000-4000-8000-000000000003"))
+
+        val allowedCap =
+            decide(
+                noteOwnedBy(ownerId),
+                assignment,
+                callerSeat = "implementer",
+                takeover = true,
+                takeoverAllowed = true
+            ).error()
+        assertEquals(ErrorCode.INVALID_REQUEST, allowedCap.code)
+        assertEquals("/takeover", assertIs<ErrorDetail.InvalidRequest>(allowedCap.detail).fields.single().field)
+
+        val noCap = decide(noteOwnedBy(ownerId), assignment, callerSeat = "implementer", takeover = true, takeoverAllowed = false).error()
+        assertEquals(ErrorCode.FORBIDDEN, noCap.code, "the capability check precedes the assignment check")
+
+        // control: the same takeover without the assignment transfers
+        assertEquals(
+            NoteOwnership.Decision.Transferred(ownerId, adminId),
+            decide(noteOwnedBy(ownerId), ClaimHolder(adminId), takeover = true, takeoverAllowed = true).decision()
+        )
+    }
+
     // ------------------------------------------------------------------ rule 1: shared
 
     @Test
