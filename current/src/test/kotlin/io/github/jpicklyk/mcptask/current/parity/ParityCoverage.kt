@@ -25,7 +25,9 @@ data class ParityToken(
     val id: String,
     val capabilities: Set<ApiCapability>,
     val rootIds: Set<UUID>? = null,
-    val tagsInclude: Set<String> = emptySet()
+    val tagsInclude: Set<String> = emptySet(),
+    /** The credential's principal kind; `HUMAN` is the one kind that may pause and resume a run (R20). */
+    val kind: PrincipalKind = PrincipalKind.SERVICE
 ) {
     val raw: String get() = "raw-parity-token-$id"
 
@@ -34,7 +36,7 @@ data class ParityToken(
             id = id,
             scope = AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude),
             capabilities = capabilities,
-            kind = PrincipalKind.SERVICE,
+            kind = kind,
             proofStatus = ProofStatus.ISSUED
         )
 
@@ -504,8 +506,9 @@ object ProductionParity {
         ItemsWriteParity.scenarios + ItemsWriteTreeParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios +
             AdvanceParityScenarios.all +
             ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios + ConfigParityScenarios.scenarios +
-            ReportParityScenarios.scenarios
+            ReportParityScenarios.scenarios + RunsParityScenarios.scenarios
     val exemptions: List<ScopeExempt> =
         NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
-            DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions + ReportParityScenarios.exemptions
+            DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions + ReportParityScenarios.exemptions +
+            RunsParityScenarios.exemptions
 }

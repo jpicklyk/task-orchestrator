@@ -77,9 +77,17 @@ class ProfileVisibilityAllowlistTest {
             assertTrue(tool !in orchestration, "$tool is director-only and must not be visible in orchestration")
         }
         for ((tool, names) in members(ToolProfile.DIRECTOR) - DIRECTOR_ONLY_TOOLS) {
+            // R20 (plan 3.4c): runs_write pause and resume are director-only MEMBERS of a tool the orchestration profile also serves
+            val expected = names - DIRECTOR_ONLY_MEMBERS[tool].orEmpty()
             assertTrue(
-                orchestration[tool].orEmpty().containsAll(names),
-                "$tool: director members ${names - orchestration[tool].orEmpty()} are missing from orchestration"
+                orchestration[tool].orEmpty().containsAll(expected),
+                "$tool: director members ${expected - orchestration[tool].orEmpty()} are missing from orchestration"
+            )
+        }
+        for ((tool, names) in DIRECTOR_ONLY_MEMBERS) {
+            assertTrue(
+                names.none { it in orchestration[tool].orEmpty() },
+                "$tool: ${names.filter { it in orchestration[tool].orEmpty() }} must be director-only, not visible in orchestration"
             )
         }
         assertEquals(KNOWLEDGE_ALLOWLIST, members(ToolProfile.KNOWLEDGE))
@@ -87,15 +95,20 @@ class ProfileVisibilityAllowlistTest {
 
     private companion object {
         /**
-         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9's report usage (aggregates only). Nothing that
-         * can carry a note, document or transition body.
+         * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9's report usage (aggregates only) and R20's runs
+         * get, list, open, close, pause and resume. Nothing that can carry a note, document or transition body.
          */
         val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
             mapOf(
                 "items_read" to setOf("get", "list", "overview", "blocked"),
                 "deps_read" to setOf("list", "graph"),
-                "report" to setOf("usage")
+                "report" to setOf("usage"),
+                "runs_read" to setOf("get", "list"),
+                "runs_write" to setOf("open", "close", "pause", "resume")
             )
+
+        /** Members visible in director and not in orchestration, inside a tool orchestration also serves (plan 3.4c). */
+        val DIRECTOR_ONLY_MEMBERS: Map<String, Set<String>> = mapOf("runs_write" to setOf("pause", "resume"))
 
         /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */
         val DIRECTOR_ONLY_TOOLS: Set<String> = setOf("report")
