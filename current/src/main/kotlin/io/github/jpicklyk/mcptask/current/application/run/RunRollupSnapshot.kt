@@ -7,7 +7,7 @@ import java.util.UUID
  * after the run row is stored closed and the close hook ran, and before `run.ended` is recorded, for EVERY terminal
  * reason. It answers the stored form of the rollup (the report codec's JSON object, full ids), or null to store none.
  * A throw rolls the close back, as the close hook's does. [NONE] stores nothing (a run service built without reports, in
- * tests); production wires the report service once, in `ToolExecutionContext`.
+ * tests); production wires the report-backed one once, in `ServerComposition`.
  */
 fun interface RunRollupSnapshot {
     /** The stored form of the rollup of run [runId], read inside the caller's (close) unit; null for none. */

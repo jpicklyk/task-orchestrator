@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.report.ReportRunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -210,6 +211,7 @@ class ServerComposition(
                 configService = configService,
                 bodySource = bodySource,
                 resourceLeasesEnforced = appConfig.resourceLeasesEnforced,
+                rollupSnapshot = ReportRunRollupSnapshot.over(effectiveProvider, unitOfWork, clock),
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",

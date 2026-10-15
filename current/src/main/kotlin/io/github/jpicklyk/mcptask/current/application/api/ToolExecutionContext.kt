@@ -20,8 +20,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
-import io.github.jpicklyk.mcptask.current.application.report.ReportService
-import io.github.jpicklyk.mcptask.current.application.report.RollupSnapshotCodec
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
@@ -99,6 +97,11 @@ class ToolExecutionContext(
     private val resourceLeasesEnforced: Boolean = true,
     /** What an answer to a server-raised decision class does (R27); null (the default) wires [RunDecisionEffects]. */
     decisionEffects: DecisionEffects? = null,
+    /**
+     * The run rollup snapshot a close stores in `run.ended` (R28). Production wires the report-backed one in
+     * `ServerComposition`; the default stores none.
+     */
+    private val rollupSnapshot: RunRollupSnapshot = RunRollupSnapshot.NONE,
 ) {
     private val decisionEffectsOverride: DecisionEffects? = decisionEffects
 
@@ -173,22 +176,8 @@ class ToolExecutionContext(
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
             seats = seatService,
             decisions = RunDecisionPort.over(repositoryProvider),
-            rollupSnapshot = RunRollupSnapshot { runId -> runRollupSnapshot(runId) }
+            rollupSnapshot = rollupSnapshot
         )
-    }
-
-    /**
-     * The run rollup snapshot a close stores in `run.ended` (R28), wired here once: the report service's live run rollup
-     * in its stored form, read inside the close unit. A provider that serves no report queries (its `reportQueries()`
-     * throws [UnsupportedOperationException], as the interface default does) stores none.
-     */
-    private suspend fun runRollupSnapshot(runId: UUID): Map<String, Any?>? {
-        try {
-            repositoryProvider.reportQueries()
-        } catch (e: UnsupportedOperationException) {
-            return null
-        }
-        return ReportService(unitOfWork, clock).runSnapshot(runId)?.let { RollupSnapshotCodec.encode(it) }
     }
 
     /**

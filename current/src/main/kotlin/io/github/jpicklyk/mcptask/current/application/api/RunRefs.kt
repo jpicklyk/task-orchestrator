@@ -1,8 +1,5 @@
-package io.github.jpicklyk.mcptask.current.application.run
+package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

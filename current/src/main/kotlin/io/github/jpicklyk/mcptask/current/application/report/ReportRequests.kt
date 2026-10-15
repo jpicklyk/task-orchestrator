@@ -59,7 +59,7 @@ enum class ReportGroupBy(
  */
 internal object ReportFieldDocs {
     const val ROOT_ID = "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see."
-    const val SINCE = "Window start, inclusive: ISO 8601 with Z or offset. Default and cap per select."
+    const val SINCE = "Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe."
     const val UNTIL = "Window end, exclusive: ISO 8601 with Z or offset."
 }
 
