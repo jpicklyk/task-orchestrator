@@ -332,7 +332,7 @@ matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v
 
 On every row, MCP and REST alike, the `principal_id` column holds the audited id of the call's transport principal:
 `api:<id>` for a credential, the bare `local` for stdio and the local modes, and never client text (a row for a call
-that had no principal holds none). `principal_kind` and `proof_status` record that principal's kind and proof.
+that had no principal holds none). `proof_status` records the proof behind that principal. `principal_kind` does not record the caller's kind: today it is always `external` on a row that has a principal (the audit claim's kind). That is a known limitation, and a server fix to record the credential's kind is tracked.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
@@ -403,8 +403,9 @@ event type re-evaluates a correlated "latest row per entity" subquery for every 
 `SqliteEventStore.prune`), so a pass re-scans those rows every time. A benchmark over 100,000 such rows measured about
 1.85 seconds per pass with a longest write unit of 374 ms. The cost grows with the number of distinct-entity
 `claim.expired` rows: at around a million of them, one unit could hold the writer long enough for concurrent writes to
-hit `SQLITE_BUSY` and retry. A keyset cursor that removes the re-scan is deferred past 4.0; a lower
-`RETENTION_EVENTS_DAYS` keeps that set smaller in the meantime.
+hit `SQLITE_BUSY` and retry. A keyset cursor that removes the re-scan is deferred past 4.0. The re-scanned rows are the guarded latest-per-entity
+`claim.expired` rows older than the cutoff, so a higher `RETENTION_EVENTS_DAYS` (or `0`, which disables pruning of
+activity events) avoids the re-scan, and a lower value widens it.
 
 How pruning shows in `report` answers (`window.retainedSince`, `truncatedByRetention`, the daily basis) is described in
 [Reporting](reporting.md#retention-and-what-a-report-can-see).
