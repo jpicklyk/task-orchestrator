@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.util.UUID
@@ -92,6 +93,18 @@ class WorkViewQueries(
             val blockers = stores.itemStore().findByIdSet(edges.map { it.blocker }.toSet()).associateBy { it.id }
             val visibleBlockers = visibleIds(blockers.values, scope)
             val edgesByBlocked = edges.groupBy { it.blocked }
+            // One batched read for every awaiting_decision entry's decision (constant query count); none when the page has none.
+            val decisionIds =
+                slice.items
+                    .filter { it.role == Role.BLOCKED && it.effectiveBlockedReason == BlockedReason.AWAITING_DECISION }
+                    .mapNotNull { it.blockedRef }
+                    .toSet()
+            val decisions =
+                if (decisionIds.isEmpty()) {
+                    emptyMap()
+                } else {
+                    stores.decisionRequestStore().findByIds(decisionIds).associateBy { it.id }
+                }
             val entries =
                 slice.items.map { item ->
                     val views =
@@ -107,7 +120,20 @@ class WorkViewQueries(
                                     satisfied = BlockerEvaluator.isSatisfied(edge, blocker?.role),
                                 )
                             }.sortedBy { it.blockerId.toString() }
-                    BlockedEntry(item, if (item.role == Role.BLOCKED) BlockType.EXPLICIT else BlockType.DEPENDENCY, views)
+                    if (item.role == Role.BLOCKED) {
+                        val reason = item.effectiveBlockedReason
+                        val awaiting = reason == BlockedReason.AWAITING_DECISION
+                        BlockedEntry(
+                            item = item,
+                            blockType = BlockType.EXPLICIT,
+                            blockers = views,
+                            reason = reason,
+                            decisionId = item.blockedRef,
+                            resumable = if (awaiting) decisions[item.blockedRef]?.status?.isPending != true else null,
+                        )
+                    } else {
+                        BlockedEntry(item, BlockType.DEPENDENCY, views)
+                    }
                 }
             pageOf(entries, slice.total, page)
         }
@@ -128,16 +154,36 @@ class WorkViewQueries(
                     val item = items.getById(request.itemId) ?: return@read OverviewView.NotFound(request.itemId)
                     val slice = items.findChildrenPage(item.id, request.excludeTerminal, page.limit, page.offset, scope)
                     // One grouped count serves the item's own (unfiltered) child counts and each listed child's counts.
-                    val counts = items.countByParentAndRole(slice.items.map { it.id }.toSet() + item.id, scope)
-                    val entries = slice.items.map { OverviewEntry(it, counts[it.id] ?: emptyMap()) }
-                    OverviewView.Scoped(item, counts[item.id] ?: emptyMap(), pageOf(entries, slice.total, page))
+                    val ids = slice.items.map { it.id }.toSet() + item.id
+                    val counts = items.countByParentAndRole(ids, scope)
+                    val blocked = items.countBlockedByParentAndReason(ids, scope)
+                    val entries =
+                        slice.items.map {
+                            OverviewEntry(
+                                it,
+                                counts[it.id] ?: emptyMap(),
+                                blockedByReason =
+                                    blocked[it.id] ?: emptyMap()
+                            )
+                        }
+                    OverviewView.Scoped(
+                        item,
+                        counts[item.id] ?: emptyMap(),
+                        pageOf(entries, slice.total, page),
+                        blocked[item.id] ?: emptyMap()
+                    )
                 }
 
                 request.anchorId != null -> {
                     val anchor = items.getById(request.anchorId) ?: return@read OverviewView.NotFound(request.anchorId)
                     val slice = items.findChildrenPage(anchor.id, request.excludeTerminal, page.limit, page.offset, scope)
-                    val rollup = items.rollupByTopChild(slice.items.map { it.id }.toSet(), scope)
-                    val entries = slice.items.map { OverviewEntry(it, rollup[it.id] ?: emptyMap()) }
+                    val topIds = slice.items.map { it.id }.toSet()
+                    val rollup = items.rollupByTopChild(topIds, scope)
+                    val blockedRollup = items.rollupBlockedByTopChild(topIds, scope)
+                    val entries =
+                        slice.items.map {
+                            OverviewEntry(it, rollup[it.id] ?: emptyMap(), blockedByReason = blockedRollup[it.id] ?: emptyMap())
+                        }
                     OverviewView.Anchored(anchor, pageOf(entries, slice.total, page))
                 }
 
@@ -146,16 +192,21 @@ class WorkViewQueries(
                     val rootIds = slice.items.map { it.id }.toSet()
                     val claims = stores.claimStore().claimSummaryByParent(rootIds, scope)
                     val children = if (request.includeChildren) globalChildren(rootIds, request.excludeTerminal, scope) else null
-                    val counts = items.countByParentAndRole(rootIds + (children?.childIds ?: emptySet()), scope)
+                    val countIds = rootIds + (children?.childIds ?: emptySet())
+                    val counts = items.countByParentAndRole(countIds, scope)
+                    val blocked = items.countBlockedByParentAndReason(countIds, scope)
                     val entries =
                         slice.items.map { root ->
                             OverviewEntry(
                                 item = root,
                                 childCounts = counts[root.id] ?: emptyMap(),
                                 claimSummary = claims[root.id],
+                                blockedByReason = blocked[root.id] ?: emptyMap(),
                                 children =
                                     children?.let { c ->
-                                        (c.byParent[root.id] ?: emptyList()).map { OverviewEntry(it, counts[it.id] ?: emptyMap()) }
+                                        (c.byParent[root.id] ?: emptyList()).map {
+                                            OverviewEntry(it, counts[it.id] ?: emptyMap(), blockedByReason = blocked[it.id] ?: emptyMap())
+                                        }
                                     },
                             )
                         }

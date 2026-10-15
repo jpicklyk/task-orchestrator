@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
 
 /**
  * One effective decision class: who may answer ([answerers]), the default [severity], the expiry in seconds
@@ -32,8 +33,8 @@ data class DecisionClass(
  * ever reach here.
  */
 object DecisionClasses {
-    const val RUN_BUDGET = "run-budget"
-    const val ATTEMPT_CAP = "attempt-cap"
+    const val RUN_BUDGET = RunLimitDecisions.RUN_BUDGET
+    const val ATTEMPT_CAP = RunLimitDecisions.ATTEMPT_CAP
     const val DEVIATION = "deviation"
     const val QUESTION = "question"
 

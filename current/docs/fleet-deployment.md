@@ -214,6 +214,8 @@ survive coroutine dispatcher hops:
   requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
   `GET /api/v1/events` SSE stream gets no `reqId`.
 
+**API JWT rejections.** Each bearer JWT the REST API, MCP HTTP and SSE endpoints reject logs one INFO line on the `JwksApiVerifier` logger: `API JWT rejected: reason=<code> verifier=api keySource=jwks_uri suppressed=<n>`. `reason` is the pipeline failure kind (`crypto`, `claims`, `policy` or `internal`; a token that verifies but has a malformed `to_scope` or `to_kind` reports `claims`), `verifier` and `keySource` name the verifier and its key source (an API JWKS URI), and `suppressed` is how many rejections of that reason were dropped by the flood limit since the previous line for it. The limit is 10 lines per reason per 60 seconds, so a flood cannot fill the log; the count rides on the first line of the next window. The line never carries the token, any claim value, the subject, the `kid` or the free-text failure detail (that stays at DEBUG). Verified tokens and an unavailable key set (answered 503, WARN once per request) log no such line.
+
 ### Call log and `reqId`
 
 Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
@@ -1128,6 +1130,25 @@ logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the v
 `true`/`1`/`yes`) and restarting.
 
 ---
+
+## Run Budgets and Caps
+
+Runs are bounded by their pinned budget (see `config-format.md` -> "Run Budgets" for the `runs.budgets` ceilings).
+What an operator sees:
+
+- **Spend.** `runs_read` `get` shows `usage` (`reportedTokens`, `reportedCostUsd`, `observedTokens`). Reported figures
+  are the SUM of the seats' absolute `heartbeat` reports (the highest per seat is kept); `observedTokens` is the server's
+  own estimate, written off the request path by the call-log writer. A dropped or failed call-log batch (see "Call log")
+  under-counts it, never over-counts it.
+- **Breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a
+  high-severity `run-budget` decision; the writer itself never pauses anything, so a run whose seats have all gone quiet
+  is not paused by observed spend alone until some seat writes again.
+- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
+  `extend` with an `amount` resumes the run with the raised limit; `stop` closes it `budget_exhausted` and ends its
+  seats, clears their claims and releases the leases of its WORK members. A coordinator cannot lift its own cap: a
+  manual `resume` of a budget or attempts pause is refused.
+- **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the coordinator
+  backs off and retries when a seat ends. No decision is raised.
 
 ## Observability Gaps
 

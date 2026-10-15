@@ -46,6 +46,20 @@
                 "type": "string"
               }
             },
+            "reason": {
+              "type": "string",
+              "description": "Why the item blocks, block or hold only; default manual. resume clears it. [ops: transition]",
+              "enum": [
+                "awaiting_decision",
+                "dependency",
+                "resource",
+                "manual"
+              ]
+            },
+            "decisionId": {
+              "type": "string",
+              "description": "With reason awaiting_decision only: the open decision on this item. [ops: transition]"
+            },
             "select": {
               "type": "object",
               "description": "Find-and-claim: claim the best eligible item matching these filters. [ops: claim]",

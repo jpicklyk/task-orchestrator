@@ -65,20 +65,31 @@ Two review false-positives reached verdicts this way before being caught downstr
 These four areas form the minimum review. Each one catches a different class of failure.
 If the review surfaces additional concerns, include them — this is a floor, not a ceiling.
 
-### 1. Test Suite Verification
+### 1. Build State Verification
 
-Run the test suite before anything else. Everything downstream depends on knowing the
-actual state of the tests.
+Establish the actual state of the tests before anything else. Everything downstream depends
+on it — but the reviewer does not run the suite. The whole suite is the orchestrator's, run
+once per wave (dispatch contract, "Who runs gradle"); a reviewer re-running it adds minutes of
+Gradle per item and no information.
 
-Run `./gradlew :current:test` and capture the output. Record the total test count and
-the pass/fail breakdown.
+Read the recorded build state: the Review scoping slot's "Build state reviewers rely on"
+line, the orchestrator's `session-tracking` note, or the `test-manifest` VERIFY line (which
+cites scoped classes, not a suite count). Record the count, the pass/fail breakdown and the
+SHA it was taken at.
 
-**If tests fail:** Document every failure — test name, assertion message, and the file
-where the test lives. Do not attempt to fix failures. Do not speculate about whether
-failures are pre-existing or new. Report what you observe. Test failures are a blocking
-issue — the item cannot advance with a failing test suite.
+**If no build state is recorded, or it is for an older SHA than the diff under review:**
+that is a blocking finding — say so and stop; do not run the suite to fill the gap.
 
-**If tests pass:** Record the count and move on.
+**If a recorded failure is listed:** Document every failure — test name, assertion message,
+and the file where the test lives. Do not attempt to fix failures. Do not speculate about
+whether failures are pre-existing or new. Test failures are a blocking issue — the item
+cannot advance with a failing test suite.
+
+**If you doubt one specific result** (a red-proof line, a mapped test's claimed red): re-run
+only the test classes in question, scoped (`--tests`), never the whole suite, and record what
+you ran.
+
+**If the recorded state is green and current:** Record it and move on.
 
 ### 2. Plan Alignment
 

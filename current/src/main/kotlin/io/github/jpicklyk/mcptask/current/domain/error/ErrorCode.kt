@@ -33,6 +33,7 @@ enum class ErrorCode(
     RESOURCE_UNAVAILABLE("resource_unavailable", ErrorKind.TRANSIENT, 409, ErrorDetail.ResourceUnavailable::class),
     RUN_CLOSED("run_closed", ErrorKind.PERMANENT, 409, ErrorDetail.RunClosed::class),
     RUN_PAUSED("run_paused", ErrorKind.PERMANENT, 409, ErrorDetail.RunPaused::class),
+    RUN_AT_CAPACITY("run_at_capacity", ErrorKind.TRANSIENT, 409, ErrorDetail.RunAtCapacity::class),
     INVALID_RUN_STATE("invalid_run_state", ErrorKind.PERMANENT, 409, ErrorDetail.InvalidRunState::class),
     DECISION_CLOSED("decision_closed", ErrorKind.PERMANENT, 409, ErrorDetail.DecisionClosed::class),
     SCHEMA_VIOLATION("schema_violation", ErrorKind.PERMANENT, 422, ErrorDetail.SchemaViolation::class),

@@ -20,7 +20,8 @@ internal val runsAnswerOp =
         doc =
             "Answer an open or acknowledged decision with an option key (text only for a freeform class) and an " +
                 "optional rationale: the answerers of its class only, as for ack. The answer is final and records the " +
-                "caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision.",
+                "caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. " +
+                "Answering a run-budget or attempt-cap decision acts on its paused run (extend, stop, allow_one, skip_item).",
         profiles = director(),
         capability = ApiCapability.DECIDE,
         request = serializer<RunsAnswerRequest>(),
@@ -48,7 +49,14 @@ private suspend fun WriteScope.answerDecision(
         }
     val caller = DecisionCallers.of(ctx)
     val stored =
-        when (val r = env.decisionService.answer(decision.id, DecisionAnswerCommand(req.option, req.text, req.rationale), caller)) {
+        when (
+            val r =
+                env.decisionService.answer(
+                    decision.id,
+                    DecisionAnswerCommand(req.option, req.text, req.rationale, req.amount),
+                    caller
+                )
+        ) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

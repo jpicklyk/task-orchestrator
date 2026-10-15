@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.telemetry
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
+import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -17,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -39,6 +41,10 @@ import kotlin.time.TimeSource
  *
  * The writer runs on its own scope outside any call, so its own unit never records itself nor inflates a call
  * retry count.
+ *
+ * Observed run spend (R27): when [runStore] is given, each batch unit also adds the batch's `response_tokens_est` per
+ * `run_id` into `runs.observed_tokens` (one version-free UPDATE per distinct run, rows without a run or an estimate
+ * skipped). The writer only writes the counter; it never runs a budget check (the next token-carrying write does).
  */
 class CallLogWriter(
     private val unitOfWork: UnitOfWork,
@@ -46,7 +52,8 @@ class CallLogWriter(
     private val capacity: Int = DEFAULT_CAPACITY,
     private val batchSize: Int = DEFAULT_BATCH_SIZE,
     private val flushInterval: Duration = DEFAULT_FLUSH_INTERVAL,
-    private val drainTimeout: Duration = DEFAULT_DRAIN_TIMEOUT
+    private val drainTimeout: Duration = DEFAULT_DRAIN_TIMEOUT,
+    private val runStore: RunStore? = null
 ) : CallLogSink {
     private val logger = LoggerFactory.getLogger(CallLogWriter::class.java)
     private val queue = Channel<CallLogRecord>(capacity)
@@ -187,7 +194,12 @@ class CallLogWriter(
     private suspend fun writeBatch(batch: List<CallLogRecord>) {
         writeLock.withLock {
             try {
-                val outcome = unitOfWork.write("CallLog.append") { Outcome.Ok(store.appendCounted(batch)) }
+                val outcome =
+                    unitOfWork.write("CallLog.append") {
+                        val appended = store.appendCounted(batch)
+                        addObservedTokens(batch)
+                        Outcome.Ok(appended)
+                    }
                 when (outcome) {
                     is Outcome.Ok -> {
                         val result = outcome.value
@@ -216,6 +228,18 @@ class CallLogWriter(
                 logger.warn("Call log batch of {} row(s) failed and was dropped: {}", batch.size, e.message)
             }
         }
+    }
+
+    /** Adds [batch]'s token estimates per run into `runs.observed_tokens`, one UPDATE per distinct run (R27). */
+    private suspend fun addObservedTokens(batch: List<CallLogRecord>) {
+        val runs = runStore ?: return
+        val byRun = LinkedHashMap<UUID, Long>()
+        for (record in batch) {
+            val runId = record.runId ?: continue
+            val tokens = record.responseTokensEst ?: continue
+            if (tokens > 0) byRun[runId] = (byRun[runId] ?: 0L) + tokens
+        }
+        for ((runId, tokens) in byRun) runs.addObservedTokens(runId, tokens)
     }
 
     /** Logs the number of rows dropped since the previous notice; at most once per interval unless [force]. */

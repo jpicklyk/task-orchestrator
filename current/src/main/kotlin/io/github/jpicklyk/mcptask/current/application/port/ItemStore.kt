@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -243,6 +244,25 @@ interface ItemStore {
         topIds: Set<UUID>,
         scope: AccessScope = AccessScope.unrestricted(),
     ): Map<UUID, Map<Role, Int>>
+
+    /**
+     * The BLOCKED direct children of each parent in [parentIds], counted by typed reason (a legacy NULL reason counts as
+     * `manual`). Every requested id is a key; reasons with zero children are omitted. Only children visible under
+     * [scope] are counted.
+     */
+    suspend fun countBlockedByParentAndReason(
+        parentIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, Map<BlockedReason, Int>>
+
+    /**
+     * The BLOCKED descendants of each top item in [topIds] (any depth, the top excluded), counted by typed reason like
+     * [countBlockedByParentAndReason]; the walk and visibility rule of [rollupByTopChild].
+     */
+    suspend fun rollupBlockedByTopChild(
+        topIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, Map<BlockedReason, Int>>
 
     /**
      * Every direct child of each parent in [parentIds], grouped by parent. Every requested id is a

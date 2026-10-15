@@ -16,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runLimits
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.withPaused
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -87,9 +89,21 @@ private suspend fun WriteScope.runHeartbeat(
         val recorded = env.seatService.reportUsage(seat.assignmentId, usage.tokens, usage.costMicroUsd)
         if (recorded is Outcome.Err) return recorded
     }
+    // The budget check (R27) runs after the heartbeat's own writes, in its unit; a crossing still lets the heartbeat land.
+    val paused =
+        if (seat != null && result is ClaimResult.Success) {
+            when (val checked = env.runLimits.checkBudget(seat.runId)) {
+                is Outcome.Err -> return checked
+                is Outcome.Ok -> checked.value
+            }
+        } else {
+            null
+        }
     return when (result) {
         is ClaimResult.Success ->
-            Outcome.Ok(claimedElement(result.item, result.releasedItemIds, refreshed = true, selected = false, claimRef = null))
+            Outcome.Ok(
+                claimedElement(result.item, result.releasedItemIds, refreshed = true, selected = false, claimRef = null).withPaused(paused)
+            )
         is ClaimResult.AlreadyClaimed -> Outcome.Err(AdvanceSupport.claimHeld(result))
         is ClaimResult.NotFound -> Outcome.Err(AdvanceSupport.itemNotFound(result.itemId))
         is ClaimResult.TerminalItem -> Outcome.Err(AdvanceSupport.claimTerminal(result.itemId))

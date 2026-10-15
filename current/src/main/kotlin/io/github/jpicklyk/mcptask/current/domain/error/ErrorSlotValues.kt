@@ -26,6 +26,7 @@ internal fun ErrorDetail.slotValues(): Map<String, Any?> =
         is ErrorDetail.ResourceUnavailable -> mapOf("itemId" to itemId)
         is ErrorDetail.RunClosed -> mapOf("runId" to runId, "terminalReason" to terminalReason)
         is ErrorDetail.RunPaused -> mapOf("runId" to runId, "pauseReason" to pauseReason)
+        is ErrorDetail.RunAtCapacity -> mapOf("runId" to runId, "active" to active, "max" to max)
         is ErrorDetail.InvalidRunState -> mapOf("runId" to runId, "status" to status)
         is ErrorDetail.DecisionClosed -> mapOf("decisionId" to decisionId, "status" to status)
         is ErrorDetail.SchemaViolation -> emptyMap()
