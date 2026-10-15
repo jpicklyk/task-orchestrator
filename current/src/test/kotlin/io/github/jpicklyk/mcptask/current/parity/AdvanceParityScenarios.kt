@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import java.util.UUID
 
 /**
@@ -88,7 +89,7 @@ internal object AdvanceParityScenarios {
 
     private val rootForbidden = listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"$r1\"")
 
-    val all: List<ParityScenario> =
+    private val core: List<ParityScenario> =
         listOf(
             scenario(
                 "advance transition start happy",
@@ -262,4 +263,176 @@ internal object AdvanceParityScenarios {
                 expectDbChanged = false
             )
         )
+
+    // R23 (item 9536cf09): seat enforcement inside an open run, on both transports. The tree is R1 > C1 (builder seat) and C2
+    // (checker seat), both members of an open run of R1 whose per-root config declares a seat-aware `default`
+    // schema (the seeder stamps no item type, so every untyped item under R1 resolves it). Oracles: the plan 4.1 R23 table and the frozen task-scope (a seat token acts only on its own item; `start`
+    // only into the phase the seat enters; other triggers only when declared, default block and hold; the coordinator token any
+    // trigger the table allows; no token is `seat_forbidden{itemId, seat: null, action, allowedSeats}`; a human credential is
+    // exempt; a refusal applies nothing). Both legs must answer the same bytes and leave the same database.
+    private val enforceRun: UUID = UUID.fromString("a0000005-0000-4000-8000-000000000005")
+    private val c2: UUID = UUID.fromString("a0000006-0000-4000-8000-000000000006")
+    private val builderToken = "b".repeat(43)
+    private val checkerToken = "k".repeat(43)
+
+    private const val SEAT_ENFORCE_YAML = """
+work_item_schemas:
+  default:
+    seats:
+      - { name: builder, phase: work, enters: true }
+      - { name: checker, phase: work, transitions: [complete] }
+    notes:
+      - key: build-notes
+        role: work
+        required: false
+        seat: builder
+"""
+
+    private val seedEnforcement: suspend ParitySeeder.() -> Unit = {
+        item(r1, "Advance root", tags = "alpha")
+        item(c1, "Advance child", parent = r1, tags = "seat-task")
+        item(c2, "Second child", parent = r1, tags = "seat-task")
+        item(r2, "Other root", tags = "beta")
+        config(r1, SEAT_ENFORCE_YAML)
+        run(enforceRun, r1, listOf(c1, c2), openedBy = "api:adv-agent", openedByKind = "agent")
+        seat(enforceRun, c1, "builder", principalId = "api:adv-agent", token = builderToken)
+        seat(enforceRun, c2, "checker", principalId = "api:adv-agent", token = checkerToken)
+    }
+
+    private fun transitionOf(
+        id: UUID,
+        trigger: String
+    ) = """{"op":"transition","itemId":"$id","trigger":"$trigger"}"""
+
+    private fun withToken(token: String?) = if (token != null) ""","seatToken":"$token"""" else ""
+
+    private val humanAgent = ParityToken("adv-human", setOf(ApiCapability.READ, ApiCapability.ADVANCE), kind = PrincipalKind.HUMAN)
+
+    private fun enforcement(
+        name: String,
+        token: ParityToken,
+        element: String,
+        status: Int,
+        seatToken: String? = null,
+        code: String? = null,
+        contains: List<String> = emptyList(),
+        absent: List<String> = emptyList(),
+        changed: Boolean,
+        top: String = ""
+    ) = scenario(
+        name,
+        "transition",
+        ParityKind.OTHER,
+        token,
+        ops(element, top = withToken(seatToken) + top),
+        status,
+        expectCode = code,
+        expectContains = contains,
+        expectAbsent = absent,
+        expectDbChanged = changed,
+        seed = seedEnforcement
+    )
+
+    private val seatEnforcement: List<ParityScenario> =
+        listOf(
+            enforcement(
+                "advance transition R23 the builder token starts its own item into work",
+                agent,
+                transitionOf(c1, "start"),
+                200,
+                seatToken = builderToken,
+                contains = listOf("\"itemId\":\"$c1\"", "\"newRole\":\"work\""),
+                absent = listOf(builderToken),
+                changed = true
+            ),
+            enforcement(
+                "advance transition R23 the builder token is refused on another member of the run",
+                agent,
+                transitionOf(c2, "start"),
+                207,
+                seatToken = builderToken,
+                code = "partial_failure",
+                contains =
+                    listOf(
+                        "\"code\":\"seat_forbidden\"",
+                        "\"itemId\":\"$c2\"",
+                        "\"seat\":\"builder\"",
+                        "\"action\":\"start\"",
+                        "\"allowedSeats\":[\"coordinator\",\"builder\"]"
+                    ),
+                absent = listOf("\"newRole\"", builderToken),
+                changed = false
+            ),
+            enforcement(
+                "advance transition R23 the builder token never completes",
+                agent,
+                transitionOf(c1, "complete"),
+                207,
+                seatToken = builderToken,
+                code = "partial_failure",
+                contains =
+                    listOf(
+                        "\"code\":\"seat_forbidden\"",
+                        "\"action\":\"complete\"",
+                        "\"allowedSeats\":[\"coordinator\",\"checker\"]"
+                    ),
+                absent = listOf("\"newRole\""),
+                changed = false
+            ),
+            enforcement(
+                "advance transition R23 the checker token completes through its declared transition",
+                agent,
+                transitionOf(c2, "complete"),
+                200,
+                seatToken = checkerToken,
+                contains = listOf("\"itemId\":\"$c2\"", "\"newRole\":\"terminal\""),
+                changed = true
+            ),
+            enforcement(
+                "advance transition R23 the coordinator token starts a member",
+                agent,
+                transitionOf(c2, "start"),
+                200,
+                seatToken = parityCoordinatorToken(enforceRun),
+                contains = listOf("\"itemId\":\"$c2\"", "\"newRole\":\"work\""),
+                changed = true
+            ),
+            enforcement(
+                "advance transition R23 a token-less agent is refused with a null seat",
+                agent,
+                transitionOf(c1, "start"),
+                207,
+                code = "partial_failure",
+                contains =
+                    listOf(
+                        "\"code\":\"seat_forbidden\"",
+                        "\"itemId\":\"$c1\"",
+                        "\"seat\":null",
+                        "\"action\":\"start\"",
+                        "\"allowedSeats\":[\"coordinator\",\"builder\"]"
+                    ),
+                absent = listOf("\"newRole\""),
+                changed = false
+            ),
+            enforcement(
+                "advance transition R23 a token-less agent in an atomic batch is the whole-call seat_forbidden",
+                agent,
+                transitionOf(c1, "start"),
+                403,
+                code = "seat_forbidden",
+                contains = listOf("\"index\":0", "\"seat\":null"),
+                changed = false,
+                top = ""","atomic":true"""
+            ),
+            enforcement(
+                "advance transition R23 a human credential with no token is exempt",
+                humanAgent,
+                transitionOf(c1, "start"),
+                200,
+                contains = listOf("\"itemId\":\"$c1\"", "\"newRole\":\"work\""),
+                changed = true
+            )
+        )
+
+    val all: List<ParityScenario> = core + seatEnforcement
 }

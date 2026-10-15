@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -250,7 +252,29 @@ internal class P11Driver(
         item: WorkItem,
         trigger: String,
         actor: String? = null,
-    ): AdvanceOutcome = rig.ctx.advanceDirect(item, trigger, actor = actor?.let { ActorClaim(it, ActorKind.SUBAGENT) })
+        seatCaller: SeatCaller = SeatCaller.NONE,
+    ): AdvanceOutcome {
+        val claim = actor?.let { ActorClaim(it, ActorKind.SUBAGENT) }
+        // No seat caller: the shared helper, byte for byte what every pre-R23 suite drives.
+        if (seatCaller == SeatCaller.NONE) return rig.ctx.advanceDirect(item, trigger, actor = claim)
+        // A seat caller: the same call the helper makes (ownership and leases enforced, the event actor installed, the
+        // actor verified as the dispatcher would), with the caller's seat facts forwarded to the advance.
+        val ctx = rig.ctx
+        val fresh = checkNotNull(ctx.workItemRepository().getById(item.id)) { "item ${item.id} does not exist" }
+        val verified = claim?.let { ctx.actorVerifier().verify(it) }
+        return withEventActor(claim) {
+            ctx.advanceServiceFactory().forItem(fresh).advance(
+                item = fresh,
+                trigger = trigger,
+                summary = null,
+                actorClaim = claim,
+                verification = verified,
+                credentialRefs = emptyList(),
+                enforceResourceLeases = true,
+                seatCaller = seatCaller,
+            )
+        }
+    }
 
     companion object {
         val REJECTION_TYPES = setOf("transition.rejected", "lease.rejected")

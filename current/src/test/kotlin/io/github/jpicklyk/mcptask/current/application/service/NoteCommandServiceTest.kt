@@ -12,13 +12,16 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
@@ -1280,4 +1283,349 @@ class NoteCommandServiceTest {
             svc.upsert(write(item, "legacy", "api:h")).ok()
             assertEquals("api:h", stored(item, "legacy")?.ownerId)
         }
+
+    // ---------------------------------------------------------------------------------------------
+    // R23 (item 9536cf09) rule 2 of note ownership: a note key owned by a seat is writable only by that seat's token on this
+    // item inside an open run, plus the coordinator for the `orchestrator` seat's keys. Oracle: frozen task-scope "What to
+    // build" 5 and decisions D8-D10 (key ownership follows the declared seat of the key's phase; rule 2 applies to upsert and
+    // delete alike and never consults `takeover`), the plan 4.1 R23 table and 3.4d.
+    // ---------------------------------------------------------------------------------------------
+
+    private val seatTag = "seat-type"
+    private val seatRunId: UUID = UUID.fromString("00000000-0000-0000-0000-00000000a0c1")
+    private val otherSeatRunId: UUID = UUID.fromString("00000000-0000-0000-0000-00000000a0c2")
+
+    private val noteSeats =
+        listOf(
+            SeatDefinition("planner", Role.QUEUE, enters = true),
+            SeatDefinition("builder", Role.WORK, enters = true),
+            SeatDefinition("checker", Role.WORK),
+            SeatDefinition("orchestrator", Role.WORK)
+        )
+
+    private val noteEntries =
+        listOf(
+            NoteSchemaEntry(key = "plan-notes", role = Role.QUEUE, seat = "planner"),
+            NoteSchemaEntry(key = "build-notes", role = Role.WORK, seat = "builder"),
+            NoteSchemaEntry(key = "check-notes", role = Role.WORK, seat = "checker"),
+            NoteSchemaEntry(key = "orch-notes", role = Role.WORK, seat = "orchestrator"),
+            NoteSchemaEntry(key = "shared-notes", role = Role.WORK, seat = "builder", shared = true),
+            // the seat is declared, but in another phase than the key's role: the key is unowned (D9)
+            NoteSchemaEntry(key = "mismatch-notes", role = Role.WORK, seat = "planner"),
+            // the seat is not declared at all: the key is unowned (D9)
+            NoteSchemaEntry(key = "ghost-notes", role = Role.WORK, seat = "ghost"),
+            NoteSchemaEntry(key = "free-notes", role = Role.WORK)
+        )
+
+    private fun seatDocument(): ConfigDocument =
+        TestConfigResolver.documentOf(
+            mapOf(
+                seatTag to WorkItemSchema(type = seatTag, notes = noteEntries, seats = noteSeats),
+                "seatless-type" to WorkItemSchema(type = "seatless-type", notes = noteEntries)
+            )
+        )
+
+    private fun seatService(
+        members: Set<UUID>,
+        runId: UUID = seatRunId,
+        lookups: MutableList<UUID>? = null
+    ): NoteCommandService {
+        val ctx = context(seatDocument())
+        return NoteCommandService(db.repositoryProvider(), ctx.configResolver, ctx.unitOfWork) { id ->
+            lookups?.add(id)
+            if (id in members) runId else null
+        }
+    }
+
+    private fun seatItem(type: String = seatTag) = WorkItem(title = "seat item", tags = type, type = type)
+
+    private fun builderOn(item: WorkItem) = SeatCaller(seat = "builder", runId = seatRunId, itemId = item.id, human = false)
+
+    private fun checkerOn(item: WorkItem) = SeatCaller(seat = "checker", runId = seatRunId, itemId = item.id, human = false)
+
+    private val coordinatorOfRun = SeatCaller(seat = "coordinator", runId = seatRunId, itemId = null, human = false)
+    private val humanSeatCaller = SeatCaller(seat = null, runId = null, itemId = null, human = true)
+
+    private fun seatWrite(
+        item: WorkItem,
+        key: String,
+        who: String?,
+        seat: SeatCaller,
+        takeover: Boolean = false,
+        takeoverAllowed: Boolean = false,
+        role: String = "work"
+    ) = NoteUpsertCommand(
+        itemId = item.id,
+        key = key,
+        role = role,
+        body = "body",
+        actorClaim = who?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
+        verification = null,
+        caller = who?.let { ClaimHolder(it) },
+        takeover = takeover,
+        takeoverAllowed = takeoverAllowed,
+        seatCaller = seat
+    )
+
+    private fun <T> Outcome<T>.assertSeatOwned(
+        item: WorkItem,
+        key: String,
+        ownerSeat: String,
+        label: String
+    ) {
+        val error = err()
+        assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, error.code, "$label: ${error.message}")
+        assertEquals(ErrorDetail.NoteOwnedByOther(item.id, key, ownerSeat), error.detail, label)
+    }
+
+    @Test
+    fun `R23 S6 a seat token writes its own phase-matched keys and every unowned key`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+
+            for (key in listOf("build-notes", "shared-notes", "free-notes", "ghost-notes", "mismatch-notes")) {
+                assertTrue(svc.upsert(seatWrite(item, key, "p-builder", builderOn(item))).ok().created, "builder writes $key")
+            }
+            val planner = SeatCaller(seat = "planner", runId = seatRunId, itemId = item.id, human = false)
+            assertTrue(svc.upsert(seatWrite(item, "plan-notes", "p-planner", planner, role = "queue")).ok().created, "planner key")
+            // control: a different seat's key is what the rule refuses (the same call shape, only the key differs)
+            svc
+                .upsert(
+                    seatWrite(item, "check-notes", "p-builder", builderOn(item))
+                ).assertSeatOwned(item, "check-notes", "checker", "builder")
+        }
+
+    @Test
+    fun `R23 S6 the coordinator of the run writes the orchestrator's keys and unowned keys, never another seat's key`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+
+            for (key in listOf("orch-notes", "free-notes", "ghost-notes", "mismatch-notes")) {
+                assertTrue(svc.upsert(seatWrite(item, key, "p-coordinator", coordinatorOfRun)).ok().created, "coordinator writes $key")
+            }
+            for ((key, owner) in listOf("build-notes" to "builder", "check-notes" to "checker")) {
+                svc.upsert(seatWrite(item, key, "p-coordinator", coordinatorOfRun)).assertSeatOwned(item, key, owner, "coordinator on $key")
+                assertNull(stored(item, key), "nothing written for $key")
+            }
+            val onPlannerKey = svc.upsert(seatWrite(item, "plan-notes", "p-coordinator", coordinatorOfRun, role = "queue"))
+            onPlannerKey.assertSeatOwned(item, "plan-notes", "planner", "coordinator on a planner key")
+        }
+
+    @Test
+    fun `R23 S6 a human and a shared key are exempt from rule 2`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+
+            for (key in listOf("build-notes", "check-notes", "orch-notes")) {
+                assertTrue(svc.upsert(seatWrite(item, key, "p-human", humanSeatCaller)).ok().created, "human writes $key")
+            }
+            // a shared key owned by the builder seat on paper: the checker (and the token-less agent) write it
+            val shared = persist(seatItem())
+            val sharedSvc = seatService(setOf(shared.id))
+            assertTrue(sharedSvc.upsert(seatWrite(shared, "shared-notes", "p-builder", builderOn(shared))).ok().created)
+            assertEquals(
+                "p-checker",
+                sharedSvc
+                    .upsert(seatWrite(shared, "shared-notes", "p-checker", checkerOn(shared)))
+                    .ok()
+                    .note.actorClaim
+                    ?.id
+            )
+            assertEquals(
+                "p-agent",
+                sharedSvc
+                    .upsert(seatWrite(shared, "shared-notes", "p-agent", SeatCaller.NONE))
+                    .ok()
+                    .note.actorClaim
+                    ?.id
+            )
+        }
+
+    @Test
+    fun `R23 S10 another seat's key is note_owned_by_other even on a first write - nothing stored, no event`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val other = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            val cases =
+                listOf(
+                    "the checker token" to seatWrite(item, "build-notes", "p-checker", checkerOn(item)),
+                    "the coordinator token" to seatWrite(item, "build-notes", "p-coordinator", coordinatorOfRun),
+                    "a token-less agent" to seatWrite(item, "build-notes", "p-agent", SeatCaller.NONE),
+                    "a token-less caller with no identity" to
+                        NoteUpsertCommand(item.id, "build-notes", "work", "b", null, null, caller = null),
+                    "a builder token bound to another item" to seatWrite(item, "build-notes", "p-builder", builderOn(other)),
+                    "a builder token of another run" to
+                        seatWrite(item, "build-notes", "p-builder", builderOn(item).copy(runId = otherSeatRunId)),
+                    "an ADMIN takeover without a token" to
+                        seatWrite(item, "build-notes", "p-admin", SeatCaller.NONE, takeover = true, takeoverAllowed = true),
+                    "the case-different seat name" to seatWrite(item, "build-notes", "p-builder", builderOn(item).copy(seat = "Builder"))
+                )
+            for ((label, command) in cases) {
+                val (result, events) = eventsOf { svc.upsert(command) }
+                result.assertSeatOwned(item, "build-notes", "builder", label)
+                assertNull(stored(item, "build-notes"), "$label: nothing stored")
+                assertEquals(emptyList(), events.map { it.type }, "$label: a refusal records no event")
+            }
+            // control: the same key and item under the builder token is written
+            assertTrue(svc.upsert(seatWrite(item, "build-notes", "p-builder", builderOn(item))).ok().created)
+        }
+
+    @Test
+    fun `R23 S10 delete is refused the same way, and an unowned legacy note shows the refusal is rule 2 and not rule 3`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            seedLegacy(item, "build-notes")
+            seedLegacy(item, "check-notes")
+            seedLegacy(item, "orch-notes")
+
+            // rule 3 alone would allow every one of these (the notes are unowned): the refusals below are rule 2
+            val refused =
+                listOf(
+                    Triple("token-less", "build-notes", null as ClaimHolder?) to SeatCaller.NONE,
+                    Triple("builder on the checker key", "check-notes", ClaimHolder("p-builder")) to builderOn(item),
+                    Triple("coordinator on the checker key", "check-notes", ClaimHolder("p-coordinator")) to coordinatorOfRun
+                )
+            for ((spec, seat) in refused) {
+                val (label, key, holder) = spec
+                val (result, events) = eventsOf { svc.delete(item.id, key, null, holder, seatCaller = seat) }
+                result.assertSeatOwned(item, key, if (key == "build-notes") "builder" else "checker", label)
+                assertNotNull(stored(item, key), "$label: the note is intact")
+                assertEquals(emptyList(), events.map { it.type }, "$label: a refusal records no event")
+            }
+
+            // controls: the owner seat, the coordinator on the orchestrator's key and a human delete
+            assertEquals(
+                "build-notes",
+                svc.delete(item.id, "build-notes", null, ClaimHolder("p-builder"), seatCaller = builderOn(item)).ok().key
+            )
+            assertEquals(
+                "orch-notes",
+                svc.delete(item.id, "orch-notes", null, ClaimHolder("p-coordinator"), seatCaller = coordinatorOfRun).ok().key
+            )
+            assertEquals(
+                "check-notes",
+                svc.delete(item.id, "check-notes", null, ClaimHolder("p-human"), seatCaller = humanSeatCaller).ok().key
+            )
+        }
+
+    @Test
+    fun `R23 S10 an ADMIN takeover never reaches the transfer inside a seat-aware open run - the owner stays`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            svc.upsert(seatWrite(item, "build-notes", "p-builder", builderOn(item))).ok()
+            val owner = assertNotNull(stored(item, "build-notes")).ownerId
+
+            val (result, events) =
+                eventsOf { svc.upsert(seatWrite(item, "build-notes", "p-admin", SeatCaller.NONE, takeover = true, takeoverAllowed = true)) }
+
+            result.assertSeatOwned(item, "build-notes", "builder", "admin takeover")
+            assertEquals(owner, stored(item, "build-notes")?.ownerId, "ownership did not move")
+            assertEquals(emptyList(), events.map { it.type }, "no ownership_transferred event")
+        }
+
+    @Test
+    fun `R23 rule 2 is out of scope for an item outside an open run and for a seat-less schema`(): Unit =
+        runBlocking {
+            val outside = persist(seatItem())
+            val seatless = persist(seatItem("seatless-type"))
+            val lookups = mutableListOf<UUID>()
+            val svc = seatService(setOf(seatless.id), lookups = lookups)
+
+            assertTrue(svc.upsert(seatWrite(outside, "build-notes", "p-agent", SeatCaller.NONE)).ok().created, "outside any open run")
+            assertTrue(lookups.contains(outside.id), "fixture: the seat-aware item's run is looked up")
+
+            lookups.clear()
+            assertTrue(svc.upsert(seatWrite(seatless, "build-notes", "p-agent", SeatCaller.NONE)).ok().created, "seat-less schema")
+            assertEquals(emptyList(), lookups, "a seat-less schema never reads the run")
+
+            // control: the same agent on a member of an open run with the seat-aware schema is refused
+            val member = persist(seatItem())
+            seatService(setOf(member.id))
+                .upsert(seatWrite(member, "build-notes", "p-agent", SeatCaller.NONE))
+                .assertSeatOwned(member, "build-notes", "builder", "member of an open run")
+        }
+
+    @Test
+    fun `R23 a refused write replayed is the same refusal`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            val command = seatWrite(item, "build-notes", "p-checker", checkerOn(item))
+
+            val first = svc.upsert(command).err()
+            val replay = svc.upsert(command).err()
+
+            assertEquals(first.code, replay.code)
+            assertEquals(first.detail, replay.detail)
+            assertNull(stored(item, "build-notes"))
+        }
+
+    // --- NoteSeatRule, the pure rule (decision D9: a key's owner is the declared seat of the key's phase) ---
+
+    @Test
+    fun `R23 NoteSeatRule ownerSeatOf follows the declared seat of the key's own phase`() {
+        fun owner(key: String) = NoteSeatRule.ownerSeatOf(noteEntries.single { it.key == key }, noteSeats)
+
+        assertEquals("planner", owner("plan-notes"))
+        assertEquals("builder", owner("build-notes"))
+        assertEquals("checker", owner("check-notes"))
+        assertEquals("orchestrator", owner("orch-notes"))
+        assertNull(owner("mismatch-notes"), "a declared seat of another phase does not own the key")
+        assertNull(owner("ghost-notes"), "an undeclared seat does not own the key")
+        assertNull(owner("free-notes"), "a key with no seat is unowned")
+        assertNull(NoteSeatRule.ownerSeatOf(null, noteSeats), "an off-schema key is unowned")
+        assertNull(NoteSeatRule.ownerSeatOf(noteEntries.single { it.key == "build-notes" }, emptyList()), "no seats, no owner")
+    }
+
+    @Test
+    fun `R23 NoteSeatRule check passes outside an open run, without seats and for humans, and refuses everyone else on a seat key`() {
+        val itemId = UUID.fromString("00000000-0000-0000-0000-0000000000e1")
+        val build = noteEntries.single { it.key == "build-notes" }
+        val orch = noteEntries.single { it.key == "orch-notes" }
+        val builder = SeatCaller("builder", seatRunId, itemId, false)
+
+        fun check(
+            entry: NoteSchemaEntry?,
+            caller: SeatCaller,
+            openRun: UUID? = seatRunId,
+            seats: List<SeatDefinition> = noteSeats
+        ) = NoteSeatRule.check(itemId, entry?.key ?: "off-schema", entry, seats, openRun, caller)
+
+        // out of scope
+        assertNull(check(build, SeatCaller.NONE, openRun = null), "no open run")
+        assertNull(check(build, SeatCaller.NONE, seats = emptyList()), "no seats")
+        assertNull(check(build, humanSeatCaller), "human")
+        assertNull(check(null, SeatCaller.NONE), "an off-schema key is unowned")
+        assertNull(check(noteEntries.single { it.key == "free-notes" }, SeatCaller.NONE), "an unowned key")
+
+        // the owner seat on this item, in this run
+        assertNull(check(build, builder))
+        // the coordinator of this run: only the orchestrator seat's keys
+        assertNull(check(orch, coordinatorOfRun))
+        val onSeatKey = assertNotNull(check(build, coordinatorOfRun))
+        assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, onSeatKey.code)
+        assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder"), onSeatKey.detail)
+
+        // everyone else
+        for ((label, caller) in listOf(
+            "token-less" to SeatCaller.NONE,
+            "another item" to builder.copy(itemId = UUID.randomUUID()),
+            "another run" to builder.copy(runId = otherSeatRunId),
+            "no item" to builder.copy(itemId = null),
+            "the coordinator of another run" to coordinatorOfRun.copy(runId = otherSeatRunId),
+            "another seat" to builder.copy(seat = "checker"),
+            "a seat name with another case" to builder.copy(seat = "BUILDER")
+        )) {
+            val error = assertNotNull(check(build, caller), label)
+            assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder"), error.detail, label)
+        }
+        // the coordinator of another run on the orchestrator key is refused too
+        assertNotNull(check(orch, coordinatorOfRun.copy(runId = otherSeatRunId)))
+    }
 }
