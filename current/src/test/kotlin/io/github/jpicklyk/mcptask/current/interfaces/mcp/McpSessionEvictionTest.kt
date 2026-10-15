@@ -602,14 +602,14 @@ class McpSessionEvictionTest {
                 // The GET status for an unknown id is the SDK's (observed: 200 with an empty event stream, not 404); only
                 // "no binding, no tool" is this item's to assert, below.
                 client.getStream("/mcp", "Bearer $aliceToken", forged)
-                val delete = client.endSession("/mcp", "Bearer $aliceToken", forged)
-                assertEquals(HttpStatusCode.NotFound, delete.status, "DELETE: ${delete.body}")
 
                 assertNull(f.sessions.principalOf(forged), "an unissued id is never bound")
                 assertEquals(1, f.sessions.size, "the map did not grow")
                 assertEquals(0, McpAuthHttpFixture.workItemCount(db.jdbcUrl), "no tool ran, no row written")
                 assertFalse(forged in f.accessQueries, "the forged id never reached the dispatcher as a session: ${f.accessQueries}")
                 assertTrue(callLogPrincipals(f).none { it != null }, "no call_log row carries a principal for the forged id")
+                val delete = client.endSession("/mcp", "Bearer $aliceToken", forged)
+                assertEquals(HttpStatusCode.NotFound, delete.status, "DELETE: ${delete.body}")
 
                 val control = client.callTool("/mcp", aliceToken, real, "items_write", McpAuthHttpFixture.CREATE_ARGS)
                 assertTrue(control.toolCallSucceeded(), "control: the real session still works: ${control.body}")
