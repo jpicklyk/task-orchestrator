@@ -221,6 +221,8 @@ survive coroutine dispatcher hops:
   requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
   `GET /api/v1/events` SSE stream gets no `reqId`.
 
+**API JWT rejections.** Each bearer JWT the REST API, MCP HTTP and SSE endpoints reject logs one INFO line on the `JwksApiVerifier` logger: `API JWT rejected: reason=<code> verifier=api keySource=jwks_uri suppressed=<n>`. `reason` is the pipeline failure kind (`crypto`, `claims`, `policy` or `internal`; a token that verifies but has a malformed `to_scope` or `to_kind` reports `claims`), `verifier` and `keySource` name the verifier and its key source (an API JWKS URI), and `suppressed` is how many rejections of that reason were dropped by the flood limit since the previous line for it. The limit is 10 lines per reason per 60 seconds, so a flood cannot fill the log; the count rides on the first line of the next window. The line never carries the token, any claim value, the subject, the `kid` or the free-text failure detail (that stays at DEBUG). Verified tokens and an unavailable key set (answered 503, WARN once per request) log no such line.
+
 ### Call log and `reqId`
 
 Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller

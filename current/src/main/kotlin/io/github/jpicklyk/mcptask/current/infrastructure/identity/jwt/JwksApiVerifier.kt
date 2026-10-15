@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimPars
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -76,6 +77,7 @@ class JwksApiVerifier(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val logger = LoggerFactory.getLogger(JwksApiVerifier::class.java)
+    private val rejectionLimiter = RejectionLogLimiter()
     private val jwtVerifier = JwtVerifier(JwtPolicy.forApi(config), keyProvider, clock, logger = logger)
 
     /**
@@ -91,8 +93,9 @@ class JwksApiVerifier(
      * malformed `to_scope` or `to_kind`, an unexpected verifier fault, etc.); [ApiTokenVerdict.Unavailable] when the
      * key set cannot be had (never fetched, or past `max_stale_seconds`).
      *
-     * Rejections are logged at DEBUG to avoid leaking detail in production logs; the caller logs an unavailable
-     * key set once at WARN (it answers 503).
+     * Each rejection also emits one flood-limited INFO line (see [RejectionLogLimiter]) carrying only the reason
+     * code, verifier kind and key-source kind, never the token, a claim value or the free-text reason; the DEBUG
+     * lines keep the detail. The caller logs an unavailable key set once at WARN (it answers 503).
      */
     suspend fun verifyWithExpiry(jwtString: String): ApiTokenVerdict =
         try {
@@ -100,6 +103,7 @@ class JwksApiVerifier(
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             logger.debug("Unexpected exception during API JWT verification: {}", e.message)
+            logRejection(FailureKind.INTERNAL.wire)
             ApiTokenVerdict.Rejected
         }
 
@@ -107,14 +111,30 @@ class JwksApiVerifier(
         when (val verdict = jwtVerifier.verify(jwtString)) {
             is JwtVerdict.Rejected -> {
                 logger.debug("API JWT rejected ({}): {}", verdict.failureKind.wire, verdict.reason)
+                logRejection(verdict.failureKind.wire)
                 ApiTokenVerdict.Rejected
             }
             is JwtVerdict.Unavailable -> ApiTokenVerdict.Unavailable(verdict.reason)
             is JwtVerdict.Verified ->
                 toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
                     ?.let { ApiTokenVerdict.Verified(it) }
-                    ?: ApiTokenVerdict.Rejected
+                    ?: run {
+                        logRejection(FailureKind.CLAIMS.wire)
+                        ApiTokenVerdict.Rejected
+                    }
         }
+
+    /** One INFO line per rejection, flood-limited per reason code. Fixed format: no token, claim or free text. */
+    private fun logRejection(reason: String) {
+        val suppressed = rejectionLimiter.tryAcquire(reason, clock.instant()) ?: return
+        logger.info(
+            "API JWT rejected: reason={} verifier={} keySource={} suppressed={}",
+            reason,
+            VERIFIER_KIND,
+            KEY_SOURCE_KIND,
+            suppressed,
+        )
+    }
 
     private fun toVerifiedApiToken(
         claims: JWTClaimsSet,
@@ -232,5 +252,52 @@ class JwksApiVerifier(
     private companion object {
         const val TO_KIND = "to_kind"
         const val DID_PREFIX = "did:"
+        const val VERIFIER_KIND = "api"
+
+        // ApiAuthConfig.Jwks carries only a url, which maps to a JWKS URI key source by construction.
+        const val KEY_SOURCE_KIND = "jwks_uri"
+    }
+}
+
+/**
+ * Per-reason-code flood limit for the rejection INFO line: at most [MAX_PER_WINDOW] lines per
+ * [WINDOW] per code. A code's window opens at its first rejection when none is open and stays open
+ * while `now < start + WINDOW`. Rejections beyond the cap are counted; the next window's first line
+ * reports (and resets) that count. Keyed by the bounded reason-code set, so state is O(1). Thread-safe.
+ */
+private class RejectionLogLimiter {
+    private class State(
+        var windowStart: Instant,
+        var emitted: Int = 0,
+        var suppressed: Int = 0,
+    )
+
+    private val states = HashMap<String, State>()
+
+    /** The suppressed count to report on the line to emit, or null when this rejection must not be logged. */
+    fun tryAcquire(
+        code: String,
+        now: Instant
+    ): Int? =
+        synchronized(states) {
+            val state = states.getOrPut(code) { State(now) }
+            if (!now.isBefore(state.windowStart.plus(WINDOW))) {
+                state.windowStart = now
+                state.emitted = 0
+            }
+            if (state.emitted >= MAX_PER_WINDOW) {
+                state.suppressed++
+                null
+            } else {
+                state.emitted++
+                val reported = state.suppressed
+                state.suppressed = 0
+                reported
+            }
+        }
+
+    private companion object {
+        const val MAX_PER_WINDOW = 10
+        val WINDOW: Duration = Duration.ofSeconds(60)
     }
 }
