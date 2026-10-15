@@ -15,7 +15,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ## `/mcp` Authentication - Read First
 
-When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: item and dependency reads and the `report` selects `usage` (windows up to 400 days), `gates` and `contention` (up to 31 days) and `waste` (up to 7 days) only, no note, document or transition-summary body) using the Streamable HTTP transport. All three authenticate alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport.
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` (orchestration tool profile), `/mcp/knowledge` (knowledge profile, a smaller read/write tool set) and `/mcp/director` (director profile: read tools, run control and decisions for a human or a director agent, with no read that returns a note, document or transition-summary body; see [Tool profiles](api-reference.md#tool-profiles) for the exact tool and op set) using the Streamable HTTP transport. All three authenticate alike and every statement below about `/mcp` holds for `/mcp/knowledge` and `/mcp/director`. Over stdio, `MCP_TOOL_PROFILE=knowledge|orchestration|director` (default `orchestration`) picks the profile; an unknown value fails startup on either transport.
 
 How `/mcp` establishes its caller is decided once at startup from the REST API configuration:
 
@@ -29,11 +29,13 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 
 **Credential mode.** A missing, malformed or empty `Authorization` header is `401 unauthenticated` with `WWW-Authenticate: Bearer error="invalid_request"`; an unknown, rejected or expired credential is `401 unauthenticated` with `error="invalid_token"`; a JWKS key set that is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`) is `503 unavailable`. Refusals are the 4.0 JSON error envelope, not a JSON-RPC error, and the MCP SDK is never reached. The `/mcp` mount is no longer a public path: the REST bearer plugin delegates `/mcp*` to the MCP authentication, so a request is authenticated exactly once.
 
-**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal; only an id the server issued is bound (an unknown id binds nothing and gets the SDK's `404`). At most 1024 sessions are bound: sessions idle for 24 hours, or, beyond 1024, the least recently used session of whichever principal holds the most sessions (so one credential's flood closes its own sessions first), are closed on the next new session, so their next request is `404` and the client re-initializes (there is no background sweeper). A `POST` without a session id that is not `initialize` is refused by the SDK, and the session it leaves behind is closed by a later `POST` without a session id, once it has been seen without an id for 30 seconds (never sooner). A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
+**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal; only an id the server issued is bound (an unknown id binds nothing and gets the SDK's `404`). At most 1024 sessions are bound: sessions idle for 24 hours, or, beyond 1024, the least recently used session of whichever principal holds the most sessions (so one credential's flood closes its own sessions first), are closed on the next new session, so their next request is `404` and the client re-initializes (there is no background sweeper). An evicted or forged session id gets the MCP-spec `404`, and the client re-initializes. A `POST` without a session id that is not `initialize` is refused by the SDK, and the session it leaves behind is closed by a later `POST` without a session id, once it has been seen without an id for 30 seconds (never sooner). A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
 
 **Director confinement.** A credential with `profile: director` reaches only `/mcp/director` (and `POST /api/v1/ops/director/{tool}` over REST); on any other `/mcp*` path it is `403 forbidden` (scope `capability`, required `director`).
 
-**Local modes are unauthenticated.** In **Local** mode there is no credential check: any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) invokes every tool its profile serves, as the `local` principal (ADMIN, unrestricted) - full read, write and delete of the work-item graph. Every stdio or local session is that one principal, so they share claims and note ownership with no contention between them; separating callers needs credentials. The server logs a loud `SECURITY:` WARN at startup whenever a local mode serves HTTP. Check `docker logs` after first boot.
+**Director endpoint.** The director profile is served at `/mcp/director` (or over stdio with `MCP_TOOL_PROFILE=director`) and over REST at `POST /api/v1/ops/director/{tool}`. The confinement above is one-way: any credential that holds the capabilities of a director-profile tool may call it on the director path, whatever its own `profile`. On the plain `/mcp` path (and a plain `POST /api/v1/ops/{tool}`) the director-only ops (pause, resume, and answering the director-or-human classes) need the director profile, and the director path does not help with a human-only class, which needs a human credential. That plain-path rule is hygiene, not a boundary, because the same credential can use the director path. Put the decision authority in the credential's capabilities and scope, not in the path. A single developer who runs one stdio server has no HTTP endpoint to point at, so the way to answer a limit decision is a second stdio entry started with `MCP_TOOL_PROFILE=director`.
+
+**Local modes are unauthenticated.** In **Local** mode there is no credential check: any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) invokes every tool its profile serves, as the `local` principal (ADMIN, unrestricted) - full read, write and delete of the work-item graph. Every stdio or local session is that one principal, so they share claims and note ownership with no contention between them; separating callers needs credentials or seat tokens. The server logs a loud `SECURITY:` WARN at startup whenever a local mode serves HTTP. Check `docker logs` after first boot.
 
 **Critical consequences for fleet operators:**
 
@@ -214,7 +216,22 @@ survive coroutine dispatcher hops:
   requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
   `GET /api/v1/events` SSE stream gets no `reqId`.
 
-**API JWT rejections.** Each bearer JWT the REST API, MCP HTTP and SSE endpoints reject logs one INFO line on the `JwksApiVerifier` logger: `API JWT rejected: reason=<code> verifier=api keySource=jwks_uri suppressed=<n>`. `reason` is the pipeline failure kind (`crypto`, `claims`, `policy` or `internal`; a token that verifies but has a malformed `to_scope` or `to_kind` reports `claims`), `verifier` and `keySource` name the verifier and its key source (an API JWKS URI), and `suppressed` is how many rejections of that reason were dropped by the flood limit since the previous line for it. The limit is 10 lines per reason per 60 seconds, so a flood cannot fill the log; the count rides on the first line of the next window. The line never carries the token, any claim value, the subject, the `kid` or the free-text failure detail (that stays at DEBUG). Verified tokens and an unavailable key set (answered 503, WARN once per request) log no such line.
+**API JWT rejections.** Each bearer JWT the REST API, MCP HTTP and SSE endpoints reject logs one INFO line on
+the `JwksApiVerifier` logger:
+`API JWT rejected: reason=<code> verifier=api keySource=jwks_uri suppressed=<n>`. `reason` is the pipeline failure
+kind (`crypto`, `claims`, `policy` or `internal`; a token that verifies but has a malformed `to_scope` or `to_kind`
+reports `claims`). `verifier` and `keySource` name the verifier and its key source (an API JWKS URI). `suppressed`
+is how many rejections of that reason the flood limit dropped since the previous line for it. The limit is 10 lines
+per reason per 60 seconds, so a flood cannot fill the log; the count rides on the first line of the next window. A
+count with no later rejection of the same reason is never reported.
+
+That INFO line never carries the token, any claim value, the subject, the `kid` or the verifier's free-text failure
+detail (the detail is logged at DEBUG only). It is not the only line a bad token can cause: a token whose custom
+claims are defective also logs the claim-defect WARN described below, which carries a reason code and never the claim
+value. One identity WARN does name a subject: a refused `scope.root_ids` anchor logs the verified `sub`, at most once
+per subject. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no rejection line.
+
+**API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim> reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants: `to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value` (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT verification fault: reason=internal suppressed=<n>` on the same logger. Each key (`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides on the first line of the next window, as for rejections. Neither line carries the token, a claim value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an unknown `kid` logs the fetch error only, never the `kid`.
 
 ### Call log and `reqId`
 
@@ -227,6 +244,11 @@ template `METHOD /api/v1/<route>` exactly as declared in routing (for example `G
 target ids and versions, boolean/`limit` request shape), the
 outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
 and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
+
+A refusal is a row too. A tool call that reaches the dispatcher on an MCP session with no bound principal fails
+closed as `unauthenticated` before anything in it is read, and its row records no principal and the error code
+`unauthenticated`. That row is the audit record of a fail-closed refusal, not a work row. A forged or evicted session
+id never gets that far: the SDK answers it `404` and no tool runs.
 
 Two columns added by migration V30 serve follow-through and rejection reports:
 
@@ -340,7 +362,7 @@ has no setting.
 
 | Variable | Default | Prunes |
 |----------|---------|--------|
-| `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `item.updated`, `transition.rejected`). |
+| `RETENTION_EVENTS_DAYS` | `180` | Activity-class `events` rows (note writes, dependency changes, claims, leases, `seat.assigned`, `seat.ended`, `item.updated`, `transition.rejected`). |
 | `RETENTION_AUDIT_EVENTS_DAYS` | `0` | Audit-class `events` rows: `item.transitioned`, `item.created`, `item.deleted`, `item.reparented`, `item.pinned`, `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`, and the 3.x transition trail backfilled by V29. `0` keeps them forever. |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | Closed `resource_lease_history` intervals, by `released_at`. Open intervals are never pruned. |
 | `RETENTION_CALL_LOG_DAYS` | `90` | `call_log` rows, by `at`, and only rows whose day has already been folded into `usage_daily` (the pruner folds first; nothing is pruned while no day is folded). |
@@ -356,6 +378,16 @@ Guarantees:
 - **An event type the server does not classify is never pruned.**
 - **Runs, seats, decisions and `usage_daily` are not pruned.** There is no per-root retention.
 
+**Run table growth.** The `runs`, `run_items`, `run_seats` and `decision_requests` tables are kept forever in 4.0, and
+so are the `run.*` and `decision.*` audit events at the default `RETENTION_AUDIT_EVENTS_DAYS=0`. The `seat.assigned`
+and `seat.ended` events are activity-class and are pruned with `RETENTION_EVENTS_DAYS`. As an estimate, not a
+guarantee, plan for about 40 MB per 1,000 runs for a run over 10 items with 3 seats each and 2 decisions. The
+estimate sums the table rows (one `runs` row, 10 `run_items` rows, 31 `run_seats` rows including the coordinator and
+2 `decision_requests` rows, about 25 KB with their indexes, most of it the seat rows) and the audit events a run
+writes (about a dozen rows, among them a `run.ended` event that carries the close snapshot, about 10 KB). Larger
+summaries, links, decision contexts and snapshots push it up; smaller runs pull it down. Archival and per-root
+pruning are deferred.
+
 The pruner runs no `VACUUM`: freed pages are reused by new rows, so the database file stops growing but does not
 shrink. To reclaim disk space after a large first prune (for example on a volume upgraded from 3.x), stop the server
 and run `VACUUM` offline.
@@ -364,7 +396,7 @@ and run `VACUUM` offline.
 
 ## REST API Authentication
 
-The credential layer (`API_ENABLED=true`, `API_AUTH_MODE`) authenticates every HTTP caller of `/api/v1/*` **and**, since 4.0, of `/mcp*`: one credential, one resolution pipeline, one principal. That principal (id `api:<id>` for a token-file or JWT credential, `local` for the unauthenticated modes) is the caller's identity everywhere - claim ownership, note ownership and audit attribution. There is no second, MCP-only identity layer: no request carries an `actor` or an `actor.proof` (a body `actor` is `unknown_parameter` on every tool, over MCP and REST alike), and the `actor_authentication:` config block is inert (see [Identity Configuration](#identity-configuration)).
+The credential layer (`API_ENABLED=true`, `API_AUTH_MODE`) authenticates every HTTP caller of `/api/v1/*` **and**, since 4.0, of `/mcp*`: one credential, one resolution pipeline, one principal. That principal (id `api:<id>` for a token-file or JWT credential, `local` for the unauthenticated modes) is the caller's identity everywhere - claim ownership, note ownership and audit attribution. There is no second, MCP-only identity layer: no request carries an `actor` or an `actor.proof` (a body `actor` is `unknown_parameter` on every tool, over MCP and REST alike), and the `actor_authentication:` config block is removed: a leftover block fails startup (see [Identity Configuration](#identity-configuration)).
 
 | Concern | Decided by |
 |---------|-----------|
@@ -1001,7 +1033,7 @@ The identity resolution chain:
 4. An unavailable key set -> `503 unavailable`, the call does not run
 5. No credential in a local mode (stdio, `API_AUTH_MODE=none`, `MCP_ALLOW_UNAUTHENTICATED=true`) -> the one `local` principal
 
-There is no self-reported identity and no fallback to one. **In the local modes every session is the same `local` principal**, so concurrent stdio and local HTTP sessions share claims and note ownership: they cannot contend with each other, and separating them needs credentials.
+There is no self-reported identity and no fallback to one. **In the local modes every session is the same `local` principal**, so concurrent stdio and local HTTP sessions share claims and note ownership: they cannot contend with each other, and separating them needs credentials or seat tokens.
 
 ### `claimedBy` and PII
 
@@ -1133,20 +1165,32 @@ logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the v
 
 ## Run Budgets and Caps
 
-Runs are bounded by their pinned budget (see `config-format.md` -> "Run Budgets" for the `runs.budgets` ceilings).
-What an operator sees:
+Runs are bounded by their pinned budget (see [`runs:`](config-reference.md#runs-runs) in the config reference for the
+ceilings an operator sets, and the [workflow guide](workflow-guide.md#12-runs-seats-and-decisions) for the run
+lifecycle). What an operator sees:
 
 - **Spend.** `runs_read` `get` shows `usage` (`reportedTokens`, `reportedCostUsd`, `observedTokens`). Reported figures
   are the SUM of the seats' absolute `heartbeat` reports (the highest per seat is kept); `observedTokens` is the server's
-  own estimate, written off the request path by the call-log writer. A dropped or failed call-log batch (see "Call log")
-  under-counts it, never over-counts it.
+  own estimate, written off the request path by the call-log writer. It is an estimate: it can count a replayed row
+  twice, and a dropped or failed call-log batch (see "Call log") under-counts it.
 - **Breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a
   high-severity `run-budget` decision; the writer itself never pauses anything, so a run whose seats have all gone quiet
-  is not paused by observed spend alone until some seat writes again.
+  is not paused by observed spend alone until some seat writes again. Only token-carrying writes run the check (a
+  heartbeat, `assign`, `end_seat`, a transition or a `raise`, each under a seat or coordinator token); a call
+  without a token never does.
 - **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
   `extend` with an `amount` resumes the run with the raised limit; `stop` closes it `budget_exhausted` and ends its
   seats, clears their claims and releases the leases of its WORK members. A coordinator cannot lift its own cap: a
-  manual `resume` of a budget or attempts pause is refused.
+  manual `resume` of a budget or attempts pause is refused. The decisions the server raises for a limit
+  (`run-budget`, `attempt-cap`) cannot be withdrawn.
+- **Attempt cap.** An `assign` over `attempts_per_seat` is refused `run_paused`, pauses the run (`pauseReason:
+  attempts`) and raises an `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is
+  chosen before the unit that writes the decision runs, so after a database fault, or when the write finds an
+  existing decision for the same attempt (a dedupe hit), the id can be absent or differ from the one that stands.
+  Read the run's decisions (`runs_read` `decisions`) rather than trusting the refusal alone.
+- **While paused.** A `start` presented with any of the run's tokens, a seat token or the coordinator token, is
+  refused `run_paused` while the run is paused for a limit (`budget` or `attempts`). A manual pause never refuses
+  it, so in-flight seats can finish their work, and a `start` without a token is never refused for a pause.
 - **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the coordinator
   backs off and retries when a seat ends. No decision is raised.
 

@@ -45,13 +45,19 @@ class JwtVerifier(
     /** Logger for the pipeline's own lines; the mappers pass theirs so log names stay stable for operators. */
     private val logger: Logger = LoggerFactory.getLogger(JwtVerifier::class.java),
 ) {
+    private val faultLimiter = LogFloodLimiter()
+
     /** Verifies [token] against the configured policy and key provider. */
     suspend fun verify(token: String): JwtVerdict =
         try {
             verifyInternal(token)
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            logger.warn("Unexpected exception during JWT verification: {}", e.message)
+            logger.debug("Unexpected exception during JWT verification: {}", e.message)
+            // Fixed shape: this runs before verification, so e.message could carry attacker-controlled text.
+            faultLimiter.tryAcquire(FAULT_KEY, clock.instant())?.let { suppressed ->
+                logger.warn("JWT verification fault: reason=internal suppressed={}", suppressed)
+            }
             JwtVerdict.Rejected(e.message ?: "unexpected error", FailureKind.INTERNAL)
         }
 
@@ -189,4 +195,8 @@ class JwtVerifier(
         reason: String,
         kind: FailureKind,
     ) = JwtVerdict.Rejected(reason, kind)
+
+    private companion object {
+        const val FAULT_KEY = "internal"
+    }
 }

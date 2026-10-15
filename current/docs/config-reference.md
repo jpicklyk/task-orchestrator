@@ -23,6 +23,8 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `note_limits` | server | yes | yes | `mode`: `warn` or `reject`. |
 | `status_labels` | server | yes | yes | Trigger to label map; an explicit `null` clears a label. |
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
+| `runs` | server | yes | yes | Run settings: `stall_after` and the `budgets` ceilings. Resolved per field. See [Runs](#runs-runs). |
+| `decision_classes` | server | yes | yes | Decision classes by name. A per-root entry replaces the server entry of that name. See [Decision classes](#decision-classes-decision_classes). |
 | `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
 | `actor_authentication` | removed | fails startup | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
@@ -67,6 +69,99 @@ A note entry in `work_item_schemas.<type>.notes` (or a trait's `notes`) may set 
 is owned by the principal whose write created it, and another principal's `upsert` or `delete` of an owned note is
 `note_owned_by_other`; `shared: true` exempts that key from ownership, so any principal that may write notes can write
 it. Use it for notes several seats legitimately co-author. See [`notes_write`](api-reference.md#notes_write).
+
+### Seat transitions
+
+A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `transitions:`, the triggers other than
+`start` that a token for that seat may send. The values are `complete`, `block`, `hold`, `resume`, `cancel` and
+`reopen`.
+
+- **Default.** A seat with no `transitions:` may send `block` and `hold`.
+- **`start`** is governed by `enters`, never listed: a seat token may `start` an item only into the phase of a seat that
+  sets `enters: true`.
+- **F5.** A seat that sets `enters: true` and lists `complete` or `cancel` is a fatal structural error (reported at the
+  path of its `seats` list), so the seat that opens a phase cannot also close the item.
+- **Where it applies.** Seats are enforced only on an item that is a member of a run that is not closed (open or
+  paused) and whose pinned schema declares seats. Outside a run they stay an orchestration signal. A refusal is
+  `seat_forbidden` (see [`advance`](api-reference.md#advance)).
+- **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's coordinator token may
+  write; every other seat-owned key needs that seat's own token (a human credential is exempt).
+
+```yaml
+work_item_schemas:
+  feature-task:
+    seats:
+      - { name: implementer, phase: work, enters: true, transitions: [block, hold, resume] }
+      - { name: orchestrator, phase: work, after: [implementer] }
+```
+
+## Runs (`runs:`)
+
+The `runs:` block sets how long a run may go quiet and, optionally, ceilings on a run's budget. It is allowed in the
+server file and in a per-root document, and each field resolves on its own: the per-root value, else the server value,
+else the default.
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `stall_after` | integer, seconds, 1 to 2147483647 | 600 | A seat or the coordinator is stalled when the time since it was last seen is strictly longer than this. The value is pinned on the run when it opens. |
+| `budgets.tokens` | integer, at least 1 | none | Ceiling on the tokens a run may be given. |
+| `budgets.cost_usd` | number, US dollars, above 0 | none | Ceiling on the cost a run may be given. |
+| `budgets.attempts_per_seat` | integer, 1 to 2147483647 | none | Ceiling on the attempts one seat may make on one item. |
+| `budgets.max_active_seats` | integer, 1 to 2147483647 | none | Ceiling on the seats active at once. |
+
+Budgets are opt-in: an absent ceiling means unlimited. The block is a ceiling, not a default: a run's own budget at
+`open` may only lower a ceiling (a value above it is refused), and `update` can only lower a field further or set one
+that was absent. How a run enforces its budget, and the decisions a limit raises, are in
+[Fleet Deployment](fleet-deployment.md#run-budgets-and-caps) and the
+[workflow guide](workflow-guide.md#12-runs-seats-and-decisions).
+
+```yaml
+runs:
+  stall_after: 900
+  budgets:
+    tokens: 2000000
+    cost_usd: 25
+    attempts_per_seat: 3
+    max_active_seats: 4
+```
+
+## Decision classes (`decision_classes:`)
+
+A decision is raised under a class, and the class sets who may answer it, its default severity and when it becomes
+overdue. `decision_classes:` is allowed in the server file and in a per-root document. A class name matches
+`^[a-z][a-z0-9_-]{0,63}$`.
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `answerers` | `human-only`, `director-or-human`, `any-actor` | Who may answer. A class that is not built in defaults to `director-or-human`. |
+| `severity` | `high`, `normal`, `low` | The severity of a decision raised without one. Default `normal`. |
+| `expires_after` | integer, seconds, at least 1 | Seconds after the raise when an unanswered decision becomes overdue and its severity reads one step up. Absent: never overdue. |
+| `on_expiry` | `escalate` | What expiry does. `escalate` is the only value, and it changes only the reported severity; the server takes no other action. |
+| `freeform` | boolean | `true`: an answer may be free text instead of an option. Default `false`. |
+
+**Built-in classes.**
+
+| Class | Answerers | Severity | Expires after | Notes |
+|-------|-----------|----------|---------------|-------|
+| `run-budget` | `director-or-human` | `high` | never | Raised by the server at a budget limit; `raise` refuses it. |
+| `attempt-cap` | `director-or-human` | `high` | never | Raised by the server at an attempt cap; `raise` refuses it. |
+| `deviation` | `director-or-human` | `normal` | 14400 | |
+| `question` | `any-actor` | `low` | never | `freeform: true`. |
+
+**Merging.** A per-root entry replaces the server entry of the same name as a whole. An entry for a built-in class
+overrides that class field by field: a field you leave out keeps the built-in value. The answerers of `run-budget` and
+`attempt-cap` may be raised to `human-only` but never lowered to `any-actor`; a push that does so is rejected at
+`/decision_classes/<name>/answerers`.
+
+```yaml
+decision_classes:
+  deviation:
+    expires_after: 3600
+  release-gate:
+    answerers: human-only
+    severity: high
+    expires_after: 86400
+```
 
 ## Strict validation
 
@@ -244,3 +339,5 @@ item's current pin.
 - [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md): the
   schema-authoring guide (note entries, traits, seats, dispatch, resources) the plugin ships.
 - [REST API Reference](api-rest.md), section "Project config", for the routes.
+- [Workflow guide, Runs, Seats and Decisions](workflow-guide.md#12-runs-seats-and-decisions): how runs, seats and
+  decisions use these keys.

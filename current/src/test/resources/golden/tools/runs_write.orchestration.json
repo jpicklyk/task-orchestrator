@@ -165,7 +165,7 @@
             },
             "severity": {
               "type": "string",
-              "description": "Default normal. [ops: raise]",
+              "description": "Class default. [ops: raise]",
               "enum": [
                 "high",
                 "normal",
