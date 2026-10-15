@@ -55,7 +55,7 @@ sealed class ApiTokenVerdict {
  * those claims are absent.
  *
  * Kind: `to_kind` (`human`, `agent` or `service`, trimmed, case-insensitive). Absent (or null), it is
- * [PrincipalKind.SERVICE], except for the actor DID path (`sub == iss` and `sub` starts with `did:`), which is
+ * [PrincipalKind.SERVICE], except for a self-issued DID subject (`sub == iss` and `sub` starts with `did:`), which is
  * [PrincipalKind.AGENT]. A non-string or unknown `to_kind` rejects the token (fail-closed, like `to_scope`).
  * Proof: [ProofStatus.VERIFIED], or [ProofStatus.VERIFIED_STALE] when the verifying key set was served from the
  * stale cache.
@@ -179,7 +179,7 @@ class JwksApiVerifier(
     }
 
     /**
-     * The principal kind from the `to_kind` claim. Absent or null: [PrincipalKind.AGENT] on the actor DID path
+     * The principal kind from the `to_kind` claim. Absent or null: [PrincipalKind.AGENT] on a self-issued DID subject
      * (`sub == iss` and `sub` starts with `did:`), else [PrincipalKind.SERVICE]. A non-string or unknown value
      * returns null so the caller rejects the whole JWT; a WARN names the claim and a reason code, never the JWT.
      */
