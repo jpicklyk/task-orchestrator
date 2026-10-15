@@ -42,7 +42,7 @@ data class BudgetBreach(
  * raises a `run-budget` decision (dedupe `budget:<runId>:<n>`, n the breach ordinal over the run's budget decisions,
  * options `extend`/`stop`, recommended `stop`, context the numbers) and pauses the run (`budget`) with it; both commit
  * with the caller's write, which still succeeds. A run already paused for its budget answers its pause decision again,
- * recording nothing. A run without a token or cost limit is never checked past its row read.
+ * recording nothing. An unbudgeted run's token writes skip the run-row read via the token lookup's `runLimited` hint; a budgeted run's are checked in the unit.
  *
  * ## Assign ([admit], through [assign])
  *

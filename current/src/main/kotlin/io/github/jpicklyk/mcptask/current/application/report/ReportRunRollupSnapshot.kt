@@ -16,8 +16,10 @@ import java.util.UUID
  * `ToolExecutionContext`, which must not import this package (application/report imports application/api).
  *
  * Fail-soft: a computation fault that is about the DATA (an [IllegalArgumentException], [IllegalStateException] or
- * [SerializationException], for example a seat row that breaks an invariant) stores no rollup, so a bad row can never
- * block a close; a later read computes the rollup live. A persistence fault (an [SQLException] anywhere in the cause
+ * [SerializationException]) while computing or encoding the rollup is caught and the close proceeds without a stored
+ * rollup (WARN logged); a later read computes the rollup live. A row that fails to decode inside a store read still
+ * fails the close: store reads join the close unit and a store fault poisons it (fail-closed on a corrupt row). A
+ * persistence fault (an [SQLException] anywhere in the cause
  * chain), a cancellation and any other exception still propagate and roll the close back: the transaction state is
  * unknown after them. The [RunRollupSnapshot] contract ("a throw rolls the close back") is unchanged.
  */
