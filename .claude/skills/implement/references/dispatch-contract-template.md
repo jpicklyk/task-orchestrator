@@ -20,8 +20,9 @@ its **absolute path** from every Step 3, 4, 4b and 5 dispatch prompt.
   Commit discipline · Compile self-check · File ownership · Test author protocol ·
   Contract-change sweep · Docs · Notes · Review scoping.
 
-The Review scoping slot's commit map and the per-item red-proof budget results are filled as the wave
-runs, not at Step 2. Every other slot is complete before the first dispatch.
+The Review scoping slot's commit map and the per-item bug-fix revert results are filled as the wave
+runs, not at Step 2; the budget-mutation results land after the wave's PR merges (the wave-boundary
+red-proof stage, `/implement` Step 6). Every other slot is complete before the first dispatch.
 
 ## Adoption reach
 
@@ -36,7 +37,7 @@ proposal item's own status says "terminal".
 | `31a1abeb` | RepositoryProvider strict-mock breakage | **Contract-change sweep** — moved to rule `contract-change-sweep`; a new accessor on a strict-mocked interface is a contract tightening; the sweep's grep-and-repair step and its declaration in the commit map are the delivery |
 | `4c25e3c7` | measure automated-budget headroom during planning | out of scope: adopted in `spec-quality/SKILL.md`, which queue-phase note `guidance` pointers route agents to at fill time — a delivery surface of its own that fires before this file exists for a wave, not skill prose an agent may never open |
 | `ee6f5d32` | add `ktlintFormat` to the agent compile self-check | **Compile self-check** — `:current:ktlintFormat` is first in the pinned task list |
-| `64be7e4b` | explicit-exit-code gradle pattern | **Compile self-check** — the `EXIT=0`/`EXIT≠0` branching; the proposal's `--rerun-tasks` clause stays an orchestrator-side habit, not a delegated fact |
+| `64be7e4b` | explicit-exit-code gradle pattern | **Compile self-check** — the `EXIT=0`/`EXIT≠0` branching; the proposal's `--rerun-tasks` clause is orchestrator-only and only after a dependency or Gradle upgrade — the checked-in lock helper refuses it from a seat |
 | `a8c08a0d` | finalize closure notes only after confirmed merge/advance | out of scope: an orchestrator closeout-sequencing rule (merge-check → advance → note), not an agent dispatch fact |
 | `568e7f7e` (#301) | `git commit --only` + owned-file-diff review scoping | **Commit discipline** and **Review scoping** — moved to rules `commit-discipline` and `review-scoping` |
 | `b82537e4` (#302) | early exit on unowned-file compile errors + pinned build invocation | **Compile self-check** — the foreign-file early-exit rule and the array-literal `-Tasks` invocation |
@@ -82,7 +83,11 @@ directory is the worktree.
 Base: `<short-sha>` (origin/main at <date>, after PR #<n>)
 PR boundary: ONE PR for the wave, opened when every item is terminal.
 Scratchpad: `<absolute scratchpad path from the session environment>`
-Lock helper (agents' ONLY gradle entry point): `<scratchpad>\gradle-locked.ps1`
+Lock helper (agents' ONLY gradle entry point): `<scratchpad>\gradle-locked.ps1` — copied verbatim at
+Step 2 from `.claude/skills/implement/references/gradle-locked.ps1`, never hand-written per wave. It
+refuses `:current:test`, `:current:ktlintCheck` and `--rerun-tasks` (EXIT=98) unless
+`TO_GRADLE_OWNER=orchestrator` is set in the calling process; only the orchestrator's own
+invocations set it, inline, and no dispatch prompt ever does.
 
 ## Conflict rule
 
@@ -160,9 +165,11 @@ points here instead of restating it):
 
 | Seat | Gradle it runs |
 |---|---|
-| Implementer, test author | ONLY the three pinned tasks above, ONCE, through the lock helper. Never `:current:test`, never `:current:ktlintCheck`. |
-| Orchestrator | `:current:test` and `:current:ktlintCheck` for the whole wave, serialized, plus the item's budgeted red-proofs (one batched round per item). |
-| Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. |
+| Implementer | The three pinned tasks above, ONCE, through the lock helper. Plus, at most once more, a SCOPED run of the test classes in the packages it changed: `-TestFiles "<those test files>"` (the helper maps them to `--tests`). Never bare `:current:test`, never `:current:ktlintCheck`, never `--rerun-tasks` — the helper refuses them. |
+| Test author | The three pinned tasks above, ONCE, through the lock helper. Plus scoped runs of ITS OWN test files (`-TestFiles`, the run plan's `<ownedTests>`) to see them red and then green. The same three nevers; a `VERIFY` line in `test-manifest` that cites a whole-suite count is a contract breach, not evidence. |
+| Hand-dispatched post-run seats (fix implementer, `<seat>-a<n>`, a second test author, a docs seat) | Exactly their base seat's row. Being dispatched outside the run plan does not lift the rule; the prompt points at this table like any other. |
+| Orchestrator | `:current:test` and `:current:ktlintCheck` ONCE for the whole wave, serialized, after the last writer seat commits and before any PR opens — with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. Red-proofs: the bug-fix revert (and the coupled-authorship checks) per item before merge; the decision-point budget mutations at the wave boundary, after the PR merges, batched across the wave (`run-wave` `post-run.md` Step 7a; `/implement` Step 6). |
+| Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. A doubted red-proof result is re-run scoped (`-TestFiles`), never as the whole suite. |
 
 ## File ownership
 
@@ -281,8 +288,13 @@ would otherwise meet docs and fixture-repair commits with no owner and read them
 violation.
 
 Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
-at <sha>>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
-Red-proof budget results (orchestrator-run, fix reverted or mutated in a scratch worktree, item tests only; every
-mutation or partial revert applied with `.claude/skills/implement/references/patch-anchored.py`,
-spec written with the Write tool, `DRY=1` first):
-`<per item - proofs run, gaps found, equivalents, approx minutes; "N/M failed", or "compile-red (tests bind to NEW surface <name>)", or "skip: <category>">`.
+at <sha> — the orchestrator's one wave run>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
+Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
+revert and any coupled-authorship checks; every revert applied with
+`.claude/skills/implement/references/patch-anchored.py`, spec written with the Write tool, `DRY=1` first):
+`<per item - "revert red / fix green", or "n/a: budget mutations deferred to the wave boundary", or "skip: <category>">`.
+Wave-boundary red-proof results (the decision-point budget mutations, run AFTER the wave's PR merges,
+batched across the wave in one scratch worktree at the merged SHA, each mutation against the test
+classes the item's `test-manifest` maps to it, one full suite only for a survivor): recorded on the
+wave parent's `red-proof-results` note, per item — `<proofs run, gaps found, equivalents, approx
+minutes>`; a reviewer of a LATER wave reads it there.
