@@ -236,7 +236,7 @@ class DefaultJwksKeySetProvider(
             forceRefreshStatic(now)
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            logger.warn("Forced JWKS refresh for unknown kid '{}' failed: {}", kid, e.message)
+            logger.warn("Forced JWKS refresh for an unknown kid failed: {}", e.message)
             null
         }
     }

@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimPars
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 
 /**
@@ -77,7 +76,8 @@ class JwksApiVerifier(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val logger = LoggerFactory.getLogger(JwksApiVerifier::class.java)
-    private val rejectionLimiter = RejectionLogLimiter()
+    private val rejectionLimiter = LogFloodLimiter()
+    private val claimDefectLimiter = LogFloodLimiter()
     private val jwtVerifier = JwtVerifier(JwtPolicy.forApi(config), keyProvider, clock, logger = logger)
 
     /**
@@ -93,7 +93,7 @@ class JwksApiVerifier(
      * malformed `to_scope` or `to_kind`, an unexpected verifier fault, etc.); [ApiTokenVerdict.Unavailable] when the
      * key set cannot be had (never fetched, or past `max_stale_seconds`).
      *
-     * Each rejection also emits one flood-limited INFO line (see [RejectionLogLimiter]) carrying only the reason
+     * Each rejection also emits one flood-limited INFO line (see [LogFloodLimiter]) carrying only the reason
      * code, verifier kind and key-source kind, never the token, a claim value or the free-text reason; the DEBUG
      * lines keep the detail. The caller logs an unavailable key set once at WARN (it answers 503).
      */
@@ -136,6 +136,19 @@ class JwksApiVerifier(
         )
     }
 
+    /**
+     * One WARN per claim defect, flood-limited per `<claim>.<reason>` key. [claim], [reason] and [action] are always
+     * code constants, never derived from the token; the free-text detail goes to DEBUG at the call site.
+     */
+    private fun logClaimDefect(
+        claim: String,
+        reason: String,
+        action: String
+    ) {
+        val suppressed = claimDefectLimiter.tryAcquire("$claim.$reason", clock.instant()) ?: return
+        logger.warn("API JWT claim defect: claim={} reason={} action={} suppressed={}", claim, reason, action, suppressed)
+    }
+
     private fun toVerifiedApiToken(
         claims: JWTClaimsSet,
         fromStaleCache: Boolean
@@ -168,7 +181,7 @@ class JwksApiVerifier(
     /**
      * The principal kind from the `to_kind` claim. Absent or null: [PrincipalKind.AGENT] on the actor DID path
      * (`sub == iss` and `sub` starts with `did:`), else [PrincipalKind.SERVICE]. A non-string or unknown value
-     * returns null so the caller rejects the whole JWT; a WARN names the claim, never the JWT.
+     * returns null so the caller rejects the whole JWT; a WARN names the claim and a reason code, never the JWT.
      */
     private fun extractKind(
         claims: JWTClaimsSet,
@@ -180,11 +193,11 @@ class JwksApiVerifier(
         }
         val text =
             raw as? String ?: run {
-                logger.warn("Rejecting JWT: {} claim is not a string", TO_KIND)
+                logClaimDefect(TO_KIND, "not_string", "rejected")
                 return null
             }
         return PrincipalKind.parse(text) ?: run {
-            logger.warn("Rejecting JWT: {} claim has an unknown value", TO_KIND)
+            logClaimDefect(TO_KIND, "unknown_value", "rejected")
             null
         }
     }
@@ -195,8 +208,8 @@ class JwksApiVerifier(
      * If `to_scope` is absent, returns unrestricted scope (null rootIds, empty tags). If
      * `to_scope` is present but malformed (not a JSON object, an unknown key, or a malformed
      * `root_ids`/`tags_include` shape -- see [ScopeClaimParser]), returns null so the caller
-     * fails the whole JWT closed rather than silently widening access. A single WARN is logged
-     * naming the claim path and the defect; it never includes the JWT itself.
+     * fails the whole JWT closed rather than silently widening access. A single flood-limited WARN is logged
+     * naming the claim and a reason code; it never includes the JWT, a claim value or the parser message (DEBUG keeps that).
      */
     private fun extractScope(claims: JWTClaimsSet): AccessScope? {
         val toScope =
@@ -204,14 +217,16 @@ class JwksApiVerifier(
                 claims.getJSONObjectClaim("to_scope")
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
-                logger.warn("Rejecting JWT: to_scope claim is not a JSON object: {}", e.message)
+                logger.debug("to_scope claim is not a JSON object: {}", e.message)
+                logClaimDefect(TO_SCOPE, "not_object", "rejected")
                 return null
             }
 
         return try {
             ScopeClaimParser.parse(toScope)
         } catch (e: IllegalArgumentException) {
-            logger.warn("Rejecting JWT: to_scope {}", e.message)
+            logger.debug("to_scope claim is malformed: {}", e.message)
+            logClaimDefect(TO_SCOPE, "malformed", "rejected")
             null
         }
     }
@@ -220,8 +235,9 @@ class JwksApiVerifier(
      * Extracts capabilities from the `to_capabilities` JWT claim.
      *
      * If absent, returns `[READ]` as per the plan's default (section 4.3). Unknown values are still
-     * dropped (not fail-closed -- capability semantics are unchanged), but each drop and a
-     * non-string-list claim log a WARN naming `to_capabilities` so the widening is visible.
+     * dropped (not fail-closed -- capability semantics are unchanged), but a token that drops any
+     * element, and a non-string-list claim, each log one flood-limited WARN naming `to_capabilities` and a reason
+     * code (never a value) so the widening is visible.
      */
     private fun extractCapabilities(claims: JWTClaimsSet): Set<ApiCapability> {
         val rawCaps =
@@ -229,7 +245,8 @@ class JwksApiVerifier(
                 claims.getStringListClaim("to_capabilities")
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
-                logger.warn("JWT to_capabilities claim is present but is not a string list: {}", e.message)
+                logger.debug("to_capabilities claim is not a string list: {}", e.message)
+                logClaimDefect(TO_CAPABILITIES, "not_string_list", "ignored")
                 null
             }
 
@@ -237,67 +254,31 @@ class JwksApiVerifier(
             return setOf(ApiCapability.READ)
         }
 
-        return rawCaps
-            .mapNotNull { capStr ->
-                try {
-                    ApiCapability.fromConfigString(capStr)
-                } catch (e: IllegalArgumentException) {
-                    logger.warn("Ignoring unknown value in JWT to_capabilities: '{}'", capStr)
-                    null
-                }
-            }.toSet()
-            .ifEmpty { setOf(ApiCapability.READ) }
+        var dropped = false
+        val capabilities =
+            rawCaps
+                .mapNotNull { capStr ->
+                    try {
+                        ApiCapability.fromConfigString(capStr)
+                    } catch (e: IllegalArgumentException) {
+                        logger.debug("Ignoring unknown value in JWT to_capabilities: '{}'", capStr)
+                        dropped = true
+                        null
+                    }
+                }.toSet()
+        // One WARN per token however many elements were dropped.
+        if (dropped) logClaimDefect(TO_CAPABILITIES, "unknown_value", "ignored")
+        return capabilities.ifEmpty { setOf(ApiCapability.READ) }
     }
 
     private companion object {
         const val TO_KIND = "to_kind"
+        const val TO_SCOPE = "to_scope"
+        const val TO_CAPABILITIES = "to_capabilities"
         const val DID_PREFIX = "did:"
         const val VERIFIER_KIND = "api"
 
         // ApiAuthConfig.Jwks carries only a url, which maps to a JWKS URI key source by construction.
         const val KEY_SOURCE_KIND = "jwks_uri"
-    }
-}
-
-/**
- * Per-reason-code flood limit for the rejection INFO line: at most [MAX_PER_WINDOW] lines per
- * [WINDOW] per code. A code's window opens at its first rejection when none is open and stays open
- * while `now < start + WINDOW`. Rejections beyond the cap are counted; the next window's first line
- * reports (and resets) that count. Keyed by the bounded reason-code set, so state is O(1). Thread-safe.
- */
-private class RejectionLogLimiter {
-    private class State(
-        var windowStart: Instant,
-        var emitted: Int = 0,
-        var suppressed: Int = 0,
-    )
-
-    private val states = HashMap<String, State>()
-
-    /** The suppressed count to report on the line to emit, or null when this rejection must not be logged. */
-    fun tryAcquire(
-        code: String,
-        now: Instant
-    ): Int? =
-        synchronized(states) {
-            val state = states.getOrPut(code) { State(now) }
-            if (!now.isBefore(state.windowStart.plus(WINDOW))) {
-                state.windowStart = now
-                state.emitted = 0
-            }
-            if (state.emitted >= MAX_PER_WINDOW) {
-                state.suppressed++
-                null
-            } else {
-                state.emitted++
-                val reported = state.suppressed
-                state.suppressed = 0
-                reported
-            }
-        }
-
-    private companion object {
-        const val MAX_PER_WINDOW = 10
-        val WINDOW: Duration = Duration.ofSeconds(60)
     }
 }
