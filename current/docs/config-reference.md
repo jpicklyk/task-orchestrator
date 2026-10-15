@@ -25,7 +25,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
 | `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
-| `actor_authentication` | removed | rejected | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
+| `actor_authentication` | removed | fails startup | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
 | `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
 | `schema_resolution` | removed | warning | rejected | Removed in 4.0; schemas resolve by one fixed precedence rule. |
 
