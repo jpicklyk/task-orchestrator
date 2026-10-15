@@ -209,6 +209,7 @@ internal suspend fun cascadeSummaries(
                 when {
                     event.applied -> null
                     event.ownershipBlocked -> ErrorCode.NOT_CLAIM_HOLDER.wire
+                    event.seatBlocked -> ErrorCode.SEAT_FORBIDDEN.wire
                     event.gateBlocked -> ErrorCode.GATE_BLOCKED.wire
                     event.resourceBlocked -> ErrorCode.RESOURCE_UNAVAILABLE.wire
                     event.dependencyBlocked -> ErrorCode.DEPENDENCY_UNMET.wire

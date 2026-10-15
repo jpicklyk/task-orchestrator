@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
@@ -15,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import kotlinx.serialization.Serializable
@@ -78,7 +80,7 @@ private suspend fun WriteScope.deleteItem(
     if (expected != null && expected != existing.version) {
         return Outcome.Err(ItemCommandErrors.versionConflict(existing.id, expected, existing.version))
     }
-    return when (val deleted = env.itemCommandService.delete(id, req.recursive, caller)) {
+    return when (val deleted = env.itemCommandService.delete(id, req.recursive, caller, SeatCaller.of(ctx))) {
         is Outcome.Err -> Outcome.Err(scopedHeldRefusal(deleted.error, id, ctx, repo))
         is Outcome.Ok ->
             Outcome.Ok(

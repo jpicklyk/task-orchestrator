@@ -631,7 +631,7 @@ class AdvanceGateOrderTest {
         }
 
     @Test
-    fun `R23 S4 previews and cascades ignore seats - a preview predicts the advance and a cascade into a member parent applies`(
+    fun `R23 S4 previews ignore seats - a preview predicts the advance, a cascade into a member parent is suppressed`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -651,10 +651,14 @@ class AdvanceGateOrderTest {
             assertEquals(true, preview.flag("canAdvance"), "the preview does not apply the SEAT gate: $preview")
             d.refused(refusedParent, "start", SeatCaller.NONE, "control: the same item refuses the token-less advance")
 
-            // the start cascade into the member parent applies (cascades pass no caller)
-            d.advanceService(childOfMember, "start").success()
+            // the start cascade into the member parent is suppressed (R23 N1): the child's start commits, the member parent stays
+            val started = d.advanceService(childOfMember, "start").success()
             assertEquals(Role.WORK, d.role(childOfMember))
-            assertEquals(Role.WORK, d.role(memberParent), "the cascade started the member parent")
+            assertEquals(Role.QUEUE, d.role(memberParent), "the cascade did not start the member parent")
+            val event = started.cascadeEvents.single()
+            assertEquals(memberParent.id, event.itemId)
+            assertFalse(event.applied, "$event")
+            assertTrue(event.seatBlocked, "$event")
         }
 
     @Test

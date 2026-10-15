@@ -140,7 +140,7 @@ unchanged); otherwise the item's `version` goes up by one and one `item.pinned` 
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
-that blocked an unapplied cascade (`gate_blocked`, `resource_unavailable`, `dependency_unmet`, `invalid_transition`).
+that blocked an unapplied cascade (`not_claim_holder`, `seat_forbidden`, `gate_blocked`, `resource_unavailable`, `dependency_unmet`, `invalid_transition`).
 
 **Errors.** `invalid_request` / `unknown_parameter` (decoding; pointers like `/ops/0/type`), `not_found`,
 `ambiguous_id` (an 8-hex prefix matching several items), `version_conflict`, `cycle_detected` (reparent under a
@@ -1239,7 +1239,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 candidate ids when several do).
 
 **`transition` result.** `cascades` lists the parents evaluated as a side effect: `{itemId, previousRole, targetRole, applied,
-blocked?: ownership | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
+blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
 `unblocked` is `[{itemId, title}]`. Under a root- or tag-scoped token, a `cascades` or `unblocked` entry for an item the scope
 does not admit is `{itemId}` only (the same rule applies to `complete_tree` items and to `items_write` `cascade` entries).
 `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
@@ -1312,7 +1312,11 @@ caused it (see Suppressed below), and a cascade applies only when the parent's s
 - **Suppressed, reported.** A cascade that would apply but is stopped by a gate appears with `applied: false`
   and its reason: `blocked: ownership` (the parent has an active claim held by a principal other than the caller,
   checked before every other gate; the parent keeps its role and claim and the chain stops there; `items_write`
-  reports `reason: not_claim_holder`), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
+  reports `reason: not_claim_holder`), `blocked: seat` (the parent is a member of an open run whose pinned schema declares
+  `seats` and the write's caller could not send the equivalent trigger to it directly: `start` for a start cascade,
+  `complete` for a terminal cascade, `reopen` for a reopen cascade; checked after ownership and before every other
+  gate; the coordinator, a human and a seat token bound to the parent whose seat may send the trigger pass; the parent
+  keeps its role and claim and the chain stops there; `items_write` reports `reason: seat_forbidden`), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
   unless it descends from a `cancel`, a start cascade checks the parent's current phase only, a reopen cascade
   never checks notes), `blocked: dependency` (the parent has an unmet blocker; `blockers`), `blocked: resource`
   (a start or reopen cascade into `work` whose exclusive lease is held elsewhere; `contended`), or `blocked: role`
