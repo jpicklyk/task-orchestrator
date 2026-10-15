@@ -209,11 +209,6 @@ class RunRollupSnapshotReadsTest {
                 reads(plain.snapshot, "decision_requests"),
                 "no awaiting member: the decision list only:\n${plain.snapshot.sqls.joinToString("\n")}"
             )
-            assertTrue(
-                reads(awaiting.snapshot, "decision_requests") > reads(plain.snapshot, "decision_requests") ||
-                    awaiting.snapshot.sqls.size > plain.snapshot.sqls.size,
-                "an awaiting member costs the extra refs read"
-            )
             assertEquals(
                 plain.snapshot.sqls.size + 1,
                 awaiting.snapshot.sqls.size,
