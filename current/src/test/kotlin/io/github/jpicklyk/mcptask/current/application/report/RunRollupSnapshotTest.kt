@@ -195,7 +195,7 @@ class RunRollupSnapshotTest {
                 )
             assertEquals(RunStatus.CLOSED, decoded.run?.status)
             assertEquals(RunTerminalReason.BUDGET_EXHAUSTED, decoded.run?.terminalReason)
-            assertEquals(BudgetFacts(used = 101, limit = 100, basis = "enforced"), decoded.budget)
+            assertEquals(BudgetFacts(used = 101, limit = 100, basis = "enforced", breaches = 1, extends = 0), decoded.budget)
             assertEquals(AttemptCounts(total = 1, max = 1), decoded.attempts, "the one seat assignment")
             assertEquals(0, decoded.seats?.active, "the close cascade ended the seat before the snapshot: a closed run has no active seat")
             assertEquals(3L, decoded.items.total)

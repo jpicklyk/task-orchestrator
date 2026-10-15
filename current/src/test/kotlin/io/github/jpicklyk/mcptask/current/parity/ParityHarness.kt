@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -158,6 +159,19 @@ class ParitySeeder(
         checkNotNull(provider) { "this seeder was built without a repository provider" }
             .callLogStore()
             .append(records.toList())
+
+    /**
+     * Appends [records] to `events` through the UNDECORATED event store inside a write unit (so no further event rows are recorded,
+     * the same on both legs), so a `report` scenario reads identical event rows on both legs. A record carries its own instant, root,
+     * entity, type and payload; the sequence number is assigned by the table. Returns how many rows were appended.
+     */
+    suspend fun events(vararg records: EventRecord): Int {
+        val store = checkNotNull(provider) { "this seeder was built without a repository provider" }.eventStore()
+        val uow = checkNotNull(unitOfWork) { "this seeder was built without a unit of work" }
+        var appended = 0
+        uow.inUnit("parity.seedEvents") { appended = store.append(records.toList()).size }
+        return appended
+    }
 
     /**
      * Seeds a run through the undecorated [io.github.jpicklyk.mcptask.current.application.port.RunStore] inside a write unit (no

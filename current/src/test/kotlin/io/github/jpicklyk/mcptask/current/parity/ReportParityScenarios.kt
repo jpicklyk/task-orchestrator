@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Json
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -702,7 +705,7 @@ internal object ReportParityScenarios {
                 403,
                 "forbidden",
                 expectContains = listOf("\"scope\":\"tag\""),
-                expectAbsent = listOf("\"items\""),
+                expectAbsent = listOf("\"itemCounts\""),
                 member = "rollup"
             ),
             scenario(
@@ -713,7 +716,7 @@ internal object ReportParityScenarios {
                 403,
                 "forbidden",
                 expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
-                expectAbsent = listOf("\"items\""),
+                expectAbsent = listOf("\"itemCounts\""),
                 member = "rollup"
             )
         )
@@ -752,6 +755,176 @@ internal object ReportParityScenarios {
                 member = select
             )
         }
+
+    // ------------------------------------------------------------------ R29 (item f65fef01, r16 review 3): events-seeded happy scenarios
+
+    private fun eventRow(
+        n: Int,
+        type: String,
+        time: String,
+        entity: UUID,
+        root: UUID,
+        data: String
+    ) = EventRecord(
+        id = UUID.nameUUIDFromBytes("r29-parity-event-$n".toByteArray()),
+        occurredAt = at(time),
+        rootId = root,
+        entityKind = DomainEvent.KIND_ITEM,
+        entityId = entity,
+        type = type,
+        data = data
+    )
+
+    /**
+     * The gates fixture: seven `transition.rejected` events. Inside the default window [2026-10-03T12:00Z, 2026-10-10T12:00Z): c1
+     * `gate_blocked` missing spec (10:00), c1 `gate_blocked` missing spec and review (10:05), r1 `dependency_unmet` (10:10), r2
+     * `gate_blocked` missing spec (10:20). Outside it: c1 `gate_blocked` on 2026-10-02T12:00Z (before the window, and the oldest row, so
+     * the retained-since instant) and c1 `gate_blocked` exactly at 2026-10-10T12:00Z (the open end). Hand sums: by note key spec 3
+     * blocks over 2 items and review 1 block over 1 item (a `dependency_unmet` rejection names no note key and is not a note-key
+     * count); by error code gate_blocked 3 blocks over 2 items and dependency_unmet 1 block over 1 item.
+     */
+    private val gatesSeed: suspend ParitySeeder.() -> Unit = {
+        seed(this)
+        events(
+            eventRow(1, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:00:00Z", c1, r1, R11Json.rejected(missingKeys = listOf("spec"))),
+            eventRow(
+                2,
+                DomainEvent.TRANSITION_REJECTED,
+                "2026-10-09T10:05:00Z",
+                c1,
+                r1,
+                R11Json.rejected(missingKeys = listOf("spec", "review"))
+            ),
+            eventRow(3, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:10:00Z", r1, r1, R11Json.rejected(code = "dependency_unmet")),
+            eventRow(4, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:20:00Z", r2, r2, R11Json.rejected(missingKeys = listOf("spec"))),
+            eventRow(5, DomainEvent.TRANSITION_REJECTED, "2026-10-02T12:00:00Z", c1, r1, R11Json.rejected(missingKeys = listOf("spec"))),
+            eventRow(6, DomainEvent.TRANSITION_REJECTED, "2026-10-10T12:00:00Z", c1, r1, R11Json.rejected(missingKeys = listOf("spec")))
+        )
+    }
+
+    /**
+     * The contention fixture (all inside the default window unless stated): lease key `gradle` with two acquired, one rejected, one
+     * expired, one released and one force-released event, plus one acquired event on 2026-10-02T11:00Z that is before the window; lease
+     * key `pg` with one acquired; the claim of c1 with three acquired and one rejected. Hand sums: `gradle` acquired 2, rejected 1,
+     * expired 1, released 1 (not forced), forceReleased 1, contentionRate 1 / (2 + 1) = 0.3333, expiryRate 1 / 2 = 0.5,
+     * forceReleaseRate 1 / 2 = 0.5; the claim of c1 acquired 3, rejected 1, contentionRate 1 / 4 = 0.25; three groups in all.
+     */
+    private val contentionSeed: suspend ParitySeeder.() -> Unit = {
+        seed(this)
+        events(
+            eventRow(11, DomainEvent.LEASE_ACQUIRED, "2026-10-09T09:00:00Z", c1, r1, R11Json.leaseAcquired("gradle")),
+            eventRow(12, DomainEvent.LEASE_ACQUIRED, "2026-10-09T09:01:00Z", c1, r1, R11Json.leaseAcquired("gradle")),
+            eventRow(13, DomainEvent.LEASE_REJECTED, "2026-10-09T09:02:00Z", c1, r1, R11Json.leaseRejected(listOf("gradle"))),
+            eventRow(14, DomainEvent.LEASE_EXPIRED, "2026-10-09T09:03:00Z", c1, r1, R11Json.leaseExpired("gradle")),
+            eventRow(15, DomainEvent.LEASE_RELEASED, "2026-10-09T09:04:00Z", c1, r1, R11Json.leaseReleased("gradle", forced = false)),
+            eventRow(16, DomainEvent.LEASE_RELEASED, "2026-10-09T09:05:00Z", c1, r1, R11Json.leaseReleased("gradle", forced = true)),
+            eventRow(17, DomainEvent.LEASE_ACQUIRED, "2026-10-02T11:00:00Z", c1, r1, R11Json.leaseAcquired("gradle")),
+            eventRow(18, DomainEvent.LEASE_ACQUIRED, "2026-10-09T09:10:00Z", c1, r1, R11Json.leaseAcquired("pg")),
+            eventRow(19, DomainEvent.CLAIM_ACQUIRED, "2026-10-09T09:20:00Z", c1, r1, R11Json.claimAcquired()),
+            eventRow(20, DomainEvent.CLAIM_ACQUIRED, "2026-10-09T09:21:00Z", c1, r1, R11Json.claimAcquired()),
+            eventRow(21, DomainEvent.CLAIM_ACQUIRED, "2026-10-09T09:22:00Z", c1, r1, R11Json.claimAcquired()),
+            eventRow(22, DomainEvent.CLAIM_REJECTED, "2026-10-09T09:23:00Z", c1, r1, R11Json.claimRejected())
+        )
+    }
+
+    /**
+     * The rollup fixture, anchor r1 over the window [2026-10-09T00:00Z, 2026-10-10T00:00Z): three `item.transitioned` events of its
+     * subtree (c1 direct, c1 cascade, r1 direct) and the three rejections of the gates fixture that belong to it (two on c1, one on
+     * r1); not counted: a transition of c1 one millisecond before the window, a transition of r2 and a rejection of r2 (another
+     * subtree). Hand sums: transitions total 3, cascades 1, rejected 3.
+     */
+    private val rollupSeed: suspend ParitySeeder.() -> Unit = {
+        seed(this)
+        events(
+            eventRow(31, DomainEvent.ITEM_TRANSITIONED, "2026-10-09T08:00:00Z", c1, r1, """{"origin":"direct","toRole":"work"}"""),
+            eventRow(32, DomainEvent.ITEM_TRANSITIONED, "2026-10-09T08:10:00Z", c1, r1, """{"origin":"cascade","toRole":"terminal"}"""),
+            eventRow(33, DomainEvent.ITEM_TRANSITIONED, "2026-10-09T08:20:00Z", r1, r1, """{"origin":"direct","toRole":"work"}"""),
+            eventRow(34, DomainEvent.ITEM_TRANSITIONED, "2026-10-08T23:59:59.999Z", c1, r1, """{"origin":"direct","toRole":"work"}"""),
+            eventRow(35, DomainEvent.ITEM_TRANSITIONED, "2026-10-09T08:30:00Z", r2, r2, """{"origin":"direct","toRole":"work"}"""),
+            eventRow(41, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:00:00Z", c1, r1, R11Json.rejected(missingKeys = listOf("spec"))),
+            eventRow(
+                42,
+                DomainEvent.TRANSITION_REJECTED,
+                "2026-10-09T10:05:00Z",
+                c1,
+                r1,
+                R11Json.rejected(missingKeys = listOf("spec", "review"))
+            ),
+            eventRow(43, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:10:00Z", r1, r1, R11Json.rejected(code = "dependency_unmet")),
+            eventRow(44, DomainEvent.TRANSITION_REJECTED, "2026-10-09T10:20:00Z", r2, r2, R11Json.rejected(missingKeys = listOf("spec")))
+        )
+    }
+
+    private val eventsHappy: List<ParityScenario> =
+        listOf(
+            scenario(
+                "gates by note key over seeded events",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"gates"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"noteKey\":\"spec\"},\"blocks\":3,\"items\":2}",
+                        "{\"key\":{\"noteKey\":\"review\"},\"blocks\":1,\"items\":1}",
+                        "\"total\":2",
+                        "\"basis\":\"raw\"",
+                        "\"retainedSince\":\"2026-10-02T12:00:00Z\""
+                    ),
+                expectAbsent = listOf("dependency_unmet", "truncatedByRetention"),
+                member = "gates",
+                rows = gatesSeed
+            ),
+            scenario(
+                "gates by error code over seeded events",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"gates","groupBy":"errorCode"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"errorCode\":\"gate_blocked\"},\"blocks\":3,\"items\":2}",
+                        "{\"key\":{\"errorCode\":\"dependency_unmet\"},\"blocks\":1,\"items\":1}",
+                        "\"total\":2"
+                    ),
+                member = "gates",
+                rows = gatesSeed
+            ),
+            scenario(
+                "contention over seeded events",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"contention"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"resource\":\"gradle\"},\"kind\":\"lease\",\"acquired\":2,\"rejected\":1,\"expired\":1," +
+                            "\"released\":1,\"forceReleased\":1,\"contentionRate\":0.3333,\"expiryRate\":0.5,\"forceReleaseRate\":0.5}",
+                        "\"resource\":\"pg\"",
+                        "\"kind\":\"claim\",\"acquired\":3,\"rejected\":1",
+                        "\"contentionRate\":0.25",
+                        "\"total\":3"
+                    ),
+                member = "contention",
+                rows = contentionSeed
+            ),
+            scenario(
+                "rollup anchor over seeded events",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"rollup","anchorId":"$r1","since":"2026-10-09T00:00:00Z","until":"2026-10-10T00:00:00Z"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "\"anchorId\":\"a1000001\"",
+                        "\"itemCounts\":{\"total\":2,\"byRole\":{\"queue\":2}}",
+                        "\"transitions\":{\"total\":3,\"cascades\":1,\"rejected\":3}"
+                    ),
+                expectAbsent = listOf("\"run\"", "\"seats\"", "\"decisions\"", "\"attempts\"", "\"byReason\""),
+                member = "rollup",
+                rows = rollupSeed
+            )
+        )
 
     /**
      * The fixture seeds `call_log` and items only (the parity seeder has no `events` writer), so every answer below is over an
@@ -812,7 +985,8 @@ internal object ReportParityScenarios {
                 200,
                 expectContains = listOf("\"total\":0"),
                 member = "contention"
-            )
+            ) +
+            eventsHappy
 
     val r11ScopeForbidden: List<ParityScenario> =
         both(
