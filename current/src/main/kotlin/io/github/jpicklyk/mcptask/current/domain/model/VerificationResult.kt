@@ -48,8 +48,8 @@ enum class VerificationStatus {
  *   - `failureKind`: one of `crypto`, `claims`, `policy`, `network`, `internal`
  *   - `verifiedFromCache`: `"true"` when the VERIFIED result was produced using a stale JWKS cache
  *   - `cacheAgeSeconds`: seconds since the stale cache entry was fetched
- * @param verifiedSubject The cryptographically verified identity when [status] is
- *   [VerificationStatus.VERIFIED]; null otherwise. Not persisted or serialized.
+ * @param verifiedSubject Never set by a production path; always null (e.g. the
+ *   VERIFIED result built in PrincipalAudit leaves it null). Not persisted or serialized.
  * @param proofSha256 Lowercase hex SHA-256 digest of the raw proof's UTF-8 bytes, computed by
  *   by the code that verified a presented proof whenever a non-blank proof was supplied  -  independent of verification outcome. This is the durable,
  *   non-replayable forensic trace persisted in place of the raw proof (see `NotesTable`
