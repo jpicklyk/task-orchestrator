@@ -97,10 +97,10 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `the members are exactly get list seats, and open update close pause resume mark assign end_seat`() {
-        // R22 adds the `seats` select and the `assign` / `end_seat` ops.
-        assertEquals(setOf("get", "list", "seats"), read.selects.map { it.name }.toSet())
-        assertEquals(3, read.selects.size)
+    fun `the members are exactly get list seats frontier, and open update close pause resume mark assign end_seat`() {
+        // R22 adds the `seats` select and the `assign` / `end_seat` ops; R25 adds the `frontier` select (task-scope Build 3).
+        assertEquals(setOf("get", "list", "seats", "frontier"), read.selects.map { it.name }.toSet())
+        assertEquals(4, read.selects.size)
         assertEquals(setOf("open", "update", "close", "pause", "resume", "mark", "assign", "end_seat"), write.ops.map { it.name }.toSet())
         assertEquals(8, write.ops.size)
     }
@@ -110,6 +110,8 @@ class RunsToolsSurfaceTest {
         val both = setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR)
         assertEquals(both, readMember("get").profiles)
         assertEquals(both, readMember("list").profiles)
+        // R25 (task-scope Build 3, "profiles orchestration()+director()"): the frontier is served on both profiles
+        assertEquals(both, readMember("frontier").profiles)
         assertEquals(both, writeMember("open").profiles)
         assertEquals(both, writeMember("close").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("update").profiles)
@@ -151,9 +153,9 @@ class RunsToolsSurfaceTest {
     fun `visibility per profile - knowledge sees neither tool, mark is on no profile`() {
         assertEquals(emptySet(), visible("runs_read", ToolProfile.KNOWLEDGE))
         assertEquals(emptySet(), visible("runs_write", ToolProfile.KNOWLEDGE))
-        assertEquals(setOf("get", "list", "seats"), visible("runs_read", ToolProfile.ORCHESTRATION))
+        assertEquals(setOf("get", "list", "seats", "frontier"), visible("runs_read", ToolProfile.ORCHESTRATION))
         assertEquals(setOf("open", "update", "close", "assign", "end_seat"), visible("runs_write", ToolProfile.ORCHESTRATION))
-        assertEquals(setOf("get", "list"), visible("runs_read", ToolProfile.DIRECTOR))
+        assertEquals(setOf("get", "list", "frontier"), visible("runs_read", ToolProfile.DIRECTOR))
         assertEquals(setOf("open", "close", "pause", "resume"), visible("runs_write", ToolProfile.DIRECTOR))
         for (profile in ToolProfile.entries) {
             assertFalse("mark" in visible("runs_write", profile), "mark must be absent on ${profile.wire}")
@@ -235,7 +237,7 @@ class RunsToolsSurfaceTest {
                         .getValue("name")
                         .jsonPrimitive.content
                 }
-        assertEquals(setOf("get", "list"), selects.toSet())
+        assertEquals(setOf("get", "list", "frontier"), selects.toSet())
     }
 
     // ------------------------------------------------------------------ S20 budget, goldens, deltas
