@@ -226,12 +226,10 @@ per reason per 60 seconds, so a flood cannot fill the log; the count rides on th
 count with no later rejection of the same reason is never reported.
 
 That INFO line never carries the token, any claim value, the subject, the `kid` or the verifier's free-text failure
-detail (the detail is logged at DEBUG only). It is not the only line a bad token can cause. A token whose claims are
-malformed can also log its own WARN line without a reason code: an unusable `to_kind` or `to_scope`, a
-`to_capabilities` value that is not a string list or has an unknown value (the line names the value), and a refused
-`scope.root_ids` anchor (the line names the `sub`). Treat WARN output of the identity components as able to carry
-text derived from a token. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no
-rejection line.
+detail (the detail is logged at DEBUG only). It is not the only line a bad token can cause: a token whose custom
+claims are defective also logs the claim-defect WARN described below, which carries a reason code and never the claim
+value. One identity WARN does name a subject: a refused `scope.root_ids` anchor logs the verified `sub`, at most once
+per subject. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no rejection line.
 
 **API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim> reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants: `to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value` (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT verification fault: reason=internal suppressed=<n>` on the same logger. Each key (`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides on the first line of the next window, as for rejections. Neither line carries the token, a claim value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an unknown `kid` logs the fetch error only, never the `kid`.
 
