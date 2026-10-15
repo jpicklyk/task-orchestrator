@@ -339,22 +339,15 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `S20 the planned directory keeps the one runs delta left after R24 and no full runs entry`() {
+    fun `S20 the planned directory keeps no runs delta after R26 and no full runs entry`() {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertNull(resource("planned/$file.json"), "$file.json is stale once the tool is visible")
         }
-        assertNotNull(
-            resource("planned/runs_write.orchestration.delta.json"),
-            "runs_write.orchestration.delta.json keeps the `block` property no item has shipped yet"
-        )
+        assertNull(resource("planned/runs_write.orchestration.delta.json"), "R26 shipped the `block` property, so its delta is gone")
         assertNull(resource("planned/runs_read.orchestration.delta.json"), "R22 shipped the seats select, so its delta is gone")
         // R24 shipped decisions, decision, ack, answer and withdraw: both director deltas are spent.
         assertNull(resource("planned/runs_read.director.delta.json"), "R24 shipped the decisions and decision selects")
         assertNull(resource("planned/runs_write.director.delta.json"), "R24 shipped ack, answer and withdraw")
-
-        fun keys(file: String): Set<String> = Json.parseToJsonElement(assertNotNull(resource("planned/$file")).readText()).jsonObject.keys
-        // R24 ships `raise` without `block` (R26 owns the blocked-reason column, task-scope D1): `block` is all that remains.
-        assertEquals(setOf("block"), keys("runs_write.orchestration.delta.json"))
     }
 
     // ------------------------------------------------------------------ MCP behaviour

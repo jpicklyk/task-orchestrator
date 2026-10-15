@@ -1,6 +1,0 @@
-{
-  "block": {
-    "type": "boolean",
-    "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
-  }
-}

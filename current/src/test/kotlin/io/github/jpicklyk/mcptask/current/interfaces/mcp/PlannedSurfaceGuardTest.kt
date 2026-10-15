@@ -249,7 +249,8 @@ class PlannedSurfaceGuardTest {
             totals.getValue(ToolProfile.DIRECTOR).planned > 0,
             "director has planned files (runs_read, runs_write, the report delta)"
         )
-        assertTrue(totals.getValue(ToolProfile.ORCHESTRATION).planned > 0, "orchestration has planned files")
+        // R26 shipped the last orchestration planned properties (advance reason and decisionId, raise block), so none remain.
+        assertEquals(0, totals.getValue(ToolProfile.ORCHESTRATION).planned, "no orchestration delta remains after R26")
     }
 
     @Test
@@ -473,19 +474,12 @@ class PlannedSurfaceGuardTest {
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the three delta files left after R24`() {
+    fun `S17 the planned directory holds exactly the one delta file left after R26`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
         // stale; R22 shipped the `seats` select (the whole runs_read orchestration delta) and R24 shipped the decision members (the
-        // whole runs_read and runs_write director deltas, and all of the runs_write orchestration delta but `block`); what the later
-        // items still add stays reserved as deltas.
-        assertEquals(
-            setOf(
-                "runs_write.orchestration.delta.json",
-                "report.director.delta.json",
-                "advance.orchestration.delta.json"
-            ),
-            planned().keys
-        )
+        // whole runs_read and runs_write director deltas, and all of the runs_write orchestration delta but `block`) and R26 shipped
+        // `block` and the advance `reason` and `decisionId`; what the later items still add stays reserved as deltas.
+        assertEquals(setOf("report.director.delta.json"), planned().keys)
     }
 
     @Test
@@ -501,10 +495,10 @@ class PlannedSurfaceGuardTest {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertTrue("$file.json" !in names, "$file.json is stale once the tool is visible and must be replaced by a delta")
         }
-        assertTrue(
-            "runs_write.orchestration.delta.json" in names,
-            "runs_write.orchestration.delta.json keeps the budget of the `block` property no item has shipped yet"
-        )
+        // R26 shipped `block` (raise) and the advance `reason` and `decisionId`, so no orchestration delta remains.
+        for (file in listOf("runs_write.orchestration.delta.json", "advance.orchestration.delta.json")) {
+            assertTrue(file !in names, "R26 shipped what $file reserved: it no longer reserves anything")
+        }
         // R22 shipped every member the runs_read orchestration delta reserved (`seats` with itemId and ended), so nothing is left to reserve.
         assertTrue("runs_read.orchestration.delta.json" !in names, "R22 shipped the seats select: no runs_read orchestration delta remains")
         // R24 shipped every member the two director deltas reserved (decisions, decision, ack, answer, withdraw).
@@ -514,18 +508,9 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S17 the runs delta adds exactly the property of the member no item has shipped yet`() {
+    fun `S17 the report delta adds exactly the property R9 gives`() {
         val files = planned()
-        // R22 shipped assign (itemId, seat, hints) and end_seat (outcome, summary, links) and R24 shipped the decision `raise`
-        // request without `block` (R26 owns the blocked-reason column), so `block` is all that remains of the orchestration delta.
-        assertEquals(setOf("block"), files.getValue("runs_write.orchestration.delta.json").keys)
-    }
-
-    @Test
-    fun `S17 the other two deltas add exactly the properties decision D5 and R9 give`() {
-        val files = planned()
-        // R22 shipped the heartbeat `usage`, so only the blocked-reason properties of R24 remain.
-        assertEquals(setOf("reason", "decisionId"), files.getValue("advance.orchestration.delta.json").keys)
+        // R22 shipped the heartbeat `usage` and R26 shipped the blocked-reason properties, so only the report runId remains.
         assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
     }
 

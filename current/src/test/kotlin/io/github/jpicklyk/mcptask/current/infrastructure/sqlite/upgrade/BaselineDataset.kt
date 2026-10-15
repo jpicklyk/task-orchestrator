@@ -206,6 +206,10 @@ object BaselineDataset {
             "original_claimed_at" to if (claim) DB_TS else null,
             // V35: a claim held under a seat assignment (dropped below V35, where the column does not exist yet).
             "claim_assignment_id" to if (claim) id("claim-assignment:$name") else null,
+            // V37: the one BLOCKED row waits on a decision, so both typed-blocked columns are non-default in some row (dropped
+            // below V37, where the columns do not exist yet).
+            "blocked_reason" to if (name == "task1") "awaiting_decision" else null,
+            "blocked_ref" to if (name == "task1") id("blocked-ref:$name") else null,
             // V26 lifecycle and pin set on EVERY row (absent below V26, so insert drops them): see pinColumns.
             *pinColumns()
         )

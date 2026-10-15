@@ -172,6 +172,10 @@
                 "low"
               ]
             },
+            "block": {
+              "type": "boolean",
+              "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
