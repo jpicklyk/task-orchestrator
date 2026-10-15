@@ -150,10 +150,7 @@ class MaxStaleUnavailableTest {
         val provider = mockk<JwksKeySetProvider>()
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         coEvery { provider.getKeySet() } answers { if (outage.get()) throw KeySetUnavailableException("key set outage") else result }
-        coEvery { provider.getKeySetForIssuer(any()) } answers {
-            if (outage.get()) throw KeySetUnavailableException("key set outage") else result
-        }
-        coEvery { provider.refreshForUnknownKid(any(), any()) } returns null
+        coEvery { provider.refreshForUnknownKid(any()) } returns null
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider

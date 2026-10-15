@@ -27,8 +27,8 @@ import java.util.Date
 /**
  * Independent test-author coverage for item 3dcfcbab, ADDENDUM 2 (fix cycle round 2, commit
  * 009c4867): the millisecond-truncation gap, exercised against the REST/API-side verifier,
- * [JwksApiVerifier]. Cache-level (JtiReplayCache) tests cannot observe this gap since that cache
- * compares Instants directly, never going through a verifier's own exp/skew arithmetic.
+ * [JwksApiVerifier]; a check that compares Instants directly never goes through a verifier's own
+ * exp/skew arithmetic and so cannot observe this gap.
  *
  * Oracles:
  *  - RFC 7519 s4.1.4 (exp): implementers MAY allow "a small leeway" for clock skew -- here

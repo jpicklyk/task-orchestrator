@@ -63,7 +63,6 @@ class JwksApiVerifierTest {
         coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
-        coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
         return provider
     }
 
@@ -72,7 +71,6 @@ class JwksApiVerifierTest {
         coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(ecKey.toPublicJWK())), freshCacheState)
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
-        coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(JWKSet(listOf(ecKey.toPublicJWK())), freshCacheState)
         return provider
     }
 

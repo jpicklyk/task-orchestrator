@@ -110,8 +110,6 @@ class P5bWriteUnitGuardsTest {
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1
-            infrastructure/identity/did/DidDocumentJwksExtractor.kt 1
-            infrastructure/identity/did/DidWebResolver.kt 4
             infrastructure/config/GlobalConfigFile.kt 3
             infrastructure/identity/jwt/JwksKeySetProvider.kt 5
             infrastructure/config/YamlConfigDocumentParser.kt 1

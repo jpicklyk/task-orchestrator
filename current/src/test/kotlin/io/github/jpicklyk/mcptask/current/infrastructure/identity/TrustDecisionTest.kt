@@ -135,12 +135,10 @@ class TrustDecisionTest {
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), cache)
         if (unavailable) {
             coEvery { provider.getKeySet() } throws KeySetUnavailableException("key set never fetched")
-            coEvery { provider.getKeySetForIssuer(any()) } throws KeySetUnavailableException("key set never fetched")
         } else {
             coEvery { provider.getKeySet() } returns result
-            coEvery { provider.getKeySetForIssuer(any()) } returns result
         }
-        coEvery { provider.refreshForUnknownKid(any(), any()) } returns null
+        coEvery { provider.refreshForUnknownKid(any()) } returns null
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider
@@ -366,8 +364,7 @@ class TrustDecisionTest {
         val provider = mockk<JwksKeySetProvider>()
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         coEvery { provider.getKeySet() } answers { if (down) throw KeySetUnavailableException("outage") else result }
-        coEvery { provider.getKeySetForIssuer(any()) } answers { if (down) throw KeySetUnavailableException("outage") else result }
-        coEvery { provider.refreshForUnknownKid(any(), any()) } returns null
+        coEvery { provider.refreshForUnknownKid(any()) } returns null
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         val resolver = CredentialResolver(emptyMap(), JwksApiVerifier(jwksConfig(), provider))

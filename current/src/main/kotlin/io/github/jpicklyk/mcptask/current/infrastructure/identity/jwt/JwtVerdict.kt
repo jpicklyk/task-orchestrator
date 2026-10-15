@@ -12,7 +12,7 @@ enum class FailureKind(
     /** A claim is missing, malformed, out of time bounds or mismatched. */
     CLAIMS("claims"),
 
-    /** A configured policy refused the token (algorithm, untrusted issuer, replayed jti). */
+    /** A configured policy refused the token (the algorithm allowlist). */
     POLICY("policy"),
 
     /** An unexpected exception inside the verifier. */

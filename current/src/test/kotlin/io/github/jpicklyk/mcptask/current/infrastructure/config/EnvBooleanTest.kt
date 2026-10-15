@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
 class EnvBooleanTest {
     /**
      * Captures WARN-level log records emitted by [EnvBoolean] during [block]. Mirrors the Logback
-     * ListAppender convention already used in DidDocumentJwksExtractorTest.
+     * ListAppender convention used across the test suite.
      */
     private fun captureWarnLogs(block: () -> Unit): List<String> {
         val logbackLogger = LoggerFactory.getLogger(EnvBoolean::class.java.name) as Logger

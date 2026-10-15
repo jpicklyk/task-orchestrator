@@ -110,9 +110,9 @@ dependencies {
     // Ktor HTTP client — used by JwksKeySetProvider for JWKS URI and OIDC discovery fetching
     implementation(libs.ktor.client.cio)
 
-    // JWT / JWKS — used by JwksActorVerifier for JWT validation against JWKS key sets
+    // JWT / JWKS — used by JwtVerifier for JWT validation against JWKS key sets
     implementation(libs.nimbus.jose.jwt)
-    // Google Tink — required at runtime by nimbus Ed25519Verifier for EdDSA/Ed25519 JWT verification
+    // Google Tink — required at runtime by nimbus Ed25519Verifier; Tink serves EdDSA (Ed25519) verification on the API path (JwtVerifier)
     implementation(libs.google.tink)
 
     // Testing
