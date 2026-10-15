@@ -954,7 +954,10 @@ runs without it and is `invalid_request` on `/unmarked` together with a `status`
 seat assignments of one run, oldest first: active ones, or every one with `ended: true`, optionally only those on
 `itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
 endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
-or the bound principal). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
+or the bound principal) and `frontier` (`{runId, status, stalled, counts, ready, inFlight, waiting}`: the ready members,
+the active member seats with their stalled flag and the waiting members with a reason, `manual` or `dependency`; item
+ids are 8-hex short ids; members and blockers outside the token's scope are left out; also served on
+`/ops/director/runs_read`). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
 `end_seat`, each needing `runs`. A run is as visible as its root:
 `get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
 permission rule and before `not_found` could differ, and `list` leaves such runs out. Under a restricted scope an
@@ -987,7 +990,8 @@ anything else (empty, not a string, unknown, ended, superseded, another principa
 fixed message `The seat token is not accepted.` and no detail, checked before anything else in the body is read. A
 call under a token drops ADMIN (no principal visibility, no `takeover`, root writes only with an unrestricted scope),
 records its run and seat on its events and call-log row, refreshes the seat's `lastSeenAt` on a write tool (at most
-every 5 seconds; the coordinator token also refreshes the run's `coordinatorSeenAt`), and keys idempotency records by
+every 5 seconds; the coordinator token also refreshes the run's `coordinatorSeenAt`; a `describe: true` call, like any
+read, never refreshes it), and keys idempotency records by
 `<principal>#<assignmentId>`. A claim taken under a token is held by the pair (principal, assignment): only a call
 under the same token is its holder for heartbeat, release, transition and every fenced write, and a claim no longer
 auto-releases the other claims of a sibling seat of the same principal; a stdio or local agent that presents a
@@ -998,7 +1002,7 @@ the note's attribution seat (`notes.seat`), which the independence gate pairs wi
 kept), which needs a token. `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
 nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
-`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `version`, ...); `close` adds `snapshot`, `mark` adds
+`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
 **Faults.** Every fault answers an envelope and is checked in this order:
@@ -1040,7 +1044,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get` and `list`; `runs_write` `open`, `close`, `pause` and `resume`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list` and `frontier`; `runs_write` `open`, `close`, `pause` and `resume`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
@@ -1162,7 +1166,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Bulk-write note:** `items_write` `create_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge, `note.upserted` per note and `document.adopted` for a `docRef`, all after the element's unit commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`, and one `document.deleted` per document anchored to the item (archived and adopted ones included), before those.
 
-**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`) and seat assignments (`seat.assigned`). These are audit rows and are not streamed; the stream carries only the event types listed above.
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, config version creation (`config.version_created`), document writes and adoption (`document.created`, `document.updated`, `document.archived`, `document.deleted`, `document.adopted`) and config pins (`item.pinned`) and seat assignments (`seat.assigned`). These are audit rows and are not streamed; the stream carries only the event types listed above. A `claim.expired` row's data is `{holder, expiresAt, reason}`: `reason` is `expired` (found lapsed by a sweep, an advance or a release) or `displaced` (another holder pair claimed the item over the lapsed claim), and a displaced row also carries `displacedBy`, the new holder's assignment id or null. The `claim` op result reports the same take-over as `displaced` (see [`api-reference.md`](api-reference.md#advance)).
 
 **Who records what (4.0).** Each write service records its own rows, in its own transaction: the
 item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one

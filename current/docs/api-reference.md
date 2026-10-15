@@ -41,7 +41,7 @@ over MCP.
 |---|---|---|---|
 | `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`) and `runs_write` (`open`, `close`, `pause`, `resume` only): no read that can return a note, document or transition-summary body, and no other write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`) and `runs_write` (`open`, `close`, `pause`, `resume` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
@@ -63,7 +63,7 @@ REST-only members included. The `initialize` `instructions` is one sentence nami
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
 | `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree: items per role, blocked, transitions, notes written and call cost); director profile only on MCP |
-| `runs_read` | Runs | Read | Get one run or list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`); orchestration and director profiles |
+| `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only) |
 | `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs: ops of one 4.0 tool; `mark` is REST only |
 
 ---
@@ -1231,7 +1231,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 | Op | Result element (on top of `ok: true`) |
 |---|---|
 | `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
-| `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?}` |
+| `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
 | `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
 
@@ -1261,7 +1261,12 @@ must take over a claimed item waits out the claim TTL.
 
 **Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor) and listed in
 `released` (omitted when none). `version` is the item's row version (claim writes never bump it). The holder claiming
-again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
+again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). A claim that takes the item over the lapsed claim of a
+different holder pair (principal, assignment) reports `displaced: {assignmentId?, expiredAt, principal?}`: the displaced seat
+assignment (omitted for a principal-level holder), when its claim expired, and its principal only for a caller that may see
+principals (ADMIN, outside a seat token). The same unit records that claim's one `claim.expired` row with `reason: "displaced"` and
+`displacedBy` (the new holder's assignment id, or null), unless an expiry sweep or advance already recorded it (`reason:
+"expired"`). Claiming an unclaimed item, or re-claiming the caller's own lapsed claim, reports no `displaced`. `heartbeat` is the same refresh but never takes an item:
 it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). For claim, release and
 heartbeat the holder id is the principal's audited id (`api:<id>` for a credential, `local` for the local principal); no policy can reject it. The holder's identity never appears in any error detail.
 
@@ -1339,7 +1344,7 @@ Move items through their phases and manage who owns them. Each ops[] element has
 
 Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.
+**`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs. Taking over another holder's lapsed claim adds displaced {assignmentId?, expiredAt, principal?}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2021,8 +2026,8 @@ the envelope request and every answer is the response envelope. Each field is do
 
 ### runs_read
 
-**Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix) and `list` (a page of runs, `openedAt` descending
-then id). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
+**Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (a page of runs, `openedAt` descending
+then id), `seats` (orchestration only) and `frontier` (below). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
 `unmarked` (a mark key; only closed runs that do not carry it, so combining it with a `status` other than `closed` is
 `invalid_request` on `/unmarked`). A run is as visible as its root: `get` of a run whose root is outside the caller's scope is
 `forbidden` (never `not_found`), and `list` leaves such runs out.
@@ -2030,13 +2035,34 @@ then id). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compar
 **The run view** (every `runs_read` and `runs_write` result): `{runId, rootId, scopeId?, label?, title?, status,
 pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, coordinatorSeenAt?,
 coordinatorStalled, stallAfterSeconds, budget?: {tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}, usage:
-{reportedTokens, reportedCostUsd, observedTokens}, hints, marks, members, activeSeats, version}`. Absent members are
-omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD.
+{reportedTokens, reportedCostUsd, observedTokens}, hints, marks, members, activeSeats, stalledSeats, version}`. Absent
+members are omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD. `activeSeats` counts the active
+member seats (never the coordinator) and `stalledSeats` those of them that are stalled.
+
+**Stalled.** One rule for seats and the coordinator: stalled when the time since last seen is strictly longer than the
+run's own `stallAfterSeconds` (pinned at open; never re-read from config), compared exactly. A seat is last seen at its
+`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. Only a write tool
+called with the seat's token (an `advance` `heartbeat` included) refreshes them; a read, or a `describe: true` call on any
+tool, never does. A closed run is
+never stalled. Stalled is a derived view only: nothing is ended, released or raised.
+
+**Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, ready:
+[{id, title, role, type?}], inFlight: [{id, role, seat, attempt, lastSeenAt?, stalled}], waiting: [{id, reason,
+blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
+`stalled` is the coordinator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
+the visible members, every role present. `ready` (membership order) holds the members that are neither terminal nor
+blocked, have no active seat, no unsatisfied blocking dependency and no live claim held outside the run (a claim whose
+holder pair is not an active assignee of this run, the coordinator included; an expired claim never counts); it is
+always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
+member seats, never the coordinator. `waiting` (membership order): a blocked member has `reason: manual`; a member with
+an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
+Under a restricted scope, members and blockers outside it are left out; a blocker outside it still keeps its item
+waiting. No body, summary, token, principal or assignment id is shown.
 
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_read -->
-Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments). A run is outside the call scope when its root is.
+Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments) or frontier (ready, in-flight and waiting members). A run is outside the call scope when its root is.
 
 **`runs_read` select `get`** (orchestration and director profiles; capability `read`): Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call scope is forbidden, not not_found.
 
@@ -2066,6 +2092,14 @@ Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_fo
 | `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
 | `itemId` | string | no | Only the seats on this item (a UUID or a hex prefix). |
 | `ended` | boolean | no | true: include ended seats; default only active ones. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `frontier`** (orchestration and director profiles; capability `read`): A run's frontier: member counts by role, the ready members (no active seat, no unmet dependency, no claim held outside the run; none on a closed run), the active seats with their stalled flag, and the waiting members with a reason. Members and blockers outside the call scope are left out.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool runs_read -->

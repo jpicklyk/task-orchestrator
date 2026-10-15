@@ -744,8 +744,9 @@ class RunsSeatOpsTest {
             visibleNames(write, ToolProfile.DIRECTOR).toSet(),
             "the director sees neither new op"
         )
-        assertEquals(setOf("get", "list", "seats"), visibleNames(read, ToolProfile.ORCHESTRATION).toSet())
-        assertEquals(setOf("get", "list"), visibleNames(read, ToolProfile.DIRECTOR).toSet(), "the director does not see seats")
+        // R25 adds the frontier select to both profiles (task-scope Build 3); seats stays orchestration only
+        assertEquals(setOf("get", "list", "seats", "frontier"), visibleNames(read, ToolProfile.ORCHESTRATION).toSet())
+        assertEquals(setOf("get", "list", "frontier"), visibleNames(read, ToolProfile.DIRECTOR).toSet(), "the director does not see seats")
         assertEquals(emptySet(), visibleNames(write, ToolProfile.KNOWLEDGE).toSet())
     }
 
@@ -792,7 +793,7 @@ class RunsSeatOpsTest {
 
         val read = rendered("runs_read", ToolProfile.ORCHESTRATION).properties()
         assertEquals(
-            setOf("get", "list", "seats"),
+            setOf("get", "list", "seats", "frontier"),
             read
                 .getValue("select")
                 .jsonObject

@@ -1,10 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
@@ -144,6 +151,24 @@ class LifecycleResponseBudgetTest {
         return body
     }
 
+    /**
+     * Calls `runs_read` through the production dispatcher on the orchestration profile and records the char count of the whole
+     * envelope body an MCP client receives as `structuredContent`.
+     */
+    private suspend fun measureRunsRead(
+        label: String,
+        params: JsonObject
+    ): JsonObject {
+        val spec = checkNotNull(ToolRegistry(buildToolSpecs())["runs_read"]) { "runs_read is not registered" }
+        val body =
+            buildToolDispatcher(context)
+                .dispatch(spec, ToolProfile.ORCHESTRATION, params, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.LOCAL)
+                .envelope.body
+        assertTrue(body["ok"]?.jsonPrimitive?.content == "true", "runs_read must answer ok: $body")
+        measured[label] = body.toString().length
+        return body
+    }
+
     // ──────────────────────────────────────────────
     // BUDGET PHILOSOPHY — see class doc.
     // ──────────────────────────────────────────────
@@ -156,6 +181,7 @@ class LifecycleResponseBudgetTest {
             "advance(start -> review)" to 400,
             "advance(start -> terminal)" to 400,
             "items_read(next)" to 300,
+            "runs_read(frontier)" to 450,
         )
 
     @Test
@@ -216,6 +242,39 @@ class LifecycleResponseBudgetTest {
                     .first { it.jsonObject["ref"]!!.jsonPrimitive.content == "t1" }
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
+
+            // ── 1b. fixture: an open run over t1 (ready) and t2 (waiting behind t1), then runs_read frontier ──
+            val provider = db.repositoryProvider()
+            val t2Id =
+                UUID.fromString(
+                    created["items"]!!
+                        .jsonArray
+                        .first { it.jsonObject["ref"]!!.jsonPrimitive.content == "t2" }
+                        .jsonObject["id"]!!
+                        .jsonPrimitive.content
+                )
+            val t1Item = checkNotNull(provider.workItemRepository().getById(UUID.fromString(t1Id)))
+            val runId = UUID.nameUUIDFromBytes("lifecycle-budget-run".toByteArray())
+            ParitySeeder(provider.workItemRepository(), provider.dependencyRepository(), provider, db.unitOfWork())
+                .run(
+                    runId,
+                    rootId = t1Item.rootId ?: checkNotNull(t1Item.parentId),
+                    items = listOf(t1Item.id, t2Id),
+                    openedBy = "test-actor"
+                )
+            val frontier =
+                measureRunsRead(
+                    "runs_read(frontier)",
+                    buildJsonObject {
+                        put("select", JsonPrimitive("frontier"))
+                        put("runId", JsonPrimitive(runId.toString()))
+                    }
+                )
+            assertTrue(
+                frontier["data"]!!.jsonObject["ready"]!!.jsonArray.size == 1 &&
+                    frontier["data"]!!.jsonObject["waiting"]!!.jsonArray.size == 1,
+                "fixture: the measured frontier carries one ready and one waiting member: $frontier"
+            )
 
             // ── 2. items_read context, health view (session bootstrap) ──
             measureEnvelope("items_read(context health)", contextProbe, buildJsonObject {})

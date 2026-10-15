@@ -60,7 +60,8 @@ data class Dispatched(
  *    anything else (empty, not a string, unknown, ended, another principal's) is the one fixed `unauthenticated` answer
  *    with no detail. A valid token narrows the access (ADMIN is dropped: what ADMIN granted becomes the explicit
  *    non-admin capabilities, principal visibility, takeover and root writes follow), sets [CallContext.seat], stamps
- *    the run and seat on the call telemetry and, for an ops tool, touches the seat's `last_seen_at`. Under a token the
+ *    the run and seat on the call telemetry and, for an ops tool other than a `describe` call, touches the seat's
+ *    `last_seen_at` (a describe is read-only and never counts as liveness). Under a token the
  *    idempotency principal is `<principal>#<assignmentId>`, so seats sharing one principal never replay each other.
  * 1. **Access** (Q6). The access's scope reaches handlers as `CallContext.scope`, and its capabilities are checked
  *    against each select/op (`Set<ApiCapability>.grants`; ADMIN grants all). A select lacking the capability answers
@@ -110,10 +111,7 @@ class ToolDispatcher(
                     null
                 }
             val effective = if (seat != null) narrowForSeat(access) else access
-            if (seat != null) {
-                recordCallRun(seat.runId, seat.seat)
-                if (spec is OpsToolSpec<*>) env.seatService.touch(seat)
-            }
+            if (seat != null) recordCallRun(seat.runId, seat.seat)
             val ctx =
                 CallContext(
                     reqId,
@@ -137,6 +135,8 @@ class ToolDispatcher(
                         return Dispatched(describe(spec, profile, arguments, reqId), DESCRIBE_OPERATION, null)
                     }
             }
+            // Liveness (R25 Ruling A): only a token-carrying ops call touches the seat; describe (answered above) never does.
+            if (seat != null && spec is OpsToolSpec<*>) env.seatService.touch(seat)
 
             when (spec) {
                 is SelectToolSpec -> {
