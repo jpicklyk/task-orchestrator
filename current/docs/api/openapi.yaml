@@ -919,7 +919,7 @@ paths:
         daily basis). `gates` and `contention` read events: a tag-scoped token is not refused and sees only the events
         whose item currently carries an allowed tag, and a root-scoped token sees only the events of its roots.
 
-        The `runs_read` tool (`get`, `list`, `seats`; capability `read`) and the `runs_write` tool (`open`, `update`,
+        The `runs_read` tool (`get`, `list`, `seats`, `frontier`; capability `read`) and the `runs_write` tool (`open`, `update`,
         `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`; capability `runs`) serve runs. A run is as visible as
         its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
         rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's coordinator credential (shown once).
@@ -930,7 +930,9 @@ paths:
         `assign{runId, itemId, seat, hints?}` returns `{assignmentId, seatToken, attempt}` (an unknown seat is
         `not_found`, `detail.kind: seat`); `end_seat{outcome, summary?, links?}` returns `{assignmentId, itemId, seat,
         attempt, outcome, endedAt, released}`; `seats{runId, itemId?, ended?}` returns `{runId, seats}` without any
-        token. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
+        token. `frontier{runId}` returns `{runId, status, stalled, counts, ready, inFlight, waiting}` (item ids are
+        8-hex short ids; members and blockers outside the token's scope are left out). Every run view carries
+        `activeSeats` and `stalledSeats`. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
         `marked: false` reports a replay.
         Any body may carry a top-level `seatToken` (every tool): it is accepted only while its assignment is active
         and only from the principal it was issued to; otherwise the call is `401 unauthenticated` with the fixed
@@ -1017,7 +1019,7 @@ paths:
       description: |
         The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
         envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
-        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`; `runs_write` `open`,
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`, `frontier`; `runs_write` `open`,
         `close`, `pause`, `resume`). For a member of that set the envelope is
         byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 

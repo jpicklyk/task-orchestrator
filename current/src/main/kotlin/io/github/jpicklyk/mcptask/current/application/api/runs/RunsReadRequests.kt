@@ -33,6 +33,12 @@ data class RunsGetRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef
 )
 
+/** `runs_read frontier`: the ready, in-flight and waiting members of one run. */
+@Serializable
+data class RunsFrontierRequest(
+    @Doc(RUN_ID_DOC) val runId: IdRef
+)
+
 /** `runs_read seats`: the seat assignments of one run. */
 @Serializable
 data class RunsSeatsRequest(

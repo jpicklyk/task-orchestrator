@@ -954,7 +954,10 @@ runs without it and is `invalid_request` on `/unmarked` together with a `status`
 seat assignments of one run, oldest first: active ones, or every one with `ended: true`, optionally only those on
 `itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
 endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
-or the bound principal). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
+or the bound principal) and `frontier` (`{runId, status, stalled, counts, ready, inFlight, waiting}`: the ready members,
+the active member seats with their stalled flag and the waiting members with a reason, `manual` or `dependency`; item
+ids are 8-hex short ids; members and blockers outside the token's scope are left out; also served on
+`/ops/director/runs_read`). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
 `end_seat`, each needing `runs`. A run is as visible as its root:
 `get` and every write answer `forbidden` (`root` or `tag`) for a run whose root is outside the token's scope, before any
 permission rule and before `not_found` could differ, and `list` leaves such runs out. Under a restricted scope an
@@ -995,7 +998,7 @@ the note's attribution seat (`notes.seat`), which the independence gate pairs wi
 kept), which needs a token. `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
 nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
-`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `version`, ...); `close` adds `snapshot`, `mark` adds
+`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
 **Faults.** Every fault answers an envelope and is checked in this order:
@@ -1037,7 +1040,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get` and `list`; `runs_write` `open`, `close`, `pause` and `resume`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list` and `frontier`; `runs_write` `open`, `close`, `pause` and `resume`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",

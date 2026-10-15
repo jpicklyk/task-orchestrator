@@ -92,7 +92,7 @@ internal object RunsSupport {
         }
     }
 
-    /** [run] as its wire view: the member count and active seats are read now. */
+    /** [run] as its wire view: the member count and the active seats (one seat read) are read now. */
     suspend fun view(
         env: ToolExecutionContext,
         stores: RepositoryProvider,
@@ -101,7 +101,7 @@ internal object RunsSupport {
         RunView.of(
             run = run,
             members = stores.runStore().members(run.id).size,
-            activeSeats = env.runService.activeSeats(run.id),
+            seats = stores.runSeatStore().list(run.id),
             now = env.clock.now()
         )
 
