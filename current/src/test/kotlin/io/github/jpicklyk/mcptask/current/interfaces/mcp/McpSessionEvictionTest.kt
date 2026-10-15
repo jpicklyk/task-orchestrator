@@ -50,6 +50,8 @@ internal class FakeSdkSessions(
         ended += sessionId
         live.remove(sessionId)
     }
+
+    override suspend fun endOrphans(): Int = 0
 }
 
 /** A [FakeSdkSessions] that already serves [ids]. */
