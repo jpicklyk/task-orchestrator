@@ -67,6 +67,7 @@ class RedactionTest {
             "terminalReason",
             "pauseReason",
             "pauseDecisionId",
+            "decisionId",
             "status",
         )
 
@@ -153,9 +154,9 @@ class RedactionTest {
     }
 
     @Test
-    fun `S15 walk covers all 26 detail classes and their nested value types`() {
+    fun `S15 walk covers all 27 detail classes and their nested value types`() {
         val owners = allFieldsWalked().map { it.first.simpleName }.toSet()
-        assertEquals(26, allDetailClasses().size)
+        assertEquals(27, allDetailClasses().size)
         for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation", "GateViolation")) {
             assertTrue(nested in owners, "nested value type $nested was not walked")
         }

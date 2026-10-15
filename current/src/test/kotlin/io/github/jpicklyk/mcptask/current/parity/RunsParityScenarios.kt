@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -91,6 +94,19 @@ internal object RunsParityScenarios {
     /** A well-formed run id no run carries. */
     val ghost: UUID = UUID.fromString("99999999-9999-4999-8999-999999999999")
 
+    /** R24 decisions: an open one on R1, an open one on R2, an answered one on R1 and an acknowledged one on R1 (all `question`, any-actor). */
+    val dcOpen: UUID = UUID.fromString("d1000001-0000-4000-8000-000000000001")
+    val dcOther: UUID = UUID.fromString("d1000002-0000-4000-8000-000000000002")
+    val dcDone: UUID = UUID.fromString("d1000003-0000-4000-8000-000000000003")
+    val dcAck: UUID = UUID.fromString("d1000004-0000-4000-8000-000000000004")
+
+    /** An open `deviation` decision on R1 (director-or-human, not freeform). */
+    val dcDev: UUID = UUID.fromString("d1000005-0000-4000-8000-000000000005")
+
+    /** Two decisions whose ids share the 8-hex prefix `ac000000`. */
+    val dcAm1: UUID = UUID.fromString("ac000000-0000-4000-8000-000000000001")
+    val dcAm2: UUID = UUID.fromString("ac000000-0000-4000-8000-000000000002")
+
     private fun at(text: String): Instant = Instant.parse(text)
 
     /** The known token of [run]'s seeded coordinator seat (the principal is the opener, `api:rw-coord`). */
@@ -115,6 +131,13 @@ internal object RunsParityScenarios {
     val humanRootScoped =
         ParityToken("rw-human-root", setOf(ApiCapability.RUNS, ApiCapability.READ), rootIds = setOf(r1), kind = PrincipalKind.HUMAN)
     val agent = ParityToken("rw-agent", setOf(ApiCapability.RUNS, ApiCapability.READ), kind = PrincipalKind.AGENT)
+
+    /** R24: the token that may ack and answer (the `decide` capability), unrestricted and scoped to R1. */
+    val decider = ParityToken("rw-decider", setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE))
+    val humanDecider =
+        ParityToken("rw-human-decider", setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE), kind = PrincipalKind.HUMAN)
+    val deciderRootScoped =
+        ParityToken("rw-decider-root", setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE), rootIds = setOf(r1))
 
     /** The identity every seeded run was opened by. */
     private const val OPENER = "api:rw-coord"
@@ -335,6 +358,28 @@ internal object RunsParityScenarios {
         runId: Any,
         extra: String = ""
     ) = """{"select":"seats","runId":"$runId"$extra}"""
+
+    fun raise(
+        key: String,
+        extra: String = "",
+        cls: String = "question",
+        question: String = "Which one?"
+    ) = """{"op":"raise","class":"$cls","question":"$question","options":[{"key":"a","label":"Label A"},{"key":"b","label":"Label B"}],""" +
+        """"dedupeKey":"$key"$extra}"""
+
+    fun ack(decisionId: Any) = """{"op":"ack","decisionId":"$decisionId"}"""
+
+    fun answer(
+        decisionId: Any,
+        option: String = "a",
+        extra: String = ""
+    ) = """{"op":"answer","decisionId":"$decisionId","option":"$option"$extra}"""
+
+    fun withdraw(decisionId: Any) = """{"op":"withdraw","decisionId":"$decisionId"}"""
+
+    fun decisions(extra: String = "") = """{"select":"decisions"$extra}"""
+
+    fun decision(decisionId: Any) = """{"select":"decision","decisionId":"$decisionId"}"""
 
     private fun ids(vararg ids: Any) = ids.joinToString(",", "[", "]") { "\"$it\"" }
 
@@ -1844,7 +1889,449 @@ internal object RunsParityScenarios {
             )
         )
 
-    val scenarios: List<ParityScenario> = happy + reads + writes + seatScenarios
+    // ------------------------------------------------------------------ R24: decisions (raise, ack, answer, withdraw, decisions, decision)
+
+    private val seedDecisions: suspend ParitySeeder.() -> Unit = {
+        tree()
+        decision(dcOpen, r1, dedupeKey = "seed-open", raisedAt = at("2026-10-10T11:00:00Z"))
+        decision(dcOther, r2, dedupeKey = "seed-other", raisedAt = at("2026-10-10T11:10:00Z"))
+        decision(dcDone, r1, dedupeKey = "seed-done", status = DecisionRequestStatus.ANSWERED, raisedAt = at("2026-10-10T11:20:00Z"))
+        decision(dcAck, r1, dedupeKey = "seed-ack", status = DecisionRequestStatus.ACKNOWLEDGED, raisedAt = at("2026-10-10T11:30:00Z"))
+    }
+
+    /** [seedDecisions] plus an open `deviation` decision (director-or-human, not freeform) on R1. */
+    private val seedDeviation: suspend ParitySeeder.() -> Unit = {
+        seedDecisions()
+        decision(
+            dcDev,
+            r1,
+            decisionClass = "deviation",
+            answerers = DecisionRequestAnswerers.DIRECTOR_OR_HUMAN,
+            severity = DecisionRequestSeverity.NORMAL,
+            dedupeKey = "seed-dev",
+            raisedAt = at("2026-10-10T11:40:00Z")
+        )
+    }
+
+    private val seedAmbiguousDecisions: suspend ParitySeeder.() -> Unit = {
+        tree()
+        decision(dcAm1, r1, dedupeKey = "am-1")
+        decision(dcAm2, r1, dedupeKey = "am-2")
+    }
+
+    /** Never in a body: the principal id of a raiser or answerer, the host and the session id (they are ADMIN-only). */
+    private val hidden = listOf("principalId", "\"host\"", "sessionId")
+
+    /**
+     * The decision members' scenarios. Oracles: task-scope D3 to D8 and D11 (the request and view shapes, the order of the checks, the
+     * dedupe rule, the lifecycle, the reads), plan 3.3 (`question` is `any-actor`, so every caller with the capability may ack and
+     * answer it on both legs; the refusals by kind are route and matrix tests, because the REST leg is served as `rest` and the MCP
+     * leg as `director` by design, as for `pause`), the published `api-reference.md` rows (`runs_read decisions` and `decision`, the
+     * ops and their errors) and the envelope statuses (200, 207 for a failed element, 403 `forbidden`, 404 `not_found`, 409
+     * `ambiguous_id` and `decision_closed`). Seeded decisions are `question` decisions raised by `api:rw-coord`.
+     */
+    val decisionScenarios: List<ParityScenario> =
+        listOf(
+            wrote(
+                "raise happy by root",
+                "raise",
+                ParityKind.HAPPY,
+                coord,
+                ops(raise("new-key", ""","rootId":"$r1"""")),
+                contains = listOf("\"class\":\"question\"", "\"status\":\"open\"", "\"severity\":\"low\""),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            failed(
+                "raise scope root",
+                "raise",
+                rootScoped,
+                ops(raise("new-key", ""","rootId":"$r2"""")),
+                scopeRoot(),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedDecisions
+            ),
+            sc(
+                "raise replay returns the stored decision and writes nothing",
+                WRITE_TOOL,
+                "raise",
+                ParityKind.OTHER,
+                coord,
+                ops(raise("seed-open", ""","rootId":"$r1"""")),
+                200,
+                null,
+                listOf("\"existing\":true", "\"dedupeKey\":\"seed-open\"", "\"raisedAt\":\"2026-10-10T11:00:00Z\"", "\"status\":\"open\""),
+                dbChanged = false,
+                seed = seedDecisions
+            ),
+            sc(
+                "raise replay of an answered decision returns its answer",
+                WRITE_TOOL,
+                "raise",
+                ParityKind.OTHER,
+                coord,
+                ops(raise("seed-done", ""","rootId":"$r1"""")),
+                200,
+                null,
+                listOf("\"existing\":true", "\"dedupeKey\":\"seed-done\"", "\"status\":\"answered\"", "\"answer\":{\"option\":\"a\""),
+                dbChanged = false,
+                seed = seedDecisions
+            ),
+            failed(
+                "raise with another question under the same key is an idempotency mismatch",
+                "raise",
+                coord,
+                ops(raise("seed-open", ""","rootId":"$r1"""", question = "A different question?")),
+                listOf("\"code\":\"idempotency_mismatch\"", "\"idempotencyKey\":\"seed-open\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise with an unknown class",
+                "raise",
+                coord,
+                ops(raise("new-key", ""","rootId":"$r1"""", cls = "nonsense")),
+                listOf("\"code\":\"invalid_request\"", "/class", "must be one of:"),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise of a server-raised class is refused on the tool",
+                "raise",
+                coord,
+                ops(raise("new-key", ""","rootId":"$r1"""", cls = "run-budget")),
+                listOf("\"code\":\"invalid_request\"", "/class", "server-raised"),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise without an item, a run or a root",
+                "raise",
+                coord,
+                ops(raise("new-key")),
+                listOf("\"code\":\"invalid_request\"", "one of itemId, runId or rootId is required"),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise with an unknown item is not_found",
+                "raise",
+                coord,
+                ops(raise("new-key", ""","itemId":"$ghost"""")),
+                listOf("\"code\":\"not_found\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise with a root that is not the item's root",
+                "raise",
+                coord,
+                ops(raise("new-key", ""","itemId":"$c1","rootId":"$r2"""")),
+                listOf("\"code\":\"invalid_request\"", "/rootId"),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise with a field of another op",
+                "raise",
+                coord,
+                ops(raise("new-key", ""","rootId":"$r1","reason":"cancelled"""")),
+                listOf("\"code\":\"unknown_parameter\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "raise without the runs capability",
+                "raise",
+                reader,
+                ops(raise("new-key", ""","rootId":"$r1"""")),
+                listOf("\"code\":\"forbidden\"", "\"scope\":\"capability\"", "\"required\":\"runs\""),
+                seed = seedDecisions
+            ),
+            wrote(
+                "ack happy",
+                "ack",
+                ParityKind.HAPPY,
+                decider,
+                ops(ack(dcOpen)),
+                contains = listOf("\"$dcOpen\"", "\"status\":\"acknowledged\""),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            failed(
+                "ack scope root",
+                "ack",
+                deciderRootScoped,
+                ops(ack(dcOther)),
+                scopeRoot(),
+                absent = listOf("not_found"),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedDecisions
+            ),
+            sc(
+                "ack of an acknowledged decision returns it unchanged",
+                WRITE_TOOL,
+                "ack",
+                ParityKind.OTHER,
+                decider,
+                ops(ack(dcAck)),
+                200,
+                null,
+                listOf("\"$dcAck\"", "\"status\":\"acknowledged\""),
+                dbChanged = false,
+                seed = seedDecisions
+            ),
+            failed(
+                "ack of an answered decision is decision_closed",
+                "ack",
+                decider,
+                ops(ack(dcDone)),
+                listOf("\"code\":\"decision_closed\"", "\"status\":\"answered\"", "\"decisionId\":\"$dcDone\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "ack without the decide capability",
+                "ack",
+                coord,
+                ops(ack(dcOpen)),
+                listOf("\"code\":\"forbidden\"", "\"scope\":\"capability\"", "\"required\":\"decide\""),
+                seed = seedDecisions
+            ),
+            wrote(
+                "answer happy",
+                "answer",
+                ParityKind.HAPPY,
+                decider,
+                ops(answer(dcOpen, "b", ""","rationale":"safer"""")),
+                contains = listOf("\"$dcOpen\"", "\"status\":\"answered\""),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            failed(
+                "answer scope root",
+                "answer",
+                deciderRootScoped,
+                ops(answer(dcOther)),
+                scopeRoot(),
+                absent = listOf("not_found"),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedDecisions
+            ),
+            failed(
+                "a second answer is decision_closed",
+                "answer",
+                decider,
+                ops(answer(dcDone)),
+                listOf("\"code\":\"decision_closed\"", "\"status\":\"answered\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "answer with an option that is not a key",
+                "answer",
+                decider,
+                ops(answer(dcOpen, "zzz")),
+                listOf("\"code\":\"invalid_request\"", "/option"),
+                seed = seedDecisions
+            ),
+            failed(
+                "answer with text on a class that is not freeform",
+                "answer",
+                humanDecider,
+                ops("""{"op":"answer","decisionId":"$dcDev","option":"a","text":"words"}"""),
+                listOf("\"code\":\"invalid_request\"", "/text"),
+                seed = seedDeviation
+            ),
+            wrote(
+                "answer of a director-or-human decision by a human",
+                "answer",
+                ParityKind.OTHER,
+                humanDecider,
+                ops(answer(dcDev, "b")),
+                contains = listOf("\"$dcDev\"", "\"status\":\"answered\"", "\"kind\":\"human\"", "\"proofStatus\":\"issued\""),
+                seed = seedDeviation
+            ),
+            wrote(
+                "answer with text on a freeform class",
+                "answer",
+                ParityKind.OTHER,
+                decider,
+                ops("""{"op":"answer","decisionId":"$dcOpen","text":"my own words"}"""),
+                contains = listOf("\"$dcOpen\"", "\"status\":\"answered\"", "\"text\":\"my own words\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "answer of an unknown decision is not_found",
+                "answer",
+                decider,
+                ops(answer(ghost)),
+                listOf("\"code\":\"not_found\"", "\"kind\":\"decision\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "answer through a shared prefix is ambiguous",
+                "answer",
+                decider,
+                ops(answer("ac000000")),
+                listOf("\"code\":\"ambiguous_id\""),
+                seed = seedAmbiguousDecisions
+            ),
+            wrote(
+                "answer through a unique 8-hex prefix",
+                "answer",
+                ParityKind.OTHER,
+                decider,
+                ops(answer("d1000001")),
+                contains = listOf("\"$dcOpen\"", "\"status\":\"answered\"", "\"profile\":\"<PROFILE>\""),
+                seed = seedDecisions
+            ),
+            failed(
+                "answer without the decide capability",
+                "answer",
+                coord,
+                ops(answer(dcOpen)),
+                listOf("\"code\":\"forbidden\"", "\"scope\":\"capability\"", "\"required\":\"decide\""),
+                seed = seedDecisions
+            ),
+            wrote(
+                "withdraw happy by the raiser",
+                "withdraw",
+                ParityKind.HAPPY,
+                coord,
+                ops(withdraw(dcOpen)),
+                contains = listOf("\"$dcOpen\"", "\"status\":\"withdrawn\""),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            failed(
+                "withdraw scope root",
+                "withdraw",
+                rootScoped,
+                ops(withdraw(dcOther)),
+                scopeRoot(),
+                absent = listOf("principal_kind"),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedDecisions
+            ),
+            failed(
+                "withdraw by a principal that is not the raiser is refused",
+                "withdraw",
+                other,
+                ops(withdraw(dcOpen)),
+                principalKind("coordinator,raiser"),
+                seed = seedDecisions
+            ),
+            failed(
+                "withdraw of an answered decision is decision_closed",
+                "withdraw",
+                coord,
+                ops(withdraw(dcDone)),
+                listOf("\"code\":\"decision_closed\"", "\"status\":\"answered\""),
+                seed = seedDecisions
+            ),
+            read(
+                "decisions happy",
+                "decisions",
+                ParityKind.HAPPY,
+                reader,
+                decisions(),
+                contains =
+                    listOf(
+                        "\"total\":4",
+                        "\"class\":\"question\"",
+                        "\"overdue\":false",
+                        "\"effectiveSeverity\":\"low\"",
+                        "\"status\":\"acknowledged\"",
+                        "\"status\":\"answered\"",
+                        "\"status\":\"open\""
+                    ),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            read(
+                "decisions filtered by root scope",
+                "decisions",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                decisions(),
+                contains = listOf("\"total\":3", "\"raisedAt\":\"2026-10-10T11:00:00Z\"", "\"raisedAt\":\"2026-10-10T11:20:00Z\""),
+                absent = listOf("\"raisedAt\":\"2026-10-10T11:10:00Z\""),
+                seed = seedDecisions
+            ),
+            read(
+                "decisions filtered by the root id",
+                "decisions",
+                ParityKind.OTHER,
+                reader,
+                decisions(""","rootId":"$r2""""),
+                contains = listOf("\"total\":1", "\"raisedAt\":\"2026-10-10T11:10:00Z\""),
+                absent = listOf("\"raisedAt\":\"2026-10-10T11:00:00Z\"", "\"raisedAt\":\"2026-10-10T11:20:00Z\""),
+                seed = seedDecisions
+            ),
+            read(
+                "decisions overdue keeps nothing when nothing has expired",
+                "decisions",
+                ParityKind.OTHER,
+                reader,
+                decisions(""","overdue":true"""),
+                contains = listOf("\"total\":0", "\"items\":[]"),
+                seed = seedDecisions
+            ),
+            read(
+                "decision happy",
+                "decision",
+                ParityKind.HAPPY,
+                reader,
+                decision(dcOpen),
+                contains =
+                    listOf(
+                        "\"class\":\"question\"",
+                        "\"status\":\"open\"",
+                        "\"Label A\"",
+                        "\"question\":\"Which one?\"",
+                        "\"raisedAt\":\"2026-10-10T11:00:00Z\""
+                    ),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            read(
+                "decision scope root",
+                "decision",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                decision(dcOther),
+                403,
+                "forbidden",
+                scopeRoot(),
+                absent = listOf("not_found", "Label A"),
+                seed = seedDecisions
+            ),
+            read(
+                "decision of an answered decision shows the answer and no principal",
+                "decision",
+                ParityKind.OTHER,
+                reader,
+                decision(dcDone),
+                contains = listOf("\"$dcDone\"", "\"status\":\"answered\"", "\"answer\":{"),
+                absent = hidden,
+                seed = seedDecisions
+            ),
+            read(
+                "decision unknown id",
+                "decision",
+                ParityKind.OTHER,
+                reader,
+                decision(ghost),
+                404,
+                "not_found",
+                listOf("\"kind\":\"decision\""),
+                seed = seedDecisions
+            ),
+            read(
+                "decision shared prefix is ambiguous",
+                "decision",
+                ParityKind.OTHER,
+                reader,
+                decision("ac000000"),
+                409,
+                "ambiguous_id",
+                seed = seedAmbiguousDecisions
+            )
+        )
+
+    val scenarios: List<ParityScenario> = happy + reads + writes + seatScenarios + decisionScenarios
 
     /**
      * Every runs member but one touches a run that belongs to a root, so each carries a SCOPE_FORBIDDEN scenario. `end_seat` names
@@ -1872,7 +2359,13 @@ internal object RunsParityScenarios {
             WRITE_TOOL to "mark",
             READ_TOOL to "seats",
             WRITE_TOOL to "assign",
-            WRITE_TOOL to "end_seat"
+            WRITE_TOOL to "end_seat",
+            WRITE_TOOL to "raise",
+            WRITE_TOOL to "ack",
+            WRITE_TOOL to "answer",
+            WRITE_TOOL to "withdraw",
+            READ_TOOL to "decisions",
+            READ_TOOL to "decision"
         )
 }
 
@@ -1992,6 +2485,14 @@ class RunsParityTest {
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", "close"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "pause"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "resume"))
+        // R24: raise is an orchestration member; ack, answer, withdraw, decisions and decision are director members
+        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", "raise"))
+        for (op in listOf("ack", "answer", "withdraw")) {
+            assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", op), op)
+        }
+        for (select in listOf("decisions", "decision")) {
+            assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_read", select), select)
+        }
         assertNull(ParityCoverage.mcpLegProfile(registry, "runs_write", "mark"))
         assertTrue(("runs_write" to "mark") in ParityCoverage.restOnly(registry))
     }

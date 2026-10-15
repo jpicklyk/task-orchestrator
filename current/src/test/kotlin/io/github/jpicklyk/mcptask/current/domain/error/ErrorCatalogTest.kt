@@ -49,6 +49,7 @@ class ErrorCatalogTest {
             Row(ErrorCode.RUN_CLOSED, "run_closed", ErrorKind.PERMANENT, 409, ErrorDetail.RunClosed::class),
             Row(ErrorCode.RUN_PAUSED, "run_paused", ErrorKind.PERMANENT, 409, ErrorDetail.RunPaused::class),
             Row(ErrorCode.INVALID_RUN_STATE, "invalid_run_state", ErrorKind.PERMANENT, 409, ErrorDetail.InvalidRunState::class),
+            Row(ErrorCode.DECISION_CLOSED, "decision_closed", ErrorKind.PERMANENT, 409, ErrorDetail.DecisionClosed::class),
             Row(ErrorCode.SCHEMA_VIOLATION, "schema_violation", ErrorKind.PERMANENT, 422, ErrorDetail.SchemaViolation::class),
             Row(
                 ErrorCode.SCHEMA_PINNED_CONFLICT,
@@ -86,6 +87,7 @@ class ErrorCatalogTest {
             ErrorCode.RUN_CLOSED to setOf("runId", "terminalReason"),
             ErrorCode.RUN_PAUSED to setOf("runId", "pauseReason"),
             ErrorCode.INVALID_RUN_STATE to setOf("runId", "status"),
+            ErrorCode.DECISION_CLOSED to setOf("decisionId", "status"),
             ErrorCode.SCHEMA_PINNED_CONFLICT to setOf("itemId", "pinnedVersion", "currentVersion"),
             ErrorCode.PAYLOAD_TOO_LARGE to setOf("max"),
             ErrorCode.FORBIDDEN to setOf("required", "scope"),
@@ -97,9 +99,9 @@ class ErrorCatalogTest {
 
     // S1
     @Test
-    fun `S1 catalog table lists exactly 30 codes and every ErrorCode appears once`() {
-        assertEquals(30, catalog.size)
-        assertEquals(30, ErrorCode.entries.size)
+    fun `S1 catalog table lists exactly 31 codes and every ErrorCode appears once`() {
+        assertEquals(31, catalog.size)
+        assertEquals(31, ErrorCode.entries.size)
         assertEquals(ErrorCode.entries.toSet(), catalog.map { it.code }.toSet())
     }
 
@@ -132,7 +134,7 @@ class ErrorCatalogTest {
             ErrorCode.entries.filter { it.kind == ErrorKind.TRANSIENT }.toSet(),
         )
         assertEquals(setOf(ErrorCode.UNAVAILABLE), ErrorCode.entries.filter { it.kind == ErrorKind.SHEDDING }.toSet())
-        assertEquals(26, ErrorCode.entries.count { it.kind == ErrorKind.PERMANENT })
+        assertEquals(27, ErrorCode.entries.count { it.kind == ErrorKind.PERMANENT })
     }
 
     // S3
@@ -159,10 +161,10 @@ class ErrorCatalogTest {
     // Q34-S9 (oracle: envelope section 4 - the detail shapes are sealed ErrorDetail subtypes, one per code). The scan
     // covers every production declaration, so a top-level subtype beside the catalog is seen like a nested one.
     @Test
-    fun `Q34-S9 the 26 detail classes are distinct and are exactly the ErrorDetail subtypes in production`() {
+    fun `Q34-S9 the 27 detail classes are distinct and are exactly the ErrorDetail subtypes in production`() {
         val declared = ErrorCode.entries.mapNotNull { it.detailClass?.qualifiedName }
-        assertEquals(26, declared.size)
-        assertEquals(26, declared.toSet().size, "each detail class used by one code only")
+        assertEquals(27, declared.size)
+        assertEquals(27, declared.toSet().size, "each detail class used by one code only")
         val errorDetailFqn = ErrorDetail::class.qualifiedName
         val scope = Konsist.scopeFromProduction()
         val all = scope.classes() + scope.interfaces() + scope.objects()

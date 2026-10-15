@@ -17,7 +17,7 @@
       },
       "rootId": {
         "type": "string",
-        "description": "Only runs on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. [select: list]"
+        "description": "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. [select: list]"
       },
       "status": {
         "type": "string",
@@ -47,7 +47,7 @@
       },
       "itemId": {
         "type": "string",
-        "description": "Only the seats on this item (a UUID or a hex prefix). [select: seats]"
+        "description": "Only those on this item (a UUID or a hex prefix). [select: seats]"
       },
       "ended": {
         "type": "boolean",
@@ -60,7 +60,7 @@
     },
     "type": "object"
   },
-  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments). A run is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
+  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments), decisions or decision. A run or decision is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

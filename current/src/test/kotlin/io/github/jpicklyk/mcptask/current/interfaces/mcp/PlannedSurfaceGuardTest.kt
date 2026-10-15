@@ -473,15 +473,14 @@ class PlannedSurfaceGuardTest {
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the five delta files left after R22`() {
+    fun `S17 the planned directory holds exactly the three delta files left after R24`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
-        // stale; R22 shipped the `seats` select (the whole runs_read orchestration delta), so that file is gone; what the later items
-        // still add stays reserved as deltas.
+        // stale; R22 shipped the `seats` select (the whole runs_read orchestration delta) and R24 shipped the decision members (the
+        // whole runs_read and runs_write director deltas, and all of the runs_write orchestration delta but `block`); what the later
+        // items still add stays reserved as deltas.
         assertEquals(
             setOf(
-                "runs_read.director.delta.json",
                 "runs_write.orchestration.delta.json",
-                "runs_write.director.delta.json",
                 "report.director.delta.json",
                 "advance.orchestration.delta.json"
             ),
@@ -502,24 +501,24 @@ class PlannedSurfaceGuardTest {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertTrue("$file.json" !in names, "$file.json is stale once the tool is visible and must be replaced by a delta")
         }
-        for (file in listOf("runs_read.director", "runs_write.orchestration", "runs_write.director")) {
-            assertTrue("$file.delta.json" in names, "$file.delta.json keeps the budget of the members no item has shipped yet")
-        }
+        assertTrue(
+            "runs_write.orchestration.delta.json" in names,
+            "runs_write.orchestration.delta.json keeps the budget of the `block` property no item has shipped yet"
+        )
         // R22 shipped every member the runs_read orchestration delta reserved (`seats` with itemId and ended), so nothing is left to reserve.
         assertTrue("runs_read.orchestration.delta.json" !in names, "R22 shipped the seats select: no runs_read orchestration delta remains")
+        // R24 shipped every member the two director deltas reserved (decisions, decision, ack, answer, withdraw).
+        for (file in listOf("runs_read.director.delta.json", "runs_write.director.delta.json")) {
+            assertTrue(file !in names, "R24 shipped the decision members: $file no longer reserves anything")
+        }
     }
 
     @Test
-    fun `S17 the runs deltas add exactly the properties of the members no item has shipped yet`() {
+    fun `S17 the runs delta adds exactly the property of the member no item has shipped yet`() {
         val files = planned()
-        assertEquals(setOf("decisionId", "overdue"), files.getValue("runs_read.director.delta.json").keys)
-        // R22 shipped assign (itemId, seat, hints) and end_seat (outcome, summary, links), so what remains of the orchestration
-        // runs_write delta is the decision `raise` request (R24).
-        assertEquals(
-            setOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity", "block"),
-            files.getValue("runs_write.orchestration.delta.json").keys
-        )
-        assertEquals(setOf("decisionId", "option", "text", "rationale"), files.getValue("runs_write.director.delta.json").keys)
+        // R22 shipped assign (itemId, seat, hints) and end_seat (outcome, summary, links) and R24 shipped the decision `raise`
+        // request without `block` (R26 owns the blocked-reason column), so `block` is all that remains of the orchestration delta.
+        assertEquals(setOf("block"), files.getValue("runs_write.orchestration.delta.json").keys)
     }
 
     @Test

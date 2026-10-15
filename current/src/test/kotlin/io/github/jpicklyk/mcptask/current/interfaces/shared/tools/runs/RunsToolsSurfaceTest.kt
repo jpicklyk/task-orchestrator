@@ -97,12 +97,16 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `the members are exactly get list seats, and open update close pause resume mark assign end_seat`() {
-        // R22 adds the `seats` select and the `assign` / `end_seat` ops.
-        assertEquals(setOf("get", "list", "seats"), read.selects.map { it.name }.toSet())
-        assertEquals(3, read.selects.size)
-        assertEquals(setOf("open", "update", "close", "pause", "resume", "mark", "assign", "end_seat"), write.ops.map { it.name }.toSet())
-        assertEquals(8, write.ops.size)
+    fun `the members are exactly get list seats decisions decision, and the twelve write ops`() {
+        // R22 adds the `seats` select and the `assign` / `end_seat` ops; R24 adds the `decisions` / `decision` selects and the
+        // `raise` / `ack` / `answer` / `withdraw` ops.
+        assertEquals(setOf("get", "list", "seats", "decisions", "decision"), read.selects.map { it.name }.toSet())
+        assertEquals(5, read.selects.size)
+        assertEquals(
+            setOf("open", "update", "close", "pause", "resume", "mark", "assign", "end_seat", "raise", "ack", "answer", "withdraw"),
+            write.ops.map { it.name }.toSet()
+        )
+        assertEquals(12, write.ops.size)
     }
 
     @Test
@@ -120,13 +124,37 @@ class RunsToolsSurfaceTest {
         assertEquals(setOf(ToolProfile.ORCHESTRATION), readMember("seats").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("assign").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("end_seat").profiles)
+        // R24 (task-scope "Placement"): `raise` is orchestration; ack, answer, withdraw and both decision reads are director only.
+        assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("raise").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("ack").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("answer").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("withdraw").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), readMember("decisions").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), readMember("decision").profiles)
     }
 
     @Test
-    fun `reads need READ, every write op needs RUNS, and close is the only destructive op`() {
-        assertTrue(read.selects.all { it.capability == ApiCapability.READ }, "reads need READ")
-        assertTrue(write.ops.all { it.capability == ApiCapability.RUNS }, "every write op needs RUNS (assign and end_seat included)")
-        assertEquals(listOf("close"), write.ops.filter { it.destructive }.map { it.name }, "only close is destructive")
+    fun `reads need READ, ack and answer need DECIDE, every other write op needs RUNS, and close is destructive`() {
+        assertTrue(read.selects.all { it.capability == ApiCapability.READ }, "reads need READ (decisions and decision included)")
+        // R24 (task-scope D6): raise and withdraw are RUNS, ack and answer are DECIDE.
+        assertEquals(
+            setOf("ack", "answer"),
+            write.ops
+                .filter { it.capability == ApiCapability.DECIDE }
+                .map { it.name }
+                .toSet(),
+            "ack and answer need the decide capability"
+        )
+        assertTrue(
+            write.ops.filter { it.name !in setOf("ack", "answer") }.all { it.capability == ApiCapability.RUNS },
+            "every other write op needs RUNS (assign, end_seat, raise and withdraw included)"
+        )
+        val destructive = write.ops.filter { it.destructive }.map { it.name }
+        assertTrue("close" in destructive, "close is destructive")
+        assertTrue(
+            destructive.none { it in setOf("open", "update", "pause", "resume", "mark", "assign", "end_seat", "raise", "ack", "answer") },
+            "only close and possibly withdraw are destructive: $destructive"
+        )
     }
 
     @Test
@@ -152,9 +180,12 @@ class RunsToolsSurfaceTest {
         assertEquals(emptySet(), visible("runs_read", ToolProfile.KNOWLEDGE))
         assertEquals(emptySet(), visible("runs_write", ToolProfile.KNOWLEDGE))
         assertEquals(setOf("get", "list", "seats"), visible("runs_read", ToolProfile.ORCHESTRATION))
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), visible("runs_write", ToolProfile.ORCHESTRATION))
-        assertEquals(setOf("get", "list"), visible("runs_read", ToolProfile.DIRECTOR))
-        assertEquals(setOf("open", "close", "pause", "resume"), visible("runs_write", ToolProfile.DIRECTOR))
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), visible("runs_write", ToolProfile.ORCHESTRATION))
+        assertEquals(setOf("get", "list", "decisions", "decision"), visible("runs_read", ToolProfile.DIRECTOR))
+        assertEquals(
+            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
+            visible("runs_write", ToolProfile.DIRECTOR)
+        )
         for (profile in ToolProfile.entries) {
             assertFalse("mark" in visible("runs_write", profile), "mark must be absent on ${profile.wire}")
         }
@@ -194,8 +225,14 @@ class RunsToolsSurfaceTest {
 
     @Test
     fun `the rendered op enum is the visible set of the profile and never carries mark`() {
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION)))
-        assertEquals(setOf("open", "close", "pause", "resume"), opEnum(rendered("runs_write", ToolProfile.DIRECTOR)))
+        assertEquals(
+            setOf("open", "update", "close", "assign", "end_seat", "raise"),
+            opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION))
+        )
+        assertEquals(
+            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
+            opEnum(rendered("runs_write", ToolProfile.DIRECTOR))
+        )
         assertNull(McpOperationAdapter.toolFor(registry["runs_write"]!!, ToolProfile.KNOWLEDGE), "control: knowledge renders no runs_write")
         assertNull(McpOperationAdapter.toolFor(registry["runs_read"]!!, ToolProfile.KNOWLEDGE))
     }
@@ -223,8 +260,8 @@ class RunsToolsSurfaceTest {
                         .getValue("name")
                         .jsonPrimitive.content
                 }
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), described(ToolProfile.ORCHESTRATION).toSet())
-        assertEquals(setOf("open", "close", "pause", "resume"), described(ToolProfile.DIRECTOR).toSet())
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), described(ToolProfile.ORCHESTRATION).toSet())
+        assertEquals(setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"), described(ToolProfile.DIRECTOR).toSet())
         val selects =
             ToolDescriber
                 .describe(registry["runs_read"]!!, ToolProfile.DIRECTOR, null)
@@ -235,7 +272,7 @@ class RunsToolsSurfaceTest {
                         .getValue("name")
                         .jsonPrimitive.content
                 }
-        assertEquals(setOf("get", "list"), selects.toSet())
+        assertEquals(setOf("get", "list", "decisions", "decision"), selects.toSet())
     }
 
     // ------------------------------------------------------------------ S20 budget, goldens, deltas
@@ -300,23 +337,22 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `S20 the planned directory keeps the three runs deltas left after R22 and no full runs entry`() {
+    fun `S20 the planned directory keeps the one runs delta left after R24 and no full runs entry`() {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertNull(resource("planned/$file.json"), "$file.json is stale once the tool is visible")
         }
-        for (file in listOf("runs_read.director", "runs_write.orchestration", "runs_write.director")) {
-            assertNotNull(resource("planned/$file.delta.json"), "$file.delta.json keeps the members no item has shipped yet")
-        }
+        assertNotNull(
+            resource("planned/runs_write.orchestration.delta.json"),
+            "runs_write.orchestration.delta.json keeps the `block` property no item has shipped yet"
+        )
         assertNull(resource("planned/runs_read.orchestration.delta.json"), "R22 shipped the seats select, so its delta is gone")
+        // R24 shipped decisions, decision, ack, answer and withdraw: both director deltas are spent.
+        assertNull(resource("planned/runs_read.director.delta.json"), "R24 shipped the decisions and decision selects")
+        assertNull(resource("planned/runs_write.director.delta.json"), "R24 shipped ack, answer and withdraw")
 
         fun keys(file: String): Set<String> = Json.parseToJsonElement(assertNotNull(resource("planned/$file")).readText()).jsonObject.keys
-        assertEquals(setOf("decisionId", "overdue"), keys("runs_read.director.delta.json"))
-        assertEquals(setOf("decisionId", "option", "text", "rationale"), keys("runs_write.director.delta.json"))
-        // R22 shipped assign and end_seat: what is left of the orchestration runs_write delta is the decision `raise` request.
-        assertEquals(
-            setOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity", "block"),
-            keys("runs_write.orchestration.delta.json")
-        )
+        // R24 ships `raise` without `block` (R26 owns the blocked-reason column, task-scope D1): `block` is all that remains.
+        assertEquals(setOf("block"), keys("runs_write.orchestration.delta.json"))
     }
 
     // ------------------------------------------------------------------ MCP behaviour

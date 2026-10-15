@@ -738,14 +738,22 @@ class RunsSeatOpsTest {
         val end = write.ops.single { it.name == "end_seat" }
         assertTrue(ErrorCode.UNAUTHENTICATED in end.errors && ErrorCode.FORBIDDEN in end.errors, "end_seat declares ${end.errors}")
 
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), visibleNames(write, ToolProfile.ORCHESTRATION).toSet())
+        // R24 adds `raise` to the orchestration set and ack, answer, withdraw, decisions and decision to the director's.
         assertEquals(
-            setOf("open", "close", "pause", "resume"),
+            setOf("open", "update", "close", "assign", "end_seat", "raise"),
+            visibleNames(write, ToolProfile.ORCHESTRATION).toSet()
+        )
+        assertEquals(
+            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
             visibleNames(write, ToolProfile.DIRECTOR).toSet(),
-            "the director sees neither new op"
+            "the director sees neither seat op"
         )
         assertEquals(setOf("get", "list", "seats"), visibleNames(read, ToolProfile.ORCHESTRATION).toSet())
-        assertEquals(setOf("get", "list"), visibleNames(read, ToolProfile.DIRECTOR).toSet(), "the director does not see seats")
+        assertEquals(
+            setOf("get", "list", "decisions", "decision"),
+            visibleNames(read, ToolProfile.DIRECTOR).toSet(),
+            "the director does not see seats"
+        )
         assertEquals(emptySet(), visibleNames(write, ToolProfile.KNOWLEDGE).toSet())
     }
 
@@ -788,7 +796,7 @@ class RunsSeatOpsTest {
                 .jsonArray
                 .map { it.jsonPrimitive.content }
                 .toSet()
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat"), opEnum)
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), opEnum)
 
         val read = rendered("runs_read", ToolProfile.ORCHESTRATION).properties()
         assertEquals(
@@ -801,7 +809,8 @@ class RunsSeatOpsTest {
                 .map { it.jsonPrimitive.content }
                 .toSet()
         )
-        assertEquals("Only the seats on this item (a UUID or a hex prefix). [select: seats]", read.described("itemId"))
+        // R24 generalized the filter text (the same itemId filters the decisions select, which this profile does not see)
+        assertEquals("Only those on this item (a UUID or a hex prefix). [select: seats]", read.described("itemId"))
         assertEquals("true: include ended seats; default only active ones. [select: seats]", read.described("ended"))
 
         val advance = rendered("advance", ToolProfile.ORCHESTRATION).opFields()
@@ -821,9 +830,11 @@ class RunsSeatOpsTest {
         for (consumed in listOf("seat", "outcome", "summary", "links")) {
             assertFalse(consumed in write, "$consumed is registered now, so the planned delta no longer holds it: $write")
         }
-        for (planned in listOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity", "block")) {
-            assertTrue(planned in write, "$planned is still planned (raise): $write")
+        // R24 registered the decision `raise` request without `block` (R26 owns the blocked-reason column): `block` is all that is left.
+        for (consumed in listOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity")) {
+            assertFalse(consumed in write, "$consumed is registered now (raise), so the planned delta no longer holds it: $write")
         }
+        assertTrue("block" in write, "block is still planned (raise): $write")
         assertNull(resource("planned/runs_read.orchestration.delta.json"), "itemId and ended are registered now, nothing is left to plan")
         val advance = keys("planned/advance.orchestration.delta.json")
         assertFalse("usage" in advance, "usage is registered now: $advance")

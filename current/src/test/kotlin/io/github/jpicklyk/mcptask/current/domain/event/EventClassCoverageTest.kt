@@ -14,7 +14,8 @@ import kotlin.test.assertTrue
  * Oracle (frozen task-scope, "Event class map" and decision D2): audit = `item.transitioned/created/deleted/reparented/pinned`,
  * `config.version_created`, `document.*`, `note.ownership_transferred`, `run.*`, `decision.*`; activity = everything else; the
  * coverage test fails on an unclassified type; a type the map does not know classifies as null (never pruned at runtime). The
- * `run.*`, `decision.*` and `note.ownership_transferred` types do not exist yet, so they are classified by name and prefix.
+ * `run.*` and `note.ownership_transferred` types do not exist yet, so they are classified by name and prefix; the four `decision.*`
+ * types (raised, acknowledged, answered, withdrawn; R24, task-scope D11) are declared constants and classify by the prefix.
  * The expected sets below are written out from that clause, not read from the map.
  *
  * Forbidden-construct declaration: none.
@@ -39,7 +40,11 @@ class EventClassCoverageTest {
             "run.paused",
             "run.resumed",
             "run.ended",
-            "run.marked"
+            "run.marked",
+            "decision.raised",
+            "decision.acknowledged",
+            "decision.answered",
+            "decision.withdrawn"
         )
 
     /** Every constant the DomainEvent companion declared when this test was authored, grouped by the oracle clause. */

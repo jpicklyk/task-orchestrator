@@ -104,12 +104,16 @@ class ProfileVisibilityAllowlistTest {
                 "items_read" to setOf("get", "list", "overview", "blocked"),
                 "deps_read" to setOf("list", "graph"),
                 "report" to setOf("usage", "gates", "contention", "waste", "rollup"),
-                "runs_read" to setOf("get", "list"),
-                "runs_write" to setOf("open", "close", "pause", "resume")
+                "runs_read" to setOf("get", "list", "decisions", "decision"),
+                "runs_write" to setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw")
             )
 
         /** Members visible in director and not in orchestration, inside a tool orchestration also serves (plan 3.4c). */
-        val DIRECTOR_ONLY_MEMBERS: Map<String, Set<String>> = mapOf("runs_write" to setOf("pause", "resume"))
+        val DIRECTOR_ONLY_MEMBERS: Map<String, Set<String>> =
+            mapOf(
+                "runs_read" to setOf("decisions", "decision"),
+                "runs_write" to setOf("pause", "resume", "ack", "answer", "withdraw")
+            )
 
         /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */
         val DIRECTOR_ONLY_TOOLS: Set<String> = setOf("report")

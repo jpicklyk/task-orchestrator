@@ -12,6 +12,12 @@ import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswer
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestOption
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Run
@@ -253,6 +259,75 @@ class ParitySeeder(
                         outcome = if (ended) RunSeatOutcome.RUN_CLOSED else null,
                         assignedAt = assignedAt,
                         endedAt = if (ended) PARITY_NOW.minusSeconds(60) else null
+                    )
+                )
+        }
+        return created
+    }
+
+    /**
+     * Seeds a decision request with a caller-chosen id through the undecorated decision store inside a write unit (no event rows, the
+     * same on both legs; R24). The state fields are derived from [status] by construction: only an answered decision carries an
+     * answer, and an acknowledged one carries its acknowledgement, so a fixture cannot name an inconsistent combination. Instants are
+     * fixed, so both legs seed identical rows. The scope key is the item id text, else the run id text, else `root`, like the service.
+     */
+    suspend fun decision(
+        id: UUID,
+        rootId: UUID,
+        itemId: UUID? = null,
+        runId: UUID? = null,
+        decisionClass: String = "question",
+        answerers: DecisionRequestAnswerers = DecisionRequestAnswerers.ANY_ACTOR,
+        severity: DecisionRequestSeverity = DecisionRequestSeverity.LOW,
+        status: DecisionRequestStatus = DecisionRequestStatus.OPEN,
+        dedupeKey: String = "seed-$id",
+        question: String = "Which one?",
+        optionKeys: List<String> = listOf("a", "b"),
+        raisedById: String = "api:rw-coord",
+        raisedByKind: String = "service",
+        raisedBySeat: String? = null,
+        raisedAt: Instant = PARITY_NOW.minusSeconds(600),
+        expiresAt: Instant? = null
+    ): DecisionRequest {
+        val store = checkNotNull(provider) { "this seeder was built without a repository provider" }.decisionRequestStore()
+        val uow = checkNotNull(unitOfWork) { "this seeder was built without a unit of work" }
+        lateinit var created: DecisionRequest
+        uow.inUnit("parity.seedDecision") {
+            created =
+                store.create(
+                    DecisionRequest(
+                        id = id,
+                        rootId = rootId,
+                        runId = runId,
+                        itemId = itemId,
+                        decisionClass = decisionClass,
+                        answerers = answerers,
+                        severity = severity,
+                        status = status,
+                        dedupeKey = dedupeKey,
+                        scopeKey = itemId?.toString() ?: runId?.toString() ?: DecisionRequest.SCOPE_ROOT,
+                        question = question,
+                        options = optionKeys.map { DecisionRequestOption(key = it, label = "Label ${it.uppercase()}") },
+                        raisedById = raisedById,
+                        raisedByKind = raisedByKind,
+                        raisedBySeat = raisedBySeat,
+                        raisedAt = raisedAt,
+                        expiresAt = expiresAt,
+                        ackById = if (status == DecisionRequestStatus.ACKNOWLEDGED) "api:rw-ack" else null,
+                        ackByKind = if (status == DecisionRequestStatus.ACKNOWLEDGED) "human" else null,
+                        ackAt = if (status == DecisionRequestStatus.ACKNOWLEDGED) raisedAt.plusSeconds(60) else null,
+                        answer =
+                            if (status == DecisionRequestStatus.ANSWERED) {
+                                DecisionRequestAnswer(
+                                    option = optionKeys.first(),
+                                    answeredById = "api:rw-human",
+                                    answeredByKind = "human",
+                                    answeredByProof = "issued",
+                                    answeredAt = raisedAt.plusSeconds(120)
+                                )
+                            } else {
+                                null
+                            }
                     )
                 )
         }
@@ -765,6 +840,10 @@ class ParityHarness(
                 // the two legs issue different values, so the value is masked and only its form (exactly 43 characters of the
                 // alphabet) is compared.
                 "\"${match.groupValues[1]}\":\"<TOKEN>\""
+            }.replace(PROFILE) { _ ->
+                // R24: an answer records the profile it was served on (`director` on the MCP leg, `rest` on `/ops/{tool}`), which differs
+                // between the two legs by design (as the kind refusals of pause and resume do): only its presence is compared.
+                "\"profile\":\"<PROFILE>\""
             }.replace(TIMESTAMP) { match ->
                 val value = match.groupValues[2]
                 if (value == fixed) {
@@ -790,10 +869,14 @@ class ParityHarness(
                 "config_heads",
                 "runs",
                 "run_items",
-                "run_seats"
+                "run_seats",
+                "decision_requests"
             )
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
+
+        /** The served profile that the provenance of an answer records. */
+        private val PROFILE = Regex("\"profile\":\"(?:director|rest|orchestration|knowledge)\"")
 
         /** A seat token the server issued: `"seatToken"` / `"coordinatorToken"` and exactly 43 base64url characters. */
         private val SEAT_TOKEN = Regex("\"(seatToken|coordinatorToken)\":\"[A-Za-z0-9_-]{43}\"")
@@ -833,23 +916,38 @@ class ParityHarness(
         private fun withoutNoise(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> =
             raw.mapValues { (table, rows) ->
                 rows.map { row ->
-                    row.filterKeys { label ->
-                        !(
-                            label == "seq" ||
-                                label == "req_id" ||
-                                label == "session_id" ||
-                                // config_heads.version_id points at a generated config_versions id (the seeded versions get a
-                                // fresh id per leg), the same kind of per-leg generated id as the dropped `id` columns
-                                (label == "version_id" && table == "config_heads") ||
-                                (label == "host" && table == "events") ||
-                                // R22: the stored SHA-256 of an issued seat token; the token is random per call, so the hash differs
-                                // between the legs by design (a SEEDED seat's hash is compared through its row and the call's outcome)
-                                (label == "token_hash" && table == "run_seats") ||
-                                label == "at" ||
-                                (label.endsWith("_at") && label != "unblock_at")
-                        ) &&
-                            !(label == "id" && table != "work_items")
-                    }
+                    row
+                        .filterKeys { label ->
+                            !(
+                                label == "seq" ||
+                                    label == "req_id" ||
+                                    label == "session_id" ||
+                                    // config_heads.version_id points at a generated config_versions id (the seeded versions get a
+                                    // fresh id per leg), the same kind of per-leg generated id as the dropped `id` columns
+                                    (label == "version_id" && table == "config_heads") ||
+                                    (label == "host" && table == "events") ||
+                                    // R22: the stored SHA-256 of an issued seat token; the token is random per call, so the hash differs
+                                    // between the legs by design (a SEEDED seat's hash is compared through its row and the call's outcome)
+                                    (label == "token_hash" && table == "run_seats") ||
+                                    // R24: the profile an answer was served on (`director` on the MCP leg, `rest` on `/ops/{tool}`)
+                                    (label == "answered_profile" && table == "decision_requests") ||
+                                    // R24: the transport host of an answer, which differs between the legs by design like an event's (Q7)
+                                    (label == "answered_host" && table == "decision_requests") ||
+                                    label == "at" ||
+                                    (label.endsWith("_at") && label != "unblock_at")
+                            ) &&
+                                !(label == "id" && table != "work_items")
+                        }.let { kept ->
+                            // R24: an event's payload names the profile an answer was served on, which differs between the legs by design
+                            val data = kept["data"]
+                            if (table == "events" &&
+                                data is String
+                            ) {
+                                kept + ("data" to PROFILE.replace(data, "\"profile\":\"<PROFILE>\""))
+                            } else {
+                                kept
+                            }
+                        }
                 }
             }
 
