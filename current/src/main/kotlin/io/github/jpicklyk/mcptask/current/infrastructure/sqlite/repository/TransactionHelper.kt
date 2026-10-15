@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ActiveUnit
+import io.github.jpicklyk.mcptask.current.application.port.FailSoftReads
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -8,6 +9,7 @@ import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import java.sql.SQLException
 import kotlin.coroutines.coroutineContext
 
 /*
@@ -30,7 +32,9 @@ import kotlin.coroutines.coroutineContext
 suspend fun <T> DatabaseManager.readTx(block: suspend JdbcTransaction.() -> T): T {
     val unit = coroutineContext[UnitElement]?.unit
     return if (unit != null) {
-        joined(unit) { suspendTransaction(db = if (unit.writable) writer() else reader()) { block() } }
+        joined(unit, failSoftEligible = coroutineContext[FailSoftReads] != null) {
+            suspendTransaction(db = if (unit.writable) writer() else reader()) { block() }
+        }
     } else {
         units.implicitRead(block)
     }
@@ -58,17 +62,20 @@ suspend fun <T> DatabaseManager.writeTx(
 
 /**
  * Runs a transaction JOINED to [unit]. A throw out of it means Exposed already rolled the shared connection
- * back, so the fault is recorded on the unit (poisoning it: the runner never commits it) and rethrown.
+ * back (on a SQLException), so the fault is recorded on the unit (poisoning it: the runner never commits it) and rethrown.
  */
 private inline fun <T> joined(
     unit: ActiveUnit,
+    failSoftEligible: Boolean = false,
     tx: () -> T
 ): T =
     try {
         tx()
     } catch (e: Throwable) {
         e.rethrowIfCancellation()
-        unit.recordFault(e)
+        // A read in a failSoftReads section leaves the unit clean for a non-SQL fault: Exposed rolls a joined connection back on SQLException only.
+        val sqlFault = generateSequence<Throwable>(e) { it.cause }.any { it is SQLException }
+        if (!failSoftEligible || sqlFault) unit.recordFault(e)
         throw e
     }
 

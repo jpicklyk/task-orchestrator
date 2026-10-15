@@ -1193,8 +1193,8 @@ lifecycle). What an operator sees:
 
 - **Spend.** `runs_read` `get` shows `usage` (`reportedTokens`, `reportedCostUsd`, `observedTokens`). Reported figures
   are the SUM of the seats' absolute `heartbeat` reports (the highest per seat is kept); `observedTokens` is the server's
-  own estimate, written off the request path by the call-log writer. It is an estimate: it can count a replayed row
-  twice, and a dropped or failed call-log batch (see "Call log") under-counts it.
+  own estimate, written off the request path by the call-log writer. It is an estimate: only rows actually stored
+  count (a duplicate or refused row adds nothing), and a dropped or failed call-log batch (see "Call log") under-counts it.
 - **Breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a
   high-severity `run-budget` decision; the writer itself never pauses anything, so a run whose seats have all gone quiet
   is not paused by observed spend alone until some seat writes again. Only token-carrying writes run the check (a

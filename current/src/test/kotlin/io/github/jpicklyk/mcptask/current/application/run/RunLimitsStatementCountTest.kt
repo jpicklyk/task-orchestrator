@@ -126,7 +126,7 @@ class RunLimitsStatementCountTest {
         }
 
     @Test
-    fun `S7 a token start on an unlimited run issues no single-table runs SELECT and two statements fewer than on a budgeted run`() =
+    fun `S7 a token start on an unlimited run skips the limit reads of a budgeted run and issues two statements fewer`() =
         world { w ->
             assertTrue(
                 w.start(w.m3, null).ok(),
@@ -260,6 +260,7 @@ class RunLimitsStatementCountTest {
             assertTrue(written >= 2, "the distinct rows are written, got $written")
             assertEquals(1, sql.count { StatementTap.updates(it, "runs") }, "one run, one UPDATE:\n${sql.joinToString("\n")}")
             assertEquals(42L, storedEstimate(w, a), "the duplicate request id was stored once: 40 + 2")
+            assertEquals(42L, observed(w, a), "and it was counted once in observed tokens: 40 + 2, not 40 + 40 + 2")
         }
 
     // ------------------------------------------------------------------ S8 the check still decides

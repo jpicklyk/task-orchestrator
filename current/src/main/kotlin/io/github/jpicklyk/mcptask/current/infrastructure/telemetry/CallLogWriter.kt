@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.telemetry
 
+import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
@@ -18,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -42,9 +42,9 @@ import kotlin.time.TimeSource
  * The writer runs on its own scope outside any call, so its own unit never records itself nor inflates a call
  * retry count.
  *
- * Observed run spend (R27): when [runStore] is given, each batch unit also adds the batch's `response_tokens_est` per
- * `run_id` into `runs.observed_tokens` (one version-free UPDATE per distinct run, rows without a run or an estimate
- * skipped). The writer only writes the counter; it never runs a budget check (the next token-carrying write does).
+ * Observed run spend (R27): when [runStore] is given, each batch unit also adds the `response_tokens_est` of the rows actually inserted, per
+ * `run_id`, into `runs.observed_tokens` (one version-free UPDATE per distinct run; duplicate, refused, run-less and
+ * estimate-less rows add nothing). The writer only writes the counter; it never runs a budget check (the next token-carrying write does).
  */
 class CallLogWriter(
     private val unitOfWork: UnitOfWork,
@@ -197,7 +197,7 @@ class CallLogWriter(
                 val outcome =
                     unitOfWork.write("CallLog.append") {
                         val appended = store.appendCounted(batch)
-                        addObservedTokens(batch)
+                        addObservedTokens(appended)
                         Outcome.Ok(appended)
                     }
                 when (outcome) {
@@ -230,16 +230,10 @@ class CallLogWriter(
         }
     }
 
-    /** Adds [batch]'s token estimates per run into `runs.observed_tokens`, one UPDATE per distinct run (R27). */
-    private suspend fun addObservedTokens(batch: List<CallLogRecord>) {
+    /** Adds the token estimates of the rows actually inserted per run into `runs.observed_tokens`, one UPDATE per distinct run (R27). */
+    private suspend fun addObservedTokens(appended: CallLogAppendResult) {
         val runs = runStore ?: return
-        val byRun = LinkedHashMap<UUID, Long>()
-        for (record in batch) {
-            val runId = record.runId ?: continue
-            val tokens = record.responseTokensEst ?: continue
-            if (tokens > 0) byRun[runId] = (byRun[runId] ?: 0L) + tokens
-        }
-        for ((runId, tokens) in byRun) runs.addObservedTokens(runId, tokens)
+        for ((runId, tokens) in appended.insertedTokensByRun) runs.addObservedTokens(runId, tokens)
     }
 
     /** Logs the number of rows dropped since the previous notice; at most once per interval unless [force]. */

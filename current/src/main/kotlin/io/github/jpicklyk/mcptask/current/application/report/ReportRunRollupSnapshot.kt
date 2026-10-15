@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.failSoftReads
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import kotlinx.serialization.SerializationException
@@ -17,9 +18,9 @@ import java.util.UUID
  *
  * Fail-soft: a computation fault that is about the DATA (an [IllegalArgumentException], [IllegalStateException] or
  * [SerializationException]) while computing or encoding the rollup is caught and the close proceeds without a stored
- * rollup (WARN logged); a later read computes the rollup live. A row that fails to decode inside a store read still
- * fails the close: store reads join the close unit and a store fault poisons it (fail-closed on a corrupt row). A
- * persistence fault (an [SQLException] anywhere in the cause
+ * rollup (WARN logged); a later read computes the rollup live. The snapshot's reads run in a [failSoftReads]
+ * section, so a row that fails to decode inside a store read does not poison the close unit and the close still
+ * commits. A persistence fault (an [SQLException] anywhere in the cause
  * chain), a cancellation and any other exception still propagate and roll the close back: the transaction state is
  * unknown after them. The [RunRollupSnapshot] contract ("a throw rolls the close back") is unchanged.
  */
@@ -52,7 +53,7 @@ object ReportRunRollupSnapshot {
         runId: UUID
     ): Map<String, Any?>? =
         try {
-            ReportService(unitOfWork, clock).runSnapshot(runId)?.let { RollupSnapshotCodec.encode(it) }
+            failSoftReads { ReportService(unitOfWork, clock).runSnapshot(runId) }?.let { RollupSnapshotCodec.encode(it) }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             val dataFault = e is IllegalArgumentException || e is IllegalStateException || e is SerializationException

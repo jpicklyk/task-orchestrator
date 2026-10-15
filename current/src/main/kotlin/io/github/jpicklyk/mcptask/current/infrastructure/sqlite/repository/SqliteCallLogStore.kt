@@ -31,6 +31,7 @@ class SqliteCallLogStore(
         return databaseManager.writeTx("CallLogStore.append") {
             var inserted = 0
             var rejected = 0
+            val tokens = LinkedHashMap<java.util.UUID, Long>()
             for (record in records) {
                 val stmt =
                     CallLogTable.insertIgnore {
@@ -68,10 +69,13 @@ class SqliteCallLogStore(
                     }
                 val count = stmt.insertedCount
                 inserted += count
+                val runId = record.runId
+                val est = record.responseTokensEst
+                if (count == 1 && runId != null && est != null && est > 0) tokens[runId] = (tokens[runId] ?: 0L) + est
                 // INSERT OR IGNORE also skips CHECK / NOT NULL violations: only a req_id conflict is a duplicate.
                 if (count == 0 && CallLogTable.selectAll().where { CallLogTable.reqId eq record.reqId }.empty()) rejected++
             }
-            CallLogAppendResult(inserted, rejected)
+            CallLogAppendResult(inserted, rejected, tokens)
         }
     }
 
