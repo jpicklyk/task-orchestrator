@@ -42,8 +42,7 @@ import kotlin.test.assertTrue
  * the [ServerConfigImportStep] that drives them, over a real SQLite database and the production validator wiring.
  *
  * Scenarios: S1 and S7 (first import, identical re-import, changed re-import, empty and comment-only files), S2 (project.rootId
- * targets), S3 (the U20 allowance), S4 (rejections: ParseError, Invalid, RootNotFound, TooLarge), the D2 stripping of
- * `actor_authentication`, the ROOT-scope server-only rules (D8), the stored advisory warnings, and the step's own contract
+ * targets), S3 (the U20 allowance), S4 (rejections: ParseError, Invalid, RootNotFound, TooLarge), the ROOT-scope server-only rules (D8), the stored advisory warnings, and the step's own contract
  * (metadata, return values, exception texts).
  *
  * Oracles: task-scope section 1.1 (the step and its exception texts), section 1.2 (the six pipeline steps and the result
@@ -415,34 +414,6 @@ class ConfigServiceImportTest {
 
             assertTrue(imported.warnings.any { "feature-task" in it && "spec" in it }, "warnings: ${imported.warnings}")
             assertEquals(advisory, imported.version.yaml)
-        }
-
-    // ------------------------------------------------------------------------------------------------ D2: actor_authentication
-
-    @Test
-    fun `D2 actor_authentication stays in the verbatim yaml, is out of the canonical form and is never validated`(): Unit =
-        runBlocking {
-            val text = base + "actor_authentication:\n  bogus_key: 1\n"
-
-            val imported = assertIs<ConfigImportResult.Imported>(import(text))
-
-            assertEquals(text, imported.version.yaml)
-            assertEquals(baseCanonical, imported.version.canonicalJson)
-            assertEquals(emptyList(), imported.warnings)
-        }
-
-    @Test
-    fun `D2 a root-targeted document may carry actor_authentication too`(): Unit =
-        runBlocking {
-            val root = newRoot()
-
-            val imported =
-                assertIs<ConfigImportResult.Imported>(
-                    import(projectFile(root.id.toString(), base + "actor_authentication:\n  verifier:\n    type: noop\n"))
-                )
-
-            val canonical = assertNotNull(imported.version.canonicalJson)
-            assertFalse("actor_authentication" in canonical, canonical)
         }
 
     // ------------------------------------------------------------------------------------------------ S2: project.rootId

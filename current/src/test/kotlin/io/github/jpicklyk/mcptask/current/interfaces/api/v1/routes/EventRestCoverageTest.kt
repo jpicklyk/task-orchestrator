@@ -68,7 +68,6 @@ class EventRestCoverageTest {
             allowQueryToken = false,
             serverName = "p8-event-rest-coverage",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

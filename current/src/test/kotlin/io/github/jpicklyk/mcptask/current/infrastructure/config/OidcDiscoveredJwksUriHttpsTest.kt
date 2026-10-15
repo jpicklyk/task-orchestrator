@@ -7,13 +7,8 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -34,20 +29,15 @@ import java.util.Date
  * Targets the NEW `validateDiscoveredJwksUri` check inside `DefaultJwksKeySetProvider`'s OIDC
  * discovery path (D-c, change #6): a `jwks_uri` returned by a discovery document is subject to
  * the SAME https-or-loopback rule as a directly-configured `jwks_uri`, keyed on
- * `VerifierConfig.Jwks.allowInsecureUrl`. This is distinct from `ActorAuthKeySourceHttpsTest`,
- * which covers a directly-configured `jwks_uri`/`oidc_discovery` URL via the YAML service --
- * here the rejected value is DISCOVERED at runtime from a mocked discovery document, never
- * written to YAML at all.
+ * `KeySourceConfig.allowInsecureUrl`. The rejected value is DISCOVERED at runtime
+ * from a mocked discovery document, never configured directly.
  *
  * Oracles (supplied verbatim in the dispatch prompt's declarations block):
  * `DefaultJwksKeySetProvider`'s `runOidcDiscovery`/`validateDiscoveredJwksUri`/`fetchKeySet` KDoc
- * oracles (D-c) and `JwksActorVerifier.verify`'s KDoc oracle (any fetch exception, including the
- * one `validateDiscoveredJwksUri` raises, is caught by the generic `catch (e: Exception)` and
- * reported as `UNAVAILABLE`/`failureKind=network`); `current/docs/fleet-deployment.md` :522.
+ * oracles (D-c); `current/docs/fleet-deployment.md` :522.
  *
  * MockEngine pattern reused from the sibling `JwksKeySetProviderTest.kt` (same `httpClientEngineForTest`
- * constructor seam, same `validJwksJson()`/`respond(...)` shape); the JWT-signing helpers mirror
- * `JwksActorVerifierTest.kt`'s `buildClaims`/`signRsa`.
+ * constructor seam, same `validJwksJson()`/`respond(...)` shape).
  */
 class OidcDiscoveredJwksUriHttpsTest {
     companion object {
@@ -131,10 +121,10 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "https://idp.test.example/jwks.json"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
-            val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
+            val config = KeySourceConfig(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     java.nio.file.Path
                         .of("."),
                     httpClientEngineForTest = engine,
@@ -153,8 +143,7 @@ class OidcDiscoveredJwksUriHttpsTest {
 
     // -------------------------------------------------------------------------------------------
     // S13 -- discovery doc naming a rejected http jwks_uri (non-loopback, or loopback with no
-    // opt-in): getKeySet throws, the rejected URI is never fetched, no issuer is resolved, and
-    // JwksActorVerifier.verify surfaces UNAVAILABLE. [D-c; fleet:522] EXISTING-SURFACE
+    // opt-in): getKeySet throws, the rejected URI is never fetched and no issuer is resolved. [D-c; fleet:522] EXISTING-SURFACE
     // -------------------------------------------------------------------------------------------
 
     @Test
@@ -163,10 +152,10 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "http://idp.example/j"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
-            val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
+            val config = KeySourceConfig(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     java.nio.file.Path
                         .of("."),
                     httpClientEngineForTest = engine,
@@ -193,10 +182,10 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveredUri = "http://127.0.0.1:9/j"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
             // allowInsecureUrl defaults to false -- loopback alone is not sufficient.
-            val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
+            val config = KeySourceConfig(oidcDiscovery = discoveryUrl)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     java.nio.file.Path
                         .of("."),
                     httpClientEngineForTest = engine,
@@ -212,44 +201,12 @@ class OidcDiscoveredJwksUriHttpsTest {
             }
         }
 
-    @Test
-    fun `S13 - JwksActorVerifier reports UNAVAILABLE when the discovered jwks_uri is rejected`() =
-        runTest {
-            val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
-            val discoveredUri = "http://idp.example/j"
-            val (engine, _, _) = discoveryMockEngine(discoveryUrl, discoveredUri)
-            val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, algorithms = listOf("RS256"))
-            val provider =
-                DefaultJwksKeySetProvider(
-                    config.toKeySource(),
-                    java.nio.file.Path
-                        .of("."),
-                    httpClientEngineForTest = engine,
-                    egressGuard = publicEgressGuard(config.allowInsecureUrl)
-                )
-            val verifier = JwksActorVerifier(config = config, keySetProvider = provider)
-            try {
-                val result =
-                    verifier.verify(ActorClaim(id = "s13-agent", kind = ActorKind.SUBAGENT, proof = signRsa()))
-                assertEquals(
-                    VerificationStatus.UNAVAILABLE,
-                    result.status,
-                    "S13: the rejected discovery must surface as UNAVAILABLE via the generic catch-all, " +
-                        "same as any other JWKS-fetch failure",
-                )
-                assertEquals("network", result.metadata["failureKind"])
-            } finally {
-                provider.close()
-                verifier.close()
-            }
-        }
-
     // -------------------------------------------------------------------------------------------
     // S14 -- same loopback discovered jwks_uri as S13, but with allowInsecureUrl=true: fetched.
     // [D-c] NEW-SURFACE
     //
     // Narrowest-revert recipe (for the orchestrator's red-proof; not run by the test author):
-    // keep the `allowInsecureUrl` field on VerifierConfig.Jwks, but revert ONLY
+    // keep the `allowInsecureUrl` field on KeySourceConfig, but revert ONLY
     // validateDiscoveredJwksUri's use of it so the discovered-URI check always treats it as
     // false. Under that narrow revert, this loopback URL flips from "fetched" back to "rejected"
     // (IllegalStateException on getKeySet(), zero jwksHits) -- both assertions below turn red.
@@ -261,10 +218,10 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "http://127.0.0.1:9/j"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
-            val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, allowInsecureUrl = true)
+            val config = KeySourceConfig(oidcDiscovery = discoveryUrl, allowInsecureUrl = true)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     java.nio.file.Path
                         .of("."),
                     httpClientEngineForTest = engine,

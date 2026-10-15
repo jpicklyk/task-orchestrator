@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory
  * Each resulting [JWK] has its `kid` set to the **bare fragment** of the verification
  * method's `id` — i.e., the portion after `#`, or the full `id` string when no `#` is
  * present. This is intentional: the downstream verifier
- * ([io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier]) matches the
+ * ([io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwtVerifier]) matches the
  * JWT's `kid` header against JWK `kid`s **exactly** (with an optional sole-key loose match when
  * exactly one key is eligible and `didLooseKidMatch` is enabled) — it does not strip DID prefixes
  * from the JWT `kid`. So both sides must already agree on bare-fragment form.

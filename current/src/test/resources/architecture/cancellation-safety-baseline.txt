@@ -4,7 +4,6 @@ CurrentMain.kt 1
 application/config/ConfigSession.kt 1
 bootstrap/CurrentMcpServer.kt 9
 infrastructure/config/GlobalConfigFile.kt 3
-infrastructure/config/YamlActorAuthenticationConfigService.kt 1
 infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
 infrastructure/identity/bearer/BearerTokenStore.kt 1

@@ -14,8 +14,6 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.mockk.Runs
@@ -42,14 +40,14 @@ import java.util.Date
 
 /**
  * Test-author coverage for item 385444c2 (R8): the single [JwtVerifier] pipeline, its [JwtPolicy]
- * presets, and the two claim mappers ([JwksActorVerifier], [JwksApiVerifier]) that sit on top of it.
+ * presets, and the claim mapper ([JwksApiVerifier]) that sits on top of it.
  *
  * Oracles (frozen in the item's task-scope and test-plan at queue phase): O-SCOPE = task-scope
  * sections 1-3 (pipeline order, failure kinds, decisions D2/D7/D8); O-ORDER = crypto is checked
  * before claims (a bad-signature, exp-less proof is `crypto`, not `claims`); O-DOC = a stale key
  * set is surfaced through the cache state, never silently.
  *
- * Scenario ids S1-S11 follow the test-plan numbering. Every scenario that has a forActor and a
+ * Scenario ids S1-S11 follow the test-plan numbering. Every scenario that has an actor-like and a
  * forApi reading runs under BOTH presets in one test.
  */
 class JwtVerifierTest {
@@ -76,20 +74,20 @@ class JwtVerifierTest {
     // Fixtures
     // -------------------------------------------------------------------------
 
-    private fun actorConfig(
-        requireSubMatch: Boolean = true,
+    /** A policy shaped like the former actor preset: `sub` optional, DID binding by allowlist, no lifetime override. */
+    private fun actorPolicy(
         didAllowlist: List<String> = emptyList(),
         didLooseKidMatch: Boolean = true,
         jtiReplayProtection: Boolean = false,
-    ) = VerifierConfig.Jwks(
-        jwksPath = "/unused-in-unit-tests",
+    ) = JwtPolicy(
+        algorithms = if (didAllowlist.isEmpty()) listOf("RS256") else emptyList(),
         issuer = if (didAllowlist.isEmpty()) ISS else null,
         audience = if (didAllowlist.isEmpty()) AUD else null,
-        algorithms = if (didAllowlist.isEmpty()) listOf("RS256") else emptyList(),
-        requireSubMatch = requireSubMatch,
-        didAllowlist = didAllowlist,
+        maxTokenLifetimeSeconds = 86400,
+        requireSub = false,
+        didBinding = didAllowlist.isNotEmpty(),
         didLooseKidMatch = didLooseKidMatch,
-        jtiReplayProtection = jtiReplayProtection,
+        jtiReplay = jtiReplayProtection,
     )
 
     private fun apiConfig() =
@@ -103,7 +101,7 @@ class JwtVerifierTest {
 
     private fun staticPolicies(): Map<String, JwtPolicy> =
         mapOf(
-            "forActor" to JwtPolicy.forActor(actorConfig()),
+            "actorLike" to actorPolicy(),
             "forApi" to JwtPolicy.forApi(apiConfig()),
         )
 
@@ -195,38 +193,6 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `forActor copies the verifier config and derives requireSub didBinding and jtiReplay`() {
-        val plain =
-            JwtPolicy.forActor(
-                VerifierConfig.Jwks(
-                    jwksPath = "/x",
-                    issuer = ISS,
-                    audience = AUD,
-                    algorithms = listOf("RS256", "ES256"),
-                    maxTokenLifetimeSeconds = 1234,
-                    didLooseKidMatch = false,
-                    jtiReplayProtection = true,
-                ),
-            )
-        assertEquals(listOf("RS256", "ES256"), plain.algorithms)
-        assertEquals(ISS, plain.issuer)
-        assertEquals(AUD, plain.audience)
-        assertEquals(1234L, plain.maxTokenLifetimeSeconds)
-        assertFalse(plain.requireSub, "the actor preset does not require sub; require_sub_match is expectedSubject")
-        assertFalse(plain.didBinding, "no allowlist and no pattern means no DID binding")
-        assertFalse(plain.didLooseKidMatch)
-        assertTrue(plain.jtiReplay)
-
-        val byAllowlist = JwtPolicy.forActor(VerifierConfig.Jwks(didAllowlist = listOf(A_DID)))
-        assertTrue(byAllowlist.didBinding)
-        assertTrue(byAllowlist.didLooseKidMatch, "didLooseKidMatch defaults to true on the config")
-        assertFalse(byAllowlist.jtiReplay)
-
-        val byPattern = JwtPolicy.forActor(VerifierConfig.Jwks(didPattern = "did:web:*.jv.example"))
-        assertTrue(byPattern.didBinding)
-    }
-
-    @Test
     fun `forApi requires sub and never binds DID or replays jti`() {
         val p = JwtPolicy.forApi(apiConfig())
         assertEquals(listOf("RS256"), p.algorithms)
@@ -252,21 +218,6 @@ class JwtVerifierTest {
                 assertEquals("RS256", v.alg, name)
                 assertFalse(v.cacheState.fromStaleCache, name)
             }
-        }
-
-    @Test
-    fun `S1 the same token is VERIFIED by the actor mapper and resolves a principal in the API mapper`() =
-        runTest {
-            val token = signRsa()
-            val actorResult =
-                JwksActorVerifier(actorConfig(), staticProvider(rsaKey), CLOCK)
-                    .verify(actor("agent-1", token))
-            assertEquals(VerificationStatus.VERIFIED, actorResult.status, actorResult.reason)
-            assertEquals("jwks", actorResult.verifier)
-
-            val principal = JwksApiVerifier(apiConfig(), staticProvider(rsaKey), CLOCK).verify(token)
-            assertNotNull(principal)
-            assertEquals("agent-1", principal!!.id)
         }
 
     // -------------------------------------------------------------------------
@@ -324,7 +275,7 @@ class JwtVerifierTest {
     @Test
     fun `S5 under DID binding sub different from iss is Rejected as claims and sub equal to iss is Verified`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID)))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID))
             val v = verifier(policy, didProvider(rsaKey))
 
             val mismatch = v.verify(signRsa(claims(subject = "someone-else", issuer = A_DID, audience = null))).asRejected()
@@ -337,7 +288,7 @@ class JwtVerifierTest {
     @Test
     fun `S5 under DID binding a token without iss is Rejected as claims`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID)))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID))
             val r =
                 verifier(policy, didProvider(rsaKey))
                     .verify(signRsa(claims(subject = A_DID, issuer = null, audience = null)))
@@ -348,7 +299,7 @@ class JwtVerifierTest {
     @Test
     fun `S5 an issuer the provider does not trust is Rejected as policy`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID)))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID))
             val p = didProvider(rsaKey)
             coEvery { p.getKeySetForIssuer("did:web:evil.jv.example") } throws IssuerNotTrustedException("did:web:evil.jv.example")
             val token = signRsa(claims(subject = "did:web:evil.jv.example", issuer = "did:web:evil.jv.example", audience = null))
@@ -406,7 +357,7 @@ class JwtVerifierTest {
             assertEquals(FailureKind.CLAIMS, api.failureKind)
             assertEquals("missing sub claim", api.reason)
 
-            verifier(JwtPolicy.forActor(actorConfig()), staticProvider(rsaKey)).verify(noSub).asVerified()
+            verifier(actorPolicy(), staticProvider(rsaKey)).verify(noSub).asVerified()
         }
 
     // -------------------------------------------------------------------------
@@ -455,7 +406,7 @@ class JwtVerifierTest {
     @Test
     fun `S7 under DID binding the refresh is scoped to the issuer`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID), didLooseKidMatch = false))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID), didLooseKidMatch = false)
             val p = didProvider(rsaKey)
             coEvery { p.refreshForUnknownKid("jv-rotated", A_DID) } returns
                 JwksResult(JWKSet(listOf(rotatedKey.toPublicJWK())), FRESH)
@@ -469,7 +420,7 @@ class JwtVerifierTest {
     @Test
     fun `S7 the loose-kid rule applies only after the refresh found nothing`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID), didLooseKidMatch = true))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID), didLooseKidMatch = true)
             val p = didProvider(rsaKey)
             val token = signRsa(claims(subject = A_DID, issuer = A_DID, audience = null), key = rotatedKey)
 
@@ -515,7 +466,7 @@ class JwtVerifierTest {
     @Test
     fun `S8 an unavailable DID key set is Unavailable`() =
         runTest {
-            val policy = JwtPolicy.forActor(actorConfig(didAllowlist = listOf(A_DID)))
+            val policy = actorPolicy(didAllowlist = listOf(A_DID))
             val p = didProvider(rsaKey)
             coEvery { p.getKeySetForIssuer(A_DID) } throws KeySetUnavailableException("did keys too stale")
             val token = signRsa(claims(subject = A_DID, issuer = A_DID, audience = null))
@@ -549,86 +500,6 @@ class JwtVerifierTest {
                 val v = verifier(policy, staticProvider(rsaKey, cache = stale)).verify(signRsa()).asVerified()
                 assertEquals(stale, v.cacheState, name)
             }
-        }
-
-    @Test
-    fun `S9 the actor mapper surfaces stale metadata`() =
-        runTest {
-            val stale = CacheState(fromStaleCache = true, ageSeconds = 42)
-            val r = JwksActorVerifier(actorConfig(), staticProvider(rsaKey, cache = stale), CLOCK).verify(actor("agent-1", signRsa()))
-            assertEquals(VerificationStatus.VERIFIED, r.status, r.reason)
-            assertEquals("true", r.metadata["verifiedFromCache"])
-            assertEquals("42", r.metadata["cacheAgeSeconds"])
-        }
-
-    // -------------------------------------------------------------------------
-    // S10 - actor mapper
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S10 a blank proof is ABSENT`() =
-        runTest {
-            val v = JwksActorVerifier(actorConfig(), staticProvider(rsaKey), CLOCK)
-            assertEquals(VerificationStatus.ABSENT, v.verify(actor("agent-1", "")).status)
-            assertEquals(VerificationStatus.ABSENT, v.verify(actor("agent-1", "   ")).status)
-            assertEquals(VerificationStatus.ABSENT, v.verify(actor("agent-1", null)).status)
-        }
-
-    @Test
-    fun `S10 an unavailable key source is UNAVAILABLE with failureKind network`() =
-        runTest {
-            val p = staticProvider(rsaKey)
-            coEvery { p.getKeySet() } throws KeySetUnavailableException("keys too stale")
-            val r = JwksActorVerifier(actorConfig(), p, CLOCK).verify(actor("agent-1", signRsa()))
-            assertEquals(VerificationStatus.UNAVAILABLE, r.status)
-            assertEquals("network", r.metadata["failureKind"])
-            assertNotNull(r.reason)
-        }
-
-    @Test
-    fun `S10 rejections carry the verdict failure kind on the wire`() =
-        runTest {
-            val v = JwksActorVerifier(actorConfig(), staticProvider(rsaKey, ecKey), CLOCK)
-
-            val crypto = v.verify(actor("agent-1", corruptSignature(signRsa())))
-            assertEquals(VerificationStatus.REJECTED, crypto.status)
-            assertEquals("crypto", crypto.metadata["failureKind"])
-
-            val claimsKind = v.verify(actor("agent-1", signRsa(claims(expiry = null))))
-            assertEquals("claims", claimsKind.metadata["failureKind"])
-
-            val policyKind = v.verify(actor("agent-1", signEc()))
-            assertEquals("policy", policyKind.metadata["failureKind"])
-        }
-
-    @Test
-    fun `S10 require_sub_match compares the token sub with the actor id and can be switched off`() =
-        runTest {
-            val token = signRsa(claims(subject = "agent-1"))
-
-            val strict = JwksActorVerifier(actorConfig(requireSubMatch = true), staticProvider(rsaKey), CLOCK)
-            assertEquals(VerificationStatus.VERIFIED, strict.verify(actor("agent-1", token)).status)
-            val mismatch = strict.verify(actor("agent-2", token))
-            assertEquals(VerificationStatus.REJECTED, mismatch.status)
-            assertEquals("claims", mismatch.metadata["failureKind"])
-
-            val relaxed = JwksActorVerifier(actorConfig(requireSubMatch = false), staticProvider(rsaKey), CLOCK)
-            assertEquals(VerificationStatus.VERIFIED, relaxed.verify(actor("agent-2", token)).status)
-        }
-
-    @Test
-    fun `S10 under DID binding the verified subject is the token sub and without it there is none`() =
-        runTest {
-            val didToken = signRsa(claims(subject = A_DID, issuer = A_DID, audience = null))
-            val did =
-                JwksActorVerifier(actorConfig(didAllowlist = listOf(A_DID)), didProvider(rsaKey), CLOCK)
-                    .verify(actor(A_DID, didToken))
-            assertEquals(VerificationStatus.VERIFIED, did.status, did.reason)
-            assertEquals(A_DID, did.verifiedSubject)
-
-            val plain = JwksActorVerifier(actorConfig(), staticProvider(rsaKey), CLOCK).verify(actor("agent-1", signRsa()))
-            assertEquals(VerificationStatus.VERIFIED, plain.status)
-            assertNull(plain.verifiedSubject)
         }
 
     // -------------------------------------------------------------------------

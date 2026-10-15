@@ -61,7 +61,6 @@ internal object ConfigKeyCatalog {
             "resources",
             "note_limits",
             "status_labels",
-            "actor_authentication",
             "project",
             "independence",
             "extensions",
@@ -283,8 +282,7 @@ internal object YamlSchemaParser {
      * through" from "this document explicitly configures note limits".
      *
      * A top-level `schema_resolution` key (3.x) is removed: when present, whatever its value, it adds
-     * exactly one warning saying so and has no effect. [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
-     * (map, scalar, or explicit YAML `null`), or Kotlin `null` when the key is absent entirely.
+     * exactly one warning saying so and has no effect.
      * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
      * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
      *
@@ -321,7 +319,6 @@ internal object YamlSchemaParser {
         if (root.containsKey("schema_resolution")) {
             warnings.soft(ptr("schema_resolution"), SCHEMA_RESOLUTION_REMOVED_WARNING)
         }
-        val actorAuthenticationSection = root["actor_authentication"]
         val presentSections: Set<String> = LinkedHashSet(root.keys)
 
         val base =
@@ -366,7 +363,6 @@ internal object YamlSchemaParser {
             traitDispatch = traitDispatch,
             traitDispatchBySeat = traitDispatchBySeat,
             traitSeats = traitSeatsMap,
-            actorAuthenticationSection = actorAuthenticationSection,
             presentSections = presentSections,
         )
     }

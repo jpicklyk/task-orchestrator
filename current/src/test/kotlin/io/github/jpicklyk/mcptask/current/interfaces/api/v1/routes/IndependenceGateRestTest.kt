@@ -158,7 +158,6 @@ work_item_schemas:
             allowQueryToken = false,
             serverName = serverName,
             serverVersion = "1.0.0",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

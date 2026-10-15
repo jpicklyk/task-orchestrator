@@ -44,7 +44,7 @@ they automatically cover every tool the production server registers.
 - **Orchestration** (default) - orchestrator pushes items through phases via `advance` `transition`
 - **Claim** (opt-in) - consumers pull work via `advance` `claim`, holding TTL-based ownership before advancing
 
-The optional `actor_authentication` config block adds JWKS-based identity verification — independent of claim mode (claim works without it). See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md).
+Caller identity comes from the transport credential (`API_AUTH_MODE`, the `API_JWKS_*` variables, the `/mcp` auth mode) — independent of claim mode (claim works without it). See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md). The old `actor_authentication` config block is removed: a leftover block fails startup.
 
 ## Trait System (Orchestration Signals)
 
@@ -114,8 +114,7 @@ val globalConfigPath = configBaseDir.resolve(".taskorchestrator/config.yaml")
   (`PerRootConfigService` implements both it and `PerRootConfigSource`; `EffectiveConfigResolver(server, perRoot)`), so a version another
   process appends to a shared volume is served without a restart (last booting process wins, by design). A head that cannot be
   loaded surfaces as `config_invalid` (REST 422) at every boundary; read faults answer `unavailable` (kind `shedding`).
-- The one exception is `actor_authentication:`, which stays file-sourced: `YamlActorAuthenticationConfigService` takes the same
-  `GlobalConfigFile` (it is stripped before validation and never stored in canonical form). `TypeBackfillStep` also keeps reading the file.
+- `checkRemovedServerConfig` (`infrastructure/config/RemovedServerConfigKeys.kt`) reads the same `GlobalConfigFile` at startup and fails it on a leftover `actor_authentication:` or `auditing:` key or a set `DEGRADED_MODE_POLICY`. `TypeBackfillStep` also keeps reading the file.
 - `jwks_path` resolves against the injected `configBaseDir` (`DefaultJwksKeySetProvider(config, configBaseDir)`); `bodyFromFile` against
   the `FileBodySource` root built from the same base directory.
 - **This is the SERVER-scope/fallback config.** Per-**project** config is stored per-root in the DB: pushed via the `config` tool's `push` op
@@ -149,7 +148,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
 - `DB_COMPACT_ON_UPGRADE` — run the one-time post-V17 startup compaction (VACUUM + FTS5 rebuild) on the first Flyway-mode start after upgrading (default: `true`; set `false` to opt out)
 - `FTS_INTEGRITY` - `startup` (default) runs the FTS5 `integrity-check` on every FTS table at each start; `off` skips only that check (the FTS inventory check still runs). An unrecognized value falls back to `startup` with a WARN
-- `DEGRADED_MODE_POLICY` — REMOVED in 4.0: verification fails closed. A set value (any) and a YAML `actor_authentication.degraded_mode_policy` key (any value) both fail startup naming them
+- `DEGRADED_MODE_POLICY` — REMOVED in 4.0: verification fails closed. A set value (any) fails startup naming it (a leftover `actor_authentication:` block of any content fails startup too)
 - `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,
   schema update, and transport bind) has fully succeeded; default `/tmp/mcp-task-orchestrator.ready`.
   Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both

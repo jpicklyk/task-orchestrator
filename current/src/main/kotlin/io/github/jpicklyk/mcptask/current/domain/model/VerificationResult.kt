@@ -49,14 +49,14 @@ enum class VerificationStatus {
  *   - `verifiedFromCache`: `"true"` when the VERIFIED result was produced using a stale JWKS cache
  *   - `cacheAgeSeconds`: seconds since the stale cache entry was fetched
  * @param verifiedSubject Under DID-rooted trust, the cryptographically verified identity (the JWT
- *   `sub`, which [JwksActorVerifier] binds equal to `iss`) when [status] is [VerificationStatus.VERIFIED].
+ *   `sub`, which the verifier binds equal to `iss`) when [status] is [VerificationStatus.VERIFIED].
  *   Null for static-JWKS verification and for any non-VERIFIED outcome; not persisted or serialized.
  * @param proofSha256 Lowercase hex SHA-256 digest of the raw proof's UTF-8 bytes, computed by
  *   by the code that verified a presented proof whenever a non-blank proof was supplied  -  independent of verification outcome. This is the durable,
  *   non-replayable forensic trace persisted in place of the raw proof (see `NotesTable`
  *   `actor_proof_sha256` and the `item.transitioned` event payload). Null when no proof was supplied.
  * @param proofClaims Verified JWT claims (see [ProofClaims]); populated only on
- *   [VerificationStatus.VERIFIED] by [JwksActorVerifier]. Null otherwise.
+ *   [VerificationStatus.VERIFIED] by the verifier. Null otherwise.
  */
 data class VerificationResult(
     val status: VerificationStatus,

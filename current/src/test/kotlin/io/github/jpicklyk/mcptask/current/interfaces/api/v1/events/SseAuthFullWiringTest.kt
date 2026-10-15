@@ -143,7 +143,6 @@ class SseAuthFullWiringTest {
             allowQueryToken = allowQueryToken,
             serverName = "sse-full-wiring-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
             serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(

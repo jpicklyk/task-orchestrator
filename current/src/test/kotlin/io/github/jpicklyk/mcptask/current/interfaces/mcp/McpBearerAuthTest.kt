@@ -177,7 +177,6 @@ internal class McpAuthHttpFixture(
                 allowQueryToken = false,
                 serverName = "mcp-auth-test",
                 serverVersion = "1.0.0",
-                actorAuthEnabled = rig.composition.actorAuthEnabled,
                 serverConfig = rig.composition.serverConfig,
                 toolContext = rig.ctx,
                 appConfig = appConfig

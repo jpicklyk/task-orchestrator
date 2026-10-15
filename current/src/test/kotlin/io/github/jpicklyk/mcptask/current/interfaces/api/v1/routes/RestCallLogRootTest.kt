@@ -90,7 +90,6 @@ class RestCallLogRootTest {
             allowQueryToken = false,
             serverName = "r2-rest-call-log",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             callLog = writer,

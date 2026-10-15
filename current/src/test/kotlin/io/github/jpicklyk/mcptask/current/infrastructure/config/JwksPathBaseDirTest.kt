@@ -2,9 +2,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -19,7 +18,7 @@ import kotlin.test.assertFails
  * [DefaultJwksKeySetProvider]: a relative `jwks_path` resolves against the `configBaseDir` it is constructed with, not against
  * the process working directory and not through an environment read.
  *
- * Oracle: task-scope 1.7 ("`DefaultJwksKeySetProvider(config: VerifierConfig.Jwks, configBaseDir: Path, ...)`: `jwks_path`
+ * Oracle: task-scope 1.7 ("`DefaultJwksKeySetProvider(config: KeySourceConfig, configBaseDir: Path, ...)`: `jwks_path`
  * resolves against `configBaseDir` (no env read)") and AR-41. The fixtures make the base directory the only place the file
  * can be found: the probe path carries a unique directory name that exists nowhere under the working directory, so a
  * provider that resolved against the working directory (or the former AGENT_CONFIG_DIR env fallback) fails to load it.
@@ -47,7 +46,7 @@ class JwksPathBaseDirTest {
         baseDir: Path,
         jwksPath: String
     ): List<String?> {
-        val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(jwksPath = jwksPath).toKeySource(), baseDir)
+        val provider = DefaultJwksKeySetProvider(KeySourceConfig(jwksPath = jwksPath), baseDir)
         try {
             return runBlocking { provider.getKeySet() }.keys.keys.map { it.keyID }
         } finally {

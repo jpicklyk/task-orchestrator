@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -59,9 +58,9 @@ class JwksKeySetProviderCacheTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "jwks.json")
+                val config = KeySourceConfig(jwksPath = "jwks.json")
                 val cache =
-                    DefaultJwksKeySetProvider(config.toKeySource(), tempDir, egressGuard = publicEgressGuard(config.allowInsecureUrl))
+                    DefaultJwksKeySetProvider(config, tempDir, egressGuard = publicEgressGuard(config.allowInsecureUrl))
                 try {
                     val result = cache.getKeySet()
                     assertNotNull(result.keys)
@@ -93,10 +92,10 @@ class JwksKeySetProviderCacheTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 300)
+                val config = KeySourceConfig(jwksPath = "jwks.json", cacheTtlSeconds = 300)
                 val cache =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = fixedClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -138,10 +137,10 @@ class JwksKeySetProviderCacheTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 60)
+                val config = KeySourceConfig(jwksPath = "jwks.json", cacheTtlSeconds = 60)
                 val cache =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -203,14 +202,14 @@ class JwksKeySetProviderCacheTest {
                 }
 
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     jwksUri = "https://example.com/.well-known/jwks.json",
                     cacheTtlSeconds = 60,
                     staleOnError = true,
                 )
             val cache =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     clock = advancingClock,
                     httpClientEngineForTest = engine,
@@ -280,14 +279,14 @@ class JwksKeySetProviderCacheTest {
                 }
 
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     jwksUri = "https://example.com/.well-known/jwks.json",
                     cacheTtlSeconds = 60,
                     staleOnError = false, // hard-fail mode
                 )
             val cache =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     clock = advancingClock,
                     httpClientEngineForTest = engine,

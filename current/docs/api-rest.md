@@ -171,8 +171,8 @@ resolves to nothing), then JWT verification in JWKS mode.
 - `503 unavailable` (no `WWW-Authenticate`, `error.detail.retryAfterMs` 15000) — a JWT arrived while the JWKS key set is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`): the token is neither accepted nor called invalid. The same answer applies to `/mcp` and to the SSE `?token=` path; retry after the hint. A key set older than its TTL but younger than `API_JWKS_MAX_STALE_SECONDS` is still served (the principal's proof is `verified_stale`)
 - `403 forbidden` with `detail: {scope: "capability", required: "<capability>"}` -- token valid but lacks the required capability
 
-**Verification fails closed.** There is no degraded-mode policy (`actor_authentication.degraded_mode_policy` and
-`DEGRADED_MODE_POLICY` were removed in 4.0 and fail startup if still set). A JWT is accepted, rejected (`401`) or, when
+**Verification fails closed.** There is no degraded-mode policy (`DEGRADED_MODE_POLICY` was removed in 4.0 and fails startup if still set, and so does a leftover
+`actor_authentication:` block). A JWT is accepted, rejected (`401`) or, when
 the key set cannot be had, answered `503 unavailable`; no request is ever served under a guessed or self-reported
 identity. `proofStatus` is the whole vocabulary of how a principal was proven: `verified`, `verified_stale`, `issued`
 and `none`; `rejected` appears only in stored history (a rejected credential yields no principal).
@@ -824,7 +824,6 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "apiVersion": "v1",
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
-  "actorAuthenticationEnabled": false,
   "verifier": "bearer",
   "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
   "configWarnings": []
@@ -833,8 +832,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
 
 `verifier` is the API credential verifier in force: `none` (unauthenticated mode), `bearer` (token file) or `jwks`.
 With `jwks`, `maxStale` (integer seconds) is also present: the `API_JWKS_MAX_STALE_SECONDS` bound of the key set, the oldest a cached
-key set may be and still be served after a failed refresh. `actorAuthenticationEnabled` is the separate
-`actor_authentication.verifier` setting; that block is inert in 4.0 (see fleet-deployment.md), so the flag reflects only whether it is configured and gates nothing.
+key set may be and still be served after a failed refresh.
 
 `configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
 global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the

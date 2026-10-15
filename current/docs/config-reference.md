@@ -25,7 +25,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
 | `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
-| `actor_authentication` | server only | yes | rejected | Inert in 4.0: validated at startup, sets only `/info` `actorAuthenticationEnabled`, consulted by no call (see [below](#actor_authentication)). |
+| `actor_authentication` | removed | fails startup | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
 | `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
 | `schema_resolution` | removed | warning | rejected | Removed in 4.0; schemas resolve by one fixed precedence rule. |
 
@@ -53,17 +53,13 @@ fix is to move them under `extensions.claude-code`. Documents already stored fro
 
 ### `actor_authentication`
 
-Server-only: it is read from the global file, rejected in a per-root document, and **inert in 4.0**. No request carries an
-`actor` or an `actor.proof` any more (the caller is the transport principal, established by `API_AUTH_MODE`), so nothing
-consults the verifier it configures. The block is still validated at startup, and a malformed one fails startup. Its only other effect is the `actorAuthenticationEnabled` field of `GET /api/v1/info`, which gates nothing:
+Removed in 4.0. No request carries an `actor` or an `actor.proof` any more (the caller is the transport principal,
+established by `API_AUTH_MODE`), so the block authenticated nothing. A global file with an `actor_authentication:` key,
+whatever its value, fails startup naming the key; a per-root push carrying it is rejected at `/actor_authentication` as an
+unknown top-level section. A set `DEGRADED_MODE_POLICY` environment variable and a legacy `auditing:` key fail startup too.
 
-- `verifier.max_stale_seconds`, when present, must be greater than 0 and at least `cache_ttl_seconds`; the default is
-  `max(3600, cache_ttl_seconds)`.
-- A `degraded_mode_policy` key (any value, `null` included) or a `DEGRADED_MODE_POLICY` environment variable fails
-  startup naming it; both were removed in 4.0.
-
-It is safe to delete. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables; see
-[Fleet Deployment](fleet-deployment.md#actor_authentication-in-40-inert).
+Delete the block. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables; see
+[Fleet Deployment](fleet-deployment.md#actor_authentication-removed-in-40).
 
 ### Note entry `shared`
 
@@ -87,7 +83,7 @@ three parts, merged into one result:
    `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean. A seat's
    `transitions` must be a list of `complete`, `block`, `hold`, `resume`, `cancel` or `reopen` (`start` is
    governed by `enters`); outside strict validation a non-list is ignored and a bad element is dropped, with a warning.
-3. **Semantics.** `resources` and `actor_authentication` are rejected in a per-root document; `work_item_schemas` and
+3. **Semantics.** `resources` is rejected in a per-root document; `work_item_schemas` and
    `note_schemas` cannot be combined; every `default_traits` entry must name a trait defined in the document or in
    the server config; every trait `resources[].key` must be declared in the server resource registry; a
    `lifecycle: none` schema may not declare `seats` (error at `/work_item_schemas/<type>/seats`) nor a note with
@@ -146,8 +142,8 @@ sections keeps working. Only a new push has to be clean. Advisory findings are w
 `STRICT` mode, the same rules a push is held to, with one allowance: an error at exactly the top-level key
 `schema_resolution`, `orchestration`, `retrospective` or `actor_attribution` (the plugin sections and the removed
 resolution key a 3.x file carried) becomes a stored warning instead (served as `configWarnings` by `GET /api/v1/info`);
-nested or differently-cased keys get no allowance, and a push of the same text is still rejected. `actor_authentication`
-is removed before validation (it stays read from the file). Every other error fails startup with one `path: reason`
+nested or differently-cased keys get no allowance, and a push of the same text is still rejected. A leftover
+`actor_authentication` key fails startup before the import runs. Every other error fails startup with one `path: reason`
 line each. A file whose `project.rootId` names a depth-0 root is imported as that root's config and is held to the
 per-root rules (`resources` and the legacy `note_schemas` next to `work_item_schemas` are rejected); a malformed or
 unknown `project.rootId` fails startup. An absent, empty or comment-only file imports nothing.

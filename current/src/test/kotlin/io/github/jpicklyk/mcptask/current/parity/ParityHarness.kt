@@ -376,7 +376,6 @@ internal fun Application.installParityRestApp(
         allowQueryToken = false,
         serverName = "parity-harness",
         serverVersion = "test",
-        actorAuthEnabled = rig.composition.actorAuthEnabled,
         serverConfig = rig.composition.serverConfig,
         toolContext = rig.composition.toolContext,
         callLog = callLog,

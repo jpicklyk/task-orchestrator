@@ -13,9 +13,8 @@ import java.nio.file.Path
  * YAML-backed implementation of [WorkItemSchemaService].
  *
  * Reads note schemas from `.taskorchestrator/config.yaml` in the project root, via a single
- * [GlobalConfigFile] instance ([globalConfig]) shared with [YamlStatusLabelService] and
- * [YamlActorAuthenticationConfigService] — the file is read and parsed once, by
- * [GlobalConfigFile], not independently by each of these three services.
+ * [GlobalConfigFile] instance ([globalConfig]) shared with [YamlStatusLabelService] — the file is read and parsed once, by
+ * [GlobalConfigFile], not independently by each of these services.
  *
  * Supports two YAML formats:
  *

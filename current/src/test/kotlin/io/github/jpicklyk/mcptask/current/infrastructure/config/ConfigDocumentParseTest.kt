@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  * S5, S7, S8, S12, S14). Exercises [YamlSchemaParser.parseRoot] directly (mirroring
  * [YamlSchemaParserRoleWarningTest]'s SafeConstructor-based parsing style) for the new
  * [ConfigDocument] fields C1 introduces (`noteLimitsMode`, `statusLabels`,
- * `actorAuthenticationSection`, `presentSections`), plus [YamlConfigDocumentParser] (the new
+ * `presentSections`), plus [YamlConfigDocumentParser] (the new
  * exception-to-`Outcome` wrapper) and the [ConfigDocument.PER_ROOT_HONORED_SECTIONS] constant.
  */
 class ConfigDocumentParseTest {
@@ -118,7 +118,7 @@ class ConfigDocumentParseTest {
     }
 
     // ──────────────────────────────────────────────
-    // S8 — presentSections / actorAuthenticationSection
+    // S8 — presentSections
     // ──────────────────────────────────────────────
 
     @Test
@@ -141,32 +141,6 @@ class ConfigDocumentParseTest {
     @Test
     fun `S8 presentSections is empty for a blank document`() {
         assertTrue(parse("").presentSections.isEmpty())
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection carries the raw map value`() {
-        val doc =
-            parse(
-                """
-                actor_authentication:
-                  enabled: true
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val section = doc.actorAuthenticationSection
-        assertTrue(section is Map<*, *>)
-        assertEquals(true, (section as Map<*, *>)["enabled"])
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection carries a raw scalar value unchanged`() {
-        assertEquals("reject", parse("actor_authentication: reject\n").actorAuthenticationSection)
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection is null when the section is absent`() {
-        assertNull(parse(noSchemaSection).actorAuthenticationSection)
     }
 
     // ──────────────────────────────────────────────

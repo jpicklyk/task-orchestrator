@@ -5,7 +5,6 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64URL
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidDocument
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolverRegistry
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.VerificationMethod
@@ -123,9 +122,9 @@ class KeySetBackoffTest {
         maxStale: Long = 3600,
         staleOnError: Boolean = true,
     ): DefaultJwksKeySetProvider {
-        val config = VerifierConfig.Jwks(jwksUri = URL, cacheTtlSeconds = ttl, staleOnError = staleOnError, maxStaleSeconds = maxStale)
+        val config = KeySourceConfig(jwksUri = URL, cacheTtlSeconds = ttl, staleOnError = staleOnError, maxStaleSeconds = maxStale)
         return DefaultJwksKeySetProvider(
-            config.toKeySource(),
+            config,
             Path.of("."),
             clock = clock,
             egressGuard = publicEgressGuard(),
@@ -491,9 +490,9 @@ class KeySetBackoffTest {
         world: DidWorld,
         clock: TestClock,
     ): DefaultJwksKeySetProvider {
-        val config = VerifierConfig.Jwks(didAllowlist = listOf(didA, didB), cacheTtlSeconds = 60)
+        val config = KeySourceConfig(didAllowlist = listOf(didA, didB), cacheTtlSeconds = 60)
         return DefaultJwksKeySetProvider(
-            config.toKeySource(),
+            config,
             Path.of("."),
             clock = clock,
             didResolverRegistry = world.registry,

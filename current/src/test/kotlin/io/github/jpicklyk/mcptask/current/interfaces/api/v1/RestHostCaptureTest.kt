@@ -89,7 +89,6 @@ class RestHostCaptureTest {
             allowQueryToken = false,
             serverName = "q7-rest-host",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             callLog = writer,
