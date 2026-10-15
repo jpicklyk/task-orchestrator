@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -87,6 +89,7 @@ data class ConfigDocument(
     val traitSeats: Map<String, List<SeatDefinition>> = emptyMap(),
     val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
     val runs: RunsConfig? = null,
+    val decisionClasses: Map<String, DecisionClassConfig>? = null,
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
@@ -103,4 +106,18 @@ data class ConfigDocument(
 data class RunsConfig(
     val stallAfterSeconds: Int? = null,
     val budgets: RunBudget? = null,
+)
+
+/**
+ * One entry of the top-level `decision_classes:` block. A null field means "this entry does not set it": the field
+ * keeps the built-in class's value (or the default of a class that is not built in), see
+ * `io.github.jpicklyk.mcptask.current.application.decision.DecisionClasses`. [expiresAfterSeconds] is the
+ * `expires_after` value in seconds; [onExpiry] is always `escalate` when set.
+ */
+data class DecisionClassConfig(
+    val answerers: DecisionRequestAnswerers? = null,
+    val severity: DecisionRequestSeverity? = null,
+    val expiresAfterSeconds: Long? = null,
+    val onExpiry: String? = null,
+    val freeform: Boolean? = null,
 )

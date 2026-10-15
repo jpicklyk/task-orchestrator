@@ -37,6 +37,7 @@ import java.util.concurrent.ConcurrentHashMap
  * | note_limits.mode | per-root explicit value, else server |
  * | independence (A2) | per-root block wins WHOLESALE (both `mode` and `require_verified` together), else server |
  * | runs | per FIELD (`stall_after` and each budget ceiling): per-root value, else server, else default (600 / unlimited) |
+ * | decision_classes | per KEY: a per-root entry replaces the server entry of the same class name (the built-ins are merged per field later, by `DecisionClasses`) |
  * | Status labels | per-root map wins per trigger by key presence (an explicit null included), else server |
  * | Trait names | per-root keys first, then server, distinct |
  * | Type keys | union of both layers' schema keys, sorted |
@@ -141,6 +142,14 @@ class LayeredConfig(
             budgets = budgets.takeUnless { it.isUnlimited },
         )
     }
+
+    /**
+     * The declared `decision_classes:` entries, merged per KEY: the server entries, with every per-root entry
+     * replacing the server entry of the same name. Empty when no layer declares any. The built-in classes are not
+     * merged here.
+     */
+    fun decisionClasses(): Map<String, DecisionClassConfig> =
+        global.decisionClasses().orEmpty() + perRootDocument?.decisionClasses.orEmpty()
 
     /**
      * Status label for [trigger]: the per-root `status_labels` map wins only when it contains

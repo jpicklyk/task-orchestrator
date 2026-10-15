@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
@@ -51,6 +52,7 @@ class DefaultRepositoryProvider(
     private val callLogStoreInstance by lazy { SqliteCallLogStore(databaseManager) }
     private val runStoreInstance by lazy { SqliteRunStore(databaseManager) }
     private val runSeatStoreInstance by lazy { SqliteRunSeatStore(databaseManager, clock) }
+    private val decisionRequestStoreInstance by lazy { SqliteDecisionRequestStore(databaseManager) }
     private val reportQueriesInstance by lazy { SqliteReportQueries(databaseManager) }
     private val usageDailyStoreInstance by lazy { SqliteUsageDailyStore(databaseManager) }
 
@@ -81,6 +83,8 @@ class DefaultRepositoryProvider(
     override fun runStore(): RunStore = runStoreInstance
 
     override fun runSeatStore(): RunSeatStore = runSeatStoreInstance
+
+    override fun decisionRequestStore(): DecisionRequestStore = decisionRequestStoreInstance
 
     override fun reportQueries(): ReportQueries = reportQueriesInstance
 

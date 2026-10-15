@@ -73,9 +73,9 @@ private suspend fun WriteScope.endSeat(
 /**
  * The request [raw] links as seat links. Each element must be an object of exactly `kind` and `ref`, both strings; a
  * missing or non-string member is `/links/<i>/kind` or `/links/<i>/ref`, another member is `/links/<i>`. The kind
- * vocabulary and the length limits are checked by the seat service.
+ * vocabulary and the length limits are checked by the service that takes them (seats, and decisions on `raise`).
  */
-private fun links(raw: List<JsonObject>?): Outcome<List<RunSeatLink>> {
+internal fun links(raw: List<JsonObject>?): Outcome<List<RunSeatLink>> {
     if (raw == null) return Outcome.Ok(emptyList())
     val out = ArrayList<RunSeatLink>(raw.size)
     val faults = ArrayList<FieldViolation>()

@@ -27,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -37,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionView
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -52,7 +54,8 @@ import kotlinx.serialization.serializer
  *   `blockers`, `contended`, `missing`, `missingBySeat` and `violations` all come from ONE
  *   `transitionPreview().inspect(item, start)` read unit, so they never disagree with `advance` on the same state.
  *   `transitions` is the item row of the status graph for its resolved schema (`resume` resolved to `previousRole`).
- *   `claimDetail` is the only sanctioned claim-identity disclosure. A per-root config read fault answers `unavailable`
+ *   `claimDetail` is the only sanctioned claim-identity disclosure. `decisions` lists the item's open, acknowledged and
+ *   answered decision requests as `{id, class, status, option?}`. A per-root config read fault answers `unavailable`
  *   (decision D-f), never a fallback.
  * - **health mode** (no `itemId`): `{active, blocked, stalled, claimSummary}` for the scope or the `ancestorId`
  *   subtree. One `limit`/`cursor` pages `active` and `blocked` together; `blocked` is the same set as select
@@ -81,7 +84,8 @@ object ItemsReadContext {
             name = "context",
             doc =
                 "With itemId: the gate state of one item (canAdvance, blockedBy, blockers, missing notes, next, transitions, " +
-                    "dispatch, claimDetail). Without: a health view of active, blocked and stalled items and the claim summary " +
+                    "dispatch, claimDetail, decisions). Without: a health view of active, blocked and stalled items and the " +
+                    "claim summary " +
                     "(default limit 50, max 200; ancestorId scopes it). fields: ancestors.",
             profiles = orchestration(),
             request = serializer<Request>(),
@@ -190,6 +194,7 @@ object ItemsReadContext {
                 buildSeatsJson(seats)?.let { put("seats", it) }
                 buildDispatchBySeatFlatJson(dispatchBySeat)?.let { put("dispatchBySeat", it) }
                 claimDetail(env, item)?.let { put("claimDetail", it) }
+                decisions(env, item)?.let { put("decisions", it) }
                 resourceLeases(env, ctx, item)?.let { put("resourceLeases", it) }
             }
         )
@@ -234,6 +239,26 @@ object ItemsReadContext {
                 }
             }
         }
+
+    /**
+     * The item's decision requests that are open, acknowledged or answered, newest first, as `{id, class, status,
+     * option?}` (withdrawn ones are left out); null when there is none. A provider that serves no decision store (its
+     * `decisionRequestStore()` throws [UnsupportedOperationException], as the interface default does) has none.
+     */
+    private suspend fun decisions(
+        env: ToolExecutionContext,
+        item: WorkItem
+    ): JsonArray? {
+        val store =
+            try {
+                env.repositoryProvider.decisionRequestStore()
+            } catch (e: UnsupportedOperationException) {
+                return null
+            }
+        val shown = DecisionRequestStatus.entries.filterTo(HashSet()) { it != DecisionRequestStatus.WITHDRAWN }
+        val found = env.unitOfWork.read { store.list(itemId = item.id, statuses = shown) }
+        return if (found.isEmpty()) null else JsonArray(found.map { DecisionView.contextEntry(it) })
+    }
 
     /** Full claim detail: the only sanctioned disclosure of a claim identity (a diagnostic for stalled or expired claims). */
     private suspend fun claimDetail(

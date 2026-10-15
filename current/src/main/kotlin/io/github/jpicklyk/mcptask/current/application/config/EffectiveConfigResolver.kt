@@ -274,6 +274,9 @@ class EffectiveConfigResolver private constructor(
     /** `runs:` settings for [rootId], resolved per field (see [LayeredConfig.runsConfig]). */
     suspend fun resolveRunsConfig(rootId: UUID?): RunsConfig = layered(rootId).runsConfig()
 
+    /** The declared `decision_classes:` entries for [rootId], merged per key (see [LayeredConfig.decisionClasses]). */
+    suspend fun resolveDecisionClasses(rootId: UUID?): Map<String, DecisionClassConfig> = layered(rootId).decisionClasses()
+
     /** Status labels for every trigger in [triggers] from ONE per-root read (see [LayeredConfig.statusLabel]). */
     suspend fun resolveStatusLabels(
         triggers: Collection<String>,

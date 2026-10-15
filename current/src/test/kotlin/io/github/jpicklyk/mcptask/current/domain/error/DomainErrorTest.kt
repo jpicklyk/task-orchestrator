@@ -38,6 +38,7 @@ internal object ErrorFixtures {
             ErrorCode.RUN_CLOSED -> ErrorDetail.RunClosed(id1, "cancelled")
             ErrorCode.RUN_PAUSED -> ErrorDetail.RunPaused(id1, "manual", null)
             ErrorCode.INVALID_RUN_STATE -> ErrorDetail.InvalidRunState(id1, "paused", listOf("close"))
+            ErrorCode.DECISION_CLOSED -> ErrorDetail.DecisionClosed(id1, "answered")
             ErrorCode.SCHEMA_VIOLATION -> ErrorDetail.SchemaViolation(null, "unknown type", null)
             ErrorCode.SCHEMA_PINNED_CONFLICT -> ErrorDetail.SchemaPinnedConflict(id1, "v1", "v2")
             ErrorCode.CONFIG_INVALID -> ErrorDetail.ConfigInvalid(listOf(ConfigViolation("traits[0]", "unknown key")))
@@ -72,6 +73,7 @@ internal object ErrorFixtures {
             ErrorCode.RUN_CLOSED to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "terminalReason" to "cancelled"),
             ErrorCode.RUN_PAUSED to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "pauseReason" to "manual"),
             ErrorCode.INVALID_RUN_STATE to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "status" to "paused"),
+            ErrorCode.DECISION_CLOSED to mapOf("decisionId" to "11111111-1111-1111-1111-111111111111", "status" to "answered"),
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "pinnedVersion" to "v1", "currentVersion" to "v2"),
             ErrorCode.PAYLOAD_TOO_LARGE to mapOf("max" to "1000"),

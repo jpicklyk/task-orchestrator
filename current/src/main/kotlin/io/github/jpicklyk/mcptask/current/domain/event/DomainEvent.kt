@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.domain.event
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
@@ -532,7 +533,7 @@ sealed class DomainEvent {
     /**
      * A run closed with [reason]. [countsByRole] counts the members at close by role (`none` for a lifecycle-free
      * one); [inFlight] lists the members whose seat was still active; [released] is what the close cascade released;
-     * [openDecisions] counts decisions left open (0 until decisions exist).
+     * [openDecisions] counts the run's decisions still open or acknowledged (a close withdraws none).
      */
     data class RunEnded(
         override val entityId: UUID,
@@ -614,6 +615,92 @@ sealed class DomainEvent {
             )
     }
 
+    // ---- decisions (entity = the decision request; root = its root item) ----
+    //
+    // The payload names the class, severity, run, item and dedupe key; an answer adds the option, whether it came after
+    // the expiry, and the answerer's kind, proof status and profile. Never a principal id, host, session id, answer
+    // text or rationale: the row's own actor columns carry who acted.
+
+    /** A decision request was raised (a re-raise that matched an existing request records nothing). */
+    data class DecisionRaised(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_RAISED
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> = decisionPayload(decisionClass, severity, runId, itemId, dedupeKey)
+    }
+
+    /** An open decision request was acknowledged (an acknowledge of an acknowledged one records nothing). */
+    data class DecisionAcknowledged(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_ACKNOWLEDGED
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> = decisionPayload(decisionClass, severity, runId, itemId, dedupeKey)
+    }
+
+    /**
+     * A decision request was answered with [option] (null for a text-only freeform answer). [kind], [proofStatus] and
+     * [profile] are the answerer's credential kind, proof status and served profile.
+     */
+    data class DecisionAnswered(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String,
+        val option: String?,
+        val afterExpiry: Boolean,
+        val kind: String,
+        val proofStatus: String,
+        val profile: String?
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_ANSWERED
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> =
+            decisionPayload(decisionClass, severity, runId, itemId, dedupeKey) +
+                mapOf(
+                    "option" to option,
+                    "afterExpiry" to afterExpiry,
+                    "kind" to kind,
+                    "proofStatus" to proofStatus,
+                    "profile" to profile
+                )
+    }
+
+    /** A pending decision request was withdrawn by its raiser or the run's coordinator. */
+    data class DecisionWithdrawn(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_WITHDRAWN
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> = decisionPayload(decisionClass, severity, runId, itemId, dedupeKey)
+    }
+
     companion object {
         const val KIND_ITEM = "item"
         const val KIND_NOTE = "note"
@@ -622,6 +709,7 @@ sealed class DomainEvent {
         const val KIND_DOCUMENT = "document"
         const val KIND_RUN = "run"
         const val KIND_SEAT = "seat"
+        const val KIND_DECISION = "decision"
 
         const val ITEM_CREATED = "item.created"
         const val ITEM_UPDATED = "item.updated"
@@ -657,9 +745,16 @@ sealed class DomainEvent {
         const val RUN_MARKED = "run.marked"
         const val SEAT_ASSIGNED = "seat.assigned"
         const val SEAT_ENDED = "seat.ended"
+        const val DECISION_RAISED = "decision.raised"
+        const val DECISION_ACKNOWLEDGED = "decision.acknowledged"
+        const val DECISION_ANSWERED = "decision.answered"
+        const val DECISION_WITHDRAWN = "decision.withdrawn"
 
         /** The run event types, in lifecycle order (all of them stream on the SSE projection). */
         val RUN_TYPES: List<String> = listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED)
+
+        /** The decision event types, in lifecycle order (all of them stream on the SSE projection; audit by prefix). */
+        val DECISION_TYPES: List<String> = listOf(DECISION_RAISED, DECISION_ACKNOWLEDGED, DECISION_ANSWERED, DECISION_WITHDRAWN)
 
         /** `transition.rejected` codes (the error-catalog wire codes they mirror). */
         const val REJECTED_GATE_BLOCKED = "gate_blocked"
@@ -685,6 +780,21 @@ sealed class DomainEvent {
             slug: String,
             version: Int
         ): Map<String, Any?> = mapOf("kind" to kind.toDbValue(), "slug" to slug, "version" to version)
+
+        private fun decisionPayload(
+            decisionClass: String,
+            severity: DecisionRequestSeverity,
+            runId: UUID?,
+            itemId: UUID?,
+            dedupeKey: String
+        ): Map<String, Any?> =
+            mapOf(
+                "class" to decisionClass,
+                "severity" to severity.wire,
+                "runId" to runId,
+                "itemId" to itemId,
+                "dedupeKey" to dedupeKey
+            )
 
         /** A budget as `{tokens, costMicroUsd, attemptsPerSeat, maxActiveSeats}` (unset fields null), or null. */
         private fun budgetPayload(budget: RunBudget?): Map<String, Any?>? =

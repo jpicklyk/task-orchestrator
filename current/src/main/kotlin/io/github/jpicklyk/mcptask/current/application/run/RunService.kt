@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
@@ -53,6 +54,9 @@ import java.util.UUID
  * assignee's when BOTH its holder columns match an active assignment's (principal, assignment) pair); releases the
  * leases of every member in WORK; stores the closed run; calls [onClose]; records `run.ended`. The holders are read
  * before the seats end, so the claims of the seats this close ends are covered.
+ *
+ * `run.ended` counts the run's decision requests still open or acknowledged ([RunDecisionPort.openCount]); a close
+ * withdraws none of them.
  */
 class RunService(
     private val repositoryProvider: RepositoryProvider,
@@ -60,7 +64,8 @@ class RunService(
     private val claimService: ClaimService,
     private val runsConfig: suspend (UUID) -> RunsConfig,
     private val seats: RunSeatPort = RunSeatPort.NONE,
-    private val onClose: RunCloseHook = RunCloseHook.NONE
+    private val onClose: RunCloseHook = RunCloseHook.NONE,
+    private val decisions: RunDecisionPort = RunDecisionPort.NONE
 ) {
     private val runs: RunStore get() = repositoryProvider.runStore()
     private val items get() = repositoryProvider.workItemRepository()
@@ -269,7 +274,7 @@ class RunService(
                     closedBy = closedBy
                 )
             val stored = runs.update(closed, run.version) ?: return@write err(conflictAfterRead(runId, run.version))
-            val snapshot = RunEndedSnapshot(reason, countsByRole, inFlight, released, openDecisions = OPEN_DECISIONS)
+            val snapshot = RunEndedSnapshot(reason, countsByRole, inFlight, released, openDecisions = decisions.openCount(runId))
             onClose.onClose(stored, snapshot)
             events.record(
                 DomainEvent.RunEnded(runId, run.rootId, reason, countsByRole, inFlight, released, snapshot.openDecisions)
@@ -485,9 +490,6 @@ class RunService(
 
         /** The single allowed operation of a budget or attempts pause. */
         const val ALLOWED_CLOSE = "close"
-
-        /** Decisions do not exist yet, so a close never leaves one open. */
-        private const val OPEN_DECISIONS = 0
 
         fun runClosed(run: Run): DomainError {
             val reason = run.terminalReason?.wire ?: "closed"

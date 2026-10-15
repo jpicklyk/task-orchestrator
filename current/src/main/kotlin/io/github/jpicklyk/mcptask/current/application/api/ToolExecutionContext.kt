@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.decision.DecisionEffects
+import io.github.jpicklyk.mcptask.current.application.decision.DecisionService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
@@ -91,6 +93,8 @@ class ToolExecutionContext(
     val bodySource: BodySource = BodySource.DISABLED,
     /** The lease kill switch (`AppConfig.resourceLeasesEnforced`, read once at startup). */
     private val resourceLeasesEnforced: Boolean = true,
+    /** What an answer to a server-raised decision class does (R27); the default does nothing. */
+    val decisionEffects: DecisionEffects = DecisionEffects.NONE,
 ) {
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
@@ -155,7 +159,22 @@ class ToolExecutionContext(
             unitOfWork,
             claimService,
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
-            seats = seatService
+            seats = seatService,
+            decisions = decisionService
+        )
+    }
+
+    /**
+     * The single owner of decision-request writes and decision events (R24), and the run close's count of pending
+     * decisions. Lazy for the same reason as [runService]; its store is reached only when a decision is touched (a
+     * provider that serves no decisions throws then, and counts none at a run close).
+     */
+    val decisionService: DecisionService by lazy {
+        DecisionService(
+            repositoryProvider,
+            unitOfWork,
+            decisionClasses = { rootId -> configResolver.resolveDecisionClasses(rootId) },
+            effects = decisionEffects
         )
     }
 

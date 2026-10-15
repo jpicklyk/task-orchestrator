@@ -40,7 +40,7 @@ data class RunUpdateCommand(
 /**
  * What a close recorded on `run.ended`: [countsByRole] counts the members at close by lowercase role (`none` for a
  * lifecycle-free one), [inFlight] the members whose seat was still active, [released] the cascade's counts and
- * [openDecisions] the decisions left open (0 until decisions exist).
+ * [openDecisions] the run's decision requests still open or acknowledged (a close withdraws none).
  */
 data class RunEndedSnapshot(
     val reason: RunTerminalReason,

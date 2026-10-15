@@ -70,6 +70,13 @@ interface RepositoryProvider {
     fun runSeatStore(): RunSeatStore = throw UnsupportedOperationException("This RepositoryProvider has no run seat store")
 
     /**
+     * Decision requests (`decision_requests`). Writes belong to `DecisionService`. The default throws, so a provider that
+     * serves decisions must override it.
+     */
+    fun decisionRequestStore(): DecisionRequestStore =
+        throw UnsupportedOperationException("This RepositoryProvider has no decision request store")
+
+    /**
      * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
      * The default throws, so a provider that serves reports must override it.
      */

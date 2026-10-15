@@ -3,9 +3,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -63,6 +66,7 @@ internal object ConfigKeyCatalog {
             "independence",
             "extensions",
             "runs",
+            "decision_classes",
         )
 
     /**
@@ -81,6 +85,7 @@ internal object ConfigKeyCatalog {
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
     val RUN_BUDGETS: Set<String> = setOf("tokens", "cost_usd", "attempts_per_seat", "max_active_seats")
+    val DECISION_CLASS: Set<String> = setOf("answerers", "severity", "expires_after", "on_expiry", "freeform")
     val RESOURCE_DEFINITION: Set<String> = setOf("description", "maxHolders", "defaultTtlSeconds")
     val RESOURCE_REQUIREMENT: Set<String> = setOf("key", "mode", "ttlSeconds")
     val DISPATCH_PROFILE: Set<String> = setOf("agent", "model", "effort")
@@ -308,6 +313,7 @@ internal object YamlSchemaParser {
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val independence = parseIndependencePolicy(root, warnings)
         val runs = parseRunsConfig(root, warnings)
+        val decisionClasses = parseDecisionClasses(root, warnings)
         val parsedStatusLabels = parseStatusLabels(root, warnings)
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
@@ -353,6 +359,7 @@ internal object YamlSchemaParser {
             noteLimitsMode = noteLimitsMode,
             independence = independence,
             runs = runs,
+            decisionClasses = decisionClasses,
             statusLabels = parsedStatusLabels,
             traitResources = traitResources,
             resourceRegistry = resourceRegistry,
@@ -1560,6 +1567,46 @@ internal object YamlSchemaParser {
                 ).takeUnless { it.isUnlimited }
             }
         return RunsConfig(stallAfterSeconds = stallAfter, budgets = budgets)
+    }
+
+    /**
+     * Parses the top-level `decision_classes:` block into class configs by name, or null when the key is absent. Every
+     * invalid value ([ConfigValidator.decisionClassesValueViolations], same paths and reasons) and every unknown key is
+     * a soft finding and is left out: an invalid field falls back to the built-in or default value like an absent one,
+     * and an entry with an invalid name or that is not a mapping is left out whole. `expires_after` is in seconds.
+     */
+    private fun parseDecisionClasses(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, DecisionClassConfig>? {
+        if (!root.containsKey("decision_classes")) return null
+        val violations = ConfigValidator.decisionClassesValueViolations(root["decision_classes"])
+        violations.forEach { warnings.soft(it.path, it.reason) }
+        val bad = violations.mapTo(HashSet()) { it.path }
+        val classes = root["decision_classes"] as? Map<*, *> ?: return emptyMap()
+
+        val out = LinkedHashMap<String, DecisionClassConfig>()
+        for ((rawName, rawEntry) in classes) {
+            val name = rawName.toString()
+            if (ptr("decision_classes", name) in bad) continue
+            val entry = rawEntry as? Map<*, *> ?: continue
+            for (key in entry.keys) {
+                if (key.toString() !in ConfigKeyCatalog.DECISION_CLASS) {
+                    warnings.soft(ptr("decision_classes", name, key.toString()), "Unknown key 'decision_classes.$name.$key'; ignoring")
+                }
+            }
+
+            fun valid(key: String): Any? = if (entry.containsKey(key) && ptr("decision_classes", name, key) !in bad) entry[key] else null
+            out[name] =
+                DecisionClassConfig(
+                    answerers = (valid("answerers") as? String)?.let { DecisionRequestAnswerers.fromWire(it) },
+                    severity = (valid("severity") as? String)?.let { DecisionRequestSeverity.fromWire(it) },
+                    expiresAfterSeconds = (valid("expires_after") as? Number)?.toLong(),
+                    onExpiry = valid("on_expiry") as? String,
+                    freeform = valid("freeform") as? Boolean,
+                )
+        }
+        return out
     }
 
     /**

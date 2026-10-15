@@ -301,6 +301,10 @@ object EnvelopeEncoder {
                     put("status", detail.status)
                     put("allowed", strings(detail.allowed))
                 }
+                is ErrorDetail.DecisionClosed -> {
+                    put("decisionId", detail.decisionId.toString())
+                    put("status", detail.status)
+                }
                 is ErrorDetail.SchemaViolation -> {
                     detail.type?.let { put("type", it) }
                     put("reason", detail.reason)

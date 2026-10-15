@@ -50,6 +50,9 @@ interface GlobalConfigLookup {
     /** The server document's own `runs:` block, or null when it has none (no defaults applied here). */
     fun runsConfig(): RunsConfig? = null
 
+    /** The server document's own `decision_classes:` block, or null when it has none (no built-ins merged here). */
+    fun decisionClasses(): Map<String, DecisionClassConfig>? = null
+
     /** Fingerprint of the server config, or null when none is loaded. */
     fun fingerprint(): String?
 
