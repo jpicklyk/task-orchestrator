@@ -339,7 +339,7 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `S20 the planned directory keeps no runs delta after R26 and no full runs entry`() {
+    fun `S20 the planned directory keeps no runs delta and no report delta after R28, and no full runs entry`() {
         for (file in listOf("runs_read.orchestration", "runs_read.director", "runs_write.orchestration", "runs_write.director")) {
             assertNull(resource("planned/$file.json"), "$file.json is stale once the tool is visible")
         }
@@ -348,6 +348,7 @@ class RunsToolsSurfaceTest {
         // R24 shipped decisions, decision, ack, answer and withdraw: both director deltas are spent.
         assertNull(resource("planned/runs_read.director.delta.json"), "R24 shipped the decisions and decision selects")
         assertNull(resource("planned/runs_write.director.delta.json"), "R24 shipped ack, answer and withdraw")
+        assertNull(resource("planned/report.director.delta.json"), "R28 shipped the rollup runId, so no planned file remains")
     }
 
     // ------------------------------------------------------------------ MCP behaviour

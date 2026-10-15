@@ -557,7 +557,8 @@ sealed class DomainEvent {
     /**
      * A run closed with [reason]. [countsByRole] counts the members at close by role (`none` for a lifecycle-free
      * one); [inFlight] lists the members whose seat was still active; [released] is what the close cascade released;
-     * [openDecisions] counts the run's decisions still open or acknowledged (a close withdraws none).
+     * [openDecisions] counts the run's decisions still open or acknowledged (a close withdraws none). [rollup] is the run
+     * rollup snapshot taken at close (R28), stored under `rollup`; the key is omitted when null (no snapshot seam).
      */
     data class RunEnded(
         override val entityId: UUID,
@@ -566,19 +567,23 @@ sealed class DomainEvent {
         val countsByRole: Map<String, Int>,
         val inFlight: List<RunInFlight>,
         val released: RunReleased,
-        val openDecisions: Int = 0
+        val openDecisions: Int = 0,
+        val rollup: Map<String, Any?>? = null
     ) : DomainEvent() {
         override val type: String get() = RUN_ENDED
         override val entityKind: String get() = KIND_RUN
 
-        override fun payload(): Map<String, Any?> =
-            mapOf(
-                "reason" to reason.wire,
-                "countsByRole" to countsByRole,
-                "inFlight" to inFlight.map { mapOf("itemId" to it.itemId, "role" to it.role, "seat" to it.seat) },
-                "released" to mapOf("claims" to released.claims, "leases" to released.leases, "seats" to released.seats),
-                "openDecisions" to openDecisions
-            )
+        override fun payload(): Map<String, Any?> {
+            val base =
+                mapOf(
+                    "reason" to reason.wire,
+                    "countsByRole" to countsByRole,
+                    "inFlight" to inFlight.map { mapOf("itemId" to it.itemId, "role" to it.role, "seat" to it.seat) },
+                    "released" to mapOf("claims" to released.claims, "leases" to released.leases, "seats" to released.seats),
+                    "openDecisions" to openDecisions
+                )
+            return if (rollup == null) base else base + ("rollup" to rollup)
+        }
     }
 
     /** Named marks were set on a run. Defined here; produced by a later item. */

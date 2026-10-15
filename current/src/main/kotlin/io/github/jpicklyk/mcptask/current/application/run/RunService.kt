@@ -56,7 +56,8 @@ import java.util.UUID
  * before the seats end, so the claims of the seats this close ends are covered.
  *
  * `run.ended` counts the run's decision requests still open or acknowledged ([RunDecisionPort.openCount]); a close
- * withdraws none of them.
+ * withdraws none of them. It also carries the run rollup snapshot ([rollupSnapshot], R28), taken in the close unit after
+ * [onClose], for every terminal reason (the decision `stop` close included).
  *
  * ## Limits (R27)
  *
@@ -71,7 +72,8 @@ class RunService(
     private val runsConfig: suspend (UUID) -> RunsConfig,
     private val seats: RunSeatPort = RunSeatPort.NONE,
     private val onClose: RunCloseHook = RunCloseHook.NONE,
-    private val decisions: RunDecisionPort = RunDecisionPort.NONE
+    private val decisions: RunDecisionPort = RunDecisionPort.NONE,
+    private val rollupSnapshot: RunRollupSnapshot = RunRollupSnapshot.NONE
 ) {
     private val runs: RunStore get() = repositoryProvider.runStore()
     private val items get() = repositoryProvider.workItemRepository()
@@ -387,8 +389,10 @@ class RunService(
             val stored = runs.update(closed, run.version) ?: return@write err(conflictAfterRead(runId, run.version))
             val snapshot = RunEndedSnapshot(reason, countsByRole, inFlight, released, openDecisions = decisions.openCount(runId))
             onClose.onClose(stored, snapshot)
+            // R28: the rollup snapshot reads inside this unit (the closed row and the cascade's writes are visible).
+            val rollup = rollupSnapshot.snapshot(runId)
             events.record(
-                DomainEvent.RunEnded(runId, run.rootId, reason, countsByRole, inFlight, released, snapshot.openDecisions)
+                DomainEvent.RunEnded(runId, run.rootId, reason, countsByRole, inFlight, released, snapshot.openDecisions, rollup)
             )
             Outcome.Ok(RunCloseResult(stored, snapshot))
         }

@@ -1061,7 +1061,7 @@ class ReportParityTest {
     }
 
     @Test
-    fun `R11 S15 describe lists usage, gates, contention, waste and rollup with their exact inputs and no run or filter input`() {
+    fun `R11 S15 describe lists the five selects with their exact inputs, runId only on rollup, no filter input`() {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
@@ -1081,7 +1081,7 @@ class ReportParityTest {
             val expected =
                 when (name) {
                     "waste" -> setOf("rootId", "since", "until")
-                    "rollup" -> setOf("anchorId", "since", "until")
+                    "rollup" -> setOf("anchorId", "since", "until", "runId")
                     else -> setOf("rootId", "since", "until", "groupBy", "limit", "cursor")
                 }
             assertEquals(expected, properties.toSet(), "$name inputs: $properties")
@@ -1163,7 +1163,10 @@ class ReportParityTest {
             ReportParityTest::class.java.getResource("/golden/tools/planned/report.director.json"),
             "the full planned entry is stale once report is visible"
         )
-        assertNotNull(ReportParityTest::class.java.getResource("/golden/tools/planned/report.director.delta.json"))
+        assertNull(
+            ReportParityTest::class.java.getResource("/golden/tools/planned/report.director.delta.json"),
+            "R28 shipped the rollup runId, so its planned delta is deleted"
+        )
     }
 
     @Test

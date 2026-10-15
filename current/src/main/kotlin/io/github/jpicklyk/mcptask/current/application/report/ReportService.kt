@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
+import io.github.jpicklyk.mcptask.current.application.api.RunRefs
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupQuery
@@ -15,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
+import io.github.jpicklyk.mcptask.current.application.port.RunHeader
+import io.github.jpicklyk.mcptask.current.application.port.RunRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.SubtreeEventSpan
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
@@ -22,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.port.WasteCount
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
+import io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts
 import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -31,6 +35,8 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration
@@ -157,30 +163,52 @@ data class WasteReport(
  * required `admin`). `gates` and `contention` read events instead: a tag-scoped caller is filtered, not refused. `rollup`
  * includes `call_log` cost, so it follows `usage`.
  *
- * [runFacts] is the run-only fact source of the rollup; this default is its ONE wiring site ([NotTrackedRunFacts] until
- * R28 implements the port).
+ * [runFacts] is the run-only fact source of the rollup; this default ([StoreRunFacts] over the same unit of work and
+ * clock) is its ONE wiring site, so `ReportService(unitOfWork, clock)` serves the real run facts.
  */
 class ReportService(
     private val unitOfWork: UnitOfWork,
     private val clock: Clock,
-    @Suppress("unused") private val runFacts: RunFacts = NotTrackedRunFacts
+    private val runFacts: RunFacts = StoreRunFacts(unitOfWork, clock)
 ) {
     /**
-     * `report rollup anchorId` (plan R16): the subtree of the anchor (inclusive, any depth) as one object, assembled by
-     * [RollupAssembler.assemble] with no run-only part. Validation order: tag scope (`forbidden`), `anchorId` present, the
-     * explicit window, then, in ONE read unit, the anchor (ScopedIds: prefix, `forbidden` outside the scope, `not_found`)
-     * and the counts.
+     * `report rollup` (plans R16 and R28): exactly one of `anchorId` and `runId` (both absent is `invalid_request` on
+     * `/anchorId`, both given on `/runId`). Validation order: tag scope (`forbidden`, before any read), the ids, the
+     * window, then ONE read unit.
      *
-     * Window: when `since` or `until` is given, the usual rules apply (until defaults to now, since to until minus 7 days,
-     * at most [MAX_RAW_WINDOW]). When both are absent, the window is derived from the subtree events: the first event to
-     * the last event plus 1 ms, clamped to the [MAX_RAW_WINDOW] ending there (`clamped`); with no subtree event it is the
-     * last 7 days.
+     * Anchor: the subtree of the anchor (inclusive, any depth) as one object, assembled by [RollupAssembler.assemble] with
+     * no run-only part; the anchor resolves through ScopedIds (prefix, `forbidden` outside the scope, `not_found`). Window:
+     * when `since` or `until` is given, the usual rules apply (until defaults to now, since to until minus 7 days, at most
+     * [MAX_RAW_WINDOW]). When both are absent, the window is derived from the subtree events: the first event to the last
+     * event plus 1 ms, clamped to the [MAX_RAW_WINDOW] ending there (`clamped`); with no subtree event it is the last 7 days.
+     *
+     * Run: the whole run, so `since` (then `until`) with `runId` is `invalid_request` on that field. The run resolves with
+     * the `runs_read get` rule ([RunRefs.loadRun]). A CLOSED run whose `run.ended` carries a decodable snapshot answers that
+     * snapshot (one indexed lookup); any other run is computed live ([liveRunRollup]).
      */
     suspend fun rollup(
         ctx: CallContext,
         req: ReportRollupRequest
     ): Outcome<RollupReport> {
         if (ctx.scope.tagsInclude.isNotEmpty()) return Outcome.Err(ScopeGuard.forbidden(ForbiddenScope.TAG, ctx.scope.tagsInclude))
+        val runRef = req.runId
+        if (runRef != null) {
+            if (req.anchorId != null) return Outcome.Err(invalid(RUN_FIELD, "give exactly one of runId and anchorId", runRef.raw))
+            if (req.since != null) return Outcome.Err(invalid("/since", "a run rollup covers the whole run; omit since", req.since))
+            if (req.until != null) return Outcome.Err(invalid("/until", "a run rollup covers the whole run; omit until", req.until))
+            return unitOfWork.read<Outcome<RollupReport>> {
+                val run =
+                    when (val r = RunRefs.loadRun(stores, ctx.scope, runRef)) {
+                        is Outcome.Err -> return@read r
+                        is Outcome.Ok -> r.value
+                    }
+                if (run.status == RunStatus.CLOSED) {
+                    val stored = stores.reportQueries().runEndedRollup(run.id)?.let { RollupSnapshotCodec.decode(it) }
+                    if (stored != null) return@read Outcome.Ok(stored)
+                }
+                Outcome.Ok(liveRunRollup(run))
+            }
+        }
         val anchorRef = req.anchorId ?: return Outcome.Err(invalid(ANCHOR_FIELD, "is required", null))
         val explicit =
             if (req.since == null && req.until == null) {
@@ -243,6 +271,64 @@ class ReportService(
                 )
             )
         }
+    }
+
+    /**
+     * The rollup of run [runId] as a close snapshots it (R28): computed live inside the caller's unit (the close write,
+     * which it joins, so the closed row and the cascade's writes are visible). Null when there is no such run. Applies no
+     * access scope: the close owns the run.
+     */
+    suspend fun runSnapshot(runId: UUID): RollupReport? =
+        unitOfWork.read {
+            val run = stores.runStore().getById(runId) ?: return@read null
+            liveRunRollup(run)
+        }
+
+    /**
+     * The live rollup of [run], in the caller's unit: the window is `[openedAt, closedAt ?: now)` (informational, never
+     * clamped); items, blocked reasons, resumable and dwell are over the CURRENT members; events and cost are those
+     * stamped with the run (no time predicate); decisions, seats, attempts and budget come from [runFacts].
+     */
+    private suspend fun ReadScope.liveRunRollup(run: Run): RollupReport {
+        val header =
+            runFacts.run(run.id)
+                ?: RunHeader(
+                    status = run.status,
+                    terminalReason = run.terminalReason,
+                    openedAt = run.openedAt.truncatedTo(ChronoUnit.MILLIS),
+                    closedAt = run.closedAt?.truncatedTo(ChronoUnit.MILLIS),
+                    rootId = run.rootId
+                )
+        val members = runFacts.members(run.id) ?: stores.runStore().members(run.id).toSet()
+        val since = header.openedAt
+        val until = header.closedAt ?: clock.now().truncatedTo(ChronoUnit.MILLIS)
+        val counts = stores.reportQueries().runRollup(RunRollupQuery(run.id, members, since, until))
+        return RollupAssembler.assemble(
+            RollupParts(
+                scope = RollupScope(anchorId = null, runId = run.id, rootId = header.rootId),
+                window = RollupWindow(since, until, clamped = false),
+                roleCounts = counts.roleCounts,
+                transitions = RollupTransitions(counts.transitions, counts.cascades, counts.rejected),
+                notesWritten = counts.notesWritten,
+                cost =
+                    RollupCost(
+                        calls = counts.calls,
+                        errors = counts.errors,
+                        retries = counts.retries,
+                        responseBytes = counts.responseBytes,
+                        responseTokensEst = counts.responseTokensEst,
+                        basis = RollupAssembler.BASIS_RUN
+                    ),
+                run = header,
+                blockedReasons = runFacts.blockedReasons(members),
+                decisions = runFacts.openDecisions(run.id),
+                seats = runFacts.stalledSeats(run.id, RollupAssembler.STALLED_CAP),
+                attempts = runFacts.attempts(run.id),
+                budget = runFacts.budget(run.id),
+                resumable = runFacts.resumable(members),
+                dwellMs = counts.dwellMs
+            )
+        )
     }
 
     /**
@@ -693,6 +779,7 @@ class ReportService(
 
         private const val ROOT_FIELD = "/rootId"
         private const val ANCHOR_FIELD = "/anchorId"
+        private const val RUN_FIELD = "/runId"
         private const val MAX_RECEIVED = 100
     }
 }

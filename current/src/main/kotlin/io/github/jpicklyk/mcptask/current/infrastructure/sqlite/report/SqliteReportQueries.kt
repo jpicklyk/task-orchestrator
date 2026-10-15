@@ -13,6 +13,8 @@ import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RunCost
+import io.github.jpicklyk.mcptask.current.application.port.RunRollupCounts
+import io.github.jpicklyk.mcptask.current.application.port.RunRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.SubtreeEventSpan
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
 import io.github.jpicklyk.mcptask.current.application.port.UsagePage
@@ -22,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WasteCount
 import io.github.jpicklyk.mcptask.current.application.port.WasteCounts
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.WorkViewSql
@@ -33,6 +36,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -457,6 +461,100 @@ class SqliteReportQueries(
             )
         }
 
+    /**
+     * ONE statement. `mem` binds the member ids once (json_each); `ev` is the run's stamped events (idx_events_run_seq);
+     * `tr` is each member's `item.transitioned` events inside the window plus its last one before `since`, reached
+     * member-first through idx_events_entity_seq (`CROSS JOIN` fixes the join order; the unary `+` keeps the type and time
+     * terms off idx_events_type_occurred, which would walk the whole root); `iv` pairs each transition with the member's
+     * next one by seq. The cost row reads `call_log` through idx_call_log_run_at. Dwell rows carry the raw blocked
+     * intervals that reach past `since`; their overlap with the window is summed here. Every `?` is bound in the order it
+     * appears.
+     */
+    override suspend fun runRollup(query: RunRollupQuery): RunRollupCounts =
+        databaseManager.readTx {
+            val since = TextColumnType() to UtcTimestamp.format(query.since)
+            val until = TextColumnType() to UtcTimestamp.format(query.until)
+            val run = TextColumnType() to hex(query.runId)
+            val args = ArrayList<Pair<IColumnType<*>, Any?>>()
+            args += WorkViewSql.idSetArgument(query.memberIds)
+            args += run
+            args += since
+            args += until
+            args += since
+            args += run
+            args += since
+            val transitioned = "'${DomainEvent.ITEM_TRANSITIONED}'"
+            val roles = LinkedHashMap<String, Long>()
+            var events = LongArray(FIGURES)
+            var cost = LongArray(FIGURES)
+            val dwell = LinkedHashMap<String, Long>()
+            selectSql(
+                "WITH mem AS MATERIALIZED (SELECT unhex(value) AS id FROM json_each(?)), " +
+                    "ev AS MATERIALIZED (SELECT e.type AS t, e.data AS data FROM events e WHERE e.run_id = unhex(?)), " +
+                    "tr AS MATERIALIZED (SELECT e.entity_id AS eid, e.seq AS seq, e.occurred_at AS at, e.data AS data " +
+                    "FROM mem CROSS JOIN events e WHERE e.entity_id = mem.id AND +e.type = $transitioned " +
+                    "AND +e.occurred_at >= ? AND +e.occurred_at < ? " +
+                    "UNION ALL SELECT e.entity_id, e.seq, e.occurred_at, e.data FROM mem CROSS JOIN events e " +
+                    "WHERE e.entity_id = mem.id AND e.seq = (SELECT MAX(p.seq) FROM events p " +
+                    "WHERE p.entity_id = mem.id AND +p.type = $transitioned AND +p.occurred_at < ?)), " +
+                    "iv AS (SELECT json_extract(data, '$.toRole') AS role, json_extract(data, '$.blockedReason') AS reason, " +
+                    "at, LEAD(at) OVER (PARTITION BY eid ORDER BY seq) AS nxt FROM tr) " +
+                    "SELECT 'role' AS m, w.role AS k, COUNT(*) AS n1, 0 AS n2, 0 AS n3, 0 AS n4, 0 AS n5, " +
+                    "NULL AS a, NULL AS b FROM work_items w " +
+                    "WHERE w.id IN (SELECT id FROM mem) AND w.role IS NOT NULL GROUP BY w.role " +
+                    "UNION ALL SELECT 'events', NULL, " +
+                    "COALESCE(SUM(t = $transitioned), 0), " +
+                    "COALESCE(SUM(t = $transitioned AND json_extract(data, '$.origin') = '$CASCADE'), 0), " +
+                    "COALESCE(SUM(t = '${DomainEvent.TRANSITION_REJECTED}'), 0), " +
+                    "COALESCE(SUM(t = '${DomainEvent.NOTE_UPSERTED}'), 0), 0, NULL, NULL FROM ev " +
+                    "UNION ALL SELECT 'cost', NULL, COUNT(*), COALESCE(SUM(outcome = 'error'), 0), " +
+                    "COALESCE(SUM(attempts - 1), 0), COALESCE(SUM(response_bytes), 0), COALESCE(SUM(response_tokens_est), 0), " +
+                    "NULL, NULL FROM call_log WHERE run_id = unhex(?) " +
+                    "UNION ALL SELECT 'dwell', COALESCE(reason, '${BlockedReason.MANUAL.wire}'), 0, 0, 0, 0, 0, at, nxt FROM iv " +
+                    "WHERE role = '$BLOCKED_ROLE' AND (nxt IS NULL OR nxt > ?)",
+                args
+            ) { rs ->
+                while (rs.next()) {
+                    val m = rs.getString("m")
+                    if (m == "dwell") {
+                        val reason = rs.getString("k")
+                        val start = maxOf(UtcTimestamp.parse(rs.getString("a")), query.since)
+                        val end = rs.getString("b")?.let { minOf(UtcTimestamp.parse(it), query.until) } ?: query.until
+                        if (end.isAfter(start)) dwell[reason] = (dwell[reason] ?: 0L) + Duration.between(start, end).toMillis()
+                        continue
+                    }
+                    val figures = LongArray(FIGURES) { rs.getLong("n${it + 1}") }
+                    when (m) {
+                        "role" -> rs.getString("k")?.let { roles[it] = figures[0] }
+                        "events" -> events = figures
+                        "cost" -> cost = figures
+                    }
+                }
+            }
+            RunRollupCounts(
+                roleCounts = roles,
+                transitions = events[0],
+                cascades = events[1],
+                rejected = events[2],
+                notesWritten = events[3],
+                calls = cost[0],
+                errors = cost[1],
+                retries = cost[2],
+                responseBytes = cost[3],
+                responseTokensEst = cost[4],
+                dwellMs = dwell
+            )
+        }
+
+    override suspend fun runEndedRollup(runId: UUID): String? =
+        databaseManager.readTx {
+            selectSql(
+                "SELECT json_extract(data, '$.rollup') FROM events WHERE entity_id = unhex(?) " +
+                    "AND type = '${DomainEvent.RUN_ENDED}' ORDER BY seq DESC LIMIT 1",
+                listOf(TextColumnType() to hex(runId))
+            ) { rs -> listOfNotNull(if (rs.next()) rs.getString(1) else null) }.firstOrNull()
+        }
+
     private fun filter(query: UsageQuery): Pair<String, List<Pair<IColumnType<*>, Any?>>> =
         filter(query.since, query.until, query.scopeRootIds, query.rootId)
 
@@ -580,6 +678,9 @@ class SqliteReportQueries(
 
         /** The numeric columns `n1`..`n5` of an anchor-rollup result row. */
         const val FIGURES = 5
+
+        /** `data.toRole` of an `item.transitioned` into the blocked role. */
+        const val BLOCKED_ROLE = "blocked"
     }
 
     /** [id] as the 32 lower-case hex digits `unhex(?)` takes. */

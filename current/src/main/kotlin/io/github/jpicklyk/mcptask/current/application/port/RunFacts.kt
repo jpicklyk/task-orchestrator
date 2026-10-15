@@ -55,9 +55,10 @@ data class BudgetFacts(
  * The run-only facts the rollup reads (plan section 3.4a): the seam between the report side (W6, which owns the
  * assembler and the query side) and the run side (W5, which owns run membership and every run-only fact).
  *
- * Every method answers null when the fact is not tracked, and the rollup then omits the section it feeds. R16 ships only
- * [io.github.jpicklyk.mcptask.current.application.report.NotTrackedRunFacts], which answers null everywhere; R28
- * implements this port over the W5 tables. An implementation joins the caller's read unit.
+ * Every method answers null when the fact is not tracked, and the rollup then omits the section it feeds.
+ * [io.github.jpicklyk.mcptask.current.application.report.NotTrackedRunFacts] answers null everywhere; R28's
+ * [io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts] implements this port over the W5 tables. An
+ * implementation joins the caller's read unit.
  */
 interface RunFacts {
     /** The header of run [runId], or null when not tracked or there is no such run. */
@@ -68,6 +69,12 @@ interface RunFacts {
 
     /** The blocked items among [itemIds] counted by blocked reason, or null when not tracked. */
     suspend fun blockedReasons(itemIds: Set<UUID>): Map<String, Int>?
+
+    /**
+     * How many of [itemIds] are blocked `awaiting_decision` on a decision that no longer waits for an answer (answered,
+     * withdrawn or gone), so they can resume; null when not tracked (the default).
+     */
+    suspend fun resumable(itemIds: Set<UUID>): Int? = null
 
     /** The open decision requests of run [runId], or null when not tracked. */
     suspend fun openDecisions(runId: UUID): DecisionCounts?

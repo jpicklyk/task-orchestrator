@@ -227,6 +227,44 @@ data class AnchorRollupCounts(
 )
 
 /**
+ * One run-rollup computation (plan R28) over run [runId] and its CURRENT members [memberIds].
+ *
+ * - Items are current state: the members with a lifecycle, counted by role.
+ * - Events are those stamped with the run (`events.run_id`), whatever their time: no window predicate.
+ * - Cost is the `call_log` rows stamped with the run (`call_log.run_id`), whatever their time or root: the run stamp is
+ *   the membership predicate (the caller checks the run's root against the access scope first).
+ * - Dwell is the blocked time of the members inside `[since, until)`: an interval opens at an `item.transitioned` into
+ *   `blocked` (reason `data.blockedReason`, absent counts as manual) and closes at the same item's next
+ *   `item.transitioned` by seq, else at [until]; an interval opened before [since] counts from [since] (the member's last
+ *   transition before [since] decides its state there).
+ */
+data class RunRollupQuery(
+    val runId: UUID,
+    val memberIds: Set<UUID>,
+    val since: Instant,
+    val until: Instant
+)
+
+/**
+ * The raw counts of one run rollup: [roleCounts] as in [AnchorRollupCounts], the event figures from the run's stamped
+ * events, the cost figures from its stamped calls (usage definitions), and [dwellMs], the blocked milliseconds per reason
+ * wire (reasons with no dwell absent).
+ */
+data class RunRollupCounts(
+    val roleCounts: Map<String, Long>,
+    val transitions: Long,
+    val cascades: Long,
+    val rejected: Long,
+    val notesWritten: Long,
+    val calls: Long,
+    val errors: Long,
+    val retries: Long,
+    val responseBytes: Long,
+    val responseTokensEst: Long,
+    val dwellMs: Map<String, Long>
+)
+
+/**
  * One `waste` computation over the `call_log` rows with `since <= at < until` (plan R12, W6 brief 3.1).
  *
  * Visibility is that of [UsageQuery] ([scopeRootIds], then [rootId]) and applies to BOTH sides of every join: a row
@@ -329,4 +367,16 @@ interface ReportQueries {
 
     /** The anchor-rollup counts [query] asks for, in ONE statement whatever the subtree, event and call counts. */
     suspend fun anchorRollup(query: AnchorRollupQuery): AnchorRollupCounts
+
+    /**
+     * The run-rollup counts [query] asks for, in ONE statement whatever the member, event and call counts (the member ids
+     * are bound once). Applies no access scope.
+     */
+    suspend fun runRollup(query: RunRollupQuery): RunRollupCounts
+
+    /**
+     * The `rollup` member of the newest `run.ended` event of run [runId], as JSON text; null when the run has no
+     * `run.ended` or it carries no rollup (a run closed before R28). One indexed lookup; applies no access scope.
+     */
+    suspend fun runEndedRollup(runId: UUID): String?
 }
