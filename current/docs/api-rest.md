@@ -1052,7 +1052,8 @@ A manual `resume` of a limit pause stays `invalid_run_state`.
 `manual`) and `decisionId` on the `block` and `hold` triggers only (anything else is `invalid_request` on
 `/reason` or `/decisionId`). `reason` defaults to `manual`; `decisionId` goes with, and only with,
 `awaiting_decision`, and must name a pending (open or acknowledged) decision about the same item (`invalid_request` on
-`/decisionId` otherwise: absent, another item's, answered or withdrawn). `resume`, `cancel` and `complete_tree`
+`/decisionId` otherwise: absent, another item's, answered or withdrawn). Under a restricted scope a decision is as visible as its root: one outside the scope answers like an unused id (
+ames no decision), so under a tag scope a decision whose root lacks a listed tag is hidden even for the caller's own item. `resume`, `cancel` and `complete_tree`
 clear both. A blocked item before V37 has no stored reason and reads as `manual`. The reason shows as
 `blockedReason` (and `decisionId`) on `items_read` `get` and the `context` item, as `reason` / `decisionId` on
 `blocked` entries and the `context` health blocked list, and as `blockedByReason` (zero counts omitted, NULL counted

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -24,6 +25,10 @@ import kotlin.coroutines.CoroutineContext
  * an [Outcome.Ok] returned after a recorded fault becomes a rollback and the fault's translated
  * [Outcome.Err] (a non-persistence fault is rethrown). A nested [Outcome.Err] that was NOT a thrown
  * fault does not poison the unit; the outermost caller decides.
+ *
+ * Exception: a joined READ inside a [failSoftReads] section does not record a fault that has no
+ * `SQLException` anywhere in its cause chain (a data fault such as a row that fails to decode leaves the shared
+ * connection intact); it still rethrows. A joined write, and any SQL fault, always poison the unit.
  */
 interface UnitOfWork {
     suspend fun <T> write(
@@ -33,6 +38,18 @@ interface UnitOfWork {
 
     suspend fun <T> read(block: suspend ReadScope.() -> T): T
 }
+
+/** Coroutine-context marker of a [failSoftReads] section; read by the infrastructure transaction helpers. */
+class FailSoftReads internal constructor() : AbstractCoroutineContextElement(FailSoftReads) {
+    companion object Key : CoroutineContext.Key<FailSoftReads>
+}
+
+/**
+ * Runs [block] as a fail-soft read section: a joined read inside it that throws a NON-SQL fault does not poison the
+ * ambient unit (see [UnitOfWork], "Poisoned units"). The fault is still rethrown to [block]'s caller, which decides
+ * what to do with it. Writes and SQL faults are unaffected. Does not change the dispatcher or leave the ambient unit.
+ */
+suspend fun <T> failSoftReads(block: suspend () -> T): T = withContext(FailSoftReads()) { block() }
 
 /** What a read unit can see. The stores a scope exposes. */
 interface ReadScope {

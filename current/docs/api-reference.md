@@ -1249,7 +1249,8 @@ non-empty. Empty and null members are omitted.
 
 **Block and hold.** `block` and `hold` take an optional `reason` (`awaiting_decision`, `dependency`, `resource` or
 `manual`, default `manual`). `decisionId` is allowed only with `awaiting_decision`, where it names an open decision on that
-item, and is then required. The reason and the decision id are stored with the blocked role and cleared by every way out of
+item, and is then required. Under a restricted scope a decision is as visible as its root: one outside the scope answers like an unused id (
+ames no decision), so under a tag scope a decision whose root lacks a listed tag is hidden even for the caller's own item (the same rule as aise and nswer). The reason and the decision id are stored with the blocked role and cleared by every way out of
 it: `resume`, `cancel` and `complete_tree`. A cascade never moves an item out of `blocked` (`blocked: role`), and an answer
 to a decision never resumes its item; `runs_write` `raise` with `block: true` blocks the item in the same unit as the raise.
 `items_read` `context` and `get` show `blockedReason` and `decisionId` for a blocked item; the order of the fields in a view
