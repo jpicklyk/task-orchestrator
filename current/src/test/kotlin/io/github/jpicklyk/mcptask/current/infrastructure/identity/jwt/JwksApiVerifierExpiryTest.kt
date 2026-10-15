@@ -42,7 +42,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.Security
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import java.util.Date
 
 /**
@@ -99,7 +102,10 @@ class JwksApiVerifierExpiryTest {
         return provider
     }
 
-    private fun verifier(): JwksApiVerifier = JwksApiVerifier(jwksAuthConfig(), rsaMockCache())
+    private fun verifier(clock: Clock = Clock.systemUTC()): JwksApiVerifier = JwksApiVerifier(jwksAuthConfig(), rsaMockCache(), clock)
+
+    /** One whole-second instant pinned as the verifier clock, so a slow suite cannot move a boundary case. */
+    private fun pinnedNow(): Instant = Instant.now().truncatedTo(ChronoUnit.SECONDS)
 
     /**
      * LOCAL claims builder: `expiry` is nullable, unlike the sibling `JwksApiVerifierTest.buildClaims`
@@ -183,21 +189,24 @@ class JwksApiVerifierExpiryTest {
     @Test
     fun `verify accepts a JWT whose exp equals now`() =
         runTest {
-            val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now())))
+            val now = pinnedNow()
+            val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now)))
             assertNotNull(result, "exp exactly at now is 0s past - well inside the 60s skew window")
         }
 
     @Test
     fun `verify accepts a JWT whose exp is 59s in the past`() =
         runTest {
-            val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().minusSeconds(59))))
+            val now = pinnedNow()
+            val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now.minusSeconds(59))))
             assertNotNull(result, "exp 59s in the past is inside the 60s skew window")
         }
 
     @Test
     fun `verify rejects a JWT whose exp is 61s in the past`() =
         runTest {
-            val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().minusSeconds(61))))
+            val now = pinnedNow()
+            val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now.minusSeconds(61))))
             assertNull(result, "exp 61s in the past is outside the 60s skew window")
         }
 
