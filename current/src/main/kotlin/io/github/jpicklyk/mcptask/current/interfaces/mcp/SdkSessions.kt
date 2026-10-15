@@ -4,6 +4,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport
 import org.slf4j.LoggerFactory
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * What the MCP SDK knows about a Streamable HTTP transport session id (the `Mcp-Session-Id` header value).
@@ -44,6 +45,7 @@ class ServerSdkSessions : SdkSessions {
             try {
                 session.close()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 logger.debug("Closing an MCP session during eviction failed", e)
             }
             return
