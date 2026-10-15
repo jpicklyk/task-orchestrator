@@ -552,7 +552,9 @@ class ApiEventBus(
          * `item.transitioned` streams as `item.advanced` (newRole = toRole), `item.reparented` as `scope.left` /
          * `scope.entered` by side, `claim.acquired` / `claim.released` as `item.updated`. The `run.*` types stream
          * unchanged with [ApiEvent.runId] set to the run and no item id; `seat.ended` streams unchanged with its run and
-         * member item (`seat.assigned` is table-only).
+         * member item (`seat.assigned` is table-only). The `decision.*` types stream unchanged with the decision id, class
+         * and severity and the decision's run and item (absent when it names none), and NO actor: who raised, acknowledged
+         * or answered a decision is never streamed.
          */
         fun project(record: EventRecord): ApiEvent? {
             val data = parseData(record.data)
@@ -560,11 +562,18 @@ class ApiEventBus(
             var newRole: String? = null
             var itemId: String? = record.entityId.toString()
             var runId: String? = null
+            var decision = false
             val type =
                 when (record.type) {
                     in DomainEvent.RUN_TYPES -> {
                         runId = record.entityId.toString()
                         itemId = null
+                        record.type
+                    }
+                    in DomainEvent.DECISION_TYPES -> {
+                        decision = true
+                        runId = str("runId")
+                        itemId = str("itemId")
                         record.type
                     }
                     DomainEvent.SEAT_ENDED -> {
@@ -593,7 +602,7 @@ class ApiEventBus(
                     else -> return null
                 }
             val actor =
-                record.principalId?.let { id ->
+                record.principalId?.takeUnless { decision }?.let { id ->
                     ActorClaimDto(id = id, kind = record.principalKind ?: "external", parent = str("actorParent"))
                 }
             return ApiEvent(
@@ -605,6 +614,9 @@ class ApiEventBus(
                 actor = actor,
                 rootId = record.rootId.toString(),
                 runId = runId,
+                decisionId = if (decision) record.entityId.toString() else null,
+                decisionClass = if (decision) str("class") else null,
+                severity = if (decision) str("severity") else null,
             )
         }
 

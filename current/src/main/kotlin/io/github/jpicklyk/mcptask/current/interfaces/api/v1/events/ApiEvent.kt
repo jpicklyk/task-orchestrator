@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -31,7 +32,11 @@ import kotlinx.serialization.Serializable
  *   `scope.entered` the NEW one): the row's `root_id`, always present on a data event since P8 (a
  *   root item uses its own id). Absent only on control events. Never redacted.
  * @param runId The run a `run.*` event is about (`run.opened`, `run.updated`, `run.paused`, `run.resumed`,
- *   `run.ended`, `run.marked`); those events carry no [itemId]. Null (absent) for every other event type.
+ *   `run.ended`, `run.marked`); those events carry no [itemId]. On `seat.ended` and a `decision.*` event, the run it
+ *   belongs to (absent when the decision names none). Null (absent) for every other event type.
+ * @param decisionId On a `decision.*` event, the decision request. Null (absent) for every other event type.
+ * @param decisionClass On a `decision.*` event, its class (wire key `class`). Null (absent) otherwise.
+ * @param severity On a `decision.*` event, its stored severity. Null (absent) otherwise.
  */
 @Serializable
 data class ApiEvent(
@@ -44,6 +49,9 @@ data class ApiEvent(
     val actor: ActorClaimDto? = null,
     val rootId: String? = null,
     val runId: String? = null,
+    val decisionId: String? = null,
+    @SerialName("class") val decisionClass: String? = null,
+    val severity: String? = null,
 )
 
 /**
@@ -81,6 +89,10 @@ object SyncLostReason {
  *   under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
  * - `seat.ended` -- a seat ended its own assignment (`runs_write end_seat`), with [ApiEvent.runId] and the member item's
  *   [ApiEvent.itemId] (item-scoped visibility, like `note.*`).
+ * - `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` -- decision lifecycle
+ *   (`DomainEvent.DECISION_TYPES`), with [ApiEvent.decisionId], [ApiEvent.decisionClass] and [ApiEvent.severity] and the
+ *   decision's [ApiEvent.runId] / [ApiEvent.itemId] when it names them; never an actor. An item-less one is anchored to
+ *   its root like `run.*`.
  * - `SYNC_LOST` — the client has an unrecoverable gap: its per-connection queue overflowed, or it
  *   resumed with a `Last-Event-ID` outside the replay window or not issued by this database. The
  *   cause is carried in [ApiEvent.reason] ([SyncLostReason]). Client should re-fetch full state.

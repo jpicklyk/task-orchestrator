@@ -4,7 +4,7 @@ import java.time.Instant
 import java.util.UUID
 
 /** Entity families that errors can refer to. */
-enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG, SEAT }
+enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE, CONFIG, SEAT, DECISION }
 
 /** Scope that a `forbidden` error says the caller lacks. */
 enum class ForbiddenScope { ROOT, TAG, CAPABILITY, HOST, PRINCIPAL_KIND }
@@ -203,6 +203,12 @@ sealed interface ErrorDetail {
         val runId: UUID,
         val status: String,
         val allowed: List<String>
+    ) : ErrorDetail
+
+    /** The decision is answered or withdrawn and takes no further ack, answer or withdraw; [status] is its wire status. */
+    data class DecisionClosed(
+        val decisionId: UUID,
+        val status: String
     ) : ErrorDetail
 
     data class SchemaViolation(

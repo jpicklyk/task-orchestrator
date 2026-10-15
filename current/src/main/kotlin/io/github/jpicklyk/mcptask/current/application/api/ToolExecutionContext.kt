@@ -12,9 +12,11 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchSer
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
@@ -91,6 +93,8 @@ class ToolExecutionContext(
     val bodySource: BodySource = BodySource.DISABLED,
     /** The lease kill switch (`AppConfig.resourceLeasesEnforced`, read once at startup). */
     private val resourceLeasesEnforced: Boolean = true,
+    /** What an answer to a server-raised decision class does (R27); the default does nothing. */
+    val decisionEffects: DecisionEffects = DecisionEffects.NONE,
 ) {
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
@@ -155,7 +159,8 @@ class ToolExecutionContext(
             unitOfWork,
             claimService,
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
-            seats = seatService
+            seats = seatService,
+            decisions = RunDecisionPort.over(repositoryProvider)
         )
     }
 

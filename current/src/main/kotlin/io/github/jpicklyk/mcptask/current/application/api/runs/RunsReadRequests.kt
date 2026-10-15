@@ -24,6 +24,9 @@ enum class RunStatusFilter(
 }
 
 internal const val RUN_ID_DOC = "Run id: a UUID or a hex prefix of 8 to 32 characters."
+internal const val DECISION_ID_DOC = "Decision id: a UUID or a hex prefix of 8 to 32 characters."
+private const val ROOT_FILTER_DOC = "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters."
+private const val ITEM_FILTER_DOC = "Only those on this item (a UUID or a hex prefix)."
 private const val LIMIT_DOC = "Page size, 1 to 200 (default 50)."
 private const val CURSOR_DOC = "The page.next value of the previous page."
 
@@ -43,14 +46,14 @@ data class RunsFrontierRequest(
 @Serializable
 data class RunsSeatsRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef,
-    @Doc("Only the seats on this item (a UUID or a hex prefix).") val itemId: IdRef? = null,
+    @Doc(ITEM_FILTER_DOC) val itemId: IdRef? = null,
     @Doc("true: include ended seats; default only active ones.") val ended: Boolean? = null
 )
 
 /** `runs_read list`: runs, newest first. */
 @Serializable
 data class RunsListRequest(
-    @Doc("Only runs on this root. Item id: a UUID or a hex prefix of 8 to 32 characters.") val rootId: IdRef? = null,
+    @Doc(ROOT_FILTER_DOC) val rootId: IdRef? = null,
     @Doc("Only runs in this status: open, paused or closed.") val status: RunStatusFilter? = null,
     @Doc("Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z).")
     @Serializable(with = IsoInstantSerializer::class)
@@ -61,4 +64,21 @@ data class RunsListRequest(
     val unmarked: String? = null,
     @Doc(LIMIT_DOC) val limit: Int? = null,
     @Doc(CURSOR_DOC) val cursor: String? = null
+)
+
+/** `runs_read decisions`: decision requests, newest first. */
+@Serializable
+data class RunsDecisionsRequest(
+    @Doc(RUN_ID_DOC) val runId: IdRef? = null,
+    @Doc(ITEM_FILTER_DOC) val itemId: IdRef? = null,
+    @Doc(ROOT_FILTER_DOC) val rootId: IdRef? = null,
+    @Doc("true: only decisions past their expiry.") val overdue: Boolean? = null,
+    @Doc(LIMIT_DOC) val limit: Int? = null,
+    @Doc(CURSOR_DOC) val cursor: String? = null
+)
+
+/** `runs_read decision`: one decision request. */
+@Serializable
+data class RunsDecisionRequest(
+    @Doc(DECISION_ID_DOC) val decisionId: IdRef
 )

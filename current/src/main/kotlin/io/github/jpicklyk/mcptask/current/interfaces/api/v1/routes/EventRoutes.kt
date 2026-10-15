@@ -576,7 +576,8 @@ fun Route.eventRoutes(
  * and unscoped connections are byte-identical to the pre-fix behavior.
  *
  * Item-less events: the control events ([ApiEventType.CONTROL_EVENTS], `sync.lost`/`auth.expired`) always
- * pass -- they carry stream state, not data. A `run.*` event is anchored to its run's root ([ApiEvent.rootId]):
+ * pass -- they carry stream state, not data. A `run.*` event, and a `decision.*` event that names no item, is anchored
+ * to its root ([ApiEvent.rootId]):
  * it passes a restricted subscriber only when that root is in the subscriber's root set (when it has one) AND,
  * for a tag-scoped one, the root item is admitted by [ScopeGuard] (a decision cached with the item decisions).
  * Any other item-less event is dropped (fail closed).
@@ -598,7 +599,7 @@ private suspend fun isEventVisibleToTagScope(
     if (principal.scope.isUnrestricted) return true
     if (event.itemId == null) {
         if (event.event in ApiEventType.CONTROL_EVENTS) return true
-        if (event.event !in DomainEvent.RUN_TYPES) return false
+        if (event.event !in DomainEvent.RUN_TYPES && event.event !in DomainEvent.DECISION_TYPES) return false
         val rootUuid =
             try {
                 UUID.fromString(event.rootId ?: return false)

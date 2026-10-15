@@ -12,7 +12,7 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object ErrorDetailDocs {
     private const val ID = "string (UUID)"
-    private const val ENTITY_KIND = "string: item | note | dependency | document | run | root | lease"
+    private const val ENTITY_KIND = "string: item | note | dependency | document | run | root | lease | decision"
 
     private val docs: Map<ErrorCode, LinkedHashMap<String, String>> =
         mapOf(
@@ -60,6 +60,7 @@ object ErrorDetailDocs {
                 linkedMapOf("runId" to ID, "pauseReason" to "string: budget | attempts | manual", "pauseDecisionId" to "$ID, optional"),
             ErrorCode.INVALID_RUN_STATE to
                 linkedMapOf("runId" to ID, "status" to "string: open | paused | closed", "allowed" to "array of string"),
+            ErrorCode.DECISION_CLOSED to linkedMapOf("decisionId" to ID, "status" to "string: answered | withdrawn"),
             ErrorCode.SCHEMA_VIOLATION to
                 linkedMapOf(
                     "type" to "string, optional",

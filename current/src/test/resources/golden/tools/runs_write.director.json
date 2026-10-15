@@ -15,7 +15,10 @@
                 "open",
                 "close",
                 "pause",
-                "resume"
+                "resume",
+                "ack",
+                "answer",
+                "withdraw"
               ]
             },
             "rootId": {
@@ -88,6 +91,22 @@
                 "abandoned"
               ]
             },
+            "decisionId": {
+              "type": "string",
+              "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [ops: ack, answer, withdraw]"
+            },
+            "option": {
+              "type": "string",
+              "description": "Key of the chosen option. [ops: answer]"
+            },
+            "text": {
+              "type": "string",
+              "description": "Free-form answer, at most 1000 characters; freeform classes only. [ops: answer]"
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Why this answer, at most 1000 characters. [ops: answer]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
@@ -109,7 +128,7 @@
     },
     "type": "object"
   },
-  "description": "Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked). Call with describe:true for each operation's parameters and errors.",
+  "description": "Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

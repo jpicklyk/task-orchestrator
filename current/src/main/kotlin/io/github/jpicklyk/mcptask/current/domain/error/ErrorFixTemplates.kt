@@ -34,6 +34,8 @@ object ErrorFixTemplates {
             ErrorCode.RUN_CLOSED to "Run {runId} is closed ({terminalReason}); open a new run to continue.",
             ErrorCode.RUN_PAUSED to "Run {runId} is paused ({pauseReason}); resume or close it before changing it.",
             ErrorCode.INVALID_RUN_STATE to "Run {runId} is {status}; use one of the operations listed in detail.allowed.",
+            ErrorCode.DECISION_CLOSED to
+                "Decision {decisionId} is {status} and cannot change; read it with runs_read decision, or raise a new one.",
             ErrorCode.SCHEMA_VIOLATION to "Use a type and notes that satisfy the configured schema.",
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 "Item {itemId} is pinned to schema {pinnedVersion} but the current schema is {currentVersion}; refresh and retry.",

@@ -49,6 +49,8 @@ class LayerBackedGlobalLookup(
 
     override fun runsConfig(): RunsConfig? = document.runs
 
+    override fun decisionClasses(): Map<String, DecisionClassConfig>? = document.decisionClasses
+
     override fun fingerprint(): String? = layer?.fingerprint
 
     override fun versionId(): java.util.UUID? = layer?.versionId

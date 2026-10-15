@@ -41,7 +41,7 @@ over MCP.
 |---|---|---|---|
 | `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`) and `runs_write` (`open`, `close`, `pause`, `resume` only): no read that can return a note, document or transition-summary body, and no other write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`, `decisions`, `decision`) and `runs_write` (`open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
@@ -806,7 +806,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `context`** (orchestration profile only; capability `read`): With itemId: the gate state of one item (canAdvance, blockedBy, blockers, missing notes, next, transitions, dispatch, claimDetail). Without: a health view of active, blocked and stalled items and the claim summary (default limit 50, max 200; ancestorId scopes it). fields: ancestors.
+**`items_read` select `context`** (orchestration profile only; capability `read`): With itemId: the gate state of one item (canAdvance, blockedBy, blockers, missing notes, next, transitions, dispatch, claimDetail, decisions). Without: a health view of active, blocked and stalled items and the claim summary (default limit 50, max 200; ancestorId scopes it). fields: ancestors.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2062,7 +2062,7 @@ waiting. No body, summary, token, principal or assignment id is shown.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_read -->
-Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments) or frontier (ready, in-flight and waiting members). A run is outside the call scope when its root is.
+Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest first), seats (a run's seat assignments), frontier (ready, in-flight and waiting members), decisions or decision. A run or decision is outside the call scope when its root is.
 
 **`runs_read` select `get`** (orchestration and director profiles; capability `read`): Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call scope is forbidden, not not_found.
 
@@ -2076,7 +2076,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only runs on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
 | `status` | string: open \| paused \| closed | no | Only runs in this status: open, paused or closed. |
 | `endedSince` | string (date-time) | no | Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z). |
 | `unmarked` | string | no | Only closed runs that do not carry this mark key (lowercase letters, digits, - and _, starting with a letter). Implies closed runs. |
@@ -2090,7 +2090,7 @@ Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_fo
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
-| `itemId` | string | no | Only the seats on this item (a UUID or a hex prefix). |
+| `itemId` | string | no | Only those on this item (a UUID or a hex prefix). |
 | `ended` | boolean | no | true: include ended seats; default only active ones. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
@@ -2100,6 +2100,27 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `decisions`** (director profile only; capability `read`): List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status client-side. Decisions on roots outside the call scope are left out.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `itemId` | string | no | Only those on this item (a UUID or a hex prefix). |
+| `rootId` | string | no | Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `overdue` | boolean | no | true: only decisions past their expiry. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+**`runs_read` select `decision`** (director profile only; capability `read`): Read one decision by id (a UUID or a hex prefix of 8 to 32 characters): its question, options, recommendation, links, context, who raised it (kind and seat), the acknowledgement and the answer with its provenance (kind, proof status, seat, run, profile). A decision whose root is outside the call scope is forbidden, not not_found.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool runs_read -->
@@ -2122,7 +2143,7 @@ first, so a permission refusal never reveals whether an out-of-scope run exists.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_write -->
-Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
+Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
 
 **`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
@@ -2214,6 +2235,51 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
 
 Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `raise`** (orchestration profile only; capability `runs`): Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets the answerers and default severity. Re-raising a dedupeKey in the same scope returns the pending or answered decision (existing: true), or idempotency_mismatch if class, question or options differ. Payload at most 4096 bytes.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `class` | string | yes | Decision class (for example question or deviation); it decides who may answer. |
+| `question` | string | yes | The question, at most 500 characters. |
+| `options` | array of object | yes | 1 to 8 choices, each {key, label, consequence}. |
+| `recommended` | string | no | Key of the recommended option. |
+| `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
+| `context` | string | no | Background for the answerer, at most 1000 characters. |
+| `dedupeKey` | string | yes | Re-raising the same key returns the open or answered decision instead of a new one. |
+| `itemId` | string | no | Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `severity` | string: high \| normal \| low | no | Default normal. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `payload_too_large`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real proof and no seat token; director-or-human: also the director profile without a seat token). An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+| `option` | string | no | Key of the chosen option. |
+| `text` | string | no | Free-form answer, at most 1000 characters; freeform classes only. |
+| `rationale` | string | no | Why this answer, at most 1000 characters. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`runs_write` op `withdraw`** (director profile only; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 <!-- /generated:tool runs_write -->
 
 ---
@@ -2319,10 +2385,10 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `invalid_request` | permanent | 400 | `fields`: array of {field: JSON pointer, reason: string, received?: string} |
 | `unknown_parameter` | permanent | 400 | `parameters`: array of JSON pointers |
 | `invalid_cursor` | permanent | 400 | none |
-| `not_found` | permanent | 404 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease; `id`: string, optional |
+| `not_found` | permanent | 404 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease \| decision; `id`: string, optional |
 | `ambiguous_id` | permanent | 409 | `prefix`: string; `candidates`: array of string (UUID) |
-| `version_conflict` | permanent | 409 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease; `id`: string; `expected`: integer; `actual`: integer |
-| `duplicate` | permanent | 409 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease; `id`: string, optional; `existingId`: string, optional |
+| `version_conflict` | permanent | 409 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease \| decision; `id`: string; `expected`: integer; `actual`: integer |
+| `duplicate` | permanent | 409 | `kind`: string: item \| note \| dependency \| document \| run \| root \| lease \| decision; `id`: string, optional; `existingId`: string, optional |
 | `idempotency_mismatch` | permanent | 409 | `idempotencyKey`: string |
 | `invalid_transition` | permanent | 409 | `itemId`: string (UUID); `fromRole`: string; `trigger`: string; `allowed`: array of string |
 | `gate_blocked` | permanent | 409 | `itemId`: string (UUID); `role`: string; `missing`: array of {key: string, role: string, seat?: string}, empty when only violations block; `violations`: array of {gate: string, reason: string}, optional |
@@ -2337,6 +2403,7 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `run_closed` | permanent | 409 | `runId`: string (UUID); `terminalReason`: string |
 | `run_paused` | permanent | 409 | `runId`: string (UUID); `pauseReason`: string: budget \| attempts \| manual; `pauseDecisionId`: string (UUID), optional |
 | `invalid_run_state` | permanent | 409 | `runId`: string (UUID); `status`: string: open \| paused \| closed; `allowed`: array of string |
+| `decision_closed` | permanent | 409 | `decisionId`: string (UUID); `status`: string: answered \| withdrawn |
 | `schema_violation` | permanent | 422 | `type`: string, optional; `reason`: string; `availableTypes`: array of string, optional; `availableTraits`: array of string, optional |
 | `schema_pinned_conflict` | permanent | 409 | `itemId`: string (UUID); `pinnedVersion`: string; `currentVersion`: string |
 | `config_invalid` | permanent | 422 | `errors`: array of {path: string, reason: string} |

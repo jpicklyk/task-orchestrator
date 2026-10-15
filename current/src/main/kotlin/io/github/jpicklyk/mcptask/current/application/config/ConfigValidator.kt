@@ -43,7 +43,8 @@ fun interface ConfigStructuralValidator {
  * trait defined in the document or in the server layer; every trait `resources[].key` must be declared in the server
  * resource registry; a `lifecycle: none` schema declares no `seats` of its own and no `required: true` note (a
  * lifecycle-free item has no phase, so no gate could ever enforce either); the `runs:` block (allowed in either scope)
- * follows [runsValueViolations]. For a [ConfigScope.SERVER] document the
+ * follows [runsValueViolations] and the `decision_classes:` block (either scope) [decisionClassesValueViolations]. For
+ * a [ConfigScope.SERVER] document the
  * document is the server layer, so it is checked against
  * itself. [serverLayer] is the server-wide config (today the global file); with none, a per-root document sees no
  * server traits and an empty registry.
@@ -160,6 +161,7 @@ class ConfigValidator(
         }
 
         if (root.containsKey("runs")) out.addAll(runsValueViolations(root["runs"]))
+        if (root.containsKey("decision_classes")) out.addAll(decisionClassesValueViolations(root["decision_classes"]))
 
         val traits = root["traits"] as? Map<*, *>
         traits?.forEach { (traitName, traitValue) ->
@@ -260,6 +262,94 @@ class ConfigValidator(
                             )
                         )
                     }
+                }
+            }
+            return out
+        }
+
+        /** The `answerers` values of a decision class. */
+        private val DECISION_ANSWERERS = listOf("human-only", "director-or-human", "any-actor")
+
+        /** The `severity` values of a decision class. */
+        private val DECISION_SEVERITIES = listOf("high", "normal", "low")
+
+        /** The `on_expiry` values of a decision class. */
+        private val DECISION_ON_EXPIRY = listOf("escalate")
+
+        /** The classes whose answerers can be raised but never lowered to `any-actor`. */
+        private val DECISION_NEVER_ANY_ACTOR = setOf("run-budget", "attempt-cap")
+
+        /** A decision class name. */
+        private val DECISION_CLASS_NAME = Regex("^[a-z][a-z0-9_-]{0,63}$")
+
+        /**
+         * The value rules of the top-level `decision_classes:` block [raw] (allowed in either scope): it is a mapping of
+         * class names (`^[a-z][a-z0-9_-]{0,63}$`) to mappings; `answerers` is human-only, director-or-human or any-actor,
+         * and never any-actor for `run-budget` or `attempt-cap`; `severity` is high, normal or low; `expires_after` is an
+         * integer greater than 0 (seconds); `on_expiry` is escalate; `freeform` is a boolean. Unknown keys are not
+         * reported here (the parser and the structural schema report them). The parser reports the same findings with
+         * the same paths and reasons, so a strict validation lists each once.
+         */
+        fun decisionClassesValueViolations(raw: Any?): List<ConfigViolation> {
+            val classes =
+                raw as? Map<*, *>
+                    ?: return listOf(ConfigViolation(pointer("decision_classes"), "decision_classes must be a mapping"))
+            val out = mutableListOf<ConfigViolation>()
+            for ((rawName, rawEntry) in classes) {
+                val name = rawName.toString()
+                if (!DECISION_CLASS_NAME.matches(name)) {
+                    out.add(
+                        ConfigViolation(
+                            pointer("decision_classes", name),
+                            "a decision class name must match ${DECISION_CLASS_NAME.pattern}"
+                        )
+                    )
+                    continue
+                }
+                val entry = rawEntry as? Map<*, *>
+                if (entry == null) {
+                    out.add(ConfigViolation(pointer("decision_classes", name), "a decision class must be a mapping"))
+                    continue
+                }
+                if (entry.containsKey("answerers")) {
+                    val answerers = entry["answerers"]
+                    if (answerers !is String || answerers !in DECISION_ANSWERERS) {
+                        out.add(
+                            ConfigViolation(
+                                pointer("decision_classes", name, "answerers"),
+                                "answerers must be one of: ${DECISION_ANSWERERS.joinToString(", ")}"
+                            )
+                        )
+                    } else if (answerers == "any-actor" && name in DECISION_NEVER_ANY_ACTOR) {
+                        out.add(
+                            ConfigViolation(
+                                pointer("decision_classes", name, "answerers"),
+                                "cannot be lowered below director-or-human"
+                            )
+                        )
+                    }
+                }
+                if (entry.containsKey("severity") && entry["severity"] !in DECISION_SEVERITIES) {
+                    out.add(
+                        ConfigViolation(
+                            pointer("decision_classes", name, "severity"),
+                            "severity must be one of: ${DECISION_SEVERITIES.joinToString(", ")}"
+                        )
+                    )
+                }
+                if (entry.containsKey("expires_after") && !isPositiveInteger(entry["expires_after"], Int.MAX_VALUE.toLong())) {
+                    out.add(
+                        ConfigViolation(
+                            pointer("decision_classes", name, "expires_after"),
+                            "expires_after must be an integer greater than 0 (seconds)"
+                        )
+                    )
+                }
+                if (entry.containsKey("on_expiry") && entry["on_expiry"] !in DECISION_ON_EXPIRY) {
+                    out.add(ConfigViolation(pointer("decision_classes", name, "on_expiry"), "on_expiry must be escalate"))
+                }
+                if (entry.containsKey("freeform") && entry["freeform"] !is Boolean) {
+                    out.add(ConfigViolation(pointer("decision_classes", name, "freeform"), "freeform must be true or false"))
                 }
             }
             return out

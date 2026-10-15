@@ -212,8 +212,8 @@ Each token grants a set of additive capabilities:
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset` (checked per op by the dispatcher, section 20a). Grants no `docs_write` op. |
 | `WRITE_DOCS` | `write-docs` | `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
-| `RUNS` | `runs` | Every `runs_write` op (`open`, `update`, `close`, `pause`, `resume`, `mark`), checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
-| `DECIDE` | `decide` | Reserved for decision answering; parsed and grantable, no endpoint checks it yet |
+| `RUNS` | `runs` | Every `runs_write` op except `ack` and `answer` (`open`, `update`, `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`), checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
+| `DECIDE` | `decide` | Decision answering: `runs_write` ops `ack` and `answer`, checked per op by the dispatcher (section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
 
 **Breaking change (4.0):** `docs_write` needs `write-docs`. A token that wrote documents with `write-config` alone
@@ -1005,6 +1005,41 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
+**Decisions.** `runs_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
+rootId?, severity?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
+required (under a seat token an absent `runId` / `itemId` defaults to the token's); the root is the item's, else the
+run's, else `rootId` (a root item), and they must agree (`invalid_request` on `/itemId` or `/rootId`); an item without a
+lifecycle is `invalid_request` on `/itemId`. `class` names a decision class: the built-ins are `question` (any-actor,
+low, freeform), `deviation` (director-or-human, normal, overdue after 14,400 s) and the server-raised `run-budget` and
+`attempt-cap` (director-or-human, high; refused on `raise`); the config block `decision_classes:` (server or per-root)
+adds classes or overrides a built-in field by field. An unknown class is `invalid_request` on `/class` listing the
+classes. Limits: question 1 to 500 characters; 1 to 8 options `{key, label, consequence?}` (key
+`^[a-z][a-z0-9_-]{0,31}$` and unique, label 1 to 120, consequence at most 300); `recommended` an option key; at most 10
+`{kind, ref}` links; context at most 1,000; `dedupeKey` 1 to 128; and the compact JSON of `{question, options,
+recommended, links, context}` at most 4,096 bytes (`413 payload_too_large`). A decision with the same root, scope (the
+item, else the run, else the root) and `dedupeKey` that is not withdrawn is returned with `existing: true` (with its
+answer when answered) when its class, question and option keys match, and is `409 idempotency_mismatch` with
+`detail.idempotencyKey` set to the dedupe key otherwise; a withdrawn one never matches, so a re-raise after a withdraw
+creates a new decision. `ack{decisionId}` and `answer{decisionId, option?, text?, rationale?}` (director profile,
+`decide`) need the class's answerers: `human-only` a human credential with proof `verified`, `verified_stale` or `issued`
+and no seat token; `director-or-human` also the director profile without a seat token; `any-actor` any caller. A refusal
+is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `director,human`. `answer` is final: the
+option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
+1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
+{decisionId}` (director profile, `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
+decision's run (`required` `coordinator,raiser`). An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
+is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
+`decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
+profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status
+client-side). A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
+`not_found` with `detail.kind: decision` only for an unrestricted token. An open or acknowledged decision whose class
+sets `expires_after` is `overdue` from its expiry and reads with `effectiveSeverity` one step up; nothing else happens on
+expiry. The principal ids of the raiser, acknowledger and answerer and the answer's host and session id are stored but
+shown only to an `admin` caller. `items_read` `context` with `itemId` lists the item's open, acknowledged and answered
+decisions as `decisions[{id, class, status, option?}]`. Every write but a re-raise or a repeated `ack` records
+`decision.raised`, `decision.acknowledged`, `decision.answered` or `decision.withdrawn` (audit class); `run.ended`
+counts the run's open and acknowledged decisions in `openDecisions` (a close withdraws none).
+
 **Faults.** Every fault answers an envelope and is checked in this order:
 
 | Condition | Status | Envelope |
@@ -1044,7 +1079,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list` and `frontier`; `runs_write` `open`, `close`, `pause` and `resume`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list`, `frontier`, `decisions` and `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer` and `withdraw`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
@@ -1144,6 +1179,7 @@ events on the same item. See §24 for the `item.deleted` fail-closed gap this sc
 | `scope.entered` | set | set | null | Item reparented into this root's subtree |
 | `scope.left` | set | set | null | Item reparented out of this root's subtree |
 | `seat.ended` | set | set | null | A seat ended its own assignment (`runs_write` `end_seat`); `itemId` is the member item and `runId` the run. Item-scoped visibility, like `note.*` |
+| `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` | set or null | set | null | A decision request was raised, acknowledged, answered or withdrawn. Carries `decisionId`, `class` and `severity`, and `itemId` / `runId` when the decision names them; never an `actor`. With an `itemId` it has item-scoped visibility, like `note.*`; without one it is anchored to its root, like `run.*` |
 | `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is further behind the newest event than the replay window), or `unknown_event_id` (resumed `Last-Event-ID` is above the newest event, below the 10^12 seq floor -- a pre-4.0 cursor -- or was not parseable as a number) |
 | `auth.expired` | null | null | null | Connection's token has expired; reconnect with fresh credential |
 

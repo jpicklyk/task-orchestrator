@@ -36,7 +36,7 @@ object EventClasses {
             DomainEvent.DOCUMENT_DELETED,
             DomainEvent.DOCUMENT_ADOPTED,
             DomainEvent.NOTE_OWNERSHIP_TRANSFERRED
-        ) + DomainEvent.RUN_TYPES
+        ) + DomainEvent.RUN_TYPES + DomainEvent.DECISION_TYPES
 
     /** Audit type families: any type starting with one of these is audit. */
     val AUDIT_PREFIXES: Set<String> = setOf("document.", "run.", "decision.")

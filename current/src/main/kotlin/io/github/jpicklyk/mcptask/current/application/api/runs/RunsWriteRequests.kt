@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.api.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import kotlinx.serialization.SerialName
@@ -42,6 +43,7 @@ private const val BUDGET_DOC =
 private const val HINTS_DOC = "Short structured coordinator hints, string to string. On update they replace the stored hints."
 private const val ITEM_DOC = "Item id: a UUID or a hex prefix of 8 to 32 characters."
 private const val LINKS_DOC = "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url."
+private const val ROOT_DOC = "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters."
 
 /** How the calling seat ended: the outcomes a seat reports itself (`superseded` and `run_closed` are server-only). */
 @Serializable
@@ -61,7 +63,7 @@ enum class SeatEndOutcome(
 /** `runs_write open`: starts a run over a set of items of one root. */
 @Serializable
 data class RunsOpenRequest(
-    @Doc("The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters.") val rootId: IdRef,
+    @Doc(ROOT_DOC) val rootId: IdRef,
     @Doc("Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run.")
     val items: List<IdRef> = emptyList(),
     @Doc("An item the run is scoped to. $ITEM_DOC") val scopeId: IdRef? = null,
@@ -122,6 +124,62 @@ data class RunsEndSeatRequest(
     @Doc("How the calling seat ended.") val outcome: SeatEndOutcome,
     @Doc("Closing summary, at most 500 characters.") val summary: String? = null,
     @Doc(LINKS_DOC) val links: List<JsonObject>? = null
+)
+
+/** A decision severity as the caller writes it. */
+@Serializable
+enum class DecisionSeverityRequest(
+    val domain: DecisionRequestSeverity
+) {
+    @SerialName("high")
+    HIGH(DecisionRequestSeverity.HIGH),
+
+    @SerialName("normal")
+    NORMAL(DecisionRequestSeverity.NORMAL),
+
+    @SerialName("low")
+    LOW(DecisionRequestSeverity.LOW)
+}
+
+/**
+ * `runs_write raise`: raises a decision request. One of [itemId], [runId] or [rootId] is required; under a seat token
+ * an absent [runId] / [itemId] defaults to the token's run / item.
+ */
+@Serializable
+data class RunsRaiseRequest(
+    @Doc("Decision class (for example question or deviation); it decides who may answer.")
+    val `class`: String,
+    @Doc("The question, at most 500 characters.") val question: String,
+    @Doc("1 to 8 choices, each {key, label, consequence}.") val options: List<JsonObject>,
+    @Doc("Key of the recommended option.") val recommended: String? = null,
+    @Doc(LINKS_DOC) val links: List<JsonObject>? = null,
+    @Doc("Background for the answerer, at most 1000 characters.") val context: String? = null,
+    @Doc("Re-raising the same key returns the open or answered decision instead of a new one.") val dedupeKey: String,
+    @Doc(ITEM_DOC) val itemId: IdRef? = null,
+    @Doc(RUN_ID_DOC) val runId: IdRef? = null,
+    @Doc(ROOT_DOC) val rootId: IdRef? = null,
+    @Doc("Default normal.") val severity: DecisionSeverityRequest? = null
+)
+
+/** `runs_write ack`: acknowledges an open decision. */
+@Serializable
+data class RunsAckRequest(
+    @Doc(DECISION_ID_DOC) val decisionId: IdRef
+)
+
+/** `runs_write answer`: answers a pending decision. */
+@Serializable
+data class RunsAnswerRequest(
+    @Doc(DECISION_ID_DOC) val decisionId: IdRef,
+    @Doc("Key of the chosen option.") val option: String? = null,
+    @Doc("Free-form answer, at most 1000 characters; freeform classes only.") val text: String? = null,
+    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null
+)
+
+/** `runs_write withdraw`: withdraws a pending decision. */
+@Serializable
+data class RunsWithdrawRequest(
+    @Doc(DECISION_ID_DOC) val decisionId: IdRef
 )
 
 /** `runs_write mark`: sets a named mark on a run. */

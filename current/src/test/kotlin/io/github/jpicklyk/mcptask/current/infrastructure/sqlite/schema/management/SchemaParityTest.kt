@@ -143,6 +143,7 @@ class SchemaParityTest {
                             t == "runs" ||
                             t == "run_items" ||
                             t == "run_seats" ||
+                            t == "decision_requests" ||
                             t == "usage_daily"
                     if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
                         mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
