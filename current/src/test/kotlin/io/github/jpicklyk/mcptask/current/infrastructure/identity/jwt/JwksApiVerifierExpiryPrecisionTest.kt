@@ -26,8 +26,7 @@ import java.util.Date
 
 /**
  * Independent test-author coverage for item 3dcfcbab, ADDENDUM 2 (fix cycle round 2, commit
- * 009c4867): the same millisecond-truncation gap probed against [JwksActorVerifier] in
- * `JwksActorVerifierExpiryPrecisionTest`, exercised here against the REST/API-side verifier,
+ * 009c4867): the millisecond-truncation gap, exercised against the REST/API-side verifier,
  * [JwksApiVerifier]. Cache-level (JtiReplayCache) tests cannot observe this gap since that cache
  * compares Instants directly, never going through a verifier's own exp/skew arithmetic.
  *

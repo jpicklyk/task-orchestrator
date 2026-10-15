@@ -2,15 +2,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity
 
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidWebResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
@@ -331,12 +327,12 @@ class EgressGuardTest {
     fun `S23 a jwks_uri on a private literal address is refused before any request`() =
         runTest {
             val requests = Requests()
-            val config = VerifierConfig.Jwks(jwksUri = "https://10.0.0.5/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://10.0.0.5/jwks.json")
             val ex =
                 thrownBy {
                     val provider =
                         DefaultJwksKeySetProvider(
-                            config.toKeySource(),
+                            config,
                             Path.of("."),
                             httpClientEngineForTest = recordingEngine(requests) { jwksJson }
                         )
@@ -356,10 +352,10 @@ class EgressGuardTest {
     fun `S23 a jwks_uri that merely resolves to a private address is refused before any request`() =
         runTest {
             val requests = Requests()
-            val config = VerifierConfig.Jwks(jwksUri = "https://internal.eg.example/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://internal.eg.example/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     Path.of("."),
                     egressGuard = guardResolvingTo("10.0.0.9"),
                     httpClientEngineForTest = recordingEngine(requests) { jwksJson },
@@ -377,10 +373,10 @@ class EgressGuardTest {
     fun `S23 a public jwks_uri is fetched exactly once`() =
         runTest {
             val requests = Requests()
-            val config = VerifierConfig.Jwks(jwksUri = "https://keys.eg.example/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://keys.eg.example/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     Path.of("."),
                     egressGuard = publicEgressGuard(),
                     httpClientEngineForTest = recordingEngine(requests) { jwksJson },
@@ -411,10 +407,10 @@ class EgressGuardTest {
                         jwksJson
                     }
                 }
-            val config = VerifierConfig.Jwks(oidcDiscovery = discovery)
+            val config = KeySourceConfig(oidcDiscovery = discovery)
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     Path.of("."),
                     egressGuard = publicEgressGuard(),
                     httpClientEngineForTest = engine,
@@ -470,12 +466,12 @@ class EgressGuardTest {
             val url = "http://127.0.0.1:9/jwks.json"
 
             val closedRequests = Requests()
-            val closed = VerifierConfig.Jwks(jwksUri = url, allowInsecureUrl = false)
+            val closed = KeySourceConfig(jwksUri = url, allowInsecureUrl = false)
             val closedEx =
                 thrownBy {
                     val p =
                         DefaultJwksKeySetProvider(
-                            closed.toKeySource(),
+                            closed,
                             Path.of("."),
                             httpClientEngineForTest = recordingEngine(closedRequests) { jwksJson }
                         )
@@ -489,10 +485,10 @@ class EgressGuardTest {
             assertEquals(0, closedRequests.count.get())
 
             val openRequests = Requests()
-            val open = VerifierConfig.Jwks(jwksUri = url, allowInsecureUrl = true)
+            val open = KeySourceConfig(jwksUri = url, allowInsecureUrl = true)
             val p =
                 DefaultJwksKeySetProvider(
-                    open.toKeySource(),
+                    open,
                     Path.of("."),
                     httpClientEngineForTest = recordingEngine(openRequests) { jwksJson }
                 )
@@ -541,29 +537,9 @@ class EgressGuardTest {
     }
 
     @Test
-    fun `S23 a refused key source makes the actor verifier UNAVAILABLE and the API verifier fail closed`() =
+    fun `S23 a refused key source makes the API verifier fail closed`() =
         runTest {
             val requests = Requests()
-            val actorConfig =
-                VerifierConfig.Jwks(
-                    jwksUri = "https://10.0.0.5/jwks.json",
-                    issuer = "https://idp.eg.example",
-                    audience = "eg-aud",
-                    algorithms = listOf("RS256"),
-                )
-            val actorProvider =
-                DefaultJwksKeySetProvider(
-                    actorConfig.toKeySource(),
-                    Path.of("."),
-                    httpClientEngineForTest = recordingEngine(requests) { jwksJson }
-                )
-            try {
-                val result = JwksActorVerifier(actorConfig, actorProvider).verify(ActorClaim("agent-1", ActorKind.SUBAGENT, proof = token))
-                assertEquals(VerificationStatus.UNAVAILABLE, result.status, result.reason)
-            } finally {
-                actorProvider.close()
-            }
-
             val apiConfig =
                 ApiAuthConfig.Jwks(
                     url = "https://10.0.0.5/jwks.json",
@@ -584,6 +560,6 @@ class EgressGuardTest {
                 apiProvider.close()
             }
 
-            assertEquals(0, requests.count.get(), "neither mapper may cause a request to the refused address")
+            assertEquals(0, requests.count.get(), "the verifier may not cause a request to the refused address")
         }
 }

@@ -171,7 +171,7 @@ class IdentityPackageTest {
             for (n in did) {
                 put("infrastructure/identity/did/$n.kt", "$base.did")
             }
-            for (n in listOf("JtiReplayCache", "JwksActorVerifier", "JwksApiVerifier", "JwksKeySetProvider", "TokenLifetimeCap")) {
+            for (n in listOf("JtiReplayCache", "JwksApiVerifier", "JwksKeySetProvider", "TokenLifetimeCap")) {
                 put("infrastructure/identity/jwt/$n.kt", "$base.jwt")
             }
         }
@@ -186,8 +186,8 @@ class IdentityPackageTest {
     }
 
     @Test
-    fun `S5 all 17 identity files exist at their mapped path with the matching package`() {
-        assertEquals(17, inventory.size, "the inventory itself must list 17 files")
+    fun `S5 all 16 identity files exist at their mapped path with the matching package`() {
+        assertEquals(16, inventory.size, "the inventory itself must list 16 files")
         val sources = GuardSupport.productionSources().associateBy { it.path }
         for ((path, expectedPackage) in inventory) {
             val source = assertNotNull(sources[path], "missing production file: $path")

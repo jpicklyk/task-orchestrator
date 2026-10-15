@@ -533,8 +533,7 @@ class ConfigService(
      * Pipeline: size cap -> strict parse (an empty or comment-only document is [ConfigImportResult.Skipped]) ->
      * target (`project.rootId` absent = [ConfigScope.SERVER]; a valid UUID of a depth-0 item = [ConfigScope.ROOT]; a
      * malformed one is [ConfigImportResult.Invalid]; an unknown or non-root one is [ConfigImportResult.RootNotFound]) ->
-     * the top-level `actor_authentication` entry is removed from the raw root (it stays file-sourced and is never
-     * validated or stored in canonical form) -> [ConfigValidator] -> the U20 allowance: errors at exactly
+     * [ConfigValidator] -> the U20 allowance: errors at exactly
      * `/schema_resolution`, `/orchestration`, `/retrospective` or `/actor_attribution` become stored warnings (a push
      * of the same text is still rejected) -> append with source `file-import`. The stored `yaml` is [yaml] verbatim
      * and the fingerprint is the config fingerprint of that text. Identical content appends nothing.
@@ -570,13 +569,11 @@ class ConfigService(
             }
         val scope = if (rootId == null) ConfigScope.SERVER else ConfigScope.ROOT
 
-        val strippedRoot = rawRoot - "actor_authentication"
-        val stripped = ConfigDocumentParser.Outcome.Parsed(parsed.document, strippedRoot)
         val validation =
             if (scope == ConfigScope.SERVER) {
-                validator.validate(stripped, ConfigScope.SERVER, null)
+                validator.validate(parsed, ConfigScope.SERVER, null)
             } else {
-                validator.validate(stripped, ConfigScope.ROOT, serverConfig?.layer())
+                validator.validate(parsed, ConfigScope.ROOT, serverConfig?.layer())
             }
         val (allowed, errors) = validation.errors.partition { it.path in MIGRATION_ONLY_KEY_POINTERS }
         if (errors.isNotEmpty()) return ConfigImportResult.Invalid(errors, validation.warnings)
@@ -587,7 +584,7 @@ class ConfigService(
             ConfigAppend(
                 yaml = yaml,
                 fingerprint = store.computeFingerprint(yaml),
-                canonicalJson = CanonicalConfigJson.encode(strippedRoot),
+                canonicalJson = CanonicalConfigJson.encode(rawRoot),
                 modelVersion = CanonicalConfigJson.MODEL_VERSION,
                 source = ConfigVersionSource.FILE_IMPORT,
                 principalId = null,

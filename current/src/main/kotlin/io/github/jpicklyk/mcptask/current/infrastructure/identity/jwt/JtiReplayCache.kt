@@ -7,7 +7,7 @@ import java.time.Instant
 /**
  * In-memory, single-instance replay cache for JWT `(iss, jti)` pairs.
  *
- * Used by [JwksActorVerifier] when `actor_authentication.verifier.jti_replay_protection` is
+ * Used by [JwtVerifier] when [JwtPolicy.jtiReplay] is
  * enabled: each presented `(iss, jti)` pair may be accepted at most once. An entry is retained
  * through `exp + [AUTH_CLOCK_SKEW_SECONDS]` **inclusive** — the same clock-skew leeway the
  * verifiers use elsewhere for `exp`/`nbf`/the lifetime cap (see [AUTH_CLOCK_SKEW_SECONDS] KDoc for

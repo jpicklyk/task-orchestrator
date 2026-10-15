@@ -137,7 +137,6 @@ class ContentNegotiationOrderSpikeTest {
                                 apiVersion = "v1",
                                 capabilities = listOf("read"),
                                 claimModeAvailable = true,
-                                actorAuthenticationEnabled = false,
                             ),
                         )
                     }

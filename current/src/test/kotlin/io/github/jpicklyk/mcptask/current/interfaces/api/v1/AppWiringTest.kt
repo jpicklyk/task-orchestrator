@@ -200,7 +200,6 @@ class AppWiringTest {
                             repositoryProvider = null,
                             serverName = "wiring-test",
                             serverVersion = "2.0.0",
-                            actorAuthEnabled = false,
                         )
                     }
                 }
@@ -342,7 +341,6 @@ class AppWiringTest {
             assertTrue(body.contains("\"apiVersion\""), "Missing apiVersion: $body")
             assertTrue(body.contains("\"capabilities\""), "Missing capabilities: $body")
             assertTrue(body.contains("\"claimModeAvailable\""), "Missing claimModeAvailable: $body")
-            assertTrue(body.contains("\"actorAuthenticationEnabled\""), "Missing actorAuthenticationEnabled: $body")
             assertTrue(body.contains("wiring-test-server"), "Missing server name value: $body")
             assertTrue(body.contains("2.0.0"), "Missing version value: $body")
         }

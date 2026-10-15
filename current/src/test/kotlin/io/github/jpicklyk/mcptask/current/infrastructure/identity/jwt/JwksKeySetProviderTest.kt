@@ -5,7 +5,6 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64URL
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidDocument
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolutionException
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolver
@@ -85,10 +84,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
+                val config = KeySourceConfig(jwksPath = "test-jwks.json")
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -123,10 +122,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
+                val config = KeySourceConfig(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = fixedClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -166,10 +165,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60)
+                val config = KeySourceConfig(jwksPath = "test-jwks.json", cacheTtlSeconds = 60)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -209,10 +208,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
+                val config = KeySourceConfig(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = fixedClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -262,13 +261,13 @@ class JwksKeySetProviderTest {
             try {
                 // oidcDiscovery points to unreachable host; jwksPath points to a valid file
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         oidcDiscovery = "http://192.0.2.1:1/nonexistent",
                         jwksPath = "test-jwks.json"
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -297,12 +296,12 @@ class JwksKeySetProviderTest {
     fun `OIDC discovery failure with no fallback source throws`() =
         runTest {
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     oidcDiscovery = "http://192.0.2.1:1/nonexistent"
                 )
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
                 )
@@ -322,10 +321,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "does-not-exist.json")
+                val config = KeySourceConfig(jwksPath = "does-not-exist.json")
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -350,10 +349,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
+                val config = KeySourceConfig(jwksPath = "test-jwks.json")
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -394,14 +393,14 @@ class JwksKeySetProviderTest {
             try {
                 // TTL = 60s. staleOnError = true (default)
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         jwksPath = "test-jwks.json",
                         cacheTtlSeconds = 60,
                         staleOnError = true
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -441,13 +440,13 @@ class JwksKeySetProviderTest {
             try {
                 // File doesn't exist; no prior cache entry
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         jwksPath = "does-not-exist.json",
                         staleOnError = true
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -484,14 +483,14 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         jwksPath = "test-jwks.json",
                         cacheTtlSeconds = 60,
                         staleOnError = false
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -525,10 +524,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
+                val config = KeySourceConfig(jwksPath = "test-jwks.json")
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -606,13 +605,13 @@ class JwksKeySetProviderTest {
                 coEvery { mockRegistry.resolve(did) } returns doc
 
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         cacheTtlSeconds = 300
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry,
@@ -642,13 +641,13 @@ class JwksKeySetProviderTest {
                 coEvery { mockRegistry.resolve(did) } returns doc
 
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didPattern = pattern,
                         cacheTtlSeconds = 300
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry,
@@ -666,13 +665,13 @@ class JwksKeySetProviderTest {
         fun `getKeySetForIssuer with no trust match throws IssuerNotTrustedException`() =
             runTest {
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf("did:web:trusted.example.com"),
                         cacheTtlSeconds = 300
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
                     )
@@ -692,13 +691,13 @@ class JwksKeySetProviderTest {
                 coEvery { mockRegistry.resolve(did) } returns doc
 
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         cacheTtlSeconds = 300
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry,
@@ -736,13 +735,13 @@ class JwksKeySetProviderTest {
                     }
 
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         cacheTtlSeconds = 60
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         didResolverRegistry = mockRegistry,
@@ -794,14 +793,14 @@ class JwksKeySetProviderTest {
                 }
 
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         cacheTtlSeconds = 60,
                         staleOnError = true
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         didResolverRegistry = mockRegistry,
@@ -844,13 +843,13 @@ class JwksKeySetProviderTest {
 
                 val allowlist = dids.toList()
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = allowlist,
                         cacheTtlSeconds = 3600
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = fixedClock,
                         didResolverRegistry = mockRegistry,
@@ -875,7 +874,7 @@ class JwksKeySetProviderTest {
         fun `matchesGlob handles wildcard and anchoring correctly`() {
             val provider =
                 DefaultJwksKeySetProvider(
-                    VerifierConfig.Jwks(didAllowlist = listOf("x")).toKeySource(),
+                    KeySourceConfig(didAllowlist = listOf("x")),
                     tempDir
                 )
 
@@ -920,14 +919,14 @@ class JwksKeySetProviderTest {
 
                 // Both allowlist and pattern would match; allowlist takes priority
                 val config =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         didPattern = "did:web:special.*",
                         cacheTtlSeconds = 300
                     )
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry,
@@ -944,14 +943,14 @@ class JwksKeySetProviderTest {
                 coEvery { mockRegistry.resolve(patternDid) } returns patternDoc
 
                 val config2 =
-                    VerifierConfig.Jwks(
+                    KeySourceConfig(
                         didAllowlist = listOf(did),
                         didPattern = "did:web:special.*",
                         cacheTtlSeconds = 300
                     )
                 val provider2 =
                     DefaultJwksKeySetProvider(
-                        config2.toKeySource(),
+                        config2,
                         tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
@@ -1006,10 +1005,10 @@ class JwksKeySetProviderTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60, staleOnError = true)
+                val config = KeySourceConfig(jwksPath = "test-jwks.json", cacheTtlSeconds = 60, staleOnError = true)
                 val provider =
                     DefaultJwksKeySetProvider(
-                        config.toKeySource(),
+                        config,
                         tempDir,
                         clock = advancingClock,
                         egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1075,10 +1074,10 @@ class JwksKeySetProviderTest {
                     )
                 }
 
-            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://auth.example.com/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     httpClientEngineForTest = engine,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1105,10 +1104,10 @@ class JwksKeySetProviderTest {
                     )
                 }
 
-            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://auth.example.com/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     httpClientEngineForTest = engine,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1140,10 +1139,10 @@ class JwksKeySetProviderTest {
                     )
                 }
 
-            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://auth.example.com/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     httpClientEngineForTest = engine,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1169,10 +1168,10 @@ class JwksKeySetProviderTest {
                     )
                 }
 
-            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val config = KeySourceConfig(jwksUri = "https://auth.example.com/jwks.json")
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     httpClientEngineForTest = engine,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1208,10 +1207,10 @@ class JwksKeySetProviderTest {
             }
 
         val registry = DidResolverRegistry(listOf(trackingResolver))
-        val config = VerifierConfig.Jwks(didAllowlist = listOf("did:web:example.com"))
+        val config = KeySourceConfig(didAllowlist = listOf("did:web:example.com"))
         val provider =
             DefaultJwksKeySetProvider(
-                config.toKeySource(),
+                config,
                 tempDir,
                 didResolverRegistry = registry,
                 egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1285,13 +1284,13 @@ class JwksKeySetProviderTest {
             coEvery { mockRegistry.closeAll() } returns Unit
 
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     didAllowlist = listOf(did),
                     cacheTtlSeconds = 300,
                 )
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
                     didResolverRegistry = mockRegistry,
@@ -1375,13 +1374,13 @@ class JwksKeySetProviderTest {
             coEvery { mockRegistry.closeAll() } returns Unit
 
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     didAllowlist = docs.keys.toList(),
                     cacheTtlSeconds = 300,
                 )
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
                     didResolverRegistry = mockRegistry,
@@ -1462,14 +1461,14 @@ class JwksKeySetProviderTest {
                 }
 
             val config =
-                VerifierConfig.Jwks(
+                KeySourceConfig(
                     didAllowlist = listOf(did),
                     cacheTtlSeconds = 300,
                 )
             val registry = DidResolverRegistry(listOf(DidWebResolver(engine, publicEgressGuard())))
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     didResolverRegistry = registry,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)
@@ -1522,11 +1521,11 @@ class JwksKeySetProviderTest {
                     )
                 }
 
-            val config = VerifierConfig.Jwks(didAllowlist = listOf(did))
+            val config = KeySourceConfig(didAllowlist = listOf(did))
             val registry = DidResolverRegistry(listOf(DidWebResolver(engine, publicEgressGuard())))
             val provider =
                 DefaultJwksKeySetProvider(
-                    config.toKeySource(),
+                    config,
                     tempDir,
                     didResolverRegistry = registry,
                     egressGuard = publicEgressGuard(config.allowInsecureUrl)

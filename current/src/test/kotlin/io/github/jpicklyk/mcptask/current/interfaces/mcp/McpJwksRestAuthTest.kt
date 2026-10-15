@@ -162,7 +162,6 @@ class McpJwksRestAuthTest {
             allowQueryToken = false,
             serverName = "jwks-rest-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
             serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(

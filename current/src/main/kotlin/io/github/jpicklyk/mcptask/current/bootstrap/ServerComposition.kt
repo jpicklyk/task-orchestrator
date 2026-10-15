@@ -10,29 +10,25 @@ import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.infrastructure.config.checkRemovedServerConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
 import io.github.jpicklyk.mcptask.current.infrastructure.security.FileBodySource
@@ -69,8 +65,7 @@ import java.nio.file.Paths
  * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
  * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
  * @param jwksVerifier REST JWT verifier built from [ApiAuthConfig.Jwks] settings, or null unless the
- *   API is enabled in jwks mode. This is the REST-API verifier ([JwksApiVerifier]) — NOT the
- *   unrelated actor-authentication [JwksActorVerifier].
+ *   API is enabled in jwks mode.
  * @param eventRecorder The one recorder the unit of work's `events` append through (its commit listener is
  *   [eventBus] when the API is enabled); null in hand-built wirings.
  */
@@ -95,7 +90,6 @@ class CompositionResult(
     val apiWiring: ApiWiring,
     /** The server-scope config layer: the DB head, read per call (the REST `/config*` routes view it per request). */
     val serverConfig: ServerConfigSource,
-    val actorAuthEnabled: Boolean,
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
     val unitOfWork: UnitOfWork,
@@ -106,7 +100,7 @@ class CompositionResult(
 /**
  * Manual composition root for the Current (v3) MCP server.
  *
- * Builds the entire object graph (repositories, config services, actor verifier, REST/SSE wiring,
+ * Builds the entire object graph (repositories, config services, REST/SSE wiring,
  * and the final [ToolExecutionContext]) from a single typed [AppConfig] snapshot and an already
  * initialized [DatabaseManager]. This keeps [CurrentMcpServer] focused purely on lifecycle
  * (startup/shutdown/transport).
@@ -133,7 +127,7 @@ class ServerComposition(
      * Wires the object graph and returns a [CompositionResult].
      *
      * Ordering mirrors the previous inline construction in `CurrentMcpServer.run()`:
-     * repositories → config services → actor verifier → API wiring (resolved EARLY so the SAME bus
+     * repositories → config services → API wiring (resolved EARLY so the SAME bus
      * and recorder feed both the tool context and the REST routes) → recommender → tool context.
      */
     fun build(): CompositionResult {
@@ -154,20 +148,15 @@ class ServerComposition(
         // typed AppConfig. FileBodySource reads no environment.
         val bodySource = FileBodySource(Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir)))
 
-        // The directory every file-relative setting resolves against (`bodyFromFile`, `jwks_path`, the global file):
-        // built ONCE here, so no service reads AGENT_CONFIG_DIR itself.
-        val configBaseDir = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
-
         // ONE GlobalConfigFile instance reads and parses the file once. It feeds the `server-config-import` boot step
-        // (the file's text), the actor-auth service (`actor_authentication` stays file-sourced) and the type-backfill
+        // (the file's text), the removed-key startup guard and the type-backfill
         // step. The runtime never reads the file for schemas, traits or labels: it reads the stored server head.
         val globalConfigFile = GlobalConfigFile(globalConfigPath)
         // Force the lazy load NOW, before anything else is wired, so a broken global config file
         // fails startup here (surfaced to CurrentMcpServer.run() -> CurrentMain, before the
         // readiness marker is ever written) rather than on first incidental use deep in a request.
         globalConfigFile.layer()
-        val actorAuthConfigService = YamlActorAuthenticationConfigService(globalConfigFile, envResolver = appConfig.envResolver)
-        val actorVerifier = createActorVerifier(actorAuthConfigService, configBaseDir)
+        checkRemovedServerConfig(globalConfigFile, appConfig.envResolver)
 
         // Resolve the REST/SSE API wiring ONCE, EARLY, before the tool context is built, so the
         // SAME recorder (and, with the API on, the SAME event bus) feeds BOTH the MCP tool context
@@ -200,7 +189,6 @@ class ServerComposition(
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
-                actorVerifier = actorVerifier,
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
                 configResolver = configResolver,
@@ -216,18 +204,10 @@ class ServerComposition(
             if (apiWiring.eventBus != null) "enabled - events rows stream over SSE" else "disabled - events rows recorded, no SSE",
         )
 
-        // actor_authentication status surfaced via /info (HTTP transport) — derived from the SAME
-        // actorAuthConfigService instance createActorVerifier used above (no second parse).
-        val actorAuthEnabled =
-            actorAuthConfigService
-                .getConfig()
-                .let { it.verifier !is VerifierConfig.Noop }
-
         return CompositionResult(
             toolContext = toolContext,
             apiWiring = apiWiring,
             serverConfig = perRootConfigService,
-            actorAuthEnabled = actorAuthEnabled,
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),
             unitOfWork = unitOfWork,
@@ -305,8 +285,7 @@ class ServerComposition(
 
         // In jwks mode, build the REST JWT verifier from the resolved ApiAuthConfig.Jwks settings.
         // Without this, the ApiBearerAuth plugin's Jwks branch finds a null verifier and 401s every
-        // request. NOTE: this is the REST verifier (JwksApiVerifier), NOT the actor-auth
-        // JwksActorVerifier.
+        // request.
         val jwksVerifier: JwksApiVerifier? =
             if (apiConfig is ApiAuthConfig.Jwks) {
                 val keyProvider =
@@ -350,40 +329,6 @@ class ServerComposition(
         val message = "API token file: token '$tokenId' scope.root_ids anchor $anchor is not a depth-0 root"
         logger.error("REST API configuration error: {}", message)
         throw IllegalArgumentException(message)
-    }
-
-    /**
-     * Creates the appropriate [ActorVerifier] from configuration. There is no degraded-mode policy: a leftover
-     * `degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable already failed startup in
-     * [YamlActorAuthenticationConfigService] before this runs.
-     */
-    private fun createActorVerifier(
-        configService: YamlActorAuthenticationConfigService,
-        configBaseDir: Path,
-    ): ActorVerifier {
-        configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
-        val config = configService.getConfig()
-        val verifier =
-            when (val vc = config.verifier) {
-                is VerifierConfig.Noop -> {
-                    logger.info("Actor verifier: noop (all claims unverified)")
-                    NoOpActorVerifier
-                }
-                is VerifierConfig.Jwks -> {
-                    logger.info(
-                        "Actor verifier: jwks (uri={}, path={}, discovery={})",
-                        vc.jwksUri ?: "none",
-                        vc.jwksPath ?: "none",
-                        vc.oidcDiscovery ?: "none",
-                    )
-                    JwksActorVerifier(vc, DefaultJwksKeySetProvider(vc.toKeySource(), configBaseDir)).also { jwksVerifier ->
-                        shutdownCoordinator.addCleanupAction("Close JWKS ActorVerifier") {
-                            jwksVerifier.close()
-                        }
-                    }
-                }
-            }
-        return verifier
     }
 
     private companion object {

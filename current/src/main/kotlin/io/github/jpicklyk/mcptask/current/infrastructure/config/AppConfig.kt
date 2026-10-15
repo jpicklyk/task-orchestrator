@@ -49,11 +49,11 @@ enum class FtsIntegrityMode {
  * and parsing rule that previously lived at the call site. See the per-field docs for the original
  * source location.
  *
- * Validation that throws on misconfiguration (the REST API auth config and the actor-authentication
- * config) intentionally stays in its existing loader classes ([io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader],
- * [YamlActorAuthenticationConfigService]); those already accept an injectable `envResolver`. The
- * composition root passes [envResolver] into them so they read from the same source as this
- * snapshot, preserving their fail-fast behavior unchanged.
+ * Validation that throws on misconfiguration (the REST API auth config) intentionally stays in its
+ * existing loader class ([io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader]);
+ * it already accepts an injectable `envResolver`. The
+ * composition root passes [envResolver] into it so it reads from the same source as this
+ * snapshot, preserving its fail-fast behavior unchanged.
  *
  * @property envResolver the raw resolver used to build this snapshot, retained so loaders that do
  *   their own validated parsing can be constructed against the same environment source.

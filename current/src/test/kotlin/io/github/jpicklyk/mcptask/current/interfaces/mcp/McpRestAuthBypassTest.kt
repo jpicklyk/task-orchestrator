@@ -102,7 +102,6 @@ class McpRestAuthBypassTest {
                     allowQueryToken = false,
                     serverName = "auth-bypass-test",
                     serverVersion = "1.0.0",
-                    actorAuthEnabled = false,
                     serverConfig = ServerConfigSource { null },
                     toolContext =
                         ToolExecutionContext(

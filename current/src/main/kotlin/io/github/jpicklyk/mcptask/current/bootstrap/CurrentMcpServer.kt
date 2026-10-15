@@ -347,7 +347,6 @@ class CurrentMcpServer(
                             apiWiring,
                             serverConfig,
                             toolContext,
-                            composition.actorAuthEnabled,
                             readinessMarker,
                             mcpAuth,
                             sessionPrincipals,
@@ -459,7 +458,6 @@ class CurrentMcpServer(
         apiWiring: ApiWiring,
         serverConfig: ServerConfigSource,
         toolContext: ToolExecutionContext,
-        actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
         mcpAuth: McpAuthMode,
         sessionPrincipals: McpSessionPrincipals,
@@ -527,7 +525,6 @@ class CurrentMcpServer(
                     allowQueryToken = allowQueryToken,
                     serverName = serverName,
                     serverVersion = version,
-                    actorAuthEnabled = actorAuthEnabled,
                     serverConfig = serverConfig,
                     toolContext = toolContext,
                     jwksVerifier = jwksVerifier,
@@ -783,7 +780,6 @@ internal fun Application.installRestApiRoutes(
     allowQueryToken: Boolean,
     serverName: String,
     serverVersion: String,
-    actorAuthEnabled: Boolean,
     @Suppress("UNUSED_PARAMETER") serverConfig: ServerConfigSource,
     toolContext: ToolExecutionContext,
     jwksVerifier: JwksApiVerifier? = null,
@@ -837,7 +833,6 @@ internal fun Application.installRestApiRoutes(
                 repositoryProvider = effectiveProvider,
                 serverName = serverName,
                 serverVersion = serverVersion,
-                actorAuthEnabled = actorAuthEnabled,
                 verifier =
                     when (apiConfig) {
                         is ApiAuthConfig.Jwks -> "jwks"

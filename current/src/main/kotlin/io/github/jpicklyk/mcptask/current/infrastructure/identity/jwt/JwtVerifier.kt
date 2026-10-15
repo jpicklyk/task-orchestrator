@@ -21,9 +21,9 @@ import java.time.Clock
 import java.time.Instant
 
 /**
- * The single JWT verification pipeline (AR-30). [JwksActorVerifier] and [JwksApiVerifier] are thin
- * mappers over this class: they build a [JwtPolicy], call [verify], and translate the [JwtVerdict]
- * into their own result types, so a fix to any check lands on both paths at once.
+ * The single JWT verification pipeline (AR-30). [JwksApiVerifier] is a thin
+ * mapper over this class: it builds a [JwtPolicy], calls [verify], and translates the [JwtVerdict]
+ * into its own result type.
  *
  * Pipeline order (crypto before claims, so a token that is both malformed and badly signed reports
  * [FailureKind.CRYPTO]):

@@ -386,7 +386,6 @@ class JwksScopeClaimFailClosedTest {
             allowQueryToken = false,
             serverName = "jwks-scope-fail-closed-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
             serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(

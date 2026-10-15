@@ -11,9 +11,8 @@ import java.net.URL
  * `127.0.0.1.evil.com` or `localhost.evil.com`) is rejected.
  *
  * Top-level and `internal` so it is shared, verbatim, by [ApiAuthConfigLoader] (REST
- * `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL`) and the actor-authentication https-source
- * validation in `YamlActorAuthenticationConfigService` / `DefaultJwksKeySetProvider` — one
- * predicate cannot drift out of sync with the other.
+ * `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL`) and `DefaultJwksKeySetProvider`'s https-source
+ * validation — one predicate cannot drift out of sync with the other.
  */
 internal fun isLiteralLoopbackHost(host: String?): Boolean {
     if (host.isNullOrBlank()) return false

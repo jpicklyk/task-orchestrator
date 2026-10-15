@@ -81,7 +81,6 @@ class FailPolicyWritePathsTest {
             allowQueryToken = false,
             serverName = "fail-policy-write-paths",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

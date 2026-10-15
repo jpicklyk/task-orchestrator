@@ -270,7 +270,7 @@ components:
     ServiceInfoDto:
       type: object
       required: [serverName, version, apiVersion, capabilities, claimModeAvailable,
-                 actorAuthenticationEnabled, verifier, features, configWarnings]
+                 verifier, features, configWarnings]
       properties:
         serverName:
           type: string
@@ -283,8 +283,6 @@ components:
           items:
             type: string
         claimModeAvailable:
-          type: boolean
-        actorAuthenticationEnabled:
           type: boolean
         verifier:
           type: string

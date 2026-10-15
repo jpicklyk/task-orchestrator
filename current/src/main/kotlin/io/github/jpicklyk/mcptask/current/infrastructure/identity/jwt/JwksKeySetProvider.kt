@@ -611,7 +611,7 @@ class DefaultJwksKeySetProvider(
 
     /**
      * Enforces the same https-or-loopback rule as
-     * `YamlActorAuthenticationConfigService.validateKeySourceUrl` on the `jwks_uri` discovered via
+     * `requireHttpsOrLoopbackKeySource` on the `jwks_uri` discovered via
      * OIDC discovery, using [KeySourceConfig.allowInsecureUrl]. The statically-configured
      * `oidcDiscovery`/`jwksUri` values are validated once, at config-load time; this covers the
      * URI the discovery DOCUMENT names, which is only known at fetch time and could differ from

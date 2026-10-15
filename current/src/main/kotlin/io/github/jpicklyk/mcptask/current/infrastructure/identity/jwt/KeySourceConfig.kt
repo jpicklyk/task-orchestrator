@@ -1,13 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 
 /**
  * Where [DefaultJwksKeySetProvider] loads keys from and how it caches them -- the key-source half
- * of a verifier configuration, shared by the actor verifier ([VerifierConfig.Jwks.toKeySource]) and
- * the REST verifier ([ApiAuthConfig.Jwks.toKeySource]) so the provider never depends on either
- * verifier's own config type.
+ * of a verifier configuration, built from the REST verifier's config ([ApiAuthConfig.Jwks.toKeySource]) so
+ * the provider never depends on a verifier's own config type.
  *
  * @param oidcDiscovery OIDC discovery document URL (its `jwks_uri` and `issuer` are discovered).
  * @param jwksUri Direct JWKS endpoint URL.
@@ -34,21 +32,6 @@ data class KeySourceConfig(
     val didPattern: String? = null,
     val didStrictRelationship: Boolean = true,
 )
-
-/** The key-source half of the actor verifier's configuration. */
-fun VerifierConfig.Jwks.toKeySource(): KeySourceConfig =
-    KeySourceConfig(
-        oidcDiscovery = oidcDiscovery,
-        jwksUri = jwksUri,
-        jwksPath = jwksPath,
-        cacheTtlSeconds = cacheTtlSeconds,
-        staleOnError = staleOnError,
-        maxStaleSeconds = maxStaleSeconds,
-        allowInsecureUrl = allowInsecureUrl,
-        didAllowlist = didAllowlist,
-        didPattern = didPattern,
-        didStrictRelationship = didStrictRelationship,
-    )
 
 /** The key-source half of the REST verifier's configuration: one static JWKS URL, no DID trust. */
 fun ApiAuthConfig.Jwks.toKeySource(): KeySourceConfig =

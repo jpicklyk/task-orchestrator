@@ -5,13 +5,10 @@ import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
-import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertFailsWith
@@ -20,8 +17,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config and
- * invalid actor_authentication values". Covers test-plan scenarios S1, S3, S6, S9, S13 -- the
+ * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config".
+ * Covers test-plan scenarios S1, S6 and the DEGRADED_MODE_POLICY variable case of S13 -- the
  * composition-root and startup-propagation half of the fix. Loader-level parsing coverage (S2, S5,
  * S7, S8, S10-S12, S15, and the config-parsing probes) is in
  * `io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFailClosedTest`.
@@ -61,26 +58,13 @@ class GlobalConfigStartupFailClosedTest {
         return AppConfig.fromEnv { key -> env[key] }
     }
 
-    private fun jwksConfig(policy: String?): String =
-        """
-        actor_authentication:
-          ${if (policy != null) "degraded_mode_policy: $policy" else "enabled: true"}
-          verifier:
-            type: jwks
-            audience: "test-audience"
-            issuer: "https://issuer.example.com"
-            jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            algorithms:
-              - RS256
-        """.trimIndent()
-
     // -------------------------------------------------------------------------
     // S1 -- an empty AGENT_CONFIG_DIR (no .taskorchestrator/config.yaml at all) is a legitimate
     // "nothing configured" state: build() succeeds with coded defaults. D1
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 build() over an empty AGENT_CONFIG_DIR succeeds with ACCEPT_CACHED, a null note-schema fingerprint, and actor auth disabled`(
+    fun `S1 build() over an empty AGENT_CONFIG_DIR succeeds with a null note-schema fingerprint`(
         @TempDir tempDir: Path
     ) {
         val composition =
@@ -91,59 +75,6 @@ class GlobalConfigStartupFailClosedTest {
             ).build()
 
         assertNull(runBlocking { composition.serverConfig.layer() }?.fingerprint)
-        assertFalse(composition.actorAuthEnabled)
-    }
-
-    // -------------------------------------------------------------------------
-    // S3 -- a real jwks verifier under (effective) accept-cached logs exactly one startup WARN,
-    // for both static-JWKS and DID-trust configurations. D5
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S3 build() logs no accept-cached WARN for a real jwks verifier (static JWKS)`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: jwks
-                audience: "test-audience"
-                issuer: "https://issuer.example.com"
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                algorithms:
-                  - RS256
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S3 build() logs no accept-cached WARN for a real jwks verifier (DID-trust)`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: jwks
-                did_allowlist:
-                  - "did:web:example.com"
-                algorithms:
-                  - EdDSA
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
 
     // -------------------------------------------------------------------------
@@ -159,15 +90,6 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(
             configDir,
             """
-            actor_authentication:
-              degraded_mode_policy: reject
-              verifier:
-                type: jwks
-                audience: "test-audience"
-                issuer: "https://issuer.example.com"
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                algorithms:
-                  - RS256
             traits: [
             """.trimIndent()
         )
@@ -199,73 +121,14 @@ class GlobalConfigStartupFailClosedTest {
     }
 
     // -------------------------------------------------------------------------
-    // S9 -- build() over an invalid degraded_mode_policy value throws IAE. D2/D3
+    // S13 -- a set DEGRADED_MODE_POLICY variable fails build closed, whatever its value. D5
     // -------------------------------------------------------------------------
-
-    @Test
-    fun `S9 build() over an invalid degraded_mode_policy value throws IAE`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              degraded_mode_policy: banana
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
-
-        val ex =
-            assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
-            }
-        assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
-    }
-
-    // -------------------------------------------------------------------------
-    // S13 -- the startup WARN fires only when the EFFECTIVE (post-env-override) policy is
-    // accept-cached AND the verifier is a real jwks. D5
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S13 jwks with a YAML degraded_mode_policy key fails build closed`(
-        @TempDir tempDir: Path
-    ) {
-        for (policy in listOf("reject", "accept-self-reported", "accept-cached")) {
-            writeGlobalConfig(tempDir, jwksConfig(policy = policy))
-            val ex =
-                assertFailsWith<IllegalArgumentException>("policy $policy") {
-                    ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
-                }
-            assertTrue(ex.message?.contains("degraded_mode_policy") == true, "Expected the key in: ${ex.message}")
-        }
-    }
-
-    @Test
-    fun `S13 noop verifier under accept-cached logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
 
     @Test
     fun `S13 a set DEGRADED_MODE_POLICY variable fails build closed whatever its value`(
         @TempDir tempDir: Path
     ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = null))
+        writeGlobalConfig(tempDir, "# no keys")
         for (value in listOf("reject", "accept-cached", "accept-self-reported")) {
             val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to value))
             val ex =
