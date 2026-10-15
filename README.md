@@ -238,7 +238,7 @@ Every write is attributed to the **transport principal**: who the server knows t
 
 `notes_read` and `items_read` `history` entries carry that attribution (for callers allowed to see it): who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
 
-To tell agents apart, give each its own credential: enable the REST API with `API_AUTH_MODE=bearer` or `jwks` and `/mcp` authenticates with the same token. Every stdio or local-mode session is the same `local` principal, so those sessions share claims and note ownership. See [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
+To tell agents apart, give each its own credential (or, inside a run, its own seat token): enable the REST API with `API_AUTH_MODE=bearer` or `jwks` and `/mcp` authenticates with the same token. Every stdio or local-mode session is the same `local` principal, so those sessions share claims and note ownership. See [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
 
 ### Session Continuity
 

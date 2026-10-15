@@ -139,4 +139,4 @@ data class ReportRollupRequest(
 
 private const val GROUP_BY_DOC = "Row grouping; subset and default per select."
 
-private const val CURSOR_DOC = "page.next of the last page."
+private const val CURSOR_DOC = "page.next of the prior page."
