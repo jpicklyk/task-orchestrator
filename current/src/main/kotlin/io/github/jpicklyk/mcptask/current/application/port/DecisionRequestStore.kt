@@ -72,5 +72,20 @@ fun interface RunDecisionPort {
     companion object {
         /** No decision requests exist. */
         val NONE: RunDecisionPort = RunDecisionPort { 0 }
+
+        /**
+         * Counts over [provider]'s decision store. A provider that serves no decision store (its
+         * `decisionRequestStore()` throws [UnsupportedOperationException], as the interface default does) has none.
+         */
+        fun over(provider: RepositoryProvider): RunDecisionPort =
+            RunDecisionPort { runId ->
+                val store =
+                    try {
+                        provider.decisionRequestStore()
+                    } catch (e: UnsupportedOperationException) {
+                        return@RunDecisionPort 0
+                    }
+                store.openCount(runId)
+            }
     }
 }

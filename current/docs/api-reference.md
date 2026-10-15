@@ -2065,7 +2065,7 @@ Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_fo
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`runs_read` select `decisions`** (director profile only; capability `read`): List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId filter; overdue true keeps the pending decisions past their expiry. Decisions on roots outside the call scope are left out.
+**`runs_read` select `decisions`** (director profile only; capability `read`): List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status client-side. Decisions on roots outside the call scope are left out.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

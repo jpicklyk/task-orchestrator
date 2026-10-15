@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
-import io.github.jpicklyk.mcptask.current.application.decision.DecisionEffects
-import io.github.jpicklyk.mcptask.current.application.decision.DecisionService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
@@ -14,9 +12,11 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchSer
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
@@ -160,21 +160,7 @@ class ToolExecutionContext(
             claimService,
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
             seats = seatService,
-            decisions = decisionService
-        )
-    }
-
-    /**
-     * The single owner of decision-request writes and decision events (R24), and the run close's count of pending
-     * decisions. Lazy for the same reason as [runService]; its store is reached only when a decision is touched (a
-     * provider that serves no decisions throws then, and counts none at a run close).
-     */
-    val decisionService: DecisionService by lazy {
-        DecisionService(
-            repositoryProvider,
-            unitOfWork,
-            decisionClasses = { rootId -> configResolver.resolveDecisionClasses(rootId) },
-            effects = decisionEffects
+            decisions = RunDecisionPort.over(repositoryProvider)
         )
     }
 

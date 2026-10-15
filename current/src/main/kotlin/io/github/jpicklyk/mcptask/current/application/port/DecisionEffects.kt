@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.decision
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
 

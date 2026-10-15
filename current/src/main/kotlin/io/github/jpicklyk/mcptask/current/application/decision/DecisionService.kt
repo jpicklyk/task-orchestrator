@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.decision
 
 import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
+import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
@@ -285,15 +286,7 @@ class DecisionService(
      * The pending (open or acknowledged) requests of [runId]. A provider that serves no decision store (its
      * `decisionRequestStore()` throws [UnsupportedOperationException], as the interface default does) has none.
      */
-    override suspend fun openCount(runId: UUID): Int {
-        val decisions =
-            try {
-                store
-            } catch (e: UnsupportedOperationException) {
-                return 0
-            }
-        return decisions.openCount(runId)
-    }
+    override suspend fun openCount(runId: UUID): Int = RunDecisionPort.over(repositoryProvider).openCount(runId)
 
     // -------------------------------------------------------------------------
     // Checks

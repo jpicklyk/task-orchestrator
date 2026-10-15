@@ -22,8 +22,8 @@ internal val runsDecisionsSelect =
         doc =
             "List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up " +
                 "while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId " +
-                "filter; overdue true keeps the pending decisions past their expiry. Decisions on roots outside the " +
-                "call scope are left out.",
+                "filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status " +
+                "client-side. Decisions on roots outside the call scope are left out.",
         profiles = director(),
         request = serializer<RunsDecisionsRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

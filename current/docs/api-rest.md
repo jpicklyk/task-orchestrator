@@ -1026,7 +1026,8 @@ option must be one of the keys, `text` (at most 1,000) is accepted only for a fr
 decision's run (`required` `coordinator,raiser`). An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
 is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
 `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
-profile, `read`) read them. A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
+profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status
+client-side). A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
 `not_found` with `detail.kind: decision` only for an unrestricted token. An open or acknowledged decision whose class
 sets `expires_after` is `overdue` from its expiry and reads with `effectiveSeverity` one step up; nothing else happens on
 expiry. The principal ids of the raiser, acknowledger and answerer and the answer's host and session id are stored but
