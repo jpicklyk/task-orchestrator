@@ -243,14 +243,12 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S8 the guard measures the planned files, so the production directory is not vacuous`() {
+    fun `S8 the guard measures the planned files, so no planned file remains once R28 shipped the last one`() {
         val totals = PlannedSurfaceChecks.totals(production)
-        assertTrue(
-            totals.getValue(ToolProfile.DIRECTOR).planned > 0,
-            "director has planned files (runs_read, runs_write, the report delta)"
-        )
-        // R26 shipped the last orchestration planned properties (advance reason and decisionId, raise block), so none remain.
+        // R26 shipped the last orchestration planned properties and R28 shipped the report runId, so nothing is planned any more.
+        assertEquals(0, totals.getValue(ToolProfile.DIRECTOR).planned, "no director planned file remains after R28")
         assertEquals(0, totals.getValue(ToolProfile.ORCHESTRATION).planned, "no orchestration delta remains after R26")
+        assertEquals(0, totals.getValue(ToolProfile.KNOWLEDGE).planned, "no knowledge planned file remains")
     }
 
     @Test
@@ -466,20 +464,24 @@ class PlannedSurfaceGuardTest {
     // ------------------------------------------------------------------ S17 the planned set
 
     private fun planned(): Map<String, JsonObject> =
-        Files.list(PlannedSurfaceChecks.DIR).use { stream ->
-            stream
-                .filter { Files.isRegularFile(it) }
-                .toList()
-                .associate { it.fileName.toString() to Json.parseToJsonElement(Files.readString(it)).jsonObject }
+        if (!Files.isDirectory(PlannedSurfaceChecks.DIR)) {
+            emptyMap()
+        } else {
+            Files.list(PlannedSurfaceChecks.DIR).use { stream ->
+                stream
+                    .filter { Files.isRegularFile(it) }
+                    .toList()
+                    .associate { it.fileName.toString() to Json.parseToJsonElement(Files.readString(it)).jsonObject }
+            }
         }
 
     @Test
-    fun `S17 the planned directory holds exactly the one delta file left after R26`() {
+    fun `S17 the planned directory holds no file after R28`() {
         // R9 made report visible in director and R20 made runs_read and runs_write visible, so their full planned entries became
         // stale; R22 shipped the `seats` select (the whole runs_read orchestration delta) and R24 shipped the decision members (the
         // whole runs_read and runs_write director deltas, and all of the runs_write orchestration delta but `block`) and R26 shipped
-        // `block` and the advance `reason` and `decisionId`; what the later items still add stays reserved as deltas.
-        assertEquals(setOf("report.director.delta.json"), planned().keys)
+        // `block` and the advance `reason` and `decisionId`; R28 shipped the report `runId`, the last reserved delta (deleted).
+        assertEquals(emptySet(), planned().keys)
     }
 
     @Test
@@ -508,10 +510,14 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S17 the report delta adds exactly the property R9 gives`() {
-        val files = planned()
-        // R22 shipped the heartbeat `usage` and R26 shipped the blocked-reason properties, so only the report runId remains.
-        assertEquals(setOf("runId"), files.getValue("report.director.delta.json").keys)
+    fun `S17 the report runId is shipped, so the planned delta is gone and the director rendering carries it`() {
+        assertTrue("report.director.delta.json" !in planned().keys, "R28 shipped runId: the report delta is stale and deleted")
+        val spec = production["report"]
+        assertTrue(spec != null, "report is registered")
+        val rendered = McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR)
+        assertTrue(rendered != null, "report is visible in director")
+        val schema = McpJson.encodeToJsonElement(Tool.serializer(), rendered).jsonObject["inputSchema"]!!.jsonObject
+        assertTrue("runId" in schema["properties"]!!.jsonObject.keys, "the director report input carries runId")
     }
 
     @Test
