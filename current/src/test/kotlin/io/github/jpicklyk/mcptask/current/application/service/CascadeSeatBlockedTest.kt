@@ -461,12 +461,12 @@ class CascadeSeatBlockedTest {
         runBlocking {
             val d = seatDriver(dir)
             val foreign = d.family(Kind.START, "claimed by another")
-            d.claim(foreign.parent, "agent-a")
+            d.claim(foreign.parent, "agent-c")
             val own = d.family(Kind.START, "claimed by the caller")
             d.claim(own.parent, "agent-a")
             // fixture condition: without a seat-aware schema the same foreign claim is an ownership block
             val plain = d.family(Kind.START, "plain claimed by another", parentType = "plain-task")
-            d.claim(plain.parent, "agent-a")
+            d.claim(plain.parent, "agent-d")
             val plainEvent =
                 d
                     .advanceService(plain.child, "start", "agent-b", SeatCaller.NONE)
