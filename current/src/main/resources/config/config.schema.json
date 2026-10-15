@@ -134,7 +134,11 @@
         "phase": { "$ref": "#/$defs/role" },
         "enters": { "type": "boolean" },
         "after": { "type": "array", "items": { "type": "string" } },
-        "reads_exclude": { "type": "array", "items": { "type": "string" } }
+        "reads_exclude": { "type": "array", "items": { "type": "string" } },
+        "transitions": {
+          "type": "array",
+          "items": { "enum": ["complete", "block", "hold", "resume", "cancel", "reopen"] }
+        }
       }
     },
     "resourceDefinition": {

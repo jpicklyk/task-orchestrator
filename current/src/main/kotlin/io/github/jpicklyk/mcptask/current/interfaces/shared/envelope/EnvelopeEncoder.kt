@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -257,7 +258,8 @@ object EnvelopeEncoder {
                 is ErrorDetail.NotClaimHolder -> put("itemId", detail.itemId.toString())
                 is ErrorDetail.SeatForbidden -> {
                     put("itemId", detail.itemId.toString())
-                    put("seat", detail.seat)
+                    // Always present: JSON null when the caller carries no seat token.
+                    put("seat", detail.seat?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("action", detail.action)
                     put("allowedSeats", strings(detail.allowedSeats))
                 }

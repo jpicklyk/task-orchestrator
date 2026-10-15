@@ -198,9 +198,9 @@ fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
 
 /**
  * Builds the `seats` JSON array for `items_read` `select=schema` and `select=context` item
- * mode: `[{name, phase, enters?, after?, readsExclude?}]`, in [seats]' order (merged order for a
+ * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?}]`, in [seats]' order (merged order for a
  * trait-merged schema). `enters` is included only when `true`; `after`/`readsExclude` only when
- * non-empty. Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
+ * non-empty; `transitions` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
  * key entirely in that case (same omit-when-empty contract as [buildDispatchByRoleJson]).
  */
 fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
@@ -215,6 +215,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
                 if (seat.readsExclude.isNotEmpty()) {
                     put("readsExclude", JsonArray(seat.readsExclude.map { JsonPrimitive(it) }))
                 }
+                seat.transitions?.let { declared -> put("transitions", JsonArray(declared.map { JsonPrimitive(it) })) }
             }
         }
     )

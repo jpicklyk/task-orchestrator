@@ -41,7 +41,7 @@ object ErrorDetailDocs {
                 linkedMapOf("itemId" to ID, "expiresAt" to "string (ISO-8601 instant)", "retryAfterMs" to "integer"),
             ErrorCode.NOT_CLAIM_HOLDER to linkedMapOf("itemId" to ID),
             ErrorCode.SEAT_FORBIDDEN to
-                linkedMapOf("itemId" to ID, "seat" to "string", "action" to "string", "allowedSeats" to "array of string"),
+                linkedMapOf("itemId" to ID, "seat" to "string or null", "action" to "string", "allowedSeats" to "array of string"),
             ErrorCode.NOTE_OWNED_BY_OTHER to linkedMapOf("itemId" to ID, "key" to "string", "ownerSeat" to "string, optional"),
             ErrorCode.NOTE_TOO_LONG to linkedMapOf("key" to "string", "max" to "integer", "actual" to "integer"),
             ErrorCode.RESOURCE_UNAVAILABLE to

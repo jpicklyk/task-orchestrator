@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -85,7 +86,8 @@ class TreeCompletionService(
         trigger: String,
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
-        assignmentId: UUID? = null
+        assignmentId: UUID? = null,
+        seatCaller: SeatCaller = SeatCaller.NONE
     ): Outcome<TreeCompletionResult> {
         val distinct = targets.distinctBy { it.id }.filter { it.id != root?.id }
         val byId = distinct.associateBy { it.id }
@@ -130,7 +132,7 @@ class TreeCompletionService(
                     propagate(id, blockedBy)
                 }
                 else ->
-                    when (val outcome = advance(item, trigger, actorClaim, verification, assignmentId, terminalized)) {
+                    when (val outcome = advance(item, trigger, actorClaim, verification, assignmentId, seatCaller, terminalized)) {
                         is Outcome.Err -> return outcome
                         is Outcome.Ok -> {
                             outcomes += outcome.value
@@ -145,7 +147,7 @@ class TreeCompletionService(
             if (root.role == Role.TERMINAL || root.id in terminalized) {
                 outcomes += TreeItemOutcome.AlreadyTerminal(root.id)
             } else {
-                when (val outcome = advance(root, trigger, actorClaim, verification, assignmentId, terminalized)) {
+                when (val outcome = advance(root, trigger, actorClaim, verification, assignmentId, seatCaller, terminalized)) {
                     is Outcome.Err -> return outcome
                     is Outcome.Ok -> outcomes += outcome.value
                 }
@@ -161,6 +163,7 @@ class TreeCompletionService(
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
         assignmentId: UUID?,
+        seatCaller: SeatCaller,
         terminalized: MutableSet<UUID>
     ): Outcome<TreeItemOutcome> {
         val outcome =
@@ -173,7 +176,8 @@ class TreeCompletionService(
                     verification = verification,
                     credentialRefs = emptyList(),
                     enforceResourceLeases = true,
-                    assignmentId = assignmentId
+                    assignmentId = assignmentId,
+                    seatCaller = seatCaller
                 )
             }
         return when (outcome) {

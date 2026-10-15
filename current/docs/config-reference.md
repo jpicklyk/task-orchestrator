@@ -84,7 +84,9 @@ three parts, merged into one result:
    invalid dispatch `effort`, a `maxHolders` above 1, a reserved budget key, and so on. Enumerated values are
    case-sensitive and lowercase (`lifecycle: auto`, resource `mode: exclusive`); values 3.x accepted in other
    cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors. A note entry's
-   `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean.
+   `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean. A seat's
+   `transitions` must be a list of `complete`, `block`, `hold`, `resume`, `cancel` or `reopen` (`start` is
+   governed by `enters`); outside strict validation a non-list is ignored and a bad element is dropped, with a warning.
 3. **Semantics.** `resources` and `actor_authentication` are rejected in a per-root document; `work_item_schemas` and
    `note_schemas` cannot be combined; every `default_traits` entry must name a trait defined in the document or in
    the server config; every trait `resources[].key` must be declared in the server resource registry; a
@@ -92,7 +94,8 @@ three parts, merged into one result:
    `required: true` (error at `/work_item_schemas/<type>/notes/<i>/required`).
 
 A structural error in the seat declarations (two seats entering one phase, a duplicate or reserved seat name, an
-`after` cycle) is fatal in every mode and is reported with the path of the offending `seats` list.
+entering seat whose `transitions` lists `complete` or `cancel`, an `after` cycle) is fatal in every mode and is
+reported with the path of the offending `seats` list.
 
 ### Errors and warnings
 

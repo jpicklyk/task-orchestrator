@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -75,7 +76,7 @@ internal object ConfigKeyCatalog {
     val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats")
     val NOTE_ENTRY: Set<String> =
         setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
-    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
@@ -225,6 +226,15 @@ internal object YamlSchemaParser {
 
     /** Known keys on a `seats[]` entry map (A1a W4). */
     private val VALID_SEAT_ENTRY_KEYS = ConfigKeyCatalog.SEAT_ENTRY
+
+    /** The triggers a seat's `transitions:` may list: every user trigger except `start` (governed by `enters`). */
+    private val SEAT_TRANSITION_TRIGGERS: List<String> =
+        Trigger.User.entries
+            .filter { it != Trigger.User.START }
+            .map { it.wire }
+
+    /** F5: the triggers a seat that `enters` its phase may never declare. */
+    private val ENTERING_SEAT_FORBIDDEN_TRANSITIONS: Set<String> = setOf(Trigger.User.COMPLETE.wire, Trigger.User.CANCEL.wire)
 
     /** Reserved seat name: the `missingBySeat`/served-schema "unowned" bucket (DEC-11, A1a F3). Exact match only. */
     private const val UNOWNED_RESERVED_SEAT_NAME = "unowned"
@@ -524,7 +534,8 @@ internal object YamlSchemaParser {
      * Parses a `seats:` list (schema-level or trait-level) into [SeatDefinition]s. Malformed
      * entries warn-and-skip at their own granularity (A1a W4), never failing the whole section:
      * missing/blank `name`, invalid/missing `phase`, non-boolean `enters` (defaults to false),
-     * non-list `after`/`reads_exclude` (default to empty), and an unknown entry key.
+     * non-list `after`/`reads_exclude` (default to empty), a non-list `transitions` (treated as absent) or an element
+     * of it that is not a user trigger other than `start` (dropped), and an unknown entry key.
      */
     @Suppress("UNCHECKED_CAST")
     private fun parseSeatEntries(
@@ -584,6 +595,7 @@ internal object YamlSchemaParser {
 
             val after = parseSeatStringListField(entryMap, "after", context, name, entryPath, warnings)
             val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
+            val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
@@ -594,7 +606,16 @@ internal object YamlSchemaParser {
                 }
             }
 
-            result.add(SeatDefinition(name = name, phase = phase, enters = enters, after = after, readsExclude = readsExclude))
+            result.add(
+                SeatDefinition(
+                    name = name,
+                    phase = phase,
+                    enters = enters,
+                    after = after,
+                    readsExclude = readsExclude,
+                    transitions = transitions
+                )
+            )
         }
         return result
     }
@@ -644,6 +665,45 @@ internal object YamlSchemaParser {
         }
     }
 
+    /**
+     * A seat's `transitions:` list: null when absent (the default triggers apply) or when not a list (a soft warning at
+     * `<entry>/transitions`); otherwise the declared user triggers other than `start`, duplicates collapsed in first
+     * order. An element that is not one of them (`start` included, which `enters` governs) is a soft warning at
+     * `<entry>/transitions/<i>` and is dropped. `[]` declares no extra trigger at all.
+     */
+    private fun parseSeatTransitions(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("transitions")) return null
+        val raw = entryMap["transitions"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/transitions",
+                    "$context seats (name='$seatName') has non-list 'transitions' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val wire = element as? String
+            if (wire == null || wire !in SEAT_TRANSITION_TRIGGERS) {
+                warnings.soft(
+                    "$entryPath/transitions/$i",
+                    "$context seats (name='$seatName') has invalid transition '$element' " +
+                        "(valid: $SEAT_TRANSITION_TRIGGERS; 'start' is governed by 'enters'); ignoring"
+                )
+                continue
+            }
+            result.add(wire)
+        }
+        return result.toList()
+    }
+
     private fun parseSeatStringListField(
         entryMap: Map<String, Any>,
         field: String,
@@ -669,8 +729,9 @@ internal object YamlSchemaParser {
      * seats (see [parseWorkItemSchemas]).
      *
      * F3 (reserved name) and F2 (duplicate name) are checked before F1 (duplicate `enters` per
-     * phase) and F4 (an `after` cycle), so a config violating more than one rule fails with the
-     * FIRST rule number's message, deterministically.
+     * phase), F5 (an entering seat declaring `complete` or `cancel` in `transitions`) and F4 (an
+     * `after` cycle), in that order, so a config violating more than one rule fails with a
+     * deterministic message.
      */
     private fun validateSeatScope(
         context: String,
@@ -706,6 +767,17 @@ internal object YamlSchemaParser {
                 )
             }
             entersByPhase[seat.phase] = seat.name
+        }
+
+        // F5: the seat that enters a phase may never complete or cancel the item.
+        for (seat in seats) {
+            if (!seat.enters) continue
+            val forbidden = seat.transitions.orEmpty().firstOrNull { it in ENTERING_SEAT_FORBIDDEN_TRANSITIONS } ?: continue
+            throw ConfigStructureException(
+                "$context seat '${seat.name}' enters phase '${seat.phase.name.lowercase()}' and may not declare " +
+                    "transition '$forbidden'",
+                path
+            )
         }
 
         val byName = seats.associateBy { it.name }

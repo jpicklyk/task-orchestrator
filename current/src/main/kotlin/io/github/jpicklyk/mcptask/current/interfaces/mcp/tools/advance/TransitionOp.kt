@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
@@ -13,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteCo
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -54,6 +56,7 @@ internal val transitionOp =
                 ErrorCode.GATE_BLOCKED,
                 ErrorCode.DEPENDENCY_UNMET,
                 ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.SEAT_FORBIDDEN,
                 ErrorCode.RESOURCE_UNAVAILABLE,
                 ErrorCode.UNAUTHENTICATED,
                 ErrorCode.UNAVAILABLE
@@ -94,7 +97,8 @@ private suspend fun WriteScope.runTransition(
                 verification = ctx.principal.verification,
                 credentialRefs = refs,
                 enforceResourceLeases = true,
-                assignmentId = ctx.seat?.assignmentId
+                assignmentId = ctx.seat?.assignmentId,
+                seatCaller = SeatCaller.of(ctx)
             )
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))

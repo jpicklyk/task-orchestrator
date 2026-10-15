@@ -1333,7 +1333,7 @@ Move items through their phases and manage who owns them. Each ops[] element has
 | `summary` | string | no | Optional human-readable summary recorded on the transition. |
 | `credentialRefs` | array of string | no | Audit labels of the credentials this transition consumed (opaque labels, never secret values): at most 8, each 1 to 128 characters matching ^[a-z0-9][a-z0-9\-_./]*$. |
 
-Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `unauthenticated`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.
 
@@ -2292,7 +2292,7 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `cycle_detected` | permanent | 409 | `path`: array of string (UUID) |
 | `claim_held` | transient | 409 | `itemId`: string (UUID); `expiresAt`: string (ISO-8601 instant); `retryAfterMs`: integer |
 | `not_claim_holder` | permanent | 403 | `itemId`: string (UUID) |
-| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string; `action`: string; `allowedSeats`: array of string |
+| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string or null; `action`: string; `allowedSeats`: array of string |
 | `note_owned_by_other` | permanent | 403 | `itemId`: string (UUID); `key`: string; `ownerSeat`: string, optional |
 | `note_too_long` | permanent | 413 | `key`: string; `max`: integer; `actual`: integer |
 | `resource_unavailable` | transient | 409 | `itemId`: string (UUID); `resources`: array of {name: string, mode: string}; `retryAfterMs`: integer, optional |
