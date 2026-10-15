@@ -124,7 +124,7 @@ internal class McpAuthHttpFixture(
 ) {
     val registry = ToolRegistry(buildToolSpecs())
     val writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(databaseManager), flushInterval = 1.hours)
-    val sdkSessions = ServerSdkSessions()
+    val sdkSessions = ServerSdkSessions(clock)
     val sessions = McpSessionPrincipals(appConfig.apiRedactNoteAttribution, sdkSessions, clock, idleTtl, maxSessions)
 
     /** Every session id the adapter asked the access seam about, in call order (a spy over [McpSessionPrincipals.access]). */

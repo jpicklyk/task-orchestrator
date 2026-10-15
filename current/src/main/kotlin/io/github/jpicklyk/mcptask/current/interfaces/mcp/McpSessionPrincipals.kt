@@ -34,7 +34,9 @@ enum class BindOutcome {
  *
  * Lifecycle: a bound id is trusted until forgotten or evicted (the liveness check runs on the first bind only). On a
  * new bind, eviction drops bindings whose SDK session already closed, then ends and drops sessions idle for at least
- * [idleTtl], then ends and drops the least-recently-seen until there is room under [maxSessions]. Ending closes the SDK
+ * [idleTtl], then ends and drops the least-recently-seen binding of the principal holding the most sessions (the binder counted
+ * with the bind in progress; ties go to the older binding) until there is room under [maxSessions], so one credential's
+ * flood ends its own sessions first. Ending closes the SDK
  * session, so the client's next request is the spec's 404 and it re-initializes. There is no background sweeper: an
  * idle server keeps idle sessions until the next new bind.
  *
@@ -71,7 +73,7 @@ class McpSessionPrincipals(
         val now = clock.now()
         bindings[sessionId]?.let { return compare(it, principal, now) }
         if (!sdkSessions.isLive(sessionId)) return BindOutcome.UNKNOWN
-        evict(now, keep = sessionId)
+        evict(now, keep = sessionId, binder = principal)
         val existing = bindings.putIfAbsent(sessionId, Entry(principal, now)) ?: return BindOutcome.BOUND
         return compare(existing, principal, now)
     }
@@ -90,7 +92,8 @@ class McpSessionPrincipals(
 
     private suspend fun evict(
         now: Instant,
-        keep: String
+        keep: String,
+        binder: Principal
     ) {
         for (id in bindings.keys.toList()) {
             if (id != keep && !sdkSessions.isLive(id)) bindings.remove(id)
@@ -101,12 +104,23 @@ class McpSessionPrincipals(
                 sdkSessions.end(id)
             }
         }
+        val binderHolder = binder.auditId()
         while (bindings.size >= maxSessions) {
-            val victim = bindings.entries.filter { it.key != keep }.minByOrNull { it.value.lastSeen } ?: break
+            val candidates = bindings.entries.filter { it.key != keep }
+            val counts = candidates.groupingBy { it.value.principal.auditId() }.eachCount().toMutableMap()
+            counts[binderHolder] = (counts[binderHolder] ?: 0) + 1
+            val largest = counts.values.max()
+            val victim =
+                candidates
+                    .filter { counts.getValue(it.value.principal.auditId()) == largest }
+                    .minByOrNull { it.value.lastSeen } ?: break
             bindings.remove(victim.key)
             sdkSessions.end(victim.key)
         }
     }
+
+    /** Ends SDK sessions that never completed `initialize` within the grace; returns how many were ended. */
+    suspend fun sweepOrphans(): Int = sdkSessions.endOrphans()
 
     /** The principal [sessionId] is bound to, or null. */
     fun principalOf(sessionId: String): Principal? = bindings[sessionId]?.principal
