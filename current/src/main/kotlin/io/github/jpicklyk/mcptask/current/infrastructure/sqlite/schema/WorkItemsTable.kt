@@ -51,6 +51,10 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     // V35: the seat assignment a claim is held under (NULL = a principal-level claim); no FK on purpose (see V35).
     val claimAssignmentId = javaUuidSqlite("claim_assignment_id").nullable()
 
+    // V37: the typed blocked reason and the decision id an awaiting_decision block waits on (no FK, see V37).
+    val blockedReason = text("blocked_reason").nullable()
+    val blockedRef = javaUuidSqlite("blocked_ref").nullable()
+
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)
@@ -69,6 +73,10 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
         // V7__FTS5_And_Unbounded_Depth.sql:40 — previous_role NULL-or-enum CHECK, mirrored verbatim
         check("chk_work_items_previous_role") {
             previousRole.isNull() or previousRole.inList(listOf("queue", "work", "review", "blocked", "terminal"))
+        }
+        // V37 blocked_reason NULL-or-enum CHECK, mirrored
+        check("chk_work_items_blocked_reason") {
+            blockedReason.isNull() or blockedReason.inList(listOf("awaiting_decision", "dependency", "resource", "manual"))
         }
         // V7__FTS5_And_Unbounded_Depth.sql:41-42 — priority enum CHECK, mirrored verbatim
         check("chk_work_items_priority") {

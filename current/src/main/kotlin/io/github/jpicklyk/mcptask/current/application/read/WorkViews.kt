@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -72,6 +73,15 @@ data class BlockedEntry(
     val item: WorkItem,
     val blockType: BlockType,
     val blockers: List<BlockerView>,
+    /** EXPLICIT entries: the item's effective typed reason (a legacy NULL reads as manual); null on a DEPENDENCY entry. */
+    val reason: BlockedReason? = null,
+    /** The decision an awaiting_decision entry waits on. */
+    val decisionId: UUID? = null,
+    /**
+     * Awaiting-decision entries only: true when the decision is answered, withdrawn or missing (the block can be
+     * resumed), false while it is open or acknowledged; null on every other entry.
+     */
+    val resumable: Boolean? = null,
 ) {
     /** The number of [blockers] not yet satisfied (at least 1 for [BlockType.DEPENDENCY]). */
     val unsatisfiedCount: Int get() = blockers.count { !it.satisfied }
@@ -109,6 +119,7 @@ data class OverviewRequest(
  * @property childCounts Counts by role, never including the item itself: its DIRECT children in the global and
  *   scoped modes, ALL its descendants in the anchored mode. Roles with zero items are omitted.
  * @property claimSummary Global mode: claim-status counts over the item's direct children; null elsewhere.
+ * @property blockedByReason The BLOCKED part of [childCounts] split by typed reason (NULL counts as manual); zero counts omitted.
  * @property children Global mode with `includeChildren`: the item's direct children (each with its own direct
  *   [childCounts]); null elsewhere.
  */
@@ -117,6 +128,7 @@ data class OverviewEntry(
     val childCounts: Map<Role, Int>,
     val claimSummary: ClaimStatusCounts? = null,
     val children: List<OverviewEntry>? = null,
+    val blockedByReason: Map<BlockedReason, Int> = emptyMap(),
 )
 
 /** The result of [WorkViewQueries.overview]. */
@@ -131,6 +143,7 @@ sealed interface OverviewView {
         val item: WorkItem,
         val childCounts: Map<Role, Int>,
         val children: ListPage<OverviewEntry>,
+        val blockedByReason: Map<BlockedReason, Int> = emptyMap(),
     ) : OverviewView
 
     /** A page of [anchor]'s direct children, each with its full-subtree descendant counts. */

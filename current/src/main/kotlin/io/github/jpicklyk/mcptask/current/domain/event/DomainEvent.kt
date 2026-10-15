@@ -121,28 +121,40 @@ sealed class DomainEvent {
         val actor: ActorClaim? = null,
         val verification: VerificationResult? = null,
         val summary: String? = null,
-        val consumedCredentials: List<String> = emptyList()
+        val consumedCredentials: List<String> = emptyList(),
+        /** The typed blocked reason (wire), set only on a transition into blocked. */
+        val blockedReason: String? = null,
+        /** The decision an waiting_decision block waits on, set only with that reason. */
+        val decisionId: UUID? = null
     ) : DomainEvent() {
         override val type: String get() = ITEM_TRANSITIONED
         override val entityKind: String get() = KIND_ITEM
         override val entityActor: ActorClaim? get() = actor
         override val entityVerification: VerificationResult? get() = verification
 
-        override fun payload(): Map<String, Any?> =
-            mapOf(
-                "trigger" to trigger,
-                "fromRole" to fromRole,
-                "toRole" to toRole,
-                "fromStatusLabel" to fromStatusLabel,
-                "toStatusLabel" to toStatusLabel,
-                "origin" to origin.wire,
-                "summary" to summary,
-                "consumedCredentials" to consumedCredentials,
-                "actorProofSha256" to verification?.proofSha256,
-                "actorProofClaims" to proofClaimsMap(verification?.proofClaims),
-                "verifier" to verification?.verifier,
-                "verificationReason" to verification?.reason
-            )
+        override fun payload(): Map<String, Any?> {
+            val base =
+                mapOf(
+                    "trigger" to trigger,
+                    "fromRole" to fromRole,
+                    "toRole" to toRole,
+                    "fromStatusLabel" to fromStatusLabel,
+                    "toStatusLabel" to toStatusLabel,
+                    "origin" to origin.wire,
+                    "summary" to summary,
+                    "consumedCredentials" to consumedCredentials,
+                    "actorProofSha256" to verification?.proofSha256,
+                    "actorProofClaims" to proofClaimsMap(verification?.proofClaims),
+                    "verifier" to verification?.verifier,
+                    "verificationReason" to verification?.reason
+                )
+            // The typed blocked reason rides only on a transition into blocked; every other payload is unchanged.
+            if (toRole != "blocked" || blockedReason == null) return base
+            val out = LinkedHashMap(base)
+            out["blockedReason"] = blockedReason
+            if (decisionId != null) out["decisionId"] = decisionId
+            return out
+        }
 
         /** Non-null claim fields as a nested map, or null when claims are null or all fields are null. */
         private fun proofClaimsMap(claims: ProofClaims?): Map<String, Any?>? {

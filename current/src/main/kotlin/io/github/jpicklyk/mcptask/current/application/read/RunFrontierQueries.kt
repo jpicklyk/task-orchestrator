@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
@@ -13,12 +14,17 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Instant
 import java.util.UUID
 
-/** Why a member is waiting: role BLOCKED ([MANUAL], until typed reasons exist) or an unsatisfied blocking dependency. */
+/**
+ * Why a member is waiting: role BLOCKED with its effective typed reason ([AWAITING_DECISION], [DEPENDENCY], [RESOURCE] or
+ * [MANUAL]; a legacy NULL reads as manual) or an unsatisfied blocking dependency ([DEPENDENCY]).
+ */
 enum class FrontierWaitReason(
     val wire: String
 ) {
     MANUAL("manual"),
-    DEPENDENCY("dependency")
+    DEPENDENCY("dependency"),
+    AWAITING_DECISION("awaiting_decision"),
+    RESOURCE("resource")
 }
 
 /** One active member-seat assignment: [seat] attempt [attempt] on [itemId] (role [role] at read time). */
@@ -35,7 +41,9 @@ data class FrontierSeat(
 data class FrontierWaiting(
     val itemId: UUID,
     val reason: FrontierWaitReason,
-    val blockers: List<UUID> = emptyList()
+    val blockers: List<UUID> = emptyList(),
+    /** The decision an [FrontierWaitReason.AWAITING_DECISION] member waits on. */
+    val decisionId: UUID? = null
 )
 
 /**
@@ -128,7 +136,17 @@ class RunFrontierQueries(
                 members.mapNotNull { m ->
                     when {
                         m.role == null || m.role == Role.TERMINAL -> null
-                        m.role == Role.BLOCKED -> FrontierWaiting(m.id, FrontierWaitReason.MANUAL)
+                        m.role == Role.BLOCKED ->
+                            FrontierWaiting(
+                                m.id,
+                                when (m.effectiveBlockedReason) {
+                                    BlockedReason.AWAITING_DECISION -> FrontierWaitReason.AWAITING_DECISION
+                                    BlockedReason.DEPENDENCY -> FrontierWaitReason.DEPENDENCY
+                                    BlockedReason.RESOURCE -> FrontierWaitReason.RESOURCE
+                                    else -> FrontierWaitReason.MANUAL
+                                },
+                                decisionId = m.blockedRef
+                            )
                         unsatisfied[m.id].isNullOrEmpty() -> null
                         else ->
                             FrontierWaiting(

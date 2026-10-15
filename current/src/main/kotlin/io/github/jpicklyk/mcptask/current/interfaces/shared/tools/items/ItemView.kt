@@ -59,6 +59,7 @@ object ItemView {
             text("role", item.role?.name?.lowercase())
             text("statusLabel", item.statusLabel)
             text("previousRole", item.previousRole?.name?.lowercase())
+            blockedMembers(item)
             put("priority", item.priority.name.lowercase())
             item.complexity?.let { put("complexity", it) }
             put("depth", item.depth)
@@ -89,6 +90,13 @@ object ItemView {
     private fun JsonObjectBuilder.pinMembers(pin: PinView) {
         put("schemaVersion", schemaVersion(pin))
         if (pin.stale) put("stale", true)
+    }
+
+    /** lockedReason (effective: a legacy NULL reads as manual) and decisionId, only for a BLOCKED item. */
+    fun JsonObjectBuilder.blockedMembers(item: WorkItem) {
+        val reason = item.effectiveBlockedReason ?: return
+        put("blockedReason", reason.wire)
+        item.blockedRef?.let { put("decisionId", it.toString()) }
     }
 
     /** The compact view of [item]; [summary] adds its summary, [timestamps] its three timestamps. */
