@@ -59,8 +59,8 @@ enum class ReportGroupBy(
  */
 internal object ReportFieldDocs {
     const val ROOT_ID = "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see."
-    const val SINCE = "Window start, inclusive: ISO 8601 with Z or an offset. Default and cap per select (describe)."
-    const val UNTIL = "Window end, exclusive: ISO 8601 with Z or an offset."
+    const val SINCE = "Window start, inclusive: ISO 8601 with Z or offset. Default and cap per select."
+    const val UNTIL = "Window end, exclusive: ISO 8601 with Z or offset."
 }
 
 /** `report usage`: call_log aggregates over a half-open window, grouped by one column. */
@@ -120,19 +120,23 @@ data class ReportWasteRequest(
 )
 
 /**
- * `report rollup` over one subtree (plan R16): [anchorId] is required (absent is `invalid_request` on `/anchorId`);
- * R28 adds `runId` and the exactly-one rule. One object, no grouping and no page.
+ * `report rollup` over one subtree ([anchorId], plan R16) or one run ([runId], R28): exactly one of them (both absent is
+ * `invalid_request` on `/anchorId`, both given on `/runId`). A run rollup always covers the whole run, so `since` and
+ * `until` are refused with [runId]. One object, no grouping and no page. [runId] is the last parameter so R16's
+ * positional calls keep compiling.
  */
 @Serializable
 data class ReportRollupRequest(
-    @Doc("Roll up this item and every descendant (UUID or 8-32 hex prefix).")
+    @Doc("Roll up this subtree (UUID or 8-32 hex prefix).")
     val anchorId: IdRef? = null,
     @Doc(ReportFieldDocs.SINCE)
     val since: String? = null,
     @Doc(ReportFieldDocs.UNTIL)
-    val until: String? = null
+    val until: String? = null,
+    @Doc("Roll up this run (UUID or 8-32 hex prefix).")
+    val runId: IdRef? = null
 )
 
-private const val GROUP_BY_DOC = "Row grouping; subset and default per select, see describe."
+private const val GROUP_BY_DOC = "Row grouping; subset and default per select."
 
-private const val CURSOR_DOC = "page.next of the previous page."
+private const val CURSOR_DOC = "page.next of the last page."

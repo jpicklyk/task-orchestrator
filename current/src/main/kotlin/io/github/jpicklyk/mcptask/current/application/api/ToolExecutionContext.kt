@@ -20,7 +20,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.report.ReportService
+import io.github.jpicklyk.mcptask.current.application.report.RollupSnapshotCodec
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
+import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
@@ -169,8 +172,23 @@ class ToolExecutionContext(
             claimService,
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
             seats = seatService,
-            decisions = RunDecisionPort.over(repositoryProvider)
+            decisions = RunDecisionPort.over(repositoryProvider),
+            rollupSnapshot = RunRollupSnapshot { runId -> runRollupSnapshot(runId) }
         )
+    }
+
+    /**
+     * The run rollup snapshot a close stores in `run.ended` (R28), wired here once: the report service's live run rollup
+     * in its stored form, read inside the close unit. A provider that serves no report queries (its `reportQueries()`
+     * throws [UnsupportedOperationException], as the interface default does) stores none.
+     */
+    private suspend fun runRollupSnapshot(runId: UUID): Map<String, Any?>? {
+        try {
+            repositoryProvider.reportQueries()
+        } catch (e: UnsupportedOperationException) {
+            return null
+        }
+        return ReportService(unitOfWork, clock).runSnapshot(runId)?.let { RollupSnapshotCodec.encode(it) }
     }
 
     /**

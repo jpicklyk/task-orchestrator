@@ -62,7 +62,9 @@ data class RollupParts(
     val decisions: DecisionCounts? = null,
     val seats: StalledSeats? = null,
     val attempts: AttemptCounts? = null,
-    val budget: BudgetFacts? = null
+    val budget: BudgetFacts? = null,
+    val resumable: Int? = null,
+    val dwellMs: Map<String, Long>? = null
 )
 
 /** The item figures of a rollup: [total] items with a lifecycle, and [byRole] in role order with zero roles omitted. */
@@ -71,10 +73,16 @@ data class RollupItems(
     val byRole: Map<String, Long>
 )
 
-/** The blocked figures of a rollup: [total] items in the blocked role, and [byReason] when run facts track reasons. */
+/**
+ * The blocked figures of a rollup: [total] items in the blocked role, and [byReason] when run facts track reasons. A run
+ * rollup adds [resumable] (blocked `awaiting_decision` items whose decision no longer waits) and [dwellMs] (per reason,
+ * the milliseconds the current members spent blocked inside the window; only reasons with a positive dwell).
+ */
 data class RollupBlocked(
     val total: Long,
-    val byReason: Map<String, Int>?
+    val byReason: Map<String, Int>?,
+    val resumable: Int? = null,
+    val dwellMs: Map<String, Long>? = null
 )
 
 /** The seat figures of a rollup: at most [RollupAssembler.STALLED_CAP] [stalled] entries, and [count], the true total. */
@@ -117,6 +125,9 @@ object RollupAssembler {
     /** `cost.basis` of an anchor rollup: calls naming a subtree item, or that wrote one of its events. */
     const val BASIS_TARGETS = "targets"
 
+    /** `cost.basis` of a run rollup: calls stamped with the run id (a lower bound: an unstamped call is missed). */
+    const val BASIS_RUN = "run"
+
     /**
      * The rollup of [parts]: `items.byRole` in [ROLE_ORDER] with zero roles omitted (a role outside the order is ignored),
      * `items.total` their sum, `blocked.total` the blocked-role count, and `seats.stalled` capped at [STALLED_CAP] entries
@@ -132,7 +143,13 @@ object RollupAssembler {
             scope = parts.scope,
             window = parts.window,
             items = RollupItems(byRole.values.sum(), byRole),
-            blocked = RollupBlocked(byRole[BLOCKED] ?: 0L, parts.blockedReasons),
+            blocked =
+                RollupBlocked(
+                    total = byRole[BLOCKED] ?: 0L,
+                    byReason = parts.blockedReasons,
+                    resumable = parts.resumable,
+                    dwellMs = parts.dwellMs?.filterValues { it > 0 }
+                ),
             transitions = parts.transitions,
             notesWritten = parts.notesWritten,
             cost = parts.cost,
@@ -156,8 +173,8 @@ object RollupAssembler {
 
 /**
  * The [RunFacts] that tracks nothing: every method answers null and does no I/O, so every run-only rollup section is
- * omitted. The one implementation until R28 implements the port over the W5 tables; wired at one construction site
- * (the `report` tool's service factory).
+ * omitted. Production serves [io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts] (the [ReportService]
+ * default); this stub stays for callers that want the anchor-only shape.
  */
 object NotTrackedRunFacts : RunFacts {
     override suspend fun run(runId: UUID): RunHeader? = null

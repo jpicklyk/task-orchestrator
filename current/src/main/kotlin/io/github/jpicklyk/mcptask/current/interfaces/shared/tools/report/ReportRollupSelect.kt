@@ -14,24 +14,33 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /**
- * `report rollup` (plan R16): one object, no page, pointers and counts only (short ids, never note bodies). `data` is
- * `{scope, window, itemCounts, blocked, transitions, notes, cost}` on an anchor; the run-only sections (`run`, `decisions`,
- * `seats`, `attempts`, `budget`, `blocked.byReason`) are written only when the rollup carries them (R28).
+ * `report rollup` (plans R16 and R28): one object, no page, pointers and counts only (short ids, never note bodies).
+ * `data` is `{scope, window, itemCounts, blocked, transitions, notes, cost}` on an anchor; a run rollup adds `run`,
+ * `decisions`, `seats`, `attempts`, `budget` and `blocked.byReason` (plus `blocked.resumable` and `blocked.dwellMs` when
+ * non-zero). A null section is omitted.
  */
 internal val reportRollupSelect =
     SelectSpec.Single<ReportRollupRequest, RollupReport>(
         name = "rollup",
         doc =
-            "One subtree as one object: anchorId and every descendant, any depth. itemCounts: total and byRole (current state; " +
-                "lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions " +
-                "{total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not " +
-                "counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, " +
-                "responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, " +
-                "at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last " +
-                "subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 " +
-                "days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to " +
-                "until minus 7 days). Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped " +
-                "one counts only calls of its roots.",
+            "Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). " +
+                "itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); " +
+                "blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an " +
+                "upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, " +
+                "retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a " +
+                "subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: " +
+                "the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span " +
+                "(window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until " +
+                "defaults to now, since to until minus 7 days). runId: the whole run (since and until are refused); window " +
+                "is openedAt to closedAt or now. itemCounts and blocked cover the current members; blocked adds byReason, " +
+                "resumable (awaiting_decision items whose decision no longer waits) and dwellMs (blocked time per reason in " +
+                "the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls " +
+                "stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, " +
+                "byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), " +
+                "count}, attempts {total, max} and budget {used, limit, basis: enforced} (tokens, from the run row). A " +
+                "closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. " +
+                "Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts " +
+                "only calls of its roots (anchorId) or sees only runs of its roots (runId).",
         profiles = director(),
         request = serializer<ReportRollupRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
@@ -83,6 +92,13 @@ internal fun rollupJson(report: RollupReport): JsonObject =
                 report.blocked.byReason?.let { reasons ->
                     put("byReason", buildJsonObject { reasons.forEach { (reason, count) -> put(reason, count) } })
                 }
+                report.blocked.resumable
+                    ?.takeIf { it > 0 }
+                    ?.let { put("resumable", it) }
+                report.blocked.dwellMs
+                    ?.filterValues { it > 0 }
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { dwell -> put("dwellMs", buildJsonObject { dwell.forEach { (reason, ms) -> put(reason, ms) } }) }
             }
         )
         report.decisions?.let { decisions ->

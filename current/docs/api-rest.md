@@ -262,7 +262,8 @@ collection checks cannot drift apart.
   `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
   recorded against one of its roots (calls with no root are never visible to it), filtered before grouping so
   `page.total` counts only visible groups; `groupBy: principal` needs the `admin` capability (`403 forbidden`,
-  `detail.scope` `capability`)
+  `detail.scope` `capability`). A run `rollup` (`runId`) checks the run's root instead: a run of another root, or an
+  unknown run, is `403 forbidden` for a `root_ids` token, and every call stamped with a visible run is counted
 - `GET /api/v1/events` (SSE) - a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see section 21)
 
@@ -932,21 +933,30 @@ refuse a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call 
 a `root_ids` token's own roots (§3).
 
 **Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its selects are `usage`
-(windows at most 400 days), `gates`, `contention` and `rollup` (at most 31 days) and `waste` (at most 7 days). The `usage` select
+(windows at most 400 days), `gates`, `contention` and an anchor `rollup` (at most 31 days), `waste` (at most 7 days) and a
+run `rollup` (no window: the whole run). The `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
 400; a window of at most 31 days inside the raw horizon (an empty `call_log` with a fold present counts as before it) reads `call_log` with `basis` `raw`, any other reads the per-day
 summaries `usage_daily` plus the raw tail with `basis` `daily`, `since` floored and a folded `until` ceiled to UTC midnight;
 `groupBy` `principal` is raw-only): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
-field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes a required
-`anchorId` (any item, any depth; absent is `400 invalid_request` on `/anchorId`) and answers one object for the anchor's
-subtree, inclusive: `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
-transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst,
-basis: "targets"}}`, short ids only. Items are current state (lifecycle-free items not counted); transitions and notes come
-from the subtree's events in the window; cost counts the distinct calls in the window that named a subtree item or wrote
-one of its events, a lower bound. With neither `since` nor `until`, the window runs from the subtree's first event to its
-last event plus 1 ms, clamped to 31 days (`window.clamped: true`). It has the visibility of `usage`.
+field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes exactly
+one of `anchorId` and `runId` (neither is `400 invalid_request` on `/anchorId`, both on `/runId`). With `anchorId` (any
+item, any depth) it answers one object for the anchor's subtree, inclusive: `{scope: {anchorId, rootId}, window: {since,
+until, clamped?}, itemCounts: {total, byRole}, blocked: {total}, transitions: {total, cascades, rejected}, notes: {written},
+cost: {calls, errors, retries, responseBytes, responseTokensEst, basis: "targets"}}`, short ids only. Items are current
+state (lifecycle-free items not counted); transitions and notes come from the subtree's events in the window; cost counts
+the distinct calls in the window that named a subtree item or wrote one of its events, a lower bound. With neither `since`
+nor `until`, the window runs from the subtree's first event to its last event plus 1 ms, clamped to 31 days
+(`window.clamped: true`). It has the visibility of `usage`. With `runId` (resolved like `runs_read` `get`; `since` or
+`until` with it is `400 invalid_request` on that field) it answers the whole run: `scope: {runId, rootId}`, `window`
+from `openedAt` to `closedAt` (or now), `run: {status, terminalReason?, openedAt, closedAt?}`, item and blocked counts
+over the current members (`blocked` adds `byReason`, and `resumable` and `dwellMs` when non-zero), transitions and notes
+from the events stamped with the run, `cost` (`basis: "run"`) from the calls stamped with it, `decisions: {open, byClass,
+bySeverity}`, `seats: {active, stalled[], count}`, `attempts: {total, max}` and `budget: {used, limit?, basis:
+"enforced"}` (tokens, from the run row). A closed run answers the snapshot its close stored in `run.ended`. A
+`tags_include` token is `403 forbidden`; a `root_ids` token sees only runs of its roots (else `403`).
 
 **Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (newest
 first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unmarked`, a mark key that keeps only closed
@@ -1080,7 +1090,9 @@ expiry. The principal ids of the raiser, acknowledger and answerer and the answe
 shown only to an `admin` caller. `items_read` `context` with `itemId` lists the item's open, acknowledged and answered
 decisions as `decisions[{id, class, status, option?}]`. Every write but a re-raise or a repeated `ack` records
 `decision.raised`, `decision.acknowledged`, `decision.answered` or `decision.withdrawn` (audit class); `run.ended`
-counts the run's open and acknowledged decisions in `openDecisions` (a close withdraws none).
+counts the run's open and acknowledged decisions in `openDecisions` (a close withdraws none) and carries the run
+rollup computed at close in `rollup` (the `report` `rollup` answer with full UUIDs; what `report` `rollup` `runId`
+answers for a closed run).
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 

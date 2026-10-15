@@ -18,7 +18,7 @@ fun reportTool(): SelectToolSpec =
         name = REPORT,
         description =
             "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), contention (claims, " +
-                "leases), waste (ratios), rollup (subtree items, transitions, notes, cost).",
+                "leases), waste (ratios), rollup (subtree or run summary).",
         selects = listOf(reportUsageSelect, reportGatesSelect, reportContentionSelect, reportWasteSelect, reportRollupSelect)
     )
 
