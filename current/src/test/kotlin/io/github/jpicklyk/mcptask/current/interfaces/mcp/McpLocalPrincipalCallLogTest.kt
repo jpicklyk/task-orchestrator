@@ -205,7 +205,7 @@ class McpLocalPrincipalCallLogTest {
         }
 
     @Test
-    fun `S6 a stdio call is recorded on call_log as local external and a note upsert stores actor id local`() {
+    fun `S6 a stdio call is recorded on call_log as local agent and a note upsert stores actor id local`() {
         val rig = EventLogRig.build(db.db, dir)
         val writer = newWriter(rig)
         runBlocking {
