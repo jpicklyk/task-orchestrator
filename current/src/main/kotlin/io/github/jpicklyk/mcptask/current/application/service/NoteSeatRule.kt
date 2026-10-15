@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
@@ -10,19 +9,22 @@ import java.util.UUID
 /**
  * Rule 2 of [NoteOwnership] (R23): inside an open run whose pinned schema is seat-aware, a seat-owned note key is written
  * (upsert or delete) only by its seat, never by the writer's identity and never by `takeover`. Pure: the caller reads the
- * facts inside its write unit and supplies them through a [SeatRule] closure.
+ * facts inside its write unit and supplies them through a [SeatRule] closure. The outcome is three-way ([SeatVerdict]):
+ * an admitted write is decisive ([SeatVerdict.Allow], rule 3 is skipped and the note's owner never moves), a refused
+ * one is [SeatVerdict.Refuse], and a write outside the rule's scope is [SeatVerdict.Defer] (rule 3 decides).
  *
  * A key's owner seat follows [computeMissingBySeat]: the schema entry's `seat` when a seat of that name is declared in
  * the SAME phase as the entry's role; any other key (no seat, an undeclared or other-phase seat, an off-schema key) is
- * unowned and passes here (rule 3 decides).
+ * unowned and defers here (rule 3 decides).
  */
 object NoteSeatRule {
     /**
-     * The `note_owned_by_other{itemId, key, ownerSeat}` refusal of a write of [key] on [itemId] by [caller], or null when
-     * rule 2 allows it. Null when the item is in no open run ([openRunId] null), the schema is not seat-aware ([seats]
-     * empty), the caller is human, or the key is unowned. For a key owned by seat O: a member-seat token of THIS run bound
-     * to THIS item passes iff its seat is O; the coordinator token of THIS run passes iff O is
-     * [SeatDefinition.COORDINATOR_WRITABLE_SEAT]; every other caller (no token, another run, another item) is refused.
+     * The rule-2 verdict on a write of [key] on [itemId] by [caller]. [SeatVerdict.Defer] when the item is in no open run
+     * ([openRunId] null), the schema is not seat-aware ([seats] empty), or the key is unowned. For a key owned by seat O:
+     * a human caller is [SeatVerdict.Allow]; a member-seat token of THIS run bound to THIS item is allowed iff its seat is
+     * O; the coordinator token of THIS run is allowed iff O is [SeatDefinition.COORDINATOR_WRITABLE_SEAT]; every other
+     * caller (no token, another run, another item, another seat) is refused with
+     * `note_owned_by_other{itemId, key, ownerSeat = O}`.
      */
     @Suppress("LongParameterList")
     fun check(
@@ -32,10 +34,11 @@ object NoteSeatRule {
         seats: List<SeatDefinition>,
         openRunId: UUID?,
         caller: SeatCaller
-    ): DomainError? {
-        if (openRunId == null || seats.isEmpty() || caller.human) return null
-        val owner = ownerSeatOf(entry, seats) ?: return null
-        return if (mayWrite(itemId, owner, openRunId, caller)) null else NoteOwnership.ownedByOther(itemId, key, owner)
+    ): SeatVerdict {
+        if (openRunId == null || seats.isEmpty()) return SeatVerdict.Defer
+        val owner = ownerSeatOf(entry, seats) ?: return SeatVerdict.Defer
+        if (caller.human || mayWrite(itemId, owner, openRunId, caller)) return SeatVerdict.Allow
+        return SeatVerdict.Refuse(NoteOwnership.ownedByOther(itemId, key, owner))
     }
 
     /** The seat owning [entry]'s key under [seats] (declared in the same phase as the entry's role), or null (unowned). */

@@ -1595,7 +1595,7 @@ class NoteCommandServiceTest {
             caller: SeatCaller,
             openRun: UUID? = seatRunId,
             seats: List<SeatDefinition> = noteSeats
-        ) = NoteSeatRule.check(itemId, entry?.key ?: "off-schema", entry, seats, openRun, caller)
+        ) = (NoteSeatRule.check(itemId, entry?.key ?: "off-schema", entry, seats, openRun, caller) as? SeatVerdict.Refuse)?.error
 
         // out of scope
         assertNull(check(build, SeatCaller.NONE, openRun = null), "no open run")

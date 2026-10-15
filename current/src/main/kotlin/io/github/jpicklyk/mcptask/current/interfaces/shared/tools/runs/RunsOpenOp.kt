@@ -28,7 +28,8 @@ internal val runsOpenOp =
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
                 "an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown " +
-                "once): pass it as the top-level seatToken to update, assign and close.",
+                "once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to " +
+                "update, assign and close.",
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsOpenRequest>(),

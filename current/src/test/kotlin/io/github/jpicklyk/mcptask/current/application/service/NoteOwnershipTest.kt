@@ -117,11 +117,13 @@ class NoteOwnershipTest {
 
     private fun refusingSeatRule(ownerSeat: String) =
         SeatRule { item, k, _, _ ->
-            DomainError(
-                ErrorCode.NOTE_OWNED_BY_OTHER,
-                "A seat owns this note.",
-                ErrorDetail.NoteOwnedByOther(item, k, ownerSeat),
-                mapOf("itemId" to item.toString(), "key" to k)
+            SeatVerdict.Refuse(
+                DomainError(
+                    ErrorCode.NOTE_OWNED_BY_OTHER,
+                    "A seat owns this note.",
+                    ErrorDetail.NoteOwnedByOther(item, k, ownerSeat),
+                    mapOf("itemId" to item.toString(), "key" to k)
+                )
             )
         }
 
@@ -411,7 +413,7 @@ class NoteOwnershipTest {
         val spy =
             SeatRule { item, k, existing, callerSeat ->
                 seen = listOf(item, k, existing, callerSeat)
-                null
+                SeatVerdict.Defer
             }
         val existing = noteOwnedBy(ownerId)
 
@@ -422,8 +424,8 @@ class NoteOwnershipTest {
 
     @Test
     fun `S10 SeatRule NONE never refuses`() {
-        assertEquals(null, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
-        assertEquals(null, SeatRule.NONE.check(itemId, key, null, null))
+        assertEquals<Any?>(null, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
+        assertEquals<Any?>(null, SeatRule.NONE.check(itemId, key, null, null))
     }
 
     @Test

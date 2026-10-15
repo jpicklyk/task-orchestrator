@@ -113,8 +113,8 @@ data class NoteWriteResult(
  * A `PerRootConfigUnavailableException` from the config resolver propagates; it is not an [Outcome].
  *
  * Ownership ([NoteOwnership]) runs with rule 2 ([NoteSeatRule]) on upsert and delete: the item's open run is read
- * through [openRunResolver] inside the unit, only when the resolved schema is seat-aware, the key is seat-owned and the
- * caller is not human.
+ * through [openRunResolver] inside the unit, only when the resolved schema is seat-aware and the key is seat-owned and
+ * not `shared`. A rule-2 allow ([SeatVerdict.Allow]) is decisive: rule 3 is skipped and the note's owner is kept.
  */
 class NoteCommandService(
     private val repositoryProvider: RepositoryProvider,
@@ -268,7 +268,12 @@ class NoteCommandService(
                 }
                 // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise. A
                 // takeover is never under a token, so a transfer clears it. The attribution seat (`seat`) is the caller's on
-                // every write, like actor_*.
+                // every write, like actor_*. A write the seat rule allows ([SeatVerdict.Allow]) decides Allowed on an owned
+                // note, so it lands in the `else` row: attribution moves, the owner pair never does (R21 Ruling 9).
+                //   Adopted (owner_id IS NULL, caller non-null) -> (caller, callerSeat)
+                //   Transferred (admin takeover, rule 2 deferred) -> (to, null)
+                //   create (no existing note) -> (caller, callerSeat), or (null, null) without a caller
+                //   otherwise (owner pair, seat-rule allow, shared, null caller on an unowned note) -> kept
                 val ownerId: String?
                 val ownerSeat: String?
                 when {
@@ -404,8 +409,9 @@ class NoteCommandService(
 
     /**
      * The rule-2 [SeatRule] of a write of [entry]'s key on [item] by [caller], over the facts read here, in the caller's
-     * unit: [SeatRule.NONE] (no read) unless [schema] is seat-aware, the key is seat-owned, it is not `shared` and the
-     * caller is not human; otherwise the item's open run is read once and captured.
+     * unit: [SeatRule.NONE] (no read, always defers) unless [schema] is seat-aware, the key is seat-owned and it is not
+     * `shared`; otherwise the item's open run is read once and captured. A human caller reads the run too: inside an
+     * open run its write is a decisive allow, outside one rule 3 applies.
      */
     private suspend fun seatRuleFor(
         item: WorkItem,
@@ -414,7 +420,7 @@ class NoteCommandService(
         caller: SeatCaller
     ): SeatRule {
         val seats = schema?.seats.orEmpty()
-        if (caller.human || entry?.shared == true || NoteSeatRule.ownerSeatOf(entry, seats) == null) return SeatRule.NONE
+        if (entry?.shared == true || NoteSeatRule.ownerSeatOf(entry, seats) == null) return SeatRule.NONE
         val openRunId = openRunResolver(item.id) ?: return SeatRule.NONE
         return SeatRule { id, key, _, _ -> NoteSeatRule.check(id, key, entry, seats, openRunId, caller) }
     }

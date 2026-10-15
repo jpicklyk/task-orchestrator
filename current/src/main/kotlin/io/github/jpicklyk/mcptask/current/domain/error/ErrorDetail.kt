@@ -151,7 +151,7 @@ sealed interface ErrorDetail {
         val itemId: UUID
     ) : ErrorDetail
 
-    /** [seat] is the caller's seat-token seat, null when the caller carries no seat token (encoded as JSON `null`). */
+    /** [seat] is the caller's seat-token seat, null when the caller carries no seat token (the member is then omitted). */
     data class SeatForbidden(
         val itemId: UUID,
         val seat: String?,
