@@ -2223,7 +2223,7 @@ are served by the director profile, and REST `POST /api/v1/ops/runs_write` serve
 is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
 checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the coordinator token of
 the decision's run. The decisions the server raises for a limit (`run-budget`, `attempt-cap`) are never withdrawable; they stay
-pending until answered or the run closes. Expiry (a class's `expires_after`) escalates the severity only: the decision reads
+pending until answered; closing the run is the other way out of the pause (the decision stays pending and is recorded in the close snapshot's `openDecisions`). Expiry (a class's `expires_after`) escalates the severity only: the decision reads
 one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
 decision and reports the pending ones in `snapshot.openDecisions`. An `answer` never resumes a blocked item; a decision that
 was raised with `block: true` leaves its item blocked until someone resumes it.

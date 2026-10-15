@@ -1273,7 +1273,7 @@ The director (or the human) lists and reads decisions with `runs_read` `decision
 
 ### Budgets, caps, concurrency and pauses
 
-A run can carry a token budget, a cost budget, an attempt cap per (item, seat) and a cap on concurrently active seats. The server checks the budget on every write made under a token.
+A run can carry a token budget, a cost budget, an attempt cap per (item, seat) and a cap on concurrently active seats. The server checks the budget on five writes made under a token (heartbeat, transition, assign, end_seat and raise); see [Run Budgets and Caps](fleet-deployment.md#run-budgets-and-caps).
 
 - **Budget breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a `run-budget` decision. A director or human answers `extend` (with an `amount`) to resume, or `stop` to close the run.
 - **Attempt cap.** An `assign` past `attemptsPerSeat` is refused `run_paused`, the run pauses (`attempts`) and an `attempt-cap` decision is raised (`allow_one`, `skip_item`, `stop`).
