@@ -169,26 +169,11 @@ class SeatTransitionsConfigTest {
         assertEquals(3, parsed.warnings.count { it.contains("mixed") }, "one warning per dropped element: ${parsed.warnings}")
     }
 
-    // Arbitration (test-plan section 8): task-scope says the warning is "at `<entry>/transitions/<i>`". Read literally the warning
-    // carries the element's index path; the other seat warnings in SeatConfigParseTest name the seat and the offending value only,
-    // so the literal reading is kept here as its own scenario and reported, not folded into the test above.
-    @Test
-    fun `S1 leniently, the warning of a dropped element is located at the path entry slash transitions slash index`() {
-        val parsed =
-            parse(
-                """
-                work_item_schemas:
-                  bug-fix:
-                    seats:
-                      - { name: mixed, phase: work, transitions: [start, bogus, complete, Hold] }
-                """.trimIndent()
-            )
-
-        for (index in listOf(0, 1, 3)) {
-            assertTrue(parsed.warnings.any { it.contains("transitions/$index") }, "a warning at transitions/$index: ${parsed.warnings}")
-        }
-        assertFalse(parsed.warnings.any { it.contains("transitions/2") }, "the valid element at index 2 warns nothing: ${parsed.warnings}")
-    }
+    // Ruling 4 (orchestrator-decisions): a dropped-element warning follows the EXISTING config-warning format of the sibling seat
+    // fields. Evidence (public, test-side): `ParsedConfig.warnings` is a List<String>, and every sibling seat warning in
+    // SeatConfigParseTest names the seat and the offending value with no JSON-pointer path, so the transitions warning names the
+    // seat and the value too. The test above is that oracle: the seat name, each dropped value, and one warning per drop. The
+    // `transitions/<i>` path the implementation passes internally is not part of the warning string, so no test asserts it.
 
     @Test
     fun `S1 leniently, a transitions value that is not a list is a warning and is treated as absent`() {

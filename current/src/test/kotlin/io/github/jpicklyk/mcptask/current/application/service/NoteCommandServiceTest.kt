@@ -41,6 +41,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -1353,17 +1354,20 @@ class NoteCommandServiceTest {
         seat: SeatCaller,
         takeover: Boolean = false,
         takeoverAllowed: Boolean = false,
-        role: String = "work"
+        role: String = "work",
+        callerSeat: String? = null,
+        body: String = "body"
     ) = NoteUpsertCommand(
         itemId = item.id,
         key = key,
         role = role,
-        body = "body",
+        body = body,
         actorClaim = who?.let { ActorClaim(id = it, kind = ActorKind.SUBAGENT) },
         verification = null,
         caller = who?.let { ClaimHolder(it) },
         takeover = takeover,
         takeoverAllowed = takeoverAllowed,
+        callerSeat = callerSeat,
         seatCaller = seat
     )
 
@@ -1565,6 +1569,230 @@ class NoteCommandServiceTest {
             assertEquals(first.detail, replay.detail)
             assertNull(stored(item, "build-notes"))
         }
+
+    // ---------------------------------------------------------------------------------------------
+    // R23 round 2, orchestrator Ruling 1 (R21 decision Ruling 9): the seat rule is DECISIVE when it admits. An admitted write
+    // changes attribution (actor, seat) and never the owner pair, unless the note is new or unowned (adoption). Outside an open
+    // run the same writes meet rule 3 (note_owned_by_other). Oracle: Ruling 1 and decision.md Ruling 9, not the code.
+    // ---------------------------------------------------------------------------------------------
+
+    private fun Outcome<*>.assertRule3Refusal(
+        item: WorkItem,
+        key: String,
+        label: String
+    ) {
+        val error = err()
+        assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, error.code, "$label: ${error.message}")
+        val detail = assertIs<ErrorDetail.NoteOwnedByOther>(error.detail, label)
+        assertEquals(item.id, detail.itemId, label)
+        assertEquals(key, detail.key, label)
+    }
+
+    @Test
+    fun `R23 R1a a seat re-assigned to another principal writes its own key - allowed, owner pair unchanged, attribution changes`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            svc.upsert(seatWrite(item, "build-notes", "p-first", builderOn(item), callerSeat = "builder", body = "first")).ok()
+            val before = assertNotNull(stored(item, "build-notes"))
+            assertEquals("p-first", before.ownerId, "fixture: the first principal owns the key")
+            assertEquals("builder", before.ownerSeat, "fixture: the owner seat is builder")
+
+            val second = svc.upsert(seatWrite(item, "build-notes", "p-second", builderOn(item), callerSeat = "builder", body = "second"))
+
+            assertFalse(second.ok().created, "an update, not a create")
+            val after = assertNotNull(stored(item, "build-notes"))
+            assertEquals("second", after.body)
+            assertEquals(2L, after.version)
+            assertEquals("p-first", after.ownerId, "an admitted write never moves the owner")
+            assertEquals("builder", after.ownerSeat, "an admitted write never moves the owner seat")
+            assertEquals("p-second", after.actorClaim?.id, "attribution (actor) changes")
+            assertEquals("builder", after.seat, "attribution (seat) is the token's seat")
+
+            // control: without an open run rule 3 refuses p-second on the same key, so the Allow above is the seat rule
+            seatService(emptySet())
+                .upsert(seatWrite(item, "build-notes", "p-second", builderOn(item), callerSeat = "builder", body = "third"))
+                .assertRule3Refusal(item, "build-notes", "no open run")
+            assertEquals("second", stored(item, "build-notes")?.body, "the refused write stored nothing")
+        }
+
+    @Test
+    fun `R23 R1b a human writes a seat-owned key in an open run whatever the owner - allowed, owner unchanged`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            // owned by a builder seat, by another human, and by a coordinator principal
+            svc.upsert(seatWrite(item, "build-notes", "p-builder", builderOn(item), callerSeat = "builder")).ok()
+            svc.upsert(seatWrite(item, "check-notes", "p-human-1", humanSeatCaller, body = "h1")).ok()
+            svc.upsert(seatWrite(item, "orch-notes", "p-coord", coordinatorOfRun, callerSeat = "coordinator")).ok()
+
+            val expectedOwner =
+                mapOf(
+                    "build-notes" to ("p-builder" to "builder"),
+                    "check-notes" to ("p-human-1" to null),
+                    "orch-notes" to ("p-coord" to "coordinator")
+                )
+            for ((key, owner) in expectedOwner) {
+                val before = assertNotNull(stored(item, key))
+                assertEquals(owner.first, before.ownerId, "fixture: $key owner")
+                assertEquals(owner.second, before.ownerSeat, "fixture: $key owner seat")
+
+                assertFalse(svc.upsert(seatWrite(item, key, "p-human-2", humanSeatCaller, body = "by human")).ok().created, key)
+
+                val after = assertNotNull(stored(item, key))
+                assertEquals("by human", after.body, key)
+                assertEquals(owner.first, after.ownerId, "$key: the human exemption never moves the owner")
+                assertEquals(owner.second, after.ownerSeat, "$key: nor the owner seat")
+                assertEquals("p-human-2", after.actorClaim?.id, "$key: attribution is the human")
+                assertNull(after.seat, "$key: a token-less human attributes no seat")
+            }
+        }
+
+    @Test
+    fun `R23 R1c the coordinator writes an orchestrator-seat key owned by another principal - allowed, owner unchanged`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            svc.upsert(seatWrite(item, "orch-notes", "p-old-coordinator", coordinatorOfRun, callerSeat = "coordinator", body = "old")).ok()
+
+            svc.upsert(seatWrite(item, "orch-notes", "p-new-coordinator", coordinatorOfRun, callerSeat = "coordinator", body = "new")).ok()
+
+            val after = assertNotNull(stored(item, "orch-notes"))
+            assertEquals("new", after.body)
+            assertEquals("p-old-coordinator", after.ownerId, "owner unchanged")
+            assertEquals("coordinator", after.ownerSeat, "owner seat unchanged")
+            assertEquals("p-new-coordinator", after.actorClaim?.id, "attribution changes")
+            assertEquals("coordinator", after.seat)
+            // control: the coordinator is NOT admitted on another seat's key, so the Allow above is specific to the orchestrator seat
+            svc
+                .upsert(seatWrite(item, "build-notes", "p-new-coordinator", coordinatorOfRun, callerSeat = "coordinator"))
+                .assertSeatOwned(item, "build-notes", "builder", "coordinator on a builder key")
+        }
+
+    @Test
+    fun `R23 R1d the same writes outside an open run are note_owned_by_other`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            // no run: the resolver knows no member. The writes use the same callers as R1a-R1c.
+            val svc = seatService(emptySet())
+            svc.upsert(seatWrite(item, "build-notes", "p-first", builderOn(item), callerSeat = "builder", body = "first")).ok()
+            svc.upsert(seatWrite(item, "orch-notes", "p-old-coordinator", coordinatorOfRun, callerSeat = "coordinator", body = "old")).ok()
+
+            val cases =
+                listOf(
+                    Triple(
+                        "a seat re-assigned to another principal",
+                        "build-notes",
+                        seatWrite(item, "build-notes", "p-second", builderOn(item), callerSeat = "builder", body = "x")
+                    ),
+                    Triple("a human", "build-notes", seatWrite(item, "build-notes", "p-human", humanSeatCaller, body = "x")),
+                    Triple(
+                        "a coordinator of another principal",
+                        "orch-notes",
+                        seatWrite(item, "orch-notes", "p-new-coordinator", coordinatorOfRun, callerSeat = "coordinator", body = "x")
+                    )
+                )
+            for ((label, key, command) in cases) {
+                svc.upsert(command).assertRule3Refusal(item, key, label)
+                assertNotEquals("x", stored(item, key)?.body, "$label: nothing stored")
+            }
+            // the delete path meets rule 3 too
+            svc
+                .delete(item.id, "build-notes", null, ClaimHolder("p-human"), seatCaller = humanSeatCaller)
+                .assertRule3Refusal(item, "build-notes", "human delete")
+            assertNotNull(stored(item, "build-notes"), "the note survives the refused delete")
+
+            // control: the same human write on the same key inside an open run is allowed (R1b), so the refusals above turn on the run
+            val inRun = seatService(setOf(item.id))
+            assertEquals(
+                "x",
+                inRun
+                    .upsert(seatWrite(item, "build-notes", "p-human", humanSeatCaller, body = "x"))
+                    .ok()
+                    .note.body
+            )
+        }
+
+    @Test
+    fun `R23 R1e an admitted write on an unowned legacy note adopts it - the owner becomes the caller pair`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            seedLegacy(item, "build-notes")
+            seedLegacy(item, "check-notes")
+            seedLegacy(item, "orch-notes")
+            for (key in listOf("build-notes", "check-notes", "orch-notes")) {
+                assertNull(stored(item, key)?.ownerId, "fixture: $key is unowned although its actor is set")
+            }
+
+            svc.upsert(seatWrite(item, "build-notes", "p-builder", builderOn(item), callerSeat = "builder", body = "b")).ok()
+            svc.upsert(seatWrite(item, "check-notes", "p-human", humanSeatCaller, body = "h")).ok()
+            svc.upsert(seatWrite(item, "orch-notes", "p-coord", coordinatorOfRun, callerSeat = "coordinator", body = "c")).ok()
+
+            assertEquals("p-builder" to "builder", stored(item, "build-notes")?.let { it.ownerId to it.ownerSeat })
+            assertEquals("p-human" to null, stored(item, "check-notes")?.let { it.ownerId to it.ownerSeat })
+            assertEquals("p-coord" to "coordinator", stored(item, "orch-notes")?.let { it.ownerId to it.ownerSeat })
+        }
+
+    @Test
+    fun `R23 R1f a refusal still beats an admin takeover - the owner stays and nothing is written`(): Unit =
+        runBlocking {
+            val item = persist(seatItem())
+            val svc = seatService(setOf(item.id))
+            svc.upsert(seatWrite(item, "build-notes", "p-builder", builderOn(item), callerSeat = "builder", body = "kept")).ok()
+
+            val (result, events) =
+                eventsOf {
+                    svc.upsert(
+                        seatWrite(item, "build-notes", "p-admin", SeatCaller.NONE, takeover = true, takeoverAllowed = true, body = "taken")
+                    )
+                }
+
+            result.assertSeatOwned(item, "build-notes", "builder", "admin takeover with no token")
+            val after = assertNotNull(stored(item, "build-notes"))
+            assertEquals("kept", after.body)
+            assertEquals("p-builder" to "builder", after.ownerId to after.ownerSeat)
+            assertEquals(emptyList(), events.map { it.type }, "no ownership_transferred event")
+            // control: the same takeover outside an open run transfers, so the refusal above is rule 2 and not a disabled takeover
+            seatService(emptySet())
+                .upsert(
+                    seatWrite(item, "build-notes", "p-admin", SeatCaller.NONE, takeover = true, takeoverAllowed = true, body = "taken")
+                ).ok()
+            assertEquals("p-admin", stored(item, "build-notes")?.ownerId)
+        }
+
+    // --- verdict-level assertions of the pure rule: Allow is decisive, Defer leaves rule 3 in charge (Ruling 1) ---
+
+    @Test
+    fun `R23 R1 NoteSeatRule verdicts - Allow for an admitted write, Defer when out of scope, Refuse otherwise`() {
+        val itemId = UUID.fromString("00000000-0000-0000-0000-0000000000e2")
+        val build = noteEntries.single { it.key == "build-notes" }
+        val orch = noteEntries.single { it.key == "orch-notes" }
+        val free = noteEntries.single { it.key == "free-notes" }
+        val builder = SeatCaller("builder", seatRunId, itemId, false)
+
+        fun verdict(
+            entry: NoteSchemaEntry?,
+            caller: SeatCaller,
+            openRun: UUID? = seatRunId,
+            seats: List<SeatDefinition> = noteSeats
+        ) = NoteSeatRule.check(itemId, entry?.key ?: "off-schema", entry, seats, openRun, caller)
+
+        // decisive Allow
+        assertEquals(SeatVerdict.Allow, verdict(build, builder), "the assigned seat on its own key")
+        assertEquals(SeatVerdict.Allow, verdict(build, humanSeatCaller), "a human on a seat-owned key")
+        assertEquals(SeatVerdict.Allow, verdict(orch, coordinatorOfRun), "the coordinator on a COORDINATOR_WRITABLE_SEAT key")
+        // Defer: rule 3 decides
+        assertEquals(SeatVerdict.Defer, verdict(build, builder, openRun = null), "no open run")
+        assertEquals(SeatVerdict.Defer, verdict(build, humanSeatCaller, openRun = null), "no open run, human")
+        assertEquals(SeatVerdict.Defer, verdict(build, builder, seats = emptyList()), "a seat-less schema")
+        assertEquals(SeatVerdict.Defer, verdict(free, builder), "an unowned key")
+        assertEquals(SeatVerdict.Defer, verdict(null, builder), "an off-schema key")
+        // Refuse: never Allow and never Defer
+        assertIs<SeatVerdict.Refuse>(verdict(build, SeatCaller.NONE), "a token-less agent")
+        assertIs<SeatVerdict.Refuse>(verdict(build, coordinatorOfRun), "the coordinator on another seat's key")
+        assertIs<SeatVerdict.Refuse>(verdict(build, builder.copy(seat = "checker")), "another seat")
+    }
 
     // --- NoteSeatRule, the pure rule (decision D9: a key's owner is the declared seat of the key's phase) ---
 

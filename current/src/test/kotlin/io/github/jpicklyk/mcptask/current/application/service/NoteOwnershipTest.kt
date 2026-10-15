@@ -423,9 +423,19 @@ class NoteOwnershipTest {
     }
 
     @Test
-    fun `S10 SeatRule NONE never refuses`() {
-        assertEquals<Any?>(null, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
-        assertEquals<Any?>(null, SeatRule.NONE.check(itemId, key, null, null))
+    fun `S10 SeatRule NONE defers and never refuses or allows`() {
+        assertEquals<SeatVerdict>(SeatVerdict.Defer, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
+        assertEquals<SeatVerdict>(SeatVerdict.Defer, SeatRule.NONE.check(itemId, key, null, null))
+    }
+
+    @Test
+    fun `R1 an Allow verdict is decisive - the owner compare is not consulted for a non-owner and nothing transfers`() {
+        val allow = SeatRule { _, _, _, _ -> SeatVerdict.Allow }
+        val defer = SeatRule { _, _, _, _ -> SeatVerdict.Defer }
+
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId), seatRule = allow).assertAllowed("Allow admits a non-owner without a transfer")
+        // control: Defer on the same call leaves rule 3 in charge, so the admission above is the verdict and not the fixture
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId), seatRule = defer).assertOwnedByOther(label = "Defer")
     }
 
     @Test

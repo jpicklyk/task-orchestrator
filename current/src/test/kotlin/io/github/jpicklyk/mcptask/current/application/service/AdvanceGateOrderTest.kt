@@ -27,6 +27,9 @@ import io.github.jpicklyk.mcptask.current.test.success
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -41,6 +44,7 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -715,7 +719,7 @@ class AdvanceGateOrderTest {
         }
 
     @Test
-    fun `R23 S8 a token-less agent is refused with a null seat on a member of an open run`(
+    fun `R23 S8 a token-less agent is refused with a null domain seat on a member of an open run`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -920,10 +924,13 @@ class SeatEnforcementTokenPathTest {
             assertEquals(listOf("coordinator", "builder"), detail["allowedSeats"]?.jsonArray?.map { it.jsonPrimitive.content })
             assertEquals(Role.QUEUE, w.roleOf(other), "nothing applied")
 
-            // a token-less agent: the seat is JSON null
+            // a token-less agent: the seat member is omitted
             val tokenless = w.advance(other, "start", null)
             assertEquals("seat_forbidden", tokenless.code(), tokenless.toString())
-            assertTrue("\"seat\":null" in tokenless.seatDetail().toString(), "seat is null: ${tokenless.seatDetail()}")
+            assertFalse(
+                "seat" in tokenless.seatDetail().keys,
+                "seat is omitted without a token, never JSON null: ${tokenless.seatDetail()}"
+            )
             assertEquals(Role.QUEUE, w.roleOf(other))
 
             // the checker token: start is not declared for it, complete is
@@ -1109,5 +1116,165 @@ class SeatEnforcementTokenPathTest {
             assertEquals(Role.QUEUE, w.roleOf(own), "nothing applied")
             val started = w.advance(own, "start", second.token)
             assertTrue(started.ok(), started.toString())
+        }
+
+    // ---------------------------------------------------------------------------------------------
+    // Round 2, orchestrator Ruling 1 with real tokens (the seat rule is decisive when it admits) and Ruling 2 (the idempotency
+    // store never holds a seat token). The 43-character token alphabet is base64url without padding.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `R23 R1b R1c R1e with real tokens - an admitted write changes attribution and never the owner, and adopts an unowned note`() =
+        world { w ->
+            val item = w.m1
+            val run = w.open(members = listOf(item))
+            val builder = w.assignOk(run, item, "builder").token
+            val coordinator = run.coordinatorToken
+
+            // R1b: a human overwrites a builder-owned key in the open run
+            assertTrue(w.noteUpsert(item, "build-notes", builder, body = "by builder").ok())
+            val owned = assertNotNull(w.noteRow(item, "build-notes"))
+            assertEquals(w.orchId, owned["owner_id"], "fixture: the builder principal owns the key")
+            assertEquals("builder", owned["owner_seat"], "fixture: the owner seat is builder")
+            val human = w.noteUpsert(item, "build-notes", null, body = "by a human", by = w.human)
+            assertTrue(human.ok(), human.toString())
+            val afterHuman = assertNotNull(w.noteRow(item, "build-notes"))
+            assertEquals("by a human", afterHuman["body"])
+            assertEquals(2L, afterHuman["version"])
+            assertEquals(w.orchId, afterHuman["owner_id"], "the human exemption never moves the owner")
+            assertEquals("builder", afterHuman["owner_seat"], "nor the owner seat")
+            assertEquals("api:seat-human", afterHuman["actor_id"], "attribution is the human")
+            assertNull(afterHuman["seat"], "a token-less human attributes no seat")
+
+            // R1c: the coordinator overwrites an orchestrator-seat key that a human created
+            assertTrue(w.noteUpsert(item, "orch-notes", null, body = "human first", by = w.human).ok())
+            assertEquals("api:seat-human", assertNotNull(w.noteRow(item, "orch-notes"))["owner_id"], "fixture: another principal owns it")
+            val viaCoordinator = w.noteUpsert(item, "orch-notes", coordinator, body = "by the coordinator")
+            assertTrue(viaCoordinator.ok(), viaCoordinator.toString())
+            val afterCoordinator = assertNotNull(w.noteRow(item, "orch-notes"))
+            assertEquals("by the coordinator", afterCoordinator["body"])
+            assertEquals("api:seat-human", afterCoordinator["owner_id"], "the coordinator admission never moves the owner")
+            assertNull(afterCoordinator["owner_seat"])
+            assertEquals(w.orchId, afterCoordinator["actor_id"], "attribution changes to the coordinator principal")
+            assertEquals("coordinator", afterCoordinator["seat"])
+            // control: the coordinator is not admitted on the builder's key
+            assertEquals("note_owned_by_other", w.noteUpsert(item, "build-notes", coordinator).code())
+
+            // R1e: an admitted write on an unowned legacy note adopts it
+            w.legacyNote(item, "check-notes")
+            assertNull(assertNotNull(w.noteRow(item, "check-notes"))["owner_id"], "fixture: unowned")
+            assertTrue(w.noteUpsert(item, "check-notes", null, body = "adopted by a human", by = w.human).ok())
+            val adopted = assertNotNull(w.noteRow(item, "check-notes"))
+            assertEquals("api:seat-human", adopted["owner_id"], "the admitted human adopts the unowned note")
+            assertNull(adopted["owner_seat"])
+            w.exec("DELETE FROM notes WHERE work_item_id = ? AND key = ?", item.id, "build-notes")
+            w.legacyNote(item, "build-notes")
+            assertTrue(w.noteUpsert(item, "build-notes", builder, body = "adopted by builder").ok())
+            val adoptedBySeat = assertNotNull(w.noteRow(item, "build-notes"))
+            assertEquals(w.orchId, adoptedBySeat["owner_id"])
+            assertEquals("builder", adoptedBySeat["owner_seat"], "the owner pair is the caller pair")
+        }
+
+    @Test
+    fun `R23 R1d R1f with real tokens - after the run closes, or on an item in no run, the same writes are note_owned_by_other`() =
+        world { w ->
+            val item = w.m1
+            val outside = w.d
+            val run = w.open(members = listOf(item))
+            val builder = w.assignOk(run, item, "builder").token
+            assertTrue(w.noteUpsert(item, "build-notes", builder, body = "by builder").ok())
+            assertTrue(w.noteUpsert(outside, "build-notes", null, body = "outside, by the orchestrator principal").ok())
+
+            // control: inside the open run the human write is admitted
+            assertTrue(w.noteUpsert(item, "build-notes", null, body = "human, open run", by = w.human).ok())
+
+            // R1f: a refusal beats an admin takeover (the owner stays)
+            val takeover = w.noteUpsert(item, "build-notes", null, body = "taken", extra = ""","takeover":true""", by = w.admin)
+            assertEquals("note_owned_by_other", takeover.code(), takeover.toString())
+            assertEquals("human, open run", w.noteRow(item, "build-notes")?.get("body"))
+            assertEquals(w.orchId, w.noteRow(item, "build-notes")?.get("owner_id"), "the owner stays after the refused takeover")
+
+            // R1d: outside any run the human is a non-owner (rule 3)
+            val onOutside = w.noteUpsert(outside, "build-notes", null, body = "human, no run", by = w.human)
+            assertEquals("note_owned_by_other", onOutside.code(), onOutside.toString())
+            assertEquals("outside, by the orchestrator principal", w.noteRow(outside, "build-notes")?.get("body"))
+
+            // R1d: after the run closes the same human write on the same key is refused
+            val closed = w.close(run, "cancelled", run.coordinatorToken)
+            assertTrue(closed.ok(), closed.toString())
+            val afterClose = w.noteUpsert(item, "build-notes", null, body = "human, closed run", by = w.human)
+            assertEquals("note_owned_by_other", afterClose.code(), afterClose.toString())
+            assertEquals("human, open run", w.noteRow(item, "build-notes")?.get("body"), "nothing was written after the close")
+        }
+
+    private val tokenShape = Regex("^[A-Za-z0-9_-]{43}$")
+
+    private fun stringValues(element: JsonElement): List<String> =
+        when (element) {
+            is JsonObject -> element.values.flatMap { stringValues(it) }
+            is JsonArray -> element.flatMap { stringValues(it) }
+            is JsonPrimitive -> if (element.isString) listOf(element.content) else emptyList()
+        }
+
+    private fun SeatWorld.idempotencyStrings(): List<String> =
+        rows("SELECT result_json FROM idempotency_records").flatMap { stringValues(Json.parseToJsonElement(it["result_json"] as String)) }
+
+    @Test
+    fun `R23 Ruling 2 a keyed open replay omits the coordinator token and says it was redacted - the store never holds a token`() =
+        world { w ->
+            val element = """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"idempotencyKey":"open-key-r23"}"""
+
+            val first = w.ops("runs_write", element)
+            assertTrue(first.ok(), first.toString())
+            val token = assertNotNull(first.find("coordinatorToken"), "the first call returns the token: $first")
+            assertTrue(tokenShape.matches(token), "fixture: the issued token has the 43-character shape")
+            assertNull(first.find("tokenRedacted"), "the first call has no tokenRedacted key: $first")
+
+            val replay = w.ops("runs_write", element)
+            assertTrue(replay.ok(), replay.toString())
+            assertEquals("true", replay.find("replayed"), "fixture: the second call is a replay: $replay")
+            assertEquals(first.find("runId"), replay.find("runId"), "the stored result is returned")
+            assertNull(replay.find("coordinatorToken"), "a replay carries no coordinator token: $replay")
+            assertEquals("true", replay.find("tokenRedacted"), "a replay says the token was redacted: $replay")
+            assertFalse(token in replay.toString(), "the token string appears nowhere in the replay")
+
+            val stored = w.rows("SELECT result_json FROM idempotency_records")
+            assertTrue(stored.any { (it["result_json"] as String).contains(first.find("runId")!!) }, "fixture: the open's record is stored")
+            assertFalse(stored.any { token in (it["result_json"] as String) }, "the idempotency table never holds the token")
+            assertEquals(emptyList(), w.idempotencyStrings().filter { tokenShape.matches(it) }, "no 43-character token string is stored")
+        }
+
+    @Test
+    fun `R23 Ruling 2 a keyed assign replay omits the seat token and says it was redacted - the store never holds a token`() =
+        world { w ->
+            val run = w.open(members = listOf(w.m1))
+
+            val first = w.assign(run, w.m1, "builder", key = "assign-key-r23")
+            assertTrue(first.reply.ok(), first.reply.toString())
+            val token = assertNotNull(first.token, "the first call returns the seat token: ${first.reply}")
+            assertTrue(tokenShape.matches(token), "fixture: the issued token has the 43-character shape")
+            assertNull(first.reply.find("tokenRedacted"), "the first call has no tokenRedacted key: ${first.reply}")
+
+            val replay = w.assign(run, w.m1, "builder", key = "assign-key-r23")
+            assertTrue(replay.reply.ok(), replay.reply.toString())
+            assertEquals("true", replay.reply.find("replayed"), "fixture: the second call is a replay: ${replay.reply}")
+            assertEquals(first.assignmentId, replay.assignmentId, "the stored result is returned")
+            assertNull(replay.token, "a replay carries no seat token: ${replay.reply}")
+            assertEquals("true", replay.reply.find("tokenRedacted"), "a replay says the token was redacted: ${replay.reply}")
+            assertFalse(token in replay.reply.toString(), "the token string appears nowhere in the replay")
+
+            val stored = w.rows("SELECT result_json FROM idempotency_records")
+            assertTrue(
+                stored.any { (it["result_json"] as String).contains(first.assignmentId!!) },
+                "fixture: the assign's record is stored"
+            )
+            assertFalse(stored.any { token in (it["result_json"] as String) }, "the idempotency table never holds the seat token")
+            assertFalse(stored.any { run.coordinatorToken in (it["result_json"] as String) }, "nor the coordinator token")
+            assertEquals(emptyList(), w.idempotencyStrings().filter { tokenShape.matches(it) }, "no 43-character token string is stored")
+
+            // recovery: a re-assign supersedes and issues a fresh token (the replay does not)
+            val fresh = w.assignOk(run, w.m1, "builder")
+            assertNotNull(fresh.token)
+            assertTrue(fresh.token != token, "a new assign issues a different token")
         }
 }

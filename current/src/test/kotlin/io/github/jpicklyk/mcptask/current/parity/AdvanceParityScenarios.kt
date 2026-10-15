@@ -268,7 +268,7 @@ internal object AdvanceParityScenarios {
     // (checker seat), both members of an open run of R1 whose per-root config declares a seat-aware `default`
     // schema (the seeder stamps no item type, so every untyped item under R1 resolves it). Oracles: the plan 4.1 R23 table and the frozen task-scope (a seat token acts only on its own item; `start`
     // only into the phase the seat enters; other triggers only when declared, default block and hold; the coordinator token any
-    // trigger the table allows; no token is `seat_forbidden{itemId, seat: null, action, allowedSeats}`; a human credential is
+    // trigger the table allows; no token is `seat_forbidden{itemId, action, allowedSeats}` with `seat` omitted (Ruling 3); a human credential is
     // exempt; a refusal applies nothing). Both legs must answer the same bytes and leave the same database.
     private val enforceRun: UUID = UUID.fromString("a0000005-0000-4000-8000-000000000005")
     private val c2: UUID = UUID.fromString("a0000006-0000-4000-8000-000000000006")
@@ -398,7 +398,7 @@ work_item_schemas:
                 changed = true
             ),
             enforcement(
-                "advance transition R23 a token-less agent is refused with a null seat",
+                "advance transition R23 a token-less agent is refused with the seat omitted",
                 agent,
                 transitionOf(c1, "start"),
                 207,
@@ -407,11 +407,11 @@ work_item_schemas:
                     listOf(
                         "\"code\":\"seat_forbidden\"",
                         "\"itemId\":\"$c1\"",
-                        "\"seat\":null",
                         "\"action\":\"start\"",
                         "\"allowedSeats\":[\"coordinator\",\"builder\"]"
                     ),
-                absent = listOf("\"newRole\""),
+                // Ruling 3: the seat member is OMITTED without a token, never JSON null (the builder-token refusal carries it)
+                absent = listOf("\"newRole\"", "\"seat\":"),
                 changed = false
             ),
             enforcement(
@@ -420,7 +420,8 @@ work_item_schemas:
                 transitionOf(c1, "start"),
                 403,
                 code = "seat_forbidden",
-                contains = listOf("\"index\":0", "\"seat\":null"),
+                contains = listOf("\"index\":0", "\"action\":\"start\""),
+                absent = listOf("\"seat\":"),
                 changed = false,
                 top = ""","atomic":true"""
             ),
