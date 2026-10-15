@@ -29,6 +29,7 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -100,6 +101,29 @@ class SqliteRunStore(
     ) {
         databaseManager.writeTx("RunStore.touchCoordinator") {
             RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.coordinatorSeenAt] = at }
+        }
+    }
+
+    override suspend fun addObservedTokens(
+        runId: UUID,
+        tokens: Long
+    ) {
+        if (tokens == 0L) return
+        databaseManager.writeTx("RunStore.addObservedTokens") {
+            RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.observedTokens] = RunsTable.observedTokens + tokens }
+        }
+    }
+
+    override suspend fun setReportedUsage(
+        runId: UUID,
+        tokens: Long,
+        costMicroUsd: Long
+    ) {
+        databaseManager.writeTx("RunStore.setReportedUsage") {
+            RunsTable.update({ RunsTable.id eq runId }) {
+                it[RunsTable.reportedTokens] = tokens
+                it[RunsTable.reportedCostMicro] = costMicroUsd
+            }
         }
     }
 

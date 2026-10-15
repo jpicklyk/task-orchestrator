@@ -29,7 +29,8 @@ internal val runsAssignOp =
                 "none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims " +
                 "are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is " +
                 "shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every " +
-                "call made under the seat passes it as the top-level seatToken.",
+                "call made under the seat passes it as the top-level seatToken. Past the run's attempt cap it is run_paused " +
+                "(the run pauses on an attempt-cap decision); at maxActiveSeats it is run_at_capacity (retry when a seat ends).",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsAssignRequest>(),
@@ -40,6 +41,7 @@ internal val runsAssignOp =
                 ErrorCode.FORBIDDEN,
                 ErrorCode.RUN_CLOSED,
                 ErrorCode.RUN_PAUSED,
+                ErrorCode.RUN_AT_CAPACITY,
                 ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> assignSeat(env, ctx, req) }
@@ -74,7 +76,7 @@ private suspend fun WriteScope.assignSeat(
         )
     val issued =
         try {
-            when (val r = env.seatService.assign(command)) {
+            when (val r = env.runLimits.assign(command)) {
                 is Outcome.Ok -> r.value
                 is Outcome.Err -> return r
             }
@@ -87,11 +89,16 @@ private suspend fun WriteScope.assignSeat(
                 )
             )
         }
+    val paused =
+        when (val r = env.runLimits.checkBudget(run.id)) {
+            is Outcome.Ok -> r.value
+            is Outcome.Err -> return r
+        }
     return Outcome.Ok(
         buildJsonObject {
             put("assignmentId", issued.seat.id.toString())
             put("seatToken", issued.token)
             put("attempt", issued.seat.attempt)
-        }
+        }.withPaused(paused)
     )
 }

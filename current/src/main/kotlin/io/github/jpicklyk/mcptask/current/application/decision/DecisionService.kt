@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
+import io.github.jpicklyk.mcptask.current.application.port.ServerDecision
+import io.github.jpicklyk.mcptask.current.application.port.ServerDecisionRaiser
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
@@ -17,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswer
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -52,15 +55,23 @@ import java.util.UUID
  * scope key, dedupe key) that is not withdrawn is returned when its class, question and option keys match, else the
  * raise is `idempotency_mismatch` naming the dedupe key.
  *
- * [effects] runs inside each answer's unit (server-class effects, R27). As a [RunDecisionPort] the service counts a
- * run's pending requests for `run.ended`.
+ * [effects] runs inside each answer's unit (server-class effects, R27); an error it returns refuses the answer. As a
+ * [RunDecisionPort] the service counts a run's pending requests for `run.ended`; as a [ServerDecisionRaiser] it raises
+ * the server-raised classes for the run limits (R27).
+ *
+ * ## Amount
+ *
+ * An answer's `amount` belongs to an `extend` answer of a `run-budget` request only: it is required there and must be
+ * a positive finite number; anywhere else it is `invalid_request /amount`. Its fit to the breached dimension (tokens
+ * are whole) is the effects' to check.
  */
 class DecisionService(
     private val repositoryProvider: RepositoryProvider,
     private val unitOfWork: UnitOfWork,
     private val decisionClasses: suspend (UUID) -> Map<String, DecisionClassConfig>,
     private val effects: DecisionEffects = DecisionEffects.NONE
-) : RunDecisionPort {
+) : RunDecisionPort,
+    ServerDecisionRaiser {
     private val store: DecisionRequestStore get() = repositoryProvider.decisionRequestStore()
     private val items get() = repositoryProvider.workItemRepository()
 
@@ -110,6 +121,7 @@ class DecisionService(
 
             val decision =
                 DecisionRequest(
+                    id = command.id ?: UUID.randomUUID(),
                     rootId = command.rootId,
                     runId = command.runId,
                     itemId = command.itemId,
@@ -228,7 +240,7 @@ class DecisionService(
                 )
             val changed = decision.copy(status = DecisionRequestStatus.ANSWERED, answer = answer)
             val stored = store.update(changed, decision.version) ?: return@write err(conflictAfterRead(decision))
-            effects.onAnswered(stored)
+            effects.onAnswered(stored, command.amount)?.let { return@write err(it) }
             events.record(
                 DomainEvent.DecisionAnswered(
                     stored.id,
@@ -276,6 +288,36 @@ class DecisionService(
                 )
             )
             Outcome.Ok(stored)
+        }
+
+    // -------------------------------------------------------------------------
+    // ServerDecisionRaiser
+    // -------------------------------------------------------------------------
+
+    /** Raises [decision] as the server ([raise] with `serverRaised`), recorded as raised by `server`. */
+    override suspend fun raiseServer(decision: ServerDecision): Outcome<DecisionRequest> =
+        when (
+            val raised =
+                raise(
+                    DecisionRaiseCommand(
+                        id = decision.id,
+                        rootId = decision.rootId,
+                        runId = decision.runId,
+                        itemId = decision.itemId,
+                        decisionClass = decision.decisionClass,
+                        question = decision.question,
+                        options = decision.options,
+                        recommended = decision.recommended,
+                        context = decision.context,
+                        dedupeKey = decision.dedupeKey,
+                        raisedById = RunLimitDecisions.SERVER_RAISER,
+                        raisedByKind = RunLimitDecisions.SERVER_RAISER
+                    ),
+                    serverRaised = true
+                )
+        ) {
+            is Outcome.Err -> raised
+            is Outcome.Ok -> Outcome.Ok(raised.value.decision)
         }
 
     // -------------------------------------------------------------------------
@@ -396,6 +438,17 @@ class DecisionService(
             } else if (text == null) {
                 out += FieldViolation("/option", "an option or a text is required")
             }
+        }
+        val amount = command.amount
+        val extend = decision.decisionClass == RunLimitDecisions.RUN_BUDGET && option == RunLimitDecisions.EXTEND
+        if (amount != null) {
+            if (!extend) {
+                out += FieldViolation("/amount", "only an extend answer of a run-budget decision takes an amount", amount.toString())
+            } else if (!amount.isFinite() || amount <= 0) {
+                out += FieldViolation("/amount", "must be a positive number", amount.toString())
+            }
+        } else if (extend) {
+            out += FieldViolation("/amount", "is required to extend")
         }
         val rationale = command.rationale
         if (rationale != null && rationale.length > DecisionRequest.MAX_RATIONALE_LENGTH) {

@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
+import io.github.jpicklyk.mcptask.current.application.port.RunUsageTotals
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeatLink
@@ -24,6 +25,7 @@ import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -166,6 +168,18 @@ class SqliteRunSeatStore(
         }
 
     // ---- RunSeatPort ----------------------------------------------------------------------------------------
+
+    override suspend fun usageTotals(runId: UUID): RunUsageTotals =
+        databaseManager.readTx {
+            val tokens = RunSeatsTable.usageTokens.sum()
+            val cost = RunSeatsTable.usageCostMicro.sum()
+            val row =
+                RunSeatsTable
+                    .select(tokens, cost)
+                    .where { RunSeatsTable.runId eq runId }
+                    .single()
+            RunUsageTotals(row[tokens] ?: 0L, row[cost] ?: 0L)
+        }
 
     override suspend fun activeCount(runId: UUID): Int =
         databaseManager.readTx {

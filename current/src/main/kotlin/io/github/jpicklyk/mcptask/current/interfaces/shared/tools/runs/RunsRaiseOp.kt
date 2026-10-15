@@ -154,8 +154,17 @@ private suspend fun WriteScope.raiseDecision(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
+    val paused =
+        if (token == null) {
+            null
+        } else {
+            when (val r = env.runLimits.checkBudget(token.runId)) {
+                is Outcome.Ok -> r.value
+                is Outcome.Err -> return r
+            }
+        }
     val view = DecisionView.full(result.decision, env.clock.now(), ctx.principalsVisible)
-    return Outcome.Ok(JsonObject(view + ("existing" to JsonPrimitive(result.existing))))
+    return Outcome.Ok(JsonObject(view + ("existing" to JsonPrimitive(result.existing))).withPaused(paused))
 }
 
 /**

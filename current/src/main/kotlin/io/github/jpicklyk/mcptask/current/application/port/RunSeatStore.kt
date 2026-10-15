@@ -6,6 +6,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import java.time.Instant
 import java.util.UUID
 
+/** The usage summed over every assignment of one run (ended ones included): [tokens] and [costMicroUsd] (micro-USD). */
+data class RunUsageTotals(
+    val tokens: Long,
+    val costMicroUsd: Long
+)
+
 /**
  * Persistence of seat assignments (`run_seats`). Every method joins the caller's unit; the writes belong to
  * `SeatService` (and, through [RunSeatPort], to the run close). A database failure is thrown.
@@ -60,6 +66,9 @@ interface RunSeatStore : RunSeatPort {
         tokens: Long?,
         costMicro: Long?
     ): RunSeat?
+
+    /** The sum over every assignment of [runId], ended ones and the coordinator included, of its kept usage. */
+    suspend fun usageTotals(runId: UUID): RunUsageTotals
 
     /**
      * The assignments of [runId], oldest first (`assigned_at`, then id): only those on [itemId] when given, and only

@@ -1139,6 +1139,25 @@ logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the v
 
 ---
 
+## Run Budgets and Caps
+
+Runs are bounded by their pinned budget (see `config-format.md` -> "Run Budgets" for the `runs.budgets` ceilings).
+What an operator sees:
+
+- **Spend.** `runs_read` `get` shows `usage` (`reportedTokens`, `reportedCostUsd`, `observedTokens`). Reported figures
+  are the SUM of the seats' absolute `heartbeat` reports (the highest per seat is kept); `observedTokens` is the server's
+  own estimate, written off the request path by the call-log writer. A dropped or failed call-log batch (see "Call log")
+  under-counts it, never over-counts it.
+- **Breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a
+  high-severity `run-budget` decision; the writer itself never pauses anything, so a run whose seats have all gone quiet
+  is not paused by observed spend alone until some seat writes again.
+- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
+  `extend` with an `amount` resumes the run with the raised limit; `stop` closes it `budget_exhausted` and ends its
+  seats, clears their claims and releases the leases of its WORK members. A coordinator cannot lift its own cap: a
+  manual `resume` of a budget or attempts pause is refused.
+- **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the coordinator
+  backs off and retries when a seat ends. No decision is raised.
+
 ## Observability Gaps
 
 As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE, see [api-rest.md](api-rest.md) section 21).

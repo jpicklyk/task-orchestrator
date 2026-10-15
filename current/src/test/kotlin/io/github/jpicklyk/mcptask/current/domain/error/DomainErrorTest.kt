@@ -37,6 +37,7 @@ internal object ErrorFixtures {
             ErrorCode.RESOURCE_UNAVAILABLE -> ErrorDetail.ResourceUnavailable(id1, listOf(ResourceRef("gradle", "exclusive")), null)
             ErrorCode.RUN_CLOSED -> ErrorDetail.RunClosed(id1, "cancelled")
             ErrorCode.RUN_PAUSED -> ErrorDetail.RunPaused(id1, "manual", null)
+            ErrorCode.RUN_AT_CAPACITY -> ErrorDetail.RunAtCapacity(id1, 2, 2)
             ErrorCode.INVALID_RUN_STATE -> ErrorDetail.InvalidRunState(id1, "paused", listOf("close"))
             ErrorCode.DECISION_CLOSED -> ErrorDetail.DecisionClosed(id1, "answered")
             ErrorCode.SCHEMA_VIOLATION -> ErrorDetail.SchemaViolation(null, "unknown type", null)
@@ -72,6 +73,7 @@ internal object ErrorFixtures {
             ErrorCode.RESOURCE_UNAVAILABLE to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
             ErrorCode.RUN_CLOSED to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "terminalReason" to "cancelled"),
             ErrorCode.RUN_PAUSED to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "pauseReason" to "manual"),
+            ErrorCode.RUN_AT_CAPACITY to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "active" to "2", "max" to "2"),
             ErrorCode.INVALID_RUN_STATE to mapOf("runId" to "11111111-1111-1111-1111-111111111111", "status" to "paused"),
             ErrorCode.DECISION_CLOSED to mapOf("decisionId" to "11111111-1111-1111-1111-111111111111", "status" to "answered"),
             ErrorCode.SCHEMA_PINNED_CONFLICT to

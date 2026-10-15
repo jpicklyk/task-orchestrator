@@ -173,7 +173,9 @@ data class RunsAnswerRequest(
     @Doc(DECISION_ID_DOC) val decisionId: IdRef,
     @Doc("Key of the chosen option.") val option: String? = null,
     @Doc("Free-form answer, at most 1000 characters; freeform classes only.") val text: String? = null,
-    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null
+    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null,
+    @Doc("run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars).")
+    val amount: Double? = null
 )
 
 /** `runs_write withdraw`: withdraws a pending decision. */

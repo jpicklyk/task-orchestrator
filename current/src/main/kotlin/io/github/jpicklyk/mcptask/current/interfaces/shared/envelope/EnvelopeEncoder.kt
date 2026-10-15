@@ -296,6 +296,11 @@ object EnvelopeEncoder {
                     put("pauseReason", detail.pauseReason)
                     detail.pauseDecisionId?.let { put("pauseDecisionId", it.toString()) }
                 }
+                is ErrorDetail.RunAtCapacity -> {
+                    put("runId", detail.runId.toString())
+                    put("active", detail.active)
+                    put("max", detail.max)
+                }
                 is ErrorDetail.InvalidRunState -> {
                     put("runId", detail.runId.toString())
                     put("status", detail.status)

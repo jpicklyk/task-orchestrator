@@ -1502,6 +1502,30 @@ control.
 
 ---
 
+## Run Budgets (`runs:`)
+
+The top-level `runs:` block (server or per-root config, merged per field: per-root value, else server, else default)
+sets `stall_after` (seconds, default 600) and the `budgets` ceilings a run may declare up to:
+
+```yaml
+runs:
+  stall_after: 900
+  budgets:
+    tokens: 2000000          # integer
+    cost_usd: 25.0           # US dollars
+    attempts_per_seat: 3     # integer
+    max_active_seats: 4      # integer
+```
+
+Every ceiling is optional and none is invented: a run without a budget is never capped. `runs_write` `open` may declare
+lower values, never higher (`invalid_request /budget/<field>` naming the ceiling); `update` may only lower them. The
+server enforces the pinned run budget (R27): tokens as `max(reported, observed)` and cost as reported, a breach being
+strictly over the limit; a crossing pauses the run on a server-raised `run-budget` decision, the attempt cap pauses it on
+an `attempt-cap` decision, and `max_active_seats` refuses an extra `assign` with transient `run_at_capacity`. Only an
+answer to the pause decision (director or human) lifts a budget or attempts pause: `extend` may raise a limit past the
+ceiling. The `decision_classes:` block may raise the answerers of `run-budget` and `attempt-cap` to `human-only` but
+never lower them to `any-actor`.
+
 ## Key Stability Warning
 
 Changing a `key` after notes have been written orphans existing notes under the old key. There is no automatic migration — orphaned notes become ad-hoc notes on their items.

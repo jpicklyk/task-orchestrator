@@ -1005,6 +1005,29 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
+**Budgets and caps.** A run's `budget{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at
+most the configured `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower it.
+Usage: each seat's `heartbeat` `usage` is kept per assignment (the highest value per field) and the run's `usage`
+`reportedTokens` / `reportedCostUsd` are the SUM over every assignment of the run, ended ones included; `observedTokens`
+is the server's own estimate, the `responseTokensEst` of every call-log row carrying the run, added off-path by the
+call-log writer. Enforced figures: tokens `max(reported, observed)`, cost reported only; a run breaches when a figure is
+strictly over its limit. Every token-carrying write (`heartbeat`, `transition`, `assign`, `end_seat`, `raise`) checks
+its run after its own change: on a crossing the run is paused (`pauseReason: budget`) and a server-raised `run-budget`
+decision is raised (dedupe key `budget:<runId>:<n>`, options `extend` / `stop`, recommended `stop`, `context` a JSON
+object naming the breached `dimension` with `used` and `limit`), both committed with the write, which still succeeds and
+carries `paused: {decisionId}` in its result. While a run is paused for a limit, `assign` and a `start` transition
+under a seat token are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause
+does not refuse `start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
+(`attempts`), and the run pauses on a server-raised `attempt-cap` decision (dedupe key
+`attempts:<runId>:<itemId>:<seat>:<attempt>`, options `allow_one` / `skip_item` / `stop`) written although the assign
+is refused. An otherwise admissible `assign` that would not supersede an active seat is `409 run_at_capacity` (transient,
+`detail: {runId, active, max}`) while `maxActiveSeats` member seats are active; nothing pauses, retry when a seat ends.
+Answering the pause decision (director or human, `runs_write` `answer`) acts on the run: `extend` (with `amount`, whole
+tokens or US dollars in the context's `dimension`; it may exceed the configured ceiling) raises that limit and resumes
+(`run.updated` with `budgetChanged`, then `run.resumed`); `allow_one` gives that (item, seat) one more attempt and
+resumes; `skip_item` removes the item and resumes; `stop` closes the run `budget_exhausted` with the full close cascade.
+A manual `resume` of a limit pause stays `invalid_run_state`.
+
 **Decisions.** `runs_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
 rootId?, severity?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
 required (under a seat token an absent `runId` / `itemId` defaults to the token's); the root is the item's, else the

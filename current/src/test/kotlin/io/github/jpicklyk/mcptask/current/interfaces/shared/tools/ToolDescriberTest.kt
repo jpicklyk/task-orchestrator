@@ -242,6 +242,7 @@ class ToolDescriberTest {
                 ErrorCode.RESOURCE_UNAVAILABLE to setOf("itemId", "resources", "retryAfterMs"),
                 ErrorCode.RUN_CLOSED to setOf("runId", "terminalReason"),
                 ErrorCode.RUN_PAUSED to setOf("runId", "pauseReason", "pauseDecisionId"),
+                ErrorCode.RUN_AT_CAPACITY to setOf("runId", "active", "max"),
                 ErrorCode.INVALID_RUN_STATE to setOf("runId", "status", "allowed"),
                 ErrorCode.DECISION_CLOSED to setOf("decisionId", "status"),
                 ErrorCode.SCHEMA_VIOLATION to setOf("type", "reason", "availableTypes", "availableTraits"),
