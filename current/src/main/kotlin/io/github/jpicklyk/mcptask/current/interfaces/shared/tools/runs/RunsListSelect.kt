@@ -73,7 +73,7 @@ private suspend fun listRuns(
         val now = env.clock.now()
         val views =
             slice.map { run ->
-                RunView.of(run, stores.runStore().members(run.id).size, env.runService.activeSeats(run.id), now)
+                RunView.of(run, stores.runStore().members(run.id).size, stores.runSeatStore().list(run.id), now)
             }
         Outcome.Ok(ListPage.of(views, visible.size, page))
     }
