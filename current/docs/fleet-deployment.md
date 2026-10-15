@@ -233,6 +233,8 @@ malformed can also log its own WARN line without a reason code: an unusable `to_
 text derived from a token. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no
 rejection line.
 
+**API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim> reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants: `to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value` (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT verification fault: reason=internal suppressed=<n>` on the same logger. Each key (`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides on the first line of the next window, as for rejections. Neither line carries the token, a claim value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an unknown `kid` logs the fetch error only, never the `kid`.
+
 ### Call log and `reqId`
 
 Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
