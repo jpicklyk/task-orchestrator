@@ -1231,7 +1231,7 @@ Fleet operators should treat the missing metrics endpoint as a known gap when pl
 | Per-root claim breakdown | `items_read` `overview` -> `claimSummary` per root item |
 | Stalled items (missing required notes) | `items_read` `context` (health view) -> `stalled` |
 | Recent role transitions | `items_read` select `history` (`since`/`until`, optional `itemId`) |
-| Tool usage, errors, latency and tokens | `report` select `usage` (`groupBy` tool, operation, host, surface, principalKind, errorCode, day, principal) |
+| Tool usage, errors, latency and tokens | `report` select `usage` (`groupBy` tool, operation, host, surface, principalKind (currently always `external`, see Call log), errorCode, day, principal) |
 | Gate rejections by note, type or trait | `report` select `gates` |
 | Claim and lease contention, expiry and force-release rates | `report` select `contention` |
 | Call-pattern waste | `report` select `waste` |
