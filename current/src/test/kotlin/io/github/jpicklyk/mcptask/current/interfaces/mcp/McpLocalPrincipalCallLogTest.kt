@@ -205,7 +205,7 @@ class McpLocalPrincipalCallLogTest {
         }
 
     @Test
-    fun `S6 a stdio call is recorded on call_log as local external and a note upsert stores actor id local`() {
+    fun `S6 a stdio call is recorded on call_log as local agent and a note upsert stores actor id local`() {
         val rig = EventLogRig.build(db.db, dir)
         val writer = newWriter(rig)
         runBlocking {
@@ -225,7 +225,7 @@ class McpLocalPrincipalCallLogTest {
             val rows = CallLogRows.read(db.jdbcUrl)
             assertEquals(2, rows.size, "one row per call: $rows")
             assertEquals(setOf("local"), rows.map { it["principal_id"] }.toSet(), "stdio calls are recorded as the bare local id")
-            assertEquals(setOf("external"), rows.map { it["principal_kind"] }.toSet())
+            assertEquals(setOf("agent"), rows.map { it["principal_kind"] }.toSet())
             assertEquals(listOf("local"), noteActorIds(), "the note's actor id is local")
         }
     }

@@ -102,7 +102,12 @@ class ToolDispatcher(
         val batchSize = if (spec is OpsToolSpec<*>) (arguments["ops"] as? JsonArray)?.size else null
         return try {
             val principal = access.principal ?: return Dispatched(EnvelopeEncoder.error(noPrincipal(), reqId), null, batchSize)
-            recordCallPrincipal(principal.claim, principal.verification, principal.principal?.proofStatus?.wire)
+            recordCallPrincipal(
+                principal.claim,
+                principal.verification,
+                principal.principal?.proofStatus?.wire,
+                principal.principal?.kind?.wire
+            )
             val seat =
                 if (SEAT_TOKEN in arguments) {
                     resolveSeat(arguments[SEAT_TOKEN], principal.claim.id)

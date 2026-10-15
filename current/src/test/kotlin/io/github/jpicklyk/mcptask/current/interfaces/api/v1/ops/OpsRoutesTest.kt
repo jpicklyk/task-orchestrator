@@ -257,7 +257,7 @@ class OpsRoutesTest {
             assertTrue(rows.none { (it["tool"] as String).startsWith("POST") }, "tool is the registry name, not the route: $rows")
             assertTrue(rows.all { it["surface"] == "rest" }, rows.toString())
             assertTrue(rows.all { it["principal_id"] == "api:$WRITE_TOKEN_ID" }, rows.toString())
-            assertTrue(rows.all { it["principal_kind"] == "external" }, rows.toString())
+            assertTrue(rows.all { it["principal_kind"] == "service" }, rows.toString())
 
             val get = rows.single { it["tool"] == "fx_read" && it["operation"] == "get" }
             assertNull(get["batch_size"])

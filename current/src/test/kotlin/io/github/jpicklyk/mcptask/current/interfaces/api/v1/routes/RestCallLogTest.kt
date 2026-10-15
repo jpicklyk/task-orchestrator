@@ -143,7 +143,7 @@ class RestCallLogTest {
             assertEquals(setOf(item.id.toString()), Json.parseToJsonElement(row["target_versions"] as String).jsonObject.keys)
             assertNull(row["operation"])
             assertEquals("api:$TEST_TOKEN_ID", row["principal_id"])
-            assertEquals("external", row["principal_kind"])
+            assertEquals("service", row["principal_kind"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
             assertEquals(1L, row["attempts"])

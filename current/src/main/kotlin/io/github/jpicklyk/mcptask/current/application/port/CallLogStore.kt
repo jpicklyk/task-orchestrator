@@ -12,6 +12,7 @@ import java.util.UUID
  * and received; [responseTokensEst] is [TokenEstimate] of [responseBytes] and [tokenMethod] names the method.
  * [hitSignals] (JSON text) is, for a `related` call, the signals that found each returned hit, in page order;
  * [lifecycleFreeRejections] counts the rejections caused by a lifecycle-free item (null when none, never 0).
+ * [principalKind] is the credential's PrincipalKind wire value (human, agent or service); null when the call had no principal.
  */
 data class CallLogRecord(
     val reqId: String,

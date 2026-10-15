@@ -285,7 +285,7 @@ private fun submitRestCall(
             telemetry.setPrincipal(
                 CallTelemetry.Principal(
                     claim.id,
-                    claim.kind.toJsonString(),
+                    principal.kind.wire,
                     principal.proofStatus.wire
                 )
             )
