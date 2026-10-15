@@ -31,8 +31,8 @@ class McpBearerAuthConfig {
     /** How a request establishes its caller. Required: the plugin refuses to install without it (no fail-open default). */
     var mode: McpAuthMode? = null
 
-    /** The session bindings shared with the MCP adapter (its tool calls read them). */
-    var sessions: McpSessionPrincipals = McpSessionPrincipals(redactNoteAttribution = true)
+    /** The session bindings shared with the MCP adapter (its tool calls read them). Required: no fail-open default. */
+    var sessions: McpSessionPrincipals? = null
 
     /** The exact path of the director-profile endpoint: the only `/mcp` path a `profile: director` credential may use. */
     var directorPath: String = "/mcp/director"
@@ -48,9 +48,10 @@ class McpBearerAuthConfig {
  *    `WWW-Authenticate: Bearer error="invalid_request"`; unresolved or expired -> 401 `unauthenticated` with
  *    `error="invalid_token"`. A `profile: director` credential is admitted on the director path only; elsewhere 403
  *    `forbidden {scope: capability, required: director}`.
- * 2. **Session.** A request carrying `Mcp-Session-Id` binds that session to the principal when it is unbound; when it
- *    is bound to another principal the request is 401 `unauthenticated` (the message names neither principal) and no
- *    tool runs. `DELETE` (the session's end) forgets the binding. The `initialize` request carries no session id: its
+ * 2. **Session.** A request carrying `Mcp-Session-Id` binds that session to the principal when it is unbound and the
+ *    SDK serves the id (an id the SDK did not issue binds nothing and the SDK answers its own 404); when it is bound
+ *    to another principal the request is 401 `unauthenticated` (the message names neither principal) and no tool
+ *    runs. `DELETE` (the session's end) forgets the binding. The `initialize` request carries no session id: its
  *    session is bound from the `Mcp-Session-Id` response header, and in any case before any request of that session
  *    reaches a tool (an unbound session's tool call has no principal and the dispatcher refuses it).
  */
@@ -61,7 +62,8 @@ val McpBearerAuth =
     ) {
         val logger = LoggerFactory.getLogger("McpBearerAuth")
         val mode = checkNotNull(pluginConfig.mode) { "McpBearerAuth requires an explicit McpAuthMode; none was configured." }
-        val sessions = pluginConfig.sessions
+        val sessions =
+            checkNotNull(pluginConfig.sessions) { "McpBearerAuth requires the shared McpSessionPrincipals; none was configured." }
         val directorPath = pluginConfig.directorPath
 
         onCall { call ->
@@ -73,11 +75,19 @@ val McpBearerAuth =
             call.attributes.put(McpPrincipalKey, principal)
 
             val sessionId = call.request.headers[MCP_SESSION_ID_HEADER] ?: return@onCall
-            if (!sessions.bind(sessionId, principal)) {
-                logger.debug("Refused a /mcp request whose session is bound to another principal")
-                if (mode is McpAuthMode.Credential) call.response.header(HttpHeaders.WWWAuthenticate, "Bearer error=\"invalid_token\"")
-                call.respondEnvelopeError(unauthenticated("The session belongs to another principal."))
-                return@onCall
+            when (sessions.bind(sessionId, principal)) {
+                BindOutcome.BOUND -> Unit
+                BindOutcome.UNKNOWN -> {
+                    // Not an id the SDK serves: bind nothing; the SDK answers its own 404.
+                    logger.debug("/mcp request named a session the SDK does not serve")
+                    return@onCall
+                }
+                BindOutcome.OTHER_PRINCIPAL -> {
+                    logger.debug("Refused a /mcp request whose session is bound to another principal")
+                    if (mode is McpAuthMode.Credential) call.response.header(HttpHeaders.WWWAuthenticate, "Bearer error=\"invalid_token\"")
+                    call.respondEnvelopeError(unauthenticated("The session belongs to another principal."))
+                    return@onCall
+                }
             }
             if (call.request.httpMethod == HttpMethod.Delete) sessions.forget(sessionId)
         }

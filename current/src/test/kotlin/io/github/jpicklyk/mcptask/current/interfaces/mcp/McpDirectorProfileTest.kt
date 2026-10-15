@@ -669,7 +669,6 @@ class McpDirectorProfileTest {
             allowQueryToken = false,
             serverName = "director-profile-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = s.rig.composition.actorAuthEnabled,
             serverConfig = s.rig.composition.serverConfig,
             toolContext = s.rig.ctx,
             appConfig = appConfig

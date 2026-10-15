@@ -5,16 +5,14 @@ import java.time.Instant
 
 /**
  * Shared 60-second clock-skew leeway used across JWT verification (`exp`/`nbf`/lifetime checks in
- * [JwksActorVerifier] and `JwksApiVerifier`) and [JtiReplayCache]'s retention window. A single
+ * `JwksApiVerifier`) and [JtiReplayCache]'s retention window. A single
  * source of truth keeps the replay cache's retention derived from the same leeway the verifiers
  * use, rather than a second hard-coded `60` that could silently drift out of sync with it.
  */
 const val AUTH_CLOCK_SKEW_SECONDS = 60L
 
 /**
- * Pure predicate for the actor-token lifetime cap, shared by [JwksActorVerifier] and
- * [JwksApiVerifier] so the two verifiers' identical logic cannot drift
- * apart (they were previously duplicated verbatim in each class).
+ * Pure predicate for the token lifetime cap used by [JwksApiVerifier].
  *
  * Semantics (both checks use [AUTH_CLOCK_SKEW_SECONDS] leeway):
  *  - (a) always applies, independent of [iat]: `exp - now` must not exceed
@@ -55,9 +53,8 @@ object TokenLifetimeCap {
 }
 
 /**
- * Pure, nanosecond-precision predicates for the `exp`/`nbf` clock-skew checks, shared by
- * [JwksActorVerifier] and [JwksApiVerifier] so the two cannot drift
- * apart.
+ * Pure, nanosecond-precision predicates for the `exp`/`nbf` clock-skew checks, used by
+ * [JwksApiVerifier].
  *
  * Both claims arrive as [java.util.Date] (millisecond precision) from Nimbus's `JWTClaimsSet`, and
  * an earlier version of this check built its skew-adjusted cutoff the same way — via

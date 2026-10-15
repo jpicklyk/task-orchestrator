@@ -1502,13 +1502,13 @@ per-root document; any other key is rejected, so a push is never silently partia
 | `schema_resolution` | No: removed in 4.0 (rejected) | n/a |
 | `extensions` | Stored, never read: an opaque mapping of namespaces for plugin and hook settings | n/a |
 | `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()`: a per-root block replaces the server one wholesale |
-| `actor_authentication` | No: server-only (rejected) | n/a |
+| `actor_authentication` | No: removed in 4.0 (rejected as an unknown key) | n/a |
 | any other key | No (rejected) | n/a |
 
 **Strict validation.** A push is validated before anything is stored: the document is checked against the
 published JSON Schema (`GET /api/v1/config/schema`), everything the 3.x parser used to skip with a warning is
 an error (an unknown key, a note with no or an invalid `role`, an invalid `lifecycle`, a seat with no `name`,
-an invalid dispatch `effort`, ...), and semantic rules apply: `resources` and `actor_authentication` are
+an invalid dispatch `effort`, ...), and semantic rules apply: `resources` is
 server-only, `work_item_schemas` and `note_schemas` cannot be combined, every `default_traits` entry must name
 a trait defined in the document or the server config, and every trait `resources[].key` must be declared in
 the server resource registry. Plugin and hook settings (the 3.x top-level `orchestration`, `retrospective`
@@ -2541,14 +2541,15 @@ server accepts no body `actor`.
 ---
 ## Actor Authentication & Verification
 
-### `actor_authentication` is inert
+### `actor_authentication` is removed
 
-No request body carries an actor claim or proof, so the actor verifier configured by the `actor_authentication:` block in `.taskorchestrator/config.yaml` is not consulted on any tool call. The block is still parsed and validated by the server at startup from the global file (a malformed block, or a leftover `degraded_mode_policy` key, fails startup), but it authenticates and attributes no call; its only remaining effect is the `actorAuthenticationEnabled` field of `GET /api/v1/info`, which gates nothing. Caller identity is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [fleet-deployment.md](fleet-deployment.md#actor_authentication-in-40-inert) for what is still validated and [config-reference.md](config-reference.md) for the key's ownership.
+No request body carries an actor claim or proof, so the `actor_authentication:` block in `.taskorchestrator/config.yaml` authenticated and attributed no call. It is removed: a leftover block in the global file fails startup, and `GET /api/v1/info` no longer returns `actorAuthenticationEnabled`. Caller identity is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [fleet-deployment.md](fleet-deployment.md#actor_authentication-removed-in-40) for the upgrade steps.
 
 ### No degraded-mode policy
 
-Verification fails closed. `actor_authentication.degraded_mode_policy` and the `DEGRADED_MODE_POLICY` environment
-variable were removed in 4.0: a leftover key (any value, `null` included) or a set variable (any value) is an
+Verification fails closed. The `DEGRADED_MODE_POLICY` environment variable (and the former
+`actor_authentication.degraded_mode_policy` key) was removed in 4.0: a set variable (any value), or a leftover
+`actor_authentication:` block, is an
 `IllegalArgumentException` at startup naming it, before the readiness marker is written, so the server does not start
 believing a security setting is in force. Ownership-sensitive calls (`advance` `claim`, `release`, `heartbeat` and the
 ownership check of `transition`) run as the transport principal and are always enforced. A JWT whose key set is

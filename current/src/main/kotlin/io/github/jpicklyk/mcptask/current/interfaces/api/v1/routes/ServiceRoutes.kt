@@ -35,7 +35,6 @@ import kotlinx.serialization.json.Json
  *   integration tests to omit it when testing routes that do not hit the DB.
  * @param serverName The server name as returned in [ServiceInfoDto.serverName].
  * @param serverVersion The server version as returned in [ServiceInfoDto.version].
- * @param actorAuthEnabled Whether the actor_authentication feature is enabled in the runtime config.
  * @param verifier The REST API credential verifier in force: `none` (unauthenticated mode), `bearer` or `jwks`.
  * @param maxStale With `jwks`, the oldest a cached key set may be, in seconds, and still be served after a failed
  *   refresh ([ServiceInfoDto.maxStale]); null otherwise.
@@ -47,7 +46,6 @@ fun Route.serviceRoutes(
     repositoryProvider: RepositoryProvider? = null,
     serverName: String = "mcp-task-orchestrator-current",
     serverVersion: String = "unknown",
-    actorAuthEnabled: Boolean = false,
     configService: ConfigService? = null,
     verifier: String = "none",
     maxStale: Long? = null,
@@ -73,7 +71,6 @@ fun Route.serviceRoutes(
                 apiVersion = "v1",
                 capabilities = capabilities,
                 claimModeAvailable = true,
-                actorAuthenticationEnabled = actorAuthEnabled,
                 verifier = verifier,
                 maxStale = maxStale,
                 features = ServerFeatures.ADVERTISED,
@@ -126,7 +123,6 @@ data class ServiceInfoDto(
     val apiVersion: String,
     val capabilities: List<String>,
     val claimModeAvailable: Boolean,
-    val actorAuthenticationEnabled: Boolean,
     // The REST API credential verifier in force: "none" | "bearer" | "jwks".
     val verifier: String = "none",
     // With the jwks verifier: max_stale_seconds, the oldest a cached key set may be and still be served; omitted otherwise.

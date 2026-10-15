@@ -93,7 +93,6 @@ class RuleBudgetStashTest {
             allowQueryToken = false,
             serverName = "rule-budget-stash-test",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

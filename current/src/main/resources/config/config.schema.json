@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jpicklyk/task-orchestrator/config.schema.json",
   "title": "Task Orchestrator config document",
-  "description": "The structure of a Task Orchestrator config document (a per-root pushed config or the server-wide floor). Server-only top-level keys (resources, actor_authentication) are rejected in a per-root document by the semantic validator, not by this schema. Plugin and hook settings live under extensions, whose contents are opaque.",
+  "description": "The structure of a Task Orchestrator config document (a per-root pushed config or the server-wide floor). Server-only top-level keys (resources) are rejected in a per-root document by the semantic validator, not by this schema. Plugin and hook settings live under extensions, whose contents are opaque.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -67,10 +67,6 @@
       "type": "object",
       "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
       "additionalProperties": { "$ref": "#/$defs/decisionClass" }
-    },
-    "actor_authentication": {
-      "description": "Server-only; contents are validated by the actor-authentication service. Rejected in a per-root document.",
-      "type": ["object", "null"]
     },
     "extensions": {
       "description": "Opaque, namespaced settings owned by other tools (for example extensions.claude-code). The server stores them and never reads them.",

@@ -81,7 +81,6 @@ class ApiStatusPagesWiringTest {
             allowQueryToken = false,
             serverName = "status-pages-wiring-test",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

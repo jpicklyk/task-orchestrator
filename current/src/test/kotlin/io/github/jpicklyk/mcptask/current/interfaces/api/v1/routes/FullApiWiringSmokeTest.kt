@@ -75,7 +75,6 @@ abstract class FullApiWiringSmokeScenarios(
                     repositoryProvider = decorated,
                     serverName = "smoke",
                     serverVersion = "test",
-                    actorAuthEnabled = false,
                 )
                 // Phase 3 read
                 itemRoutes(decorated)

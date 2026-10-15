@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
@@ -116,11 +117,15 @@ internal class McpAuthReply(
 internal class McpAuthHttpFixture(
     val rig: EventLogRig,
     databaseManager: DatabaseManager,
-    val appConfig: AppConfig = AppConfig.fromEnv { null }
+    val appConfig: AppConfig = AppConfig.fromEnv { null },
+    clock: Clock = Clock.SYSTEM,
+    idleTtl: Duration = McpSessionPrincipals.DEFAULT_IDLE_TTL,
+    maxSessions: Int = McpSessionPrincipals.DEFAULT_MAX_SESSIONS
 ) {
     val registry = ToolRegistry(buildToolSpecs())
     val writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(databaseManager), flushInterval = 1.hours)
-    val sessions = McpSessionPrincipals(appConfig.apiRedactNoteAttribution)
+    val sdkSessions = ServerSdkSessions()
+    val sessions = McpSessionPrincipals(appConfig.apiRedactNoteAttribution, sdkSessions, clock, idleTtl, maxSessions)
 
     /** Every session id the adapter asked the access seam about, in call order (a spy over [McpSessionPrincipals.access]). */
     val accessQueries = CopyOnWriteArrayList<String?>()
@@ -147,6 +152,10 @@ internal class McpAuthHttpFixture(
     val orchestration: Server = server(ToolProfile.ORCHESTRATION)
     val knowledge: Server = server(ToolProfile.KNOWLEDGE)
     val director: Server = server(ToolProfile.DIRECTOR)
+
+    init {
+        listOf(orchestration, knowledge, director).forEach(sdkSessions::serve)
+    }
 
     /** Registers the fixture tools on the orchestration and knowledge servers (call before the application starts). */
     fun withFixtureTools(fx: FixtureTools) {
@@ -177,7 +186,6 @@ internal class McpAuthHttpFixture(
                 allowQueryToken = false,
                 serverName = "mcp-auth-test",
                 serverVersion = "1.0.0",
-                actorAuthEnabled = rig.composition.actorAuthEnabled,
                 serverConfig = rig.composition.serverConfig,
                 toolContext = rig.ctx,
                 appConfig = appConfig

@@ -124,8 +124,6 @@ class BootImportTest {
 
     private val migrationOnlyKeys = listOf("orchestration", "retrospective", "actor_attribution", "schema_resolution")
 
-    private val noopActorAuth = "actor_authentication:\n  verifier:\n    type: noop\n"
-
     private val dogfoodRoot: UUID = UUID.fromString("ce064d2c-7c03-4eac-ae7d-89a14c2ba273")
 
     private fun agent(name: String): Path = dir.resolve(name).also { Files.createDirectories(it) }
@@ -889,30 +887,6 @@ class BootImportTest {
         assertEquals(baseCanonical, v.canonical)
     }
 
-    @Test
-    fun `probe actor_authentication - a server file keeps it in yaml and out of the canonical form`() {
-        val text = base + noopActorAuth
-        boot(agent("a"), text)
-
-        val v = serverRows().single()
-        assertEquals(text, v.yaml, "audit text is verbatim")
-        assertEquals(baseCanonical, v.canonical, "actor_authentication is stripped from the canonical form (D2)")
-        assertEquals(emptyList(), v.warnings)
-    }
-
-    @Test
-    fun `probe actor_authentication - a root-targeted file boots and its canonical form lacks the key`() {
-        seedRoot(dogfoodRoot)
-        val text = "project:\n  rootId: \"$dogfoodRoot\"\n" + base + noopActorAuth
-        boot(agent("a"), text)
-
-        val v = rootRows().single()
-        assertEquals(text, v.yaml)
-        val canonical = assertNotNull(v.canonical)
-        assertFalse("actor_authentication" in canonical, "stripped before canonicalization: $canonical")
-        assertTrue("work_item_schemas" in canonical)
-    }
-
     // ------------------------------------------------------------------------------------------------ DocumentSchemaCatalog
 
     private fun layerOf(
@@ -973,7 +947,7 @@ class BootImportTest {
 
     private fun Application.restApp(service: ConfigService) {
         configureTestApp(makeWriteAuthConfig()) {
-            serviceRoutes(db.repositoryProvider(), "boot-import", "test", false, service)
+            serviceRoutes(db.repositoryProvider(), "boot-import", "test", service)
         }
     }
 

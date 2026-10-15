@@ -178,7 +178,6 @@ class SearchRequestShapeTest {
             allowQueryToken = false,
             serverName = "s13-rest-call-log",
             serverVersion = "test",
-            actorAuthEnabled = rig.rig.composition.actorAuthEnabled,
             serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
             callLog = rig.writer,

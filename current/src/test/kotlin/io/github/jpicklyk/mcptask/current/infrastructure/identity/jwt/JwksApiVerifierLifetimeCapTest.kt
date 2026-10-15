@@ -27,8 +27,7 @@ import java.util.Date
 /**
  * Independent test-author coverage for item 3dcfcbab, Part 1 (REST/API side): [JwksApiVerifier]
  * must cap accepted token lifetime at `ApiAuthConfig.Jwks.maxTokenLifetimeSeconds` (default
- * 86400s), mirroring the actor-side cap in [io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksActorVerifier]
- * with the same 60s clock-skew boundary semantics (task-scope Part 1: exactly `max+60` passes,
+ * 86400s), with a 60s clock-skew boundary semantics (task-scope Part 1: exactly `max+60` passes,
  * `max+61` rejects; the exp-iat span check applies whenever `iat` is present).
  *
  * `verify()` returns null on rejection (no failureKind surfaced on this path per the declared

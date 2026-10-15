@@ -268,7 +268,6 @@ class JwksApiVerifierExpiryTest {
             allowQueryToken = false,
             serverName = "jwks-expiry-rest-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
             serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(

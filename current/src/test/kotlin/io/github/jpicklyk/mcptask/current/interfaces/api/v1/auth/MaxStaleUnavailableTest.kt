@@ -198,7 +198,6 @@ class MaxStaleUnavailableTest {
             allowQueryToken = allowQueryToken,
             serverName = "max-stale-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
             serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(

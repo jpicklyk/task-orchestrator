@@ -113,9 +113,7 @@ class P5bWriteUnitGuardsTest {
             infrastructure/identity/did/DidDocumentJwksExtractor.kt 1
             infrastructure/identity/did/DidWebResolver.kt 4
             infrastructure/config/GlobalConfigFile.kt 3
-            infrastructure/identity/jwt/JwksActorVerifier.kt 6
             infrastructure/identity/jwt/JwksKeySetProvider.kt 5
-            infrastructure/config/YamlActorAuthenticationConfigService.kt 1
             infrastructure/config/YamlConfigDocumentParser.kt 1
             infrastructure/config/YamlStatusLabelService.kt 1
             infrastructure/sqlite/DatabaseManager.kt 5

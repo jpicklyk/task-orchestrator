@@ -38,7 +38,7 @@ fun interface ConfigStructuralValidator {
  * The admission check for config: the structural pass ([structural]), the parser's findings (a document parsed in
  * [ParseMode.STRICT]) and a semantic pass, merged into one result.
  *
- * Semantic rules: a per-root document must not carry the server-only keys `resources` or `actor_authentication`;
+ * Semantic rules: a per-root document must not carry the server-only key `resources`;
  * `work_item_schemas` and the legacy `note_schemas` cannot be combined; every `default_traits` entry must name a
  * trait defined in the document or in the server layer; every trait `resources[].key` must be declared in the server
  * resource registry; a `lifecycle: none` schema declares no `seats` of its own and no `required: true` note (a
@@ -223,7 +223,7 @@ class ConfigValidator(
     }
 
     companion object {
-        private val SERVER_ONLY_KEYS = listOf("resources", "actor_authentication")
+        private val SERVER_ONLY_KEYS = listOf("resources")
 
         /** The integer-valued `runs.budgets` ceilings; `cost_usd` is the one decimal ceiling. */
         private val RUN_INTEGER_CEILINGS = listOf("tokens", "attempts_per_seat", "max_active_seats")

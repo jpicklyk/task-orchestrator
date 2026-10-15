@@ -1,43 +1,115 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditId
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
+/** The result of [McpSessionPrincipals.bind]. */
+enum class BindOutcome {
+    /** The session is bound to the same audited principal (newly or already). */
+    BOUND,
+
+    /** The session belongs to another principal; the caller must refuse the request. */
+    OTHER_PRINCIPAL,
+
+    /** The SDK does not serve this session id; nothing was bound. */
+    UNKNOWN
+}
+
 /**
- * The principal each MCP-over-HTTP session runs as (R14).
+ * The principal each MCP-over-HTTP session runs as (R14), bounded.
  *
  * [McpBearerAuth] resolves the caller on EVERY `/mcp` request and binds the session to it: from the `Mcp-Session-Id`
  * response header of the `initialize` request, or on the first request that carries the session id, whichever comes
- * first. Once bound, a session belongs to that principal: a request carrying the session id that resolves to another
- * principal is refused `unauthenticated` (compared by the audited id, so `api:x` and `local` never match). A tool call
- * reads the binding through [access]; a session with no binding gets an access with no principal, which the
- * dispatcher refuses (fail closed). `DELETE /mcp` (the session's end) forgets the binding; nothing else evicts one.
+ * first. Only an id the SDK serves ([SdkSessions.isLive]) is ever bound; an unknown id is [BindOutcome.UNKNOWN] and
+ * stores nothing (the SDK answers its own 404). Once bound, a session belongs to that principal: another principal on
+ * it is [BindOutcome.OTHER_PRINCIPAL] (compared by the audited id). A tool call reads the binding through [access]; an
+ * unbound session gets an access with no principal, which the dispatcher refuses (fail closed). `DELETE /mcp` forgets
+ * the binding.
  *
- * @param redactNoteAttribution `API_REDACT_NOTE_ATTRIBUTION`: the same note-attribution rule as REST, so a READ bearer
- *   over `/mcp` sees what it would see over `/api/v1`.
+ * Lifecycle: a bound id is trusted until forgotten or evicted (the liveness check runs on the first bind only). On a
+ * new bind, eviction drops bindings whose SDK session already closed, then ends and drops sessions idle for at least
+ * [idleTtl], then ends and drops the least-recently-seen until there is room under [maxSessions]. Ending closes the SDK
+ * session, so the client's next request is the spec's 404 and it re-initializes. There is no background sweeper: an
+ * idle server keeps idle sessions until the next new bind.
+ *
+ * @param redactNoteAttribution `API_REDACT_NOTE_ATTRIBUTION`: the same note-attribution rule as REST.
+ * @param sdkSessions the SDK's view of its sessions (no default: a forgotten argument must not fail open).
  */
 class McpSessionPrincipals(
-    private val redactNoteAttribution: Boolean
+    private val redactNoteAttribution: Boolean,
+    private val sdkSessions: SdkSessions,
+    private val clock: Clock = Clock.SYSTEM,
+    private val idleTtl: Duration = DEFAULT_IDLE_TTL,
+    private val maxSessions: Int = DEFAULT_MAX_SESSIONS
 ) {
-    private val bindings = ConcurrentHashMap<String, Principal>()
+    init {
+        require(!idleTtl.isZero && !idleTtl.isNegative) { "idleTtl must be positive" }
+        require(maxSessions >= 1) { "maxSessions must be at least 1" }
+    }
 
-    /**
-     * Binds [sessionId] to [principal] unless it is already bound. True when the session is (now) bound to the same
-     * audited principal, false when it belongs to another one (the caller must then refuse the request).
-     */
-    fun bind(
+    private class Entry(
+        val principal: Principal,
+        @Volatile var lastSeen: Instant
+    )
+
+    private val bindings = ConcurrentHashMap<String, Entry>()
+
+    /** The number of bound sessions. */
+    val size: Int get() = bindings.size
+
+    /** Binds [sessionId] to [principal] if it is unbound and the SDK serves it; every call on a bound id refreshes its idle clock. */
+    suspend fun bind(
         sessionId: String,
         principal: Principal
-    ): Boolean {
-        val existing = bindings.putIfAbsent(sessionId, principal) ?: return true
-        return existing.auditId() == principal.auditId()
+    ): BindOutcome {
+        val now = clock.now()
+        bindings[sessionId]?.let { return compare(it, principal, now) }
+        if (!sdkSessions.isLive(sessionId)) return BindOutcome.UNKNOWN
+        evict(now, keep = sessionId)
+        val existing = bindings.putIfAbsent(sessionId, Entry(principal, now)) ?: return BindOutcome.BOUND
+        return compare(existing, principal, now)
+    }
+
+    private fun compare(
+        entry: Entry,
+        principal: Principal,
+        now: Instant
+    ): BindOutcome =
+        if (entry.principal.auditId() == principal.auditId()) {
+            entry.lastSeen = now
+            BindOutcome.BOUND
+        } else {
+            BindOutcome.OTHER_PRINCIPAL
+        }
+
+    private suspend fun evict(
+        now: Instant,
+        keep: String
+    ) {
+        for (id in bindings.keys.toList()) {
+            if (id != keep && !sdkSessions.isLive(id)) bindings.remove(id)
+        }
+        for ((id, entry) in bindings.entries.toList()) {
+            if (id != keep && Duration.between(entry.lastSeen, now) >= idleTtl) {
+                bindings.remove(id)
+                sdkSessions.end(id)
+            }
+        }
+        while (bindings.size >= maxSessions) {
+            val victim = bindings.entries.filter { it.key != keep }.minByOrNull { it.value.lastSeen } ?: break
+            bindings.remove(victim.key)
+            sdkSessions.end(victim.key)
+        }
     }
 
     /** The principal [sessionId] is bound to, or null. */
-    fun principalOf(sessionId: String): Principal? = bindings[sessionId]
+    fun principalOf(sessionId: String): Principal? = bindings[sessionId]?.principal
 
     /**
      * The [CallAccess] of a tool call made in [sessionId]: the bound principal's access (its scope, its capabilities,
@@ -45,12 +117,20 @@ class McpSessionPrincipals(
      * unbound.
      */
     fun access(sessionId: String?): CallAccess {
-        val principal = sessionId?.let { bindings[it] } ?: return CallAccess.unauthenticated(sessionId)
+        val principal = sessionId?.let { bindings[it]?.principal } ?: return CallAccess.unauthenticated(sessionId)
         return principal.toCallAccess(redactNoteAttribution).copy(sessionId = sessionId)
     }
 
     /** Forgets [sessionId]'s binding (the session ended). */
     fun forget(sessionId: String) {
         bindings.remove(sessionId)
+    }
+
+    companion object {
+        /** Sessions idle this long are ended on the next new bind. */
+        val DEFAULT_IDLE_TTL: Duration = Duration.ofHours(24)
+
+        /** The most sessions bound at once; the least-recently-seen is ended to make room. */
+        const val DEFAULT_MAX_SESSIONS: Int = 1024
     }
 }

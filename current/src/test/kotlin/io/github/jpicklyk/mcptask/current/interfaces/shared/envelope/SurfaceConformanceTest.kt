@@ -191,7 +191,6 @@ class SurfaceConformanceTest {
             allowQueryToken = false,
             serverName = "conformance",
             serverVersion = "test",
-            actorAuthEnabled = rig.composition.actorAuthEnabled,
             serverConfig = rig.composition.serverConfig,
             toolContext = rig.composition.toolContext,
             appConfig = config,

@@ -44,6 +44,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthResolution
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerSdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installHostAllowlist
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -303,7 +304,8 @@ class CurrentMcpServer(
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
             val toolDispatcher = buildToolDispatcher(toolContext)
             // HTTP: a tool call runs as the principal its session is bound to (McpBearerAuth binds it). Stdio: the local principal.
-            val sessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution)
+            val sdkSessions = ServerSdkSessions()
+            val sessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution, sdkSessions)
             val stdioAccess = LOCAL_PRINCIPAL.toCallAccess(appConfig.apiRedactNoteAttribution)
             val operationAdapter =
                 McpOperationAdapter(
@@ -312,7 +314,8 @@ class CurrentMcpServer(
                     access = if (appConfig.mcpTransport == "http") sessionPrincipals::access else { _ -> stdioAccess }
                 )
 
-            fun serverFor(profile: ToolProfile): Server = buildProfileServer(profile, serverName, version, registry, operationAdapter)
+            fun serverFor(profile: ToolProfile): Server =
+                buildProfileServer(profile, serverName, version, registry, operationAdapter).also(sdkSessions::serve)
             logger.info(
                 "Tool profiles: orchestration={} tools, knowledge={} tools, director={} tools",
                 registry.visible(ToolProfile.ORCHESTRATION).size,
@@ -353,7 +356,6 @@ class CurrentMcpServer(
                             apiWiring,
                             serverConfig,
                             toolContext,
-                            composition.actorAuthEnabled,
                             readinessMarker,
                             mcpAuth,
                             sessionPrincipals,
@@ -465,7 +467,6 @@ class CurrentMcpServer(
         apiWiring: ApiWiring,
         serverConfig: ServerConfigSource,
         toolContext: ToolExecutionContext,
-        actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
         mcpAuth: McpAuthMode,
         sessionPrincipals: McpSessionPrincipals,
@@ -533,7 +534,6 @@ class CurrentMcpServer(
                     allowQueryToken = allowQueryToken,
                     serverName = serverName,
                     serverVersion = version,
-                    actorAuthEnabled = actorAuthEnabled,
                     serverConfig = serverConfig,
                     toolContext = toolContext,
                     jwksVerifier = jwksVerifier,
@@ -710,7 +710,11 @@ internal fun Application.installMcpStreamableHttp(
     knowledgeServer: Server? = null,
     directorServer: Server? = null,
     mcpAuth: McpAuthMode,
-    sessionPrincipals: McpSessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution),
+    sessionPrincipals: McpSessionPrincipals =
+        McpSessionPrincipals(
+            appConfig.apiRedactNoteAttribution,
+            ServerSdkSessions().apply { listOfNotNull(server, knowledgeServer, directorServer).forEach(::serve) }
+        ),
 ) {
     installHostAllowlist(appConfig)
     install(ContentNegotiation) {
@@ -789,7 +793,6 @@ internal fun Application.installRestApiRoutes(
     allowQueryToken: Boolean,
     serverName: String,
     serverVersion: String,
-    actorAuthEnabled: Boolean,
     @Suppress("UNUSED_PARAMETER") serverConfig: ServerConfigSource,
     toolContext: ToolExecutionContext,
     jwksVerifier: JwksApiVerifier? = null,
@@ -843,7 +846,6 @@ internal fun Application.installRestApiRoutes(
                 repositoryProvider = effectiveProvider,
                 serverName = serverName,
                 serverVersion = serverVersion,
-                actorAuthEnabled = actorAuthEnabled,
                 verifier =
                     when (apiConfig) {
                         is ApiAuthConfig.Jwks -> "jwks"

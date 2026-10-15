@@ -29,7 +29,7 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 
 **Credential mode.** A missing, malformed or empty `Authorization` header is `401 unauthenticated` with `WWW-Authenticate: Bearer error="invalid_request"`; an unknown, rejected or expired credential is `401 unauthenticated` with `error="invalid_token"`; a JWKS key set that is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`) is `503 unavailable`. Refusals are the 4.0 JSON error envelope, not a JSON-RPC error, and the MCP SDK is never reached. The `/mcp` mount is no longer a public path: the REST bearer plugin delegates `/mcp*` to the MCP authentication, so a request is authenticated exactly once.
 
-**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal. A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
+**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal; only an id the server issued is bound (an unknown id binds nothing and gets the SDK's `404`). At most 1024 sessions are bound: sessions idle for 24 hours, or the least recently used beyond the newest 1024, are closed on the next new session, so their next request is `404` and the client re-initializes (there is no background sweeper). A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
 
 **Director confinement.** A credential with `profile: director` reaches only `/mcp/director` (and `POST /api/v1/ops/director/{tool}` over REST); on any other `/mcp*` path it is `403 forbidden` (scope `capability`, required `director`).
 
@@ -66,14 +66,8 @@ at `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` exists but cannot be read, i
 or its top-level document is not a mapping, the shared file loader throws before the object graph
 finishes wiring — the exception
 propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
-non-zero **before** the readiness marker is ever written and before any transport binds. The same
-applies to a present, non-null field that fails to parse under `actor_authentication:` (an
-unrecognized `verifier.type`, a non-mapping `verifier` or
-`actor_authentication` value, `type: jwks` with no configured key source, or any `verifier` field of
-the wrong type — e.g. a list-valued `audience`, which would otherwise silently disable the audience
-check) — see "Fail-closed verification"
-and "JWKS Sources" below. A leftover `actor_authentication.degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable is refused the same way (they were removed in 4.0). An absent file, or one that is empty or comment-only, is not an error: it
-keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
+non-zero **before** the readiness marker is ever written and before any transport binds. A leftover `actor_authentication:` key (any value), a legacy `auditing:` key or a set `DEGRADED_MODE_POLICY` variable is refused the same way (see "`actor_authentication` removed in 4.0" below). An absent file, or one that is empty or comment-only, is not an error: it
+keeps schema-free defaults. **This is a behavior change**: a global
 config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
 now fails startup. Per-project config pushed via the `config` tool's `push` op (`POST /api/v1/ops/config`) is unaffected — only the single, server-wide global file is on this
 fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
@@ -106,8 +100,7 @@ version another process appends to a shared volume is served on the next read.
 - **Legacy 3.x keys boot with warnings.** Top-level `schema_resolution`, `orchestration`,
   `retrospective` and `actor_attribution` (plugin sections a 3.x global file carried) are accepted at
   boot, each recorded as a stored warning that `GET /api/v1/info` returns as `configWarnings`; a push
-  of the same text is still rejected. `actor_authentication:` stays read from the file (never imported
-  or validated here).
+  of the same text is still rejected. A leftover `actor_authentication:` key never reaches the import: it fails startup first (see below).
 - **Any other strict error, or a file over 128 KiB, fails startup** as `DATA_STEPS` with one
   `path: reason` line per error, before any transport binds or the readiness marker is written.
 - A stored head that cannot be loaded (no canonical form, undecodable) fails closed: tools and routes
@@ -661,18 +654,15 @@ To authenticate callers, configure the credential mode ([Enabling the REST API](
 | `accept-self-reported` | Gone. The caller is always the transport principal (`api:<id>`, or `local` in local mode); no request carries an identity of its own. |
 | `reject` | The only behavior: nothing is trusted that was not proven. Claim ownership (`claim`, `release`, `heartbeat`, and the ownership check of `transition`) is enforced against the principal. |
 
-### `actor_authentication` in 4.0 (inert)
+### `actor_authentication` removed in 4.0
 
-The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is still **parsed and validated at startup**, and a JWKS actor verifier is still constructed from it, but **it authenticates and attributes no call**: no request carries an `actor` or an `actor.proof` any more, so nothing in the request path consults the verifier or the parsed block. What stays observable:
+The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is **removed**. Nothing authenticated or attributed a call through it, since no request carries an `actor` or an `actor.proof` any more, so its only remaining effect was an informational field on `GET /api/v1/info`, which is gone too. What to know when upgrading:
 
-- A malformed block still fails startup, closed, before the readiness marker is written: an unrecognized `verifier.type`, a non-mapping `verifier`, `type: jwks` with no key source (or more than one), a `verifier` field of the wrong type, or a non-positive or too-small `max_stale_seconds`.
-- A leftover `degraded_mode_policy` key or `DEGRADED_MODE_POLICY` variable still fails startup naming it.
-- `GET /api/v1/info` still reports `actorAuthenticationEnabled` (true when `verifier.type` is not the no-op). It is the only reader of the block outside startup validation, and it gates nothing.
-- The keys it still accepts are `verifier.type`, `oidc_discovery`, `jwks_uri`, `jwks_path`, `issuer`, `audience`, `algorithms`, `cache_ttl_seconds`, `stale_on_error`, `max_stale_seconds`, `max_token_lifetime_seconds`, `allow_insecure_url`, `require_sub_match`, `jti_replay_protection`, `did_allowlist`, `did_pattern`, `did_loose_kid_match` and `did_strict_relationship`. None of them affects authentication or attribution of a request: `require_sub_match`, `jti_replay_protection`, DID trust and the loose-kid match lived only on the removed actor path.
-
-Remove the block when convenient; it is safe to delete. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not here. See [config-reference.md](config-reference.md) for the key's ownership.
-
----
+- A global config with an `actor_authentication:` key, whatever its value (a mapping, `{}`, a scalar or a bare `null`), stops the server with an `IllegalArgumentException` naming the key and the config path, before the readiness marker is written (the container exits non-zero). The legacy 3.x `auditing:` key and a set `DEGRADED_MODE_POLICY` variable fail the same way.
+- Delete the block. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not in the config file. For the plugin hook's attribution requirement use `actor_attribution.required`.
+- A per-root push carrying the key is rejected at `/actor_authentication` as an unknown top-level section; nothing is stored.
+- `GET /api/v1/info` no longer returns `actorAuthenticationEnabled`.
+- Solo stdio: with no `AGENT_CONFIG_DIR` the server reads the workspace `.taskorchestrator/config.yaml` as its global file, so a hook-only `actor_authentication: {enabled: true}` block in it fails startup too.
 
 ## Rolling Out Claim Mode
 

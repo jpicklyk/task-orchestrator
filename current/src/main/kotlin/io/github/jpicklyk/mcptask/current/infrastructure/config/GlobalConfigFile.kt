@@ -20,8 +20,7 @@ import java.nio.file.Path
  *
  * Moved verbatim from `YamlWorkItemSchemaService.loadSchemas()` (this item's C1 restructuring):
  * same [IllegalArgumentException] messages, same fingerprint computed over the same bytes, same
- * WARN/INFO logging. [YamlWorkItemSchemaService], [YamlStatusLabelService], and
- * [YamlActorAuthenticationConfigService] all read the same document from one instance of this
+ * WARN/INFO logging. [YamlWorkItemSchemaService] and [YamlStatusLabelService] both read the same document from one instance of this
  * class instead of each independently re-reading and re-parsing the file — see their
  * `GlobalConfigFile`-taking constructors.
  *

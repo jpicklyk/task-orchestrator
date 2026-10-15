@@ -60,17 +60,4 @@ class ServerCompositionTest {
             "tool context shares the effective (raw) provider when API is disabled",
         )
     }
-
-    @Test
-    fun `actor auth disabled by default (noop verifier)`() {
-        val composition =
-            ServerComposition(
-                appConfig = disabledApiConfig(),
-                databaseManager = db.databaseManager,
-                shutdownCoordinator = ShutdownCoordinator(),
-            ).build()
-
-        // With no actor_authentication config present, the verifier is noop → actorAuthEnabled=false.
-        assertTrue(!composition.actorAuthEnabled, "actor auth is off by default")
-    }
 }

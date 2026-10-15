@@ -48,12 +48,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   otherwise the parsed trigger->label map. A value of `null` for a given trigger key means
  *   "explicitly clear this trigger's label" — only an absent KEY in this map falls through to
  *   another layer.
- * @property actorAuthenticationSection the raw YAML value of the top-level `actor_authentication`
- *   key (a map, a scalar, or `null` for an explicit `actor_authentication: null`), or `null` when
- *   the key is entirely absent. Carried as raw YAML rather than a typed shape so this document
- *   doesn't need to duplicate `YamlActorAuthenticationConfigService`'s validation rules — the
- *   service that reads this field still owns parsing it into an
- *   [io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig].
  * @property presentSections the top-level keys of the document, in document order (a
  *   `LinkedHashSet`), untransformed.
  * @property traitSeats per-trait `seats:` lists (A1a); a trait with no `seats:` key at all is
@@ -81,7 +75,6 @@ data class ConfigDocument(
     val noteLimitsMode: String? = null,
     val independence: IndependencePolicy? = null,
     val statusLabels: Map<String, String?>? = null,
-    val actorAuthenticationSection: Any? = null,
     val presentSections: Set<String> = emptySet(),
     val warnings: List<String> = emptyList(),
     val errors: List<ConfigViolation> = emptyList(),

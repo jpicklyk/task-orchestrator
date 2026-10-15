@@ -1,11 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 
 /**
- * What [JwtVerifier] enforces on a token. One policy per verifier; the two production shapes are
- * [forActor] (MCP actor claims) and [forApi] (REST bearer JWTs).
+ * What [JwtVerifier] enforces on a token. The production shape is [forApi] (REST bearer JWTs).
  *
  * @param algorithms Signing-algorithm allowlist; empty accepts any algorithm the key supports.
  * @param issuer Expected `iss`; null falls back to the issuer the key provider discovered via OIDC,
@@ -28,19 +26,6 @@ data class JwtPolicy(
     val jtiReplay: Boolean,
 ) {
     companion object {
-        /** Policy for MCP actor proofs. `require_sub_match` is the caller's `expectedSubject`, not a policy field. */
-        fun forActor(c: VerifierConfig.Jwks): JwtPolicy =
-            JwtPolicy(
-                algorithms = c.algorithms,
-                issuer = c.issuer,
-                audience = c.audience,
-                maxTokenLifetimeSeconds = c.maxTokenLifetimeSeconds,
-                requireSub = false,
-                didBinding = c.didAllowlist.isNotEmpty() || c.didPattern != null,
-                didLooseKidMatch = c.didLooseKidMatch,
-                jtiReplay = c.jtiReplayProtection,
-            )
-
         /** Policy for REST bearer JWTs: `sub` names the principal, so it is required. */
         fun forApi(c: ApiAuthConfig.Jwks): JwtPolicy =
             JwtPolicy(

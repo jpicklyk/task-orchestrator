@@ -342,7 +342,6 @@ class FailClosedConfigTest {
             allowQueryToken = false,
             serverName = "fail-closed",
             serverVersion = "1.0.0",
-            actorAuthEnabled = composition.actorAuthEnabled,
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             appConfig = AppConfig.fromEnv(),

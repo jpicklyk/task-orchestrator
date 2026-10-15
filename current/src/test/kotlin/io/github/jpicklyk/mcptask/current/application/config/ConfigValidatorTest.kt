@@ -145,13 +145,6 @@ class ConfigValidatorTest {
     }
 
     @Test
-    fun `S5 a ROOT document with an actor_authentication section is rejected at that key`() {
-        val result = validate("actor_authentication:\n  mode: jwks\n" + StrictConfigCases.VALID_ROOT_YAML)
-
-        assertTrue("/actor_authentication" in result.errorPaths(), "errors: ${result.errors}")
-    }
-
-    @Test
     fun `S5 the same resources section is admitted at SERVER scope - the ROOT rejection is scope-driven`() {
         val result = validate("resources:\n  db-cred:\n    description: \"shared\"\n", ConfigScope.SERVER)
 
