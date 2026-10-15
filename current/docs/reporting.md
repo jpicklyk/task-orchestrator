@@ -48,7 +48,7 @@ A number in a report is only as good as its basis. These are the ones to know.
   from the raw table (`raw`). Anything longer, or any window that starts before pruned days, is read from the per-day
   summaries plus the raw tail (`daily`). On the daily basis `since` is floored to its UTC midnight, and an `until` that
   ends inside already-folded days is ceiled to the next midnight, so the echoed window may be wider than the one you
-  asked for. `groupBy: principal` needs the raw table and is `invalid_request` when the window needs the daily basis.
+  asked for. `groupBy: principalKind` groups by the credential's kind (`human`, `agent` or `service`; the local principal is `agent`); rows logged before the kind was recorded keep `external` and are not backfilled, so a window across that upgrade shows an `external` group beside the real kinds. `groupBy: principal` needs the raw table and is `invalid_request` when the window needs the daily basis.
   The other selects (`gates`, `contention` and `waste`) read events or the raw call log and always report `basis: raw`; `rollup` carries no `window.basis`.
 - **`cost.basis` on a rollup: `targets` or `run`.** An anchor rollup counts the calls that name a subtree item or that
   wrote one of the subtree's events (`targets`). A run rollup counts the calls stamped with the run id (`run`). Both

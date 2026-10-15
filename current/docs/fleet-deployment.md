@@ -332,7 +332,7 @@ matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v
 
 On every row, MCP and REST alike, the `principal_id` column holds the audited id of the call's transport principal:
 `api:<id>` for a credential, the bare `local` for stdio and the local modes, and never client text (a row for a call
-that had no principal holds none). `proof_status` records the proof behind that principal. `principal_kind` does not record the caller's kind: today it is always `external` on a row that has a principal (the audit claim's kind). That is a known limitation, and a server fix to record the credential's kind is tracked.
+that had no principal holds none). `proof_status` records the proof behind that principal. `principal_kind` records the credential's principal kind (`human`, `agent` or `service`); the local principal of an unauthenticated or local-mode server records `agent`. Rows written before this fix keep `external` (the audit claim's kind) and are not backfilled, so a window spanning the upgrade shows both.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
@@ -1231,7 +1231,7 @@ Fleet operators should treat the missing metrics endpoint as a known gap when pl
 | Per-root claim breakdown | `items_read` `overview` -> `claimSummary` per root item |
 | Stalled items (missing required notes) | `items_read` `context` (health view) -> `stalled` |
 | Recent role transitions | `items_read` select `history` (`since`/`until`, optional `itemId`) |
-| Tool usage, errors, latency and tokens | `report` select `usage` (`groupBy` tool, operation, host, surface, principalKind (currently always `external`, see Call log), errorCode, day, principal) |
+| Tool usage, errors, latency and tokens | `report` select `usage` (`groupBy` tool, operation, host, surface, principalKind (`human`, `agent` or `service`; pre-fix rows read `external`, see Call log), errorCode, day, principal) |
 | Gate rejections by note, type or trait | `report` select `gates` |
 | Claim and lease contention, expiry and force-release rates | `report` select `contention` |
 | Call-pattern waste | `report` select `waste` |

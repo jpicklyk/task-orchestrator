@@ -222,6 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fixed: `call_log.principal_kind` records the credential's principal kind.** The column held the audit claim's kind, always `external`, so `report` select `usage` `groupBy: principalKind` returned one group. It now holds `human`, `agent` or `service` on MCP and REST (the local principal records `agent`). Rows written earlier keep `external` and are not backfilled; note and event actor kinds are unchanged.
 - **Fixed: items are created and reparented through one placement pipeline.** Creating and reparenting items runs the same placement validation (`ItemCommandService`) on every surface, and the reparent cycle check fails closed when an ancestor lookup errors.
 - **Fixed: subtree delete, reparent and complete scale past the SQLite variable limit.** Id lists are chunked, and a subtree delete runs in bulk by traversal level; SSE delete events are emitted per traversal level.
 - **Fixed: stale readiness marker cleared at startup.** The `READINESS_FILE` marker left by a crashed run is removed before DB init, so the Docker health check cannot report ready before startup succeeds.

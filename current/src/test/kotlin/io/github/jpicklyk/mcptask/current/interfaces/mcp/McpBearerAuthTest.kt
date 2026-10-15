@@ -405,7 +405,7 @@ class McpBearerAuthTest {
                 runBlocking { f.writer.flushNow() }
                 val row = CallLogRows.forTool(db.jdbcUrl, "items_write").single()
                 assertEquals("api:alice", row["principal_id"], "call_log carries the api principal (D2)")
-                assertEquals("external", row["principal_kind"], "every transport principal is audited as kind external (D2)")
+                assertEquals("agent", row["principal_kind"], "the call log records the credential's principal kind")
                 assertEquals(session, row["session_id"], "call_log carries the Mcp-Session-Id")
                 assertEquals("mcp-auth-client", row["host"], "host is clientInfo.name")
             }
