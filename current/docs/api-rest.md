@@ -955,7 +955,9 @@ seat assignments of one run, oldest first: active ones, or every one with `ended
 `itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
 endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
 or the bound principal) and `frontier` (`{runId, status, stalled, counts, ready, inFlight, waiting}`: the ready members,
-the active member seats with their stalled flag and the waiting members with a reason, `manual` or `dependency`; item
+the active member seats with their stalled flag and the waiting members with a reason (`manual`, `dependency`,
+`awaiting_decision` or `resource`; a blocked member reports its typed blocked reason, and an `awaiting_decision` one
+also its full `decisionId`); item
 ids are 8-hex short ids; members and blockers outside the token's scope are left out; also served on
 `/ops/director/runs_read`). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
 `end_seat`, each needing `runs`. A run is as visible as its root:
@@ -1005,8 +1007,24 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
+**Typed blocked reason.** `advance` `transition` takes `reason` (`awaiting_decision`, `dependency`, `resource` or
+`manual`) and `decisionId` on the `block` and `hold` triggers only (anything else is `invalid_request` on
+`/reason` or `/decisionId`). `reason` defaults to `manual`; `decisionId` goes with, and only with,
+`awaiting_decision`, and must name a pending (open or acknowledged) decision about the same item (`invalid_request` on
+`/decisionId` otherwise: absent, another item's, answered or withdrawn). `resume`, `cancel` and `complete_tree`
+clear both. A blocked item before V37 has no stored reason and reads as `manual`. The reason shows as
+`blockedReason` (and `decisionId`) on `items_read` `get` and the `context` item, as `reason` / `decisionId` on
+`blocked` entries and the `context` health blocked list, and as `blockedByReason` (zero counts omitted, NULL counted
+as `manual`) beside every `childCounts` of `overview`. An `awaiting_decision` `blocked` entry also carries
+`resumable`: `true` once the decision is answered, withdrawn or gone, `false` while it is pending. Answering a
+decision never resumes the item. The `item.transitioned` row of a transition into blocked adds `blockedReason` and
+`decisionId` to its payload (SSE `item.advanced` and `history` are unchanged). `runs_write` `raise` with
+`block: true` also blocks the item (`itemId` or the token's item) as `awaiting_decision` in the same unit: a refused
+block refuses the raise, a replay does not block twice, an already-answered decision does not block, and the result adds
+`blocked`.
+
 **Decisions.** `runs_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
-rootId?, severity?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
+rootId?, severity?, block?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
 required (under a seat token an absent `runId` / `itemId` defaults to the token's); the root is the item's, else the
 run's, else `rootId` (a root item), and they must agree (`invalid_request` on `/itemId` or `/rootId`); an item without a
 lifecycle is `invalid_request` on `/itemId`. `class` names a decision class: the built-ins are `question` (any-actor,
