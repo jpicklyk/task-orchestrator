@@ -223,13 +223,14 @@ object StartupIntegrity {
     }
 
     /**
-     * WARN-only: items whose `properties` still holds a `traits` key. Traits live in `item_traits` since V27, so these
-     * are rows the `traits-from-properties` data step could not migrate (it names them when it runs).
+     * WARN-only: items whose `properties` still holds a `traits` key (traits live in `item_traits` since V27). Runs before
+     * the data steps, so on the first 4.0 boot these rows are expected and the `traits-from-properties` step migrates them
+     * right after; on any later boot they are rows that step could not migrate (it names them when it runs).
      */
     fun reportTraitsResidue(connection: Connection) {
         report(
             connection,
-            "work items whose properties still hold a traits key (the traits-from-properties data step left them untouched)",
+            "work items whose properties still hold a traits key (expected on the first 4.0 start: the traits-from-properties data step migrates them next)",
             "SELECT lower(hex(id)) AS ident FROM work_items WHERE json_valid(properties) AND json_type(properties, '\$.traits') IS NOT NULL"
         )
     }
