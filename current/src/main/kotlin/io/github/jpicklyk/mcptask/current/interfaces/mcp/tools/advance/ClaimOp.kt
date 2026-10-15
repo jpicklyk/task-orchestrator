@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.api.advance.SelectOrder
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
@@ -52,7 +53,8 @@ internal val claimOp =
         doc =
             "Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). " +
                 "Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false " +
-                "and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.",
+                "and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs. Taking over another " +
+                "holder's lapsed claim adds displaced {assignmentId?, expiredAt, principal?}.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         request = serializer<ClaimRequest>(),
@@ -90,14 +92,18 @@ private suspend fun WriteScope.runClaim(
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }
-        return claimItem(env, id, holder, req, selected = false)
+        return claimItem(env, ctx, id, holder, req, selected = false)
     }
     return claimBySelector(env, ctx, holder, req, checkNotNull(req.select))
 }
 
-/** Claims [id] for [holder]; `refreshed` when [holder] already held it. */
+/**
+ * Claims [id] for [holder]; `refreshed` when [holder] already held it, `displaced` when the claim took over another
+ * holder pair's lapsed claim (its principal only when the caller may see principals).
+ */
 internal suspend fun WriteScope.claimItem(
     env: ToolExecutionContext,
+    ctx: CallContext,
     id: UUID,
     holder: ClaimHolder,
     req: ClaimRequest,
@@ -117,7 +123,9 @@ internal suspend fun WriteScope.claimItem(
                     result.releasedItemIds,
                     refreshed = before?.let(holder::holds) == true,
                     selected = selected,
-                    claimRef = req.claimRef
+                    claimRef = req.claimRef,
+                    displaced = result.displaced,
+                    principalsVisible = ctx.principalsVisible
                 )
             )
         is ClaimResult.AlreadyClaimed -> Outcome.Err(AdvanceSupport.claimHeld(result))
@@ -162,7 +170,7 @@ private suspend fun WriteScope.claimBySelector(
         chosen = candidate
         break
     }
-    if (chosen != null) return claimItem(env, chosen.id, holder, req, selected = true)
+    if (chosen != null) return claimItem(env, ctx, chosen.id, holder, req, selected = true)
 
     val base =
         if (candidates.isEmpty()) {
@@ -228,16 +236,20 @@ private fun order(order: SelectOrder): NextItemOrder =
     }
 
 /**
- * `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?}`.
- * `version` is the item row version read back after the claim (claim writes never bump it); `released` lists the
- * other items the claim auto-released, in store order, and is omitted when there are none.
+ * `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?,
+ * displaced?}`. `version` is the item row version read back after the claim (claim writes never bump it); `released`
+ * lists the other items the claim auto-released, in store order, and is omitted when there are none. `displaced`
+ * (`{assignmentId?, expiredAt, principal?}`) names the lapsed claim of another holder pair the claim took over;
+ * `principal` only when [principalsVisible].
  */
 internal fun claimedElement(
     item: WorkItem,
     released: List<UUID>,
     refreshed: Boolean,
     selected: Boolean,
-    claimRef: String?
+    claimRef: String?,
+    displaced: DisplacedClaim? = null,
+    principalsVisible: Boolean = false
 ): JsonObject =
     buildJsonObject {
         put("itemId", item.id.toString())
@@ -250,6 +262,16 @@ internal fun claimedElement(
         if (refreshed) put("refreshed", true)
         if (selected) put("selected", true)
         claimRef?.let { put("claimRef", it) }
+        displaced?.let { d ->
+            put(
+                "displaced",
+                buildJsonObject {
+                    d.assignmentId?.let { put("assignmentId", it.toString()) }
+                    put("expiredAt", d.expiredAt.toString())
+                    if (principalsVisible) put("principal", d.principalId)
+                }
+            )
+        }
     }
 
 /** A selector that claimed nothing: `{claimed: false, reason?, retryAfterMs?, excluded?, claimRef?}`. */

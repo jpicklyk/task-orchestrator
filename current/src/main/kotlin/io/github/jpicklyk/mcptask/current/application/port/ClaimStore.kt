@@ -7,6 +7,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Instant
 import java.util.UUID
 
+/** A lapsed claim another holder took over: its holder pair and the instant its TTL ran out. */
+data class DisplacedClaim(
+    val principalId: String,
+    val assignmentId: UUID?,
+    val expiredAt: Instant
+)
+
 /**
  * Sealed result type for [WorkItemRepository.claim] operations.
  *
@@ -31,7 +38,12 @@ sealed class ClaimResult {
          * event-publishing callers can emit `item.updated` for each evicted item. Defaulted so the
          * many existing call sites that construct [Success] without this field keep compiling.
          */
-        val releasedItemIds: List<UUID> = emptyList()
+        val releasedItemIds: List<UUID> = emptyList(),
+        /**
+         * The lapsed claim of a DIFFERENT holder pair this claim took over (R25, AR-84 residual 1); null when the item
+         * was unclaimed, actively held by the caller, or held by the caller's own lapsed claim. Set by `ClaimService`.
+         */
+        val displaced: DisplacedClaim? = null
     ) : ClaimResult()
 
     data class AlreadyClaimed(

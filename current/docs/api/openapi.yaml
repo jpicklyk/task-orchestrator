@@ -870,7 +870,11 @@ paths:
         The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
         removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
         `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
-        Claim ownership and resource leases are enforced on this route exactly as on MCP.
+        Claim ownership and resource leases are enforced on this route exactly as on MCP. A `claim` that takes
+        an item over another holder pair's lapsed claim adds `displaced: {assignmentId?, expiredAt, principal?}`
+        to its result (`principal` only for a caller that may see principals) and records the table-only
+        `claim.expired` row with `reason: "displaced"` and `displacedBy` (the new holder's assignment id, or
+        null); a claim.expired row found by a sweep or advance carries `reason: "expired"`.
 
         `items_write` ops are `create`, `update`, `delete`, and `create_tree`, `complete_tree` and `repin`
         (orchestration profile only). `repin` (`{op: "repin", id, expectedVersion?}`, `write-items` capability)

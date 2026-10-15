@@ -1231,7 +1231,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 | Op | Result element (on top of `ok: true`) |
 |---|---|
 | `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
-| `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?}` |
+| `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
 | `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
 
@@ -1261,7 +1261,12 @@ must take over a claimed item waits out the claim TTL.
 
 **Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor) and listed in
 `released` (omitted when none). `version` is the item's row version (claim writes never bump it). The holder claiming
-again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
+again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). A claim that takes the item over the lapsed claim of a
+different holder pair (principal, assignment) reports `displaced: {assignmentId?, expiredAt, principal?}`: the displaced seat
+assignment (omitted for a principal-level holder), when its claim expired, and its principal only for a caller that may see
+principals (ADMIN, outside a seat token). The same unit records that claim's one `claim.expired` row with `reason: "displaced"` and
+`displacedBy` (the new holder's assignment id, or null), unless an expiry sweep or advance already recorded it (`reason:
+"expired"`). Claiming an unclaimed item, or re-claiming the caller's own lapsed claim, reports no `displaced`. `heartbeat` is the same refresh but never takes an item:
 it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). For claim, release and
 heartbeat the holder id is the principal's audited id (`api:<id>` for a credential, `local` for the local principal); no policy can reject it. The holder's identity never appears in any error detail.
 
@@ -1335,7 +1340,7 @@ Move items through their phases and manage who owns them. Each ops[] element has
 
 Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.
+**`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs. Taking over another holder's lapsed claim adds displaced {assignmentId?, expiredAt, principal?}.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2032,7 +2037,9 @@ member seats (never the coordinator) and `stalledSeats` those of them that are s
 
 **Stalled.** One rule for seats and the coordinator: stalled when the time since last seen is strictly longer than the
 run's own `stallAfterSeconds` (pinned at open; never re-read from config), compared exactly. A seat is last seen at its
-`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. A closed run is
+`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. Only a write tool
+called with the seat's token (an `advance` `heartbeat` included) refreshes them; a read, or a `describe: true` call on any
+tool, never does. A closed run is
 never stalled. Stalled is a derived view only: nothing is ended, released or raised.
 
 **Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, ready:
