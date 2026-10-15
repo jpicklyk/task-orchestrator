@@ -15,6 +15,8 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.LeaseFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.OwnershipFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RequiredNote
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -43,6 +45,21 @@ data class OwnershipInput(
     companion object {
         /** Ownership not enforced (system cascades, REST, previews). */
         val NONE: OwnershipInput = OwnershipInput(enforced = false, callerId = null)
+    }
+}
+
+/**
+ * Seat-enforcement input to [TransitionSnapshotLoader.load] (R23): whether the SEAT gate is enforced for this evaluation
+ * and who the [caller] is. [NONE] (not enforced) for every evaluation without a caller: previews, cascades and
+ * structural follow-ups.
+ */
+data class SeatInput(
+    val enforced: Boolean,
+    val caller: SeatCaller
+) {
+    companion object {
+        /** Seats not enforced (system cascades, previews). */
+        val NONE: SeatInput = SeatInput(enforced = false, caller = SeatCaller.NONE)
     }
 }
 
@@ -84,7 +101,9 @@ internal data class LoadedSnapshot(
  * Reads only what the trigger can need: notes and independence only when the trigger's note gate applies,
  * a schema matched and the table resolves a target; child counts only for a complete cascade; blockers only when the table target is
  * WORK, REVIEW or TERMINAL (and the trigger is not `cancel`); requirements and leases only when the lease
- * input is enforced and the target is WORK (zero lease-store reads when no exclusive key is declared).
+ * input is enforced and the target is WORK (zero lease-store reads when no exclusive key is declared); the item's open
+ * run ([openRunResolver]) only when the seat input is enforced for a non-human caller, the trigger is a user trigger and
+ * the resolved (pin-aware) schema is seat-aware.
  */
 class TransitionSnapshotLoader(
     private val workItemRepository: WorkItemRepository,
@@ -93,7 +112,9 @@ class TransitionSnapshotLoader(
     private val resourceLeaseRepository: LeaseStore?,
     private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
-    private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT }
+    private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT },
+    /** The not-closed run the item is a member of, or null (a provider that serves no runs resolves none). */
+    private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
     /** The snapshot for [item] under [trigger]. */
     suspend fun load(
@@ -101,15 +122,17 @@ class TransitionSnapshotLoader(
         item: WorkItem,
         trigger: Trigger,
         ownership: OwnershipInput,
-        leases: LeaseInput
-    ): TransitionSnapshot = loadDetailed(scope, item, trigger, ownership, leases).snapshot
+        leases: LeaseInput,
+        seat: SeatInput = SeatInput.NONE
+    ): TransitionSnapshot = loadDetailed(scope, item, trigger, ownership, leases, seat).snapshot
 
     internal suspend fun loadDetailed(
         scope: ReadScope,
         item: WorkItem,
         trigger: Trigger,
         ownership: OwnershipInput,
-        leases: LeaseInput
+        leases: LeaseInput,
+        seat: SeatInput = SeatInput.NONE
     ): LoadedSnapshot {
         val schema = schemaResolver(item)
         val schemaFacts = SchemaFacts.of(schema)
@@ -186,6 +209,15 @@ class TransitionSnapshotLoader(
             }
         }
 
+        // The open run is read only when the SEAT gate can act: an enforced non-human caller, a user trigger and a
+        // seat-aware schema. Every other evaluation reads nothing more.
+        val seatFacts =
+            if (seat.enforced && !seat.caller.human && trigger is Trigger.User && schema != null && schema.isSeatAware()) {
+                SeatFacts(enforced = true, openRunId = openRunResolver(item.id), seats = schema.seats, caller = seat.caller)
+            } else {
+                SeatFacts.NONE
+            }
+
         val snapshot =
             TransitionSnapshot(
                 item = ItemFacts(item.id, item.role, item.previousRole, item.parentId),
@@ -196,7 +228,8 @@ class TransitionSnapshotLoader(
                 children = children,
                 blockers = blockers,
                 ownership = ownershipFacts,
-                lease = leaseFacts
+                lease = leaseFacts,
+                seat = seatFacts
             )
         return LoadedSnapshot(snapshot, schema, requirements, notes)
     }

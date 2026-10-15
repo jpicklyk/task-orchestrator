@@ -117,11 +117,13 @@ class NoteOwnershipTest {
 
     private fun refusingSeatRule(ownerSeat: String) =
         SeatRule { item, k, _, _ ->
-            DomainError(
-                ErrorCode.NOTE_OWNED_BY_OTHER,
-                "A seat owns this note.",
-                ErrorDetail.NoteOwnedByOther(item, k, ownerSeat),
-                mapOf("itemId" to item.toString(), "key" to k)
+            SeatVerdict.Refuse(
+                DomainError(
+                    ErrorCode.NOTE_OWNED_BY_OTHER,
+                    "A seat owns this note.",
+                    ErrorDetail.NoteOwnedByOther(item, k, ownerSeat),
+                    mapOf("itemId" to item.toString(), "key" to k)
+                )
             )
         }
 
@@ -411,7 +413,7 @@ class NoteOwnershipTest {
         val spy =
             SeatRule { item, k, existing, callerSeat ->
                 seen = listOf(item, k, existing, callerSeat)
-                null
+                SeatVerdict.Defer
             }
         val existing = noteOwnedBy(ownerId)
 
@@ -421,9 +423,19 @@ class NoteOwnershipTest {
     }
 
     @Test
-    fun `S10 SeatRule NONE never refuses`() {
-        assertEquals(null, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
-        assertEquals(null, SeatRule.NONE.check(itemId, key, null, null))
+    fun `S10 SeatRule NONE defers and never refuses or allows`() {
+        assertEquals<SeatVerdict>(SeatVerdict.Defer, SeatRule.NONE.check(itemId, key, noteOwnedBy(ownerId), "implementer"))
+        assertEquals<SeatVerdict>(SeatVerdict.Defer, SeatRule.NONE.check(itemId, key, null, null))
+    }
+
+    @Test
+    fun `R1 an Allow verdict is decisive - the owner compare is not consulted for a non-owner and nothing transfers`() {
+        val allow = SeatRule { _, _, _, _ -> SeatVerdict.Allow }
+        val defer = SeatRule { _, _, _, _ -> SeatVerdict.Defer }
+
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId), seatRule = allow).assertAllowed("Allow admits a non-owner without a transfer")
+        // control: Defer on the same call leaves rule 3 in charge, so the admission above is the verdict and not the fixture
+        decide(noteOwnedBy(ownerId), ClaimHolder(otherId), seatRule = defer).assertOwnedByOther(label = "Defer")
     }
 
     @Test

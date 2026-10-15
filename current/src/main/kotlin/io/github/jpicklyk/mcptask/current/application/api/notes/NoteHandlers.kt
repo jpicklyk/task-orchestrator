@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
@@ -23,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -158,7 +160,8 @@ object NoteHandlers {
                         expectedVersion = expected,
                         takeover = req.takeover == true,
                         takeoverAllowed = ctx.takeoverAllowed,
-                        callerSeat = ctx.seat?.seat
+                        callerSeat = ctx.seat?.seat,
+                        seatCaller = SeatCaller.of(ctx)
                     )
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -203,7 +206,7 @@ object NoteHandlers {
         val caller = caller(ctx)
         val deleted =
             try {
-                env.noteCommandService.delete(itemId, req.key, expected, caller, ctx.seat?.seat)
+                env.noteCommandService.delete(itemId, req.key, expected, caller, ctx.seat?.seat, SeatCaller.of(ctx))
             } catch (e: PerRootConfigUnavailableException) {
                 // Resolving the item's schema (the key's `shared` flag) failed with no last-known-good config: nothing was deleted.
                 return Outcome.Err(

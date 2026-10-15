@@ -1333,7 +1333,7 @@ Move items through their phases and manage who owns them. Each ops[] element has
 | `summary` | string | no | Optional human-readable summary recorded on the transition. |
 | `credentialRefs` | array of string | no | Audit labels of the credentials this transition consumed (opaque labels, never secret values): at most 8, each 1 to 128 characters matching ^[a-z0-9][a-z0-9\-_./]*$. |
 
-Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `unauthenticated`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs.
 
@@ -2086,7 +2086,7 @@ first, so a permission refusal never reveals whether an out-of-scope run exists.
 <!-- generated:tool runs_write -->
 Open, update, close, pause, resume and mark runs; assign and end seats. Each op needs the runs capability and a run whose root is in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked).
 
-**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown once): pass it as the top-level seatToken to update, assign and close.
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2156,7 +2156,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once and every call made under the seat passes it as the top-level seatToken.
+**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2292,7 +2292,7 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `cycle_detected` | permanent | 409 | `path`: array of string (UUID) |
 | `claim_held` | transient | 409 | `itemId`: string (UUID); `expiresAt`: string (ISO-8601 instant); `retryAfterMs`: integer |
 | `not_claim_holder` | permanent | 403 | `itemId`: string (UUID) |
-| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string; `action`: string; `allowedSeats`: array of string |
+| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string, omitted without a token; `action`: string; `allowedSeats`: array of string |
 | `note_owned_by_other` | permanent | 403 | `itemId`: string (UUID); `key`: string; `ownerSeat`: string, optional |
 | `note_too_long` | permanent | 413 | `key`: string; `max`: integer; `actual`: integer |
 | `resource_unavailable` | transient | 409 | `itemId`: string (UUID); `resources`: array of {name: string, mode: string}; `retryAfterMs`: integer, optional |

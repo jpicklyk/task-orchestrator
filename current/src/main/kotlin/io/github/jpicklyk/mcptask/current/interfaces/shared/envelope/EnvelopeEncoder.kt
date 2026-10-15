@@ -257,7 +257,8 @@ object EnvelopeEncoder {
                 is ErrorDetail.NotClaimHolder -> put("itemId", detail.itemId.toString())
                 is ErrorDetail.SeatForbidden -> {
                     put("itemId", detail.itemId.toString())
-                    put("seat", detail.seat)
+                    // Omitted when the caller carries no seat token (absent members are omitted, never null).
+                    detail.seat?.let { put("seat", it) }
                     put("action", detail.action)
                     put("allowedSeats", strings(detail.allowedSeats))
                 }

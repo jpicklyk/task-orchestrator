@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -428,7 +429,235 @@ internal object NotesParityCatalog {
             )
         )
 
-    val cases: List<NotesParityCase> = happy + scopeForbidden + other
+    // R23 (item 9536cf09): rule 2 of note ownership inside an open run, on both transports. The tree is R1 > C1, C1 a member of an
+    // open run of R1 under a per-root seat-aware `default` schema (seats builder, checker, orchestrator; keys
+    // build-notes / check-notes / orch-notes owned by their seat, free-notes by none). The builder and checker seats of C1 are
+    // held by the principal `np-writer`, which is also the run's opener (so its coordinator token is `parityCoordinatorToken`).
+    // Oracles: the plan 4.1 R23 table and 3.4d, the frozen task-scope decisions D8-D10: a seat writes its own and unowned keys,
+    // the coordinator the orchestrator's and unowned keys, a token-less agent only unowned keys, a human anything; another
+    // seat's key is `note_owned_by_other{itemId, key, ownerSeat}` even with `takeover`; a refusal writes nothing.
+    private val seatRun: UUID = UUID.fromString("b4444444-4444-4444-8444-444444444444")
+    private val builderToken = "n".repeat(43)
+    private val checkerToken = "m".repeat(43)
+
+    private const val SEAT_NOTES_YAML = """
+work_item_schemas:
+  default:
+    seats:
+      - { name: builder, phase: work, enters: true }
+      - { name: checker, phase: work }
+      - { name: orchestrator, phase: work }
+    notes:
+      - key: build-notes
+        role: work
+        required: false
+        seat: builder
+      - key: check-notes
+        role: work
+        required: false
+        seat: checker
+      - key: orch-notes
+        role: work
+        required: false
+        seat: orchestrator
+"""
+
+    private val seatTree: suspend ParitySeeder.() -> Unit = {
+        item(r1, "Alpha root", tags = "alpha")
+        item(c1, "Alpha child", parent = r1, tags = "seat-task")
+        item(r2, "Beta root", tags = "beta")
+        config(r1, SEAT_NOTES_YAML)
+        run(seatRun, r1, listOf(c1), openedBy = "api:np-writer", openedByKind = "agent")
+        seat(seatRun, c1, "builder", principalId = "api:np-writer", token = builderToken)
+        seat(seatRun, c1, "checker", principalId = "api:np-writer", token = checkerToken)
+    }
+
+    private val human = ParityToken("np-human", setOf(ApiCapability.READ, ApiCapability.WRITE_NOTES), kind = PrincipalKind.HUMAN)
+
+    /** A legacy note (no owner) on a seat-owned key: rule 3 alone would allow any caller, so a refusal is rule 2. */
+    private val unownedBuild = SeedNote(note1, c1, "build-notes", "work", "legacy build")
+    private val unownedFree = SeedNote(note2, c1, "free-notes", "work", "legacy free")
+    private val unownedOrch = SeedNote(note3, c1, "orch-notes", "work", "legacy orchestrator")
+    private val unownedCheck = SeedNote(UUID.fromString("b5555555-5555-4555-8555-555555555555"), c1, "check-notes", "work", "legacy check")
+
+    private fun seatUpsert(
+        key: String,
+        extra: String = ""
+    ) = """{"op":"upsert","itemId":"$c1","key":"$key","role":"work","body":"text"$extra}"""
+
+    private fun seatCase(
+        name: String,
+        tool: String,
+        member: String,
+        token: ParityToken,
+        element: String,
+        status: Int,
+        seatToken: String? = null,
+        notes: List<SeedNote> = emptyList(),
+        code: String? = null,
+        contains: List<String> = emptyList(),
+        absent: List<String> = emptyList(),
+        changed: Boolean,
+        top: String = ""
+    ) = NotesParityCase(
+        ParityScenario(
+            name,
+            tool,
+            member,
+            ParityKind.OTHER,
+            token,
+            """{"ops":[$element]${if (seatToken != null) ""","seatToken":"$seatToken"""" else ""}$top}""",
+            status,
+            code,
+            contains,
+            absent,
+            changed,
+            seatTree
+        ),
+        notes
+    )
+
+    private fun refusedOwnedBy(
+        key: String,
+        ownerSeat: String
+    ) = listOf("\"code\":\"note_owned_by_other\"", "\"itemId\":\"$c1\"", "\"key\":\"$key\"", "\"ownerSeat\":\"$ownerSeat\"")
+
+    val seatCases =
+        listOf(
+            seatCase(
+                "notes_write upsert R23 the builder token writes its own key",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("build-notes"),
+                200,
+                seatToken = builderToken,
+                notes = listOf(unownedBuild),
+                contains = listOf("\"version\":2", "\"id\":\"$note1\""),
+                absent = listOf(builderToken),
+                changed = true
+            ),
+            seatCase(
+                "notes_write upsert R23 the builder token writes an unowned key",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("free-notes"),
+                200,
+                seatToken = builderToken,
+                notes = listOf(unownedFree),
+                contains = listOf("\"version\":2", "\"id\":\"$note2\""),
+                changed = true
+            ),
+            seatCase(
+                "notes_write upsert R23 the builder token on the checker's key is note_owned_by_other on a first write",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("check-notes"),
+                207,
+                seatToken = builderToken,
+                code = "partial_failure",
+                contains = refusedOwnedBy("check-notes", "checker"),
+                absent = listOf("\"version\":1", builderToken),
+                changed = false
+            ),
+            seatCase(
+                "notes_write upsert R23 a token-less agent on a seat key is note_owned_by_other",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("build-notes"),
+                207,
+                code = "partial_failure",
+                contains = refusedOwnedBy("build-notes", "builder"),
+                changed = false
+            ),
+            seatCase(
+                "notes_write upsert R23 an ADMIN takeover without a token is refused by rule 2 first",
+                WRITE_TOOL,
+                "upsert",
+                admin,
+                seatUpsert("build-notes", ""","takeover":true"""),
+                207,
+                code = "partial_failure",
+                contains = refusedOwnedBy("build-notes", "builder"),
+                changed = false
+            ),
+            seatCase(
+                "notes_write upsert R23 the coordinator token writes the orchestrator's key",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("orch-notes"),
+                200,
+                seatToken = parityCoordinatorToken(seatRun),
+                notes = listOf(unownedOrch),
+                contains = listOf("\"version\":2", "\"id\":\"$note3\""),
+                changed = true
+            ),
+            seatCase(
+                "notes_write upsert R23 the coordinator token on a seat's key is note_owned_by_other",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("build-notes"),
+                207,
+                seatToken = parityCoordinatorToken(seatRun),
+                code = "partial_failure",
+                contains = refusedOwnedBy("build-notes", "builder"),
+                changed = false
+            ),
+            seatCase(
+                "notes_write upsert R23 a human credential with no token writes a seat key",
+                WRITE_TOOL,
+                "upsert",
+                human,
+                seatUpsert("check-notes"),
+                200,
+                notes = listOf(unownedCheck),
+                contains = listOf("\"version\":2"),
+                changed = true
+            ),
+            seatCase(
+                "notes_write upsert R23 an atomic token-less write on a seat key is the whole-call note_owned_by_other",
+                WRITE_TOOL,
+                "upsert",
+                writer,
+                seatUpsert("build-notes"),
+                403,
+                code = "note_owned_by_other",
+                contains = listOf("\"index\":0", "\"ownerSeat\":\"builder\""),
+                changed = false,
+                top = ""","atomic":true"""
+            ),
+            seatCase(
+                "notes_write delete R23 a token-less agent cannot delete an unowned note on a seat key",
+                WRITE_TOOL,
+                "delete",
+                writer,
+                """{"op":"delete","itemId":"$c1","key":"build-notes"}""",
+                207,
+                notes = listOf(unownedBuild),
+                code = "partial_failure",
+                contains = refusedOwnedBy("build-notes", "builder"),
+                changed = false
+            ),
+            seatCase(
+                "notes_write delete R23 the owner seat's token deletes it",
+                WRITE_TOOL,
+                "delete",
+                writer,
+                """{"op":"delete","itemId":"$c1","key":"build-notes"}""",
+                200,
+                seatToken = builderToken,
+                notes = listOf(unownedBuild),
+                contains = listOf("\"id\":\"$note1\""),
+                changed = true
+            )
+        )
+
+    val cases: List<NotesParityCase> = happy + scopeForbidden + other + seatCases
 
     val scenarios: List<ParityScenario> get() = cases.map { it.scenario }
 
@@ -461,7 +690,9 @@ internal class NotesParityRunner(
         try {
             val rig = EventLogRig.build(db, dir, clock = PARITY_CLOCK)
             runBlocking {
-                case.scenario.seed(ParitySeeder(db.repositoryProvider().workItemRepository()))
+                // R23: the full seeder (config, runs and seats are seeded through the undecorated provider, as ParityHarness does)
+                val provider = db.repositoryProvider()
+                case.scenario.seed(ParitySeeder(provider.workItemRepository(), provider.dependencyRepository(), provider, db.unitOfWork()))
                 val notes = db.repositoryProvider().noteRepository()
                 for (n in case.notes) {
                     notes.upsert(
@@ -651,6 +882,11 @@ class NotesParityTest {
     @Test
     fun `S21 not found, ifVersion, paging, capability, conflict and atomic scenarios agree across MCP and REST`() {
         for (case in NotesParityCatalog.other) runner.run(case)
+    }
+
+    @Test
+    fun `R23 seat tokens agree across MCP and REST on rule 2 of note ownership and leave equal databases`() {
+        for (case in NotesParityCatalog.seatCases) runner.run(case)
     }
 
     @Test

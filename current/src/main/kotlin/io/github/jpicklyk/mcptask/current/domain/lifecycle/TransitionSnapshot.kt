@@ -92,6 +92,7 @@ data class LeaseFacts(
  * @property filledKeys keys of notes with a non-blank body.
  * @property independence null when independence is OFF or no note declares it.
  * @property blockers edges whose blocked side is this item.
+ * @property seat seat-enforcement facts ([SeatFacts.NONE] outside an open run or without a caller).
  */
 data class TransitionSnapshot(
     val item: ItemFacts,
@@ -102,7 +103,8 @@ data class TransitionSnapshot(
     val children: ChildFacts = ChildFacts.NONE,
     val blockers: List<BlockerState> = emptyList(),
     val ownership: OwnershipFacts = OwnershipFacts.NONE,
-    val lease: LeaseFacts = LeaseFacts.NONE
+    val lease: LeaseFacts = LeaseFacts.NONE,
+    val seat: SeatFacts = SeatFacts.NONE
 ) {
     companion object {
         /** The snapshot for a [Trigger.Structural.Create] of a new item [newId] under [parent]. */

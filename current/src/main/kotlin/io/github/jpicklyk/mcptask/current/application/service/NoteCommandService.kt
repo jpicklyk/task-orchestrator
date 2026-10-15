@@ -16,12 +16,14 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import java.util.UUID
 
@@ -62,7 +64,12 @@ data class NoteUpsertCommand(
      * [caller] it is also the ownership pair: a note created or adopted under a token is owned by `(principal, seat)`
      * (notes.owner_seat), and only that pair (or a shared key) may rewrite it.
      */
-    val callerSeat: String? = null
+    val callerSeat: String? = null,
+    /**
+     * Who writes, for ownership rule 2 ([NoteSeatRule], R23): the seat token's seat, run and member item, and whether the
+     * caller is human. Defaults to an agent without a token, refused on every seat-owned key of an item in an open run.
+     */
+    val seatCaller: SeatCaller = SeatCaller.NONE
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -104,11 +111,17 @@ data class NoteWriteResult(
  * principal is the note's own actor claim and verification) and `note.deleted` (cause `explicit`), under the
  * owning item's root ([eventRootOf]). A write called inside an ambient unit joins it.
  * A `PerRootConfigUnavailableException` from the config resolver propagates; it is not an [Outcome].
+ *
+ * Ownership ([NoteOwnership]) runs with rule 2 ([NoteSeatRule]) on upsert and delete: the item's open run is read
+ * through [openRunResolver] inside the unit, only when the resolved schema is seat-aware and the key is seat-owned and
+ * not `shared`. A rule-2 allow ([SeatVerdict.Allow]) is decisive: rule 3 is skipped and the note's owner is kept.
  */
 class NoteCommandService(
     private val repositoryProvider: RepositoryProvider,
     private val configResolver: EffectiveConfigResolver,
-    private val unitOfWork: UnitOfWork
+    private val unitOfWork: UnitOfWork,
+    /** The not-closed run an item is a member of; the default resolves none (rule 2 never refuses). */
+    private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
     private val links = LinkService(repositoryProvider, unitOfWork)
     private val pinService = SchemaPinService(configResolver)
@@ -215,19 +228,21 @@ class NoteCommandService(
                             Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
                         )
                 FenceGuard.check(item, cmd.caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
-                var entry: NoteSchemaEntry? = null
+                var schema: WorkItemSchema? = null
                 val prepared =
                     try {
                         when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
                             is Outcome.Ok -> p.value
                             is Outcome.Err -> return@writeUnit UnitResult.Rollback(p)
-                        }.also { entry = schemaEntryOf(item, cmd.key) }
+                        }.also { schema = configResolver.resolveSchema(item) }
                     } catch (e: PerRootConfigUnavailableException) {
                         configUnavailable = e
                         return@writeUnit UnitResult.Rollback(
                             Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "config unavailable"))
                         )
                     }
+                val entry = schema?.notes?.firstOrNull { it.key == cmd.key }
+                val seatRule = seatRuleFor(item, entry, schema, cmd.seatCaller)
                 val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
                 val decision =
                     when (
@@ -241,6 +256,7 @@ class NoteCommandService(
                                 callerSeat = cmd.callerSeat,
                                 takeover = cmd.takeover,
                                 takeoverAllowed = cmd.takeoverAllowed,
+                                seatRule = seatRule,
                                 ownerSeat = existing?.ownerSeat
                             )
                     ) {
@@ -252,7 +268,12 @@ class NoteCommandService(
                 }
                 // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise. A
                 // takeover is never under a token, so a transfer clears it. The attribution seat (`seat`) is the caller's on
-                // every write, like actor_*.
+                // every write, like actor_*. A write the seat rule allows ([SeatVerdict.Allow]) decides Allowed on an owned
+                // note, so it lands in the `else` row: attribution moves, the owner pair never does (R21 Ruling 9).
+                //   Adopted (owner_id IS NULL, caller non-null) -> (caller, callerSeat)
+                //   Transferred (admin takeover, rule 2 deferred) -> (to, null)
+                //   create (no existing note) -> (caller, callerSeat), or (null, null) without a caller
+                //   otherwise (owner pair, seat-rule allow, shared, null caller on an unowned note) -> kept
                 val ownerId: String?
                 val ownerSeat: String?
                 when {
@@ -317,14 +338,16 @@ class NoteCommandService(
      * claim held by someone other than [caller] is `not_claim_holder` ([FenceGuard]), checked right after the item lookup.
      * A note another actor owns is `note_owned_by_other` ([NoteOwnership], checked after the existence check and before
      * the version compare); a delete never takes ownership over. Resolving the schema (the key's `shared` flag) can throw
-     * [PerRootConfigUnavailableException], which propagates as in [upsert].
+     * [PerRootConfigUnavailableException], which propagates as in [upsert]. Rule 2 ([NoteSeatRule]) applies to a delete
+     * exactly as to an upsert, for [seatCaller].
      */
     suspend fun delete(
         itemId: UUID,
         key: String,
         expectedVersion: Long? = null,
         caller: ClaimHolder?,
-        callerSeat: String? = null
+        callerSeat: String? = null,
+        seatCaller: SeatCaller = SeatCaller.NONE
     ): Outcome<Note> {
         var configUnavailable: PerRootConfigUnavailableException? = null
         val result =
@@ -342,15 +365,16 @@ class NoteCommandService(
                         ?: return@writeUnit UnitResult.Rollback(
                             Outcome.Err(notFound(EntityKind.NOTE, noteRef(itemId, key), "Note '$key' not found on item $itemId"))
                         )
-                val entry =
+                val schema =
                     try {
-                        schemaEntryOf(item, key)
+                        configResolver.resolveSchema(item)
                     } catch (e: PerRootConfigUnavailableException) {
                         configUnavailable = e
                         return@writeUnit UnitResult.Rollback(
                             Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "config unavailable"))
                         )
                     }
+                val entry = schema?.notes?.firstOrNull { it.key == key }
                 NoteOwnership
                     .decide(
                         itemId = itemId,
@@ -361,6 +385,7 @@ class NoteCommandService(
                         callerSeat = callerSeat,
                         takeover = false,
                         takeoverAllowed = false,
+                        seatRule = seatRuleFor(item, entry, schema, seatCaller),
                         ownerSeat = existing.ownerSeat
                     ).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
                 expectedVersion?.let { expected ->
@@ -381,6 +406,24 @@ class NoteCommandService(
         item: WorkItem,
         key: String
     ): NoteSchemaEntry? = configResolver.resolveSchema(item)?.notes?.firstOrNull { it.key == key }
+
+    /**
+     * The rule-2 [SeatRule] of a write of [entry]'s key on [item] by [caller], over the facts read here, in the caller's
+     * unit: [SeatRule.NONE] (no read, always defers) unless [schema] is seat-aware, the key is seat-owned and it is not
+     * `shared`; otherwise the item's open run is read once and captured. A human caller reads the run too: inside an
+     * open run its write is a decisive allow, outside one rule 3 applies.
+     */
+    private suspend fun seatRuleFor(
+        item: WorkItem,
+        entry: NoteSchemaEntry?,
+        schema: WorkItemSchema?,
+        caller: SeatCaller
+    ): SeatRule {
+        val seats = schema?.seats.orEmpty()
+        if (entry?.shared == true || NoteSeatRule.ownerSeatOf(entry, seats) == null) return SeatRule.NONE
+        val openRunId = openRunResolver(item.id) ?: return SeatRule.NONE
+        return SeatRule { id, key, _, _ -> NoteSeatRule.check(id, key, entry, seats, openRunId, caller) }
+    }
 
     /** The `version_conflict` of a write guarded by [expected] against [existing], or null when the guard holds. */
     private fun versionMismatch(
