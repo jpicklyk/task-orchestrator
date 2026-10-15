@@ -71,8 +71,8 @@ import kotlin.test.assertTrue
  * REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
  * (the context probe, the `advance` tool and the note writer) against the resulting
  * `composition.toolContext` -- never a hand-built ToolExecutionContext replica. Actor-bearing notes
- * are written via [ManageNotesTool]'s public `actor: {id, kind}` upsert parameter (NoOpActorVerifier
- * default -- exercised in ManageNotesToolTest's "actor claim includes actor" case), never by
+ * are written via [ManageNotesTool]'s public `actor: {id, kind}` upsert parameter (the default
+ * no-op verification -- exercised in ManageNotesToolTest's "actor claim includes actor" case), never by
  * constructing a Note directly against the repository.
  *
  * FIXTURE SCHEMA (`schemaYaml`): a WORK-phase pair matching the item's own worked example --

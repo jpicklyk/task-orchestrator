@@ -139,8 +139,7 @@ class JwksApiVerifierRejectionLogTest {
     private fun mockProvider(keySet: JWKSet): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JwksResult(keySet, freshCacheState)
-        coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(keySet, freshCacheState)
-        coEvery { provider.refreshForUnknownKid(any(), any()) } returns null
+        coEvery { provider.refreshForUnknownKid(any()) } returns null
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider
@@ -149,8 +148,7 @@ class JwksApiVerifierRejectionLogTest {
     private fun unavailableProvider(): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } throws KeySetUnavailableException("jwks endpoint down")
-        coEvery { provider.getKeySetForIssuer(any()) } throws KeySetUnavailableException("jwks endpoint down")
-        coEvery { provider.refreshForUnknownKid(any(), any()) } throws KeySetUnavailableException("jwks endpoint down")
+        coEvery { provider.refreshForUnknownKid(any()) } throws KeySetUnavailableException("jwks endpoint down")
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider

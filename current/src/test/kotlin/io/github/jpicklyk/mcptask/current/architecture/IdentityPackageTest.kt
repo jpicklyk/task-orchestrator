@@ -159,19 +159,7 @@ class IdentityPackageTest {
             for (n in listOf("ApiAuthConfig", "ApiAuthConfigLoader", "BearerTokenStore")) {
                 put("infrastructure/identity/bearer/$n.kt", "$base.bearer")
             }
-            val did =
-                listOf(
-                    "DidDocument",
-                    "DidDocumentJwksExtractor",
-                    "DidResolver",
-                    "DidResolverRegistry",
-                    "DidWebIdentifierValidation",
-                    "DidWebResolver"
-                )
-            for (n in did) {
-                put("infrastructure/identity/did/$n.kt", "$base.did")
-            }
-            for (n in listOf("JtiReplayCache", "JwksApiVerifier", "JwksKeySetProvider", "TokenLifetimeCap")) {
+            for (n in listOf("JwksApiVerifier", "JwksKeySetProvider", "TokenLifetimeCap")) {
                 put("infrastructure/identity/jwt/$n.kt", "$base.jwt")
             }
         }

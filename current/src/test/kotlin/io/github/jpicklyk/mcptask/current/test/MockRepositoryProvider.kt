@@ -18,8 +18,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.UsageDailyStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.mockk.*
@@ -95,11 +93,9 @@ class MockRepositoryProvider {
         coEvery { resourceLeaseRepo.findAllActive() } returns emptyList()
     }
 
-    /** Build a ToolExecutionContext with an optional config resolver (see [TestConfigResolver]), status label and actor verifier services. */
+    /** Build a ToolExecutionContext with an optional config resolver (see [TestConfigResolver]), and status label services. */
     fun context(
         configResolver: EffectiveConfigResolver = TestConfigResolver.resolver(),
-        statusLabelService: StatusLabelService = NoOpStatusLabelService,
-        actorVerifier: ActorVerifier = NoOpActorVerifier
-    ): ToolExecutionContext =
-        ToolExecutionContext(provider, statusLabelService, actorVerifier = actorVerifier, configResolver = configResolver)
+        statusLabelService: StatusLabelService = NoOpStatusLabelService
+    ): ToolExecutionContext = ToolExecutionContext(provider, statusLabelService, configResolver = configResolver)
 }

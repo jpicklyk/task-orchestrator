@@ -16,9 +16,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuth
  *   before the provider reports the key set unavailable instead of serving it.
  * @param allowInsecureUrl Admits plaintext http for a literal loopback host and the loopback
  *   address class in the egress guard.
- * @param didAllowlist Trusted issuer DIDs (DID-rooted trust).
- * @param didPattern Trusted issuer DID glob (DID-rooted trust).
- * @param didStrictRelationship Only `assertionMethod` keys of a resolved DID document are eligible.
  */
 data class KeySourceConfig(
     val oidcDiscovery: String? = null,
@@ -28,12 +25,9 @@ data class KeySourceConfig(
     val staleOnError: Boolean = true,
     val maxStaleSeconds: Long = 3600,
     val allowInsecureUrl: Boolean = false,
-    val didAllowlist: List<String> = emptyList(),
-    val didPattern: String? = null,
-    val didStrictRelationship: Boolean = true,
 )
 
-/** The key-source half of the REST verifier's configuration: one static JWKS URL, no DID trust. */
+/** The key-source half of the REST verifier's configuration: one static JWKS URL. */
 fun ApiAuthConfig.Jwks.toKeySource(): KeySourceConfig =
     KeySourceConfig(
         jwksUri = url,

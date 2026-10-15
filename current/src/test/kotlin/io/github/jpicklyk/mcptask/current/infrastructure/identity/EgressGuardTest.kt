@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidWebResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
@@ -26,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Test-author coverage for item 385444c2 (R8), egress half (AR-05 rec 4): [EgressGuard] refuses
- * non-public destinations, and every JWKS / OIDC / did:web fetch passes through it before any
+ * non-public destinations, and every JWKS / OIDC fetch passes through it before any
  * request is made.
  *
  * Oracles: O-RFC = the address classes of RFC 1122 (127/8, 0.0.0.0), RFC 4291 (::1, ::, fe80::/10),
@@ -422,42 +421,6 @@ class EgressGuardTest {
             } finally {
                 provider.close()
             }
-        }
-
-    @Test
-    fun `S23 a did web host that resolves to a private address is refused before any request`() =
-        runTest {
-            val requests = Requests()
-            val resolver = DidWebResolver(recordingEngine(requests) { "{}" }, guardResolvingTo("10.0.0.9"))
-
-            val ex = thrownBy { resolver.resolve("did:web:internal.eg.example") }
-
-            assertTrue(causedByEgressRefusal(ex), "the failure must come from the egress guard, was $ex")
-            assertEquals(0, requests.count.get())
-        }
-
-    @Test
-    fun `S23 a did web identifier that is a private IP literal is refused before any request`() =
-        runTest {
-            val requests = Requests()
-            val resolver = DidWebResolver(recordingEngine(requests) { "{}" }, publicEgressGuard())
-
-            val ex = thrownBy { resolver.resolve("did:web:10.0.0.5") }
-
-            assertNotNull(ex, "did:web on a private literal must not resolve")
-            assertEquals(0, requests.count.get())
-        }
-
-    @Test
-    fun `S23 a did web host on a public address is fetched`() =
-        runTest {
-            val requests = Requests()
-            val did = "did:web:keys.eg.example"
-            val doc = """{"id":"$did","verificationMethod":[]}"""
-            val resolver = DidWebResolver(recordingEngine(requests) { doc }, publicEgressGuard())
-
-            assertEquals(did, resolver.resolve(did).id)
-            assertEquals(listOf("https://keys.eg.example/.well-known/did.json"), requests.urls)
         }
 
     @Test

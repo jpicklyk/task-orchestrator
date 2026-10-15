@@ -124,7 +124,5 @@ class MaxStaleConfigTest {
         assertEquals(150L, ks.cacheTtlSeconds)
         assertEquals(1800L, ks.maxStaleSeconds)
         assertTrue(ks.allowInsecureUrl)
-        assertTrue(ks.didAllowlist.isEmpty(), "the REST path has no DID trust")
-        assertEquals(null, ks.didPattern)
     }
 }

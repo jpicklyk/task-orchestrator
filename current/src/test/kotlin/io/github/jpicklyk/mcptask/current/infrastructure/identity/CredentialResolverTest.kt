@@ -141,7 +141,6 @@ class CredentialResolverTest {
         val cache = CacheState(fromStaleCache = stale, ageSeconds = if (stale) 100L else null)
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), cache)
         coEvery { provider.getKeySet() } returns result
-        coEvery { provider.getKeySetForIssuer(any()) } returns result
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider

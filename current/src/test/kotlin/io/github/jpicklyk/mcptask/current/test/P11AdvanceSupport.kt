@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
@@ -261,7 +263,7 @@ internal class P11Driver(
         // actor verified as the dispatcher would), with the caller's seat facts forwarded to the advance.
         val ctx = rig.ctx
         val fresh = checkNotNull(ctx.workItemRepository().getById(item.id)) { "item ${item.id} does not exist" }
-        val verified = claim?.let { ctx.actorVerifier().verify(it) }
+        val verified = claim?.let { VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop") }
         return withEventActor(claim) {
             ctx.advanceServiceFactory().forItem(fresh).advance(
                 item = fresh,

@@ -5,9 +5,8 @@ import java.time.Instant
 
 /**
  * Shared 60-second clock-skew leeway used across JWT verification (`exp`/`nbf`/lifetime checks in
- * `JwksApiVerifier`) and [JtiReplayCache]'s retention window. A single
- * source of truth keeps the replay cache's retention derived from the same leeway the verifiers
- * use, rather than a second hard-coded `60` that could silently drift out of sync with it.
+ * `JwksApiVerifier`). A single source of truth keeps every verifier on the same leeway, rather than
+ * a second hard-coded `60` that could silently drift out of sync with it.
  */
 const val AUTH_CLOCK_SKEW_SECONDS = 60L
 
@@ -61,9 +60,7 @@ object TokenLifetimeCap {
  * `Date.from(clock.instant().minusSeconds(skew))` — which **truncates that cutoff Instant down to
  * the millisecond**, silently widening acceptance by up to just under 1ms past the intended
  * boundary (reproducible: a token timed within that final sub-millisecond window at `exp + skew`
- * is wrongly accepted, and — because [JtiReplayCache]'s retention deadline is the exact Instant
- * `exp + AUTH_CLOCK_SKEW_SECONDS` with no such truncation — a jti recorded there could still be
- * replayed against the verifier in that same window).
+ * is wrongly accepted).
  *
  * These predicates instead take [Instant] end to end (`exp.toInstant()` / `nbf.toInstant()` vs.
  * [Clock.instant]) so the comparison keeps full nanosecond precision and never has to round the

@@ -23,7 +23,6 @@ import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -31,7 +30,6 @@ import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandS
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
@@ -58,7 +56,6 @@ import java.util.UUID
 class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
-    private val actorVerifier: ActorVerifier = NoOpActorVerifier,
     val nextItemRecommender: NextItemRecommender =
         NextItemRecommender(repositoryProvider.workItemRepository()),
     perRootConfigService: PerRootConfigSource? = null,
@@ -241,9 +238,6 @@ class ToolExecutionContext(
 
     /** Access to the status label configuration service. */
     fun statusLabelService(): StatusLabelService = statusLabelService
-
-    /** Access to the actor claim verification service. */
-    fun actorVerifier(): ActorVerifier = actorVerifier
 
     /** Access to the versioned per-root config store. */
     fun configStore(): ConfigStore = repositoryProvider.configStore()
