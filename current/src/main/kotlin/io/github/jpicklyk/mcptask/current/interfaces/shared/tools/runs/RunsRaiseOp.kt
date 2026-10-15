@@ -204,11 +204,20 @@ private suspend fun WriteScope.raiseDecision(
                 }
             }
     }
+    val paused =
+        if (token == null) {
+            null
+        } else {
+            when (val r = env.runLimits.checkBudget(token.runId)) {
+                is Outcome.Ok -> r.value
+                is Outcome.Err -> return r
+            }
+        }
     val view = DecisionView.full(decision, env.clock.now(), ctx.principalsVisible)
     val extra = LinkedHashMap<String, JsonElement>()
     extra["existing"] = JsonPrimitive(result.existing)
     blocked?.let { extra["blocked"] = JsonPrimitive(it) }
-    return Outcome.Ok(JsonObject(view + extra))
+    return Outcome.Ok(JsonObject(view + extra).withPaused(paused))
 }
 
 /**

@@ -57,6 +57,12 @@ import java.util.UUID
  *
  * `run.ended` counts the run's decision requests still open or acknowledged ([RunDecisionPort.openCount]); a close
  * withdraws none of them.
+ *
+ * ## Limits (R27)
+ *
+ * [pauseForLimit] pauses an OPEN run for a budget or attempts limit with its pause decision; only an answer to that
+ * decision lifts it ([resumeAfterDecision], driven by `RunDecisionEffects`) or a close. The checks themselves live in
+ * `RunLimits`.
  */
 class RunService(
     private val repositoryProvider: RepositoryProvider,
@@ -208,6 +214,111 @@ class RunService(
             events.record(DomainEvent.RunResumed(runId, run.rootId))
             Outcome.Ok(stored)
         }
+
+    // -------------------------------------------------------------------------
+    // limit pause / resume after the pause decision (R27)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Pauses the OPEN run [runId] for a limit: [reason] `budget` or `attempts`, with its pause decision [decisionId].
+     * Records `run.paused` with the decision. Not OPEN is `invalid_run_state`; closed is `run_closed`.
+     */
+    suspend fun pauseForLimit(
+        runId: UUID,
+        reason: RunPauseReason,
+        decisionId: UUID
+    ): Outcome<Run> =
+        unitOfWork.write(OP_PAUSE_LIMIT) {
+            require(reason != RunPauseReason.MANUAL) { "a limit pause is budget or attempts" }
+            val run = runs.getById(runId) ?: return@write err(runNotFound(runId))
+            stateGuard(run)?.let { return@write err(it) }
+            if (run.status != RunStatus.OPEN) return@write err(invalidState(run, allowedNow(run)))
+            val stored =
+                runs.update(run.copy(status = RunStatus.PAUSED, pauseReason = reason, pauseDecisionId = decisionId), run.version)
+                    ?: return@write err(conflictAfterRead(runId, run.version))
+            events.record(DomainEvent.RunPaused(runId, run.rootId, reason, decisionId))
+            Outcome.Ok(stored)
+        }
+
+    /**
+     * Resumes run [runId] after its pause decision [decisionId] was answered (R27). [extendTokens] and
+     * [extendCostMicroUsd], when positive, raise the pinned budget's matching limit by that much (an `extend`, which may
+     * exceed the configured ceiling: its answerer is a director or a human; the sum saturates at [Long.MAX_VALUE]), and
+     * [removeItem], when given, leaves the run (`skip_item`). Records `run.updated` when the budget or the membership
+     * changed, then `run.resumed`. Returns null and changes nothing unless the run is PAUSED by exactly [decisionId] (a
+     * decision whose run has since closed or resumed has nothing left to resume).
+     */
+    suspend fun resumeAfterDecision(
+        runId: UUID,
+        decisionId: UUID,
+        extendTokens: Long = 0,
+        extendCostMicroUsd: Long = 0,
+        removeItem: UUID? = null
+    ): Outcome<Run?> =
+        unitOfWork.write(OP_RESUME_DECISION) {
+            val run = runs.getById(runId) ?: return@write Outcome.Ok(null)
+            if (!isPausedBy(run, decisionId)) return@write Outcome.Ok(null)
+            val removed =
+                if (removeItem != null && removeItem in runs.members(runId)) {
+                    runs.removeMembers(runId, listOf(removeItem))
+                    listOf(removeItem)
+                } else {
+                    emptyList()
+                }
+            val newBudget = extended(run.budget, extendTokens, extendCostMicroUsd)
+            val stored =
+                runs.update(
+                    run.copy(status = RunStatus.OPEN, pauseReason = null, pauseDecisionId = null, budget = newBudget),
+                    run.version
+                ) ?: return@write err(conflictAfterRead(runId, run.version))
+            val budgetChanged = newBudget != run.budget
+            if (budgetChanged || removed.isNotEmpty()) {
+                events.record(DomainEvent.RunUpdated(runId, run.rootId, emptyList(), removed, budgetChanged = budgetChanged))
+            }
+            events.record(DomainEvent.RunResumed(runId, run.rootId))
+            Outcome.Ok(stored)
+        }
+
+    /**
+     * Closes run [runId] with `budget_exhausted` after its pause decision [decisionId] was answered `stop` (R27), with the
+     * full cascade of [close]. Returns null and changes nothing unless the run is PAUSED by exactly [decisionId].
+     */
+    suspend fun closeAfterDecision(
+        runId: UUID,
+        decisionId: UUID,
+        closedBy: String?
+    ): Outcome<RunCloseResult?> =
+        unitOfWork.write(OP_CLOSE_DECISION) {
+            val run = runs.getById(runId) ?: return@write Outcome.Ok(null)
+            if (!isPausedBy(run, decisionId)) return@write Outcome.Ok(null)
+            when (val closed = close(runId, RunTerminalReason.BUDGET_EXHAUSTED, closedBy)) {
+                is Outcome.Err -> closed
+                is Outcome.Ok -> Outcome.Ok(closed.value)
+            }
+        }
+
+    private fun isPausedBy(
+        run: Run,
+        decisionId: UUID
+    ): Boolean = run.status == RunStatus.PAUSED && run.pauseDecisionId == decisionId
+
+    /** [budget] with [tokens] and [costMicroUsd] added to its matching limits (a limit that is not set stays unset). */
+    private fun extended(
+        budget: RunBudget?,
+        tokens: Long,
+        costMicroUsd: Long
+    ): RunBudget? {
+        if (budget == null || (tokens <= 0 && costMicroUsd <= 0)) return budget
+        return budget.copy(
+            tokens = budget.tokens?.let { if (tokens > 0) saturatingAdd(it, tokens) else it },
+            costMicroUsd = budget.costMicroUsd?.let { if (costMicroUsd > 0) saturatingAdd(it, costMicroUsd) else it }
+        )
+    }
+
+    private fun saturatingAdd(
+        a: Long,
+        b: Long
+    ): Long = if (a > Long.MAX_VALUE - b) Long.MAX_VALUE else a + b
 
     // -------------------------------------------------------------------------
     // close
@@ -474,6 +585,9 @@ class RunService(
         private const val OP_UPDATE = "RunService.update"
         private const val OP_PAUSE = "RunService.pause"
         private const val OP_RESUME = "RunService.resume"
+        private const val OP_PAUSE_LIMIT = "RunService.pauseForLimit"
+        private const val OP_RESUME_DECISION = "RunService.resumeAfterDecision"
+        private const val OP_CLOSE_DECISION = "RunService.closeAfterDecision"
         private const val OP_CLOSE = "RunService.close"
         private const val OP_MARK = "RunService.mark"
 

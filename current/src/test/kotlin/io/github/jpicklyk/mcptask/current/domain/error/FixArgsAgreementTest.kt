@@ -98,6 +98,8 @@ class FixArgsAgreementTest {
                 Case(ErrorDetail.RunClosed(itemUuid, "cancelled"), mapOf("runId" to itemId, "terminalReason" to "cancelled")),
             ErrorCode.RUN_PAUSED to
                 Case(ErrorDetail.RunPaused(itemUuid, "manual", null), mapOf("runId" to itemId, "pauseReason" to "manual")),
+            ErrorCode.RUN_AT_CAPACITY to
+                Case(ErrorDetail.RunAtCapacity(itemUuid, 2, 2), mapOf("runId" to itemId, "active" to "2", "max" to "2")),
             ErrorCode.INVALID_RUN_STATE to
                 Case(ErrorDetail.InvalidRunState(itemUuid, "paused", listOf("close")), mapOf("runId" to itemId, "status" to "paused")),
             ErrorCode.DECISION_CLOSED to
@@ -144,7 +146,7 @@ class FixArgsAgreementTest {
     // S1 happy: every slotted code constructs with agreeing args and the fix contains each arg value
     @Test
     fun `Q34-S1 the case table covers exactly the codes that have slots`() {
-        assertEquals(21, cases.size)
+        assertEquals(22, cases.size)
         assertEquals(cases.keys, slotted().toSet(), "slotted codes vs the case table")
     }
 

@@ -1344,7 +1344,7 @@ Move items through their phases and manage who owns them. Each ops[] element has
 | `reason` | string: awaiting_decision \| dependency \| resource \| manual | no | Why the item blocks, block or hold only; default manual. resume clears it. |
 | `decisionId` | string | no | With reason awaiting_decision only: the open decision on this item. |
 
-Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `run_paused`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`advance` op `claim`** (orchestration profile only; capability `advance`): Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). Give exactly one of itemId or select. A select that finds nothing claimable is ok with claimed false and, when matches exist, a reason (claim_held, dependency_unmet) and retryAfterMs. Taking over another holder's lapsed claim adds displaced {assignmentId?, expiredAt, principal?}.
 
@@ -2217,7 +2217,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken.
+**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken. Past the run's attempt cap it is run_paused (the run pauses on an attempt-cap decision); at maxActiveSeats it is run_at_capacity (retry when a seat ends).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2226,7 +2226,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `seat` | string | yes | A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. |
 | `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `run_paused`, `unauthenticated`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_at_capacity`, `run_closed`, `run_paused`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
 **`runs_write` op `end_seat`** (orchestration profile only; capability `runs`): End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary (at most 500 characters) and up to 10 links. Needs the seat's own token; the coordinator token is refused. Releases the claims the seat holds and reports them in released; its token stops working.
 
@@ -2265,7 +2265,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision.
+**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering a run-budget or attempt-cap decision acts on its paused run (extend, stop, allow_one, skip_item).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2273,6 +2273,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 | `option` | string | no | Key of the chosen option. |
 | `text` | string | no | Free-form answer, at most 1000 characters; freeform classes only. |
 | `rationale` | string | no | Why this answer, at most 1000 characters. |
+| `amount` | number | no | run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars). |
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
@@ -2405,6 +2406,7 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `resource_unavailable` | transient | 409 | `itemId`: string (UUID); `resources`: array of {name: string, mode: string}; `retryAfterMs`: integer, optional |
 | `run_closed` | permanent | 409 | `runId`: string (UUID); `terminalReason`: string |
 | `run_paused` | permanent | 409 | `runId`: string (UUID); `pauseReason`: string: budget \| attempts \| manual; `pauseDecisionId`: string (UUID), optional |
+| `run_at_capacity` | transient | 409 | `runId`: string (UUID); `active`: integer; `max`: integer |
 | `invalid_run_state` | permanent | 409 | `runId`: string (UUID); `status`: string: open \| paused \| closed; `allowed`: array of string |
 | `decision_closed` | permanent | 409 | `decisionId`: string (UUID); `status`: string: answered \| withdrawn |
 | `schema_violation` | permanent | 422 | `type`: string, optional; `reason`: string; `availableTypes`: array of string, optional; `availableTraits`: array of string, optional |

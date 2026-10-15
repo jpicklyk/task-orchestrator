@@ -33,6 +33,7 @@ object ErrorFixTemplates {
             ErrorCode.RESOURCE_UNAVAILABLE to "Retry advancing item {itemId} after the contended resources are released.",
             ErrorCode.RUN_CLOSED to "Run {runId} is closed ({terminalReason}); open a new run to continue.",
             ErrorCode.RUN_PAUSED to "Run {runId} is paused ({pauseReason}); resume or close it before changing it.",
+            ErrorCode.RUN_AT_CAPACITY to "Run {runId} has {active} of {max} seats active; retry the assign when a seat ends.",
             ErrorCode.INVALID_RUN_STATE to "Run {runId} is {status}; use one of the operations listed in detail.allowed.",
             ErrorCode.DECISION_CLOSED to
                 "Decision {decisionId} is {status} and cannot change; read it with runs_read decision, or raise a new one.",

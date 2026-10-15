@@ -58,6 +58,7 @@ object ErrorDetailDocs {
             ErrorCode.RUN_CLOSED to linkedMapOf("runId" to ID, "terminalReason" to "string"),
             ErrorCode.RUN_PAUSED to
                 linkedMapOf("runId" to ID, "pauseReason" to "string: budget | attempts | manual", "pauseDecisionId" to "$ID, optional"),
+            ErrorCode.RUN_AT_CAPACITY to linkedMapOf("runId" to ID, "active" to "integer", "max" to "integer"),
             ErrorCode.INVALID_RUN_STATE to
                 linkedMapOf("runId" to ID, "status" to "string: open | paused | closed", "allowed" to "array of string"),
             ErrorCode.DECISION_CLOSED to linkedMapOf("decisionId" to ID, "status" to "string: answered | withdrawn"),

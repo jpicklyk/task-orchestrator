@@ -4,8 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
+import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
 import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.BlockInput
@@ -18,12 +20,16 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runLimits
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.withPaused
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -59,6 +65,7 @@ internal val transitionOp =
                 ErrorCode.DEPENDENCY_UNMET,
                 ErrorCode.NOT_CLAIM_HOLDER,
                 ErrorCode.SEAT_FORBIDDEN,
+                ErrorCode.RUN_PAUSED,
                 ErrorCode.RESOURCE_UNAVAILABLE,
                 ErrorCode.UNAUTHENTICATED,
                 ErrorCode.UNAVAILABLE
@@ -87,6 +94,16 @@ private suspend fun WriteScope.runTransition(
             is Outcome.Err -> return loaded
             is Outcome.Ok -> loaded.value
         }
+
+    // While a run is paused for a limit (budget or attempts), a start under one of its seat tokens is refused (R27); a
+    // start without a token is not, and a manual pause leaves in-flight seats free to start (R23).
+    val seat = ctx.seat
+    if (seat != null && req.trigger == TransitionTrigger.START) {
+        val run = stores.runStore().getById(seat.runId)
+        if (run != null && run.status == RunStatus.PAUSED && run.pauseReason != RunPauseReason.MANUAL) {
+            return Outcome.Err(RunService.runPaused(run))
+        }
+    }
 
     // A decision named by prefix resolves under the call scope before the advance; the unit re-checks its state (R26).
     val decisionId =
@@ -121,7 +138,18 @@ private suspend fun WriteScope.runTransition(
 
     return when (outcome) {
         is AdvanceOutcome.Failure -> Outcome.Err(AdvanceSupport.rooted(outcome.failure.error))
-        is AdvanceOutcome.Success -> Outcome.Ok(element(env, ctx, item, outcome.result))
+        is AdvanceOutcome.Success -> {
+            val paused =
+                if (seat == null) {
+                    null
+                } else {
+                    when (val checked = env.runLimits.checkBudget(seat.runId)) {
+                        is Outcome.Err -> return checked
+                        is Outcome.Ok -> checked.value
+                    }
+                }
+            Outcome.Ok(element(env, ctx, item, outcome.result).withPaused(paused))
+        }
     }
 }
 

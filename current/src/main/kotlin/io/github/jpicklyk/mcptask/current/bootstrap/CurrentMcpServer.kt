@@ -284,7 +284,13 @@ class CurrentMcpServer(
             // The call log is written off the request path in batches. Registered AFTER the pruner (and so after
             // Close Database), so the LIFO drain runs: stop HTTP, close MCP, drain this writer, stop the pruner, close
             // the database. In-flight calls finish before the drain, and the drain finishes before the database closes.
-            val callLogWriter = CallLogWriter(composition.unitOfWork, SqliteCallLogStore(databaseManager))
+            // The writer also adds each batch's token estimates into its runs' observed_tokens (R27).
+            val callLogWriter =
+                CallLogWriter(
+                    composition.unitOfWork,
+                    SqliteCallLogStore(databaseManager),
+                    runStore = toolContext.repositoryProvider.runStore()
+                )
             callLogWriter.start()
             shutdownCoordinator.addCleanupAction("Stop Call Log Writer") {
                 runBlocking { callLogWriter.stop() }

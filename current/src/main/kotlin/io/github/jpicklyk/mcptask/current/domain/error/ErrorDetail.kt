@@ -198,6 +198,13 @@ sealed interface ErrorDetail {
         val pauseDecisionId: UUID? = null
     ) : ErrorDetail
 
+    /** The run already has [active] member seats assigned, its `maxActiveSeats` cap [max]; retry when a seat ends. */
+    data class RunAtCapacity(
+        val runId: UUID,
+        val active: Int,
+        val max: Int
+    ) : ErrorDetail
+
     /** The run's [status] does not allow the operation; [allowed] lists what it accepts now (`close:<reason>` for closes). */
     data class InvalidRunState(
         val runId: UUID,

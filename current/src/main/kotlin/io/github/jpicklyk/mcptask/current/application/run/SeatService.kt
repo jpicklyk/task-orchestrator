@@ -128,8 +128,14 @@ class SeatService(
      * An active assignment of the same (run, item, seat) is superseded: it ends with outcome `superseded` and its
      * holder's claims are released (reason `superseded`) in the same unit. The new attempt is one more than the highest
      * attempt of that triple over every row, ended ones included. Records `seat.assigned`.
+     *
+     * Once those checks pass, [admission] decides the run limits (R27: the attempt cap, then `maxActiveSeats`) before
+     * anything is written; its refusal is returned as is.
      */
-    suspend fun assign(command: SeatAssignCommand): Outcome<IssuedSeat> =
+    suspend fun assign(
+        command: SeatAssignCommand,
+        admission: SeatAdmission = SeatAdmission.OPEN
+    ): Outcome<IssuedSeat> =
         unitOfWork.write(OP_ASSIGN) {
             val runs = stores.runStore()
             val run = runs.getById(command.runId) ?: return@write err(runNotFound(command.runId))
@@ -153,11 +159,15 @@ class SeatService(
             val allowed = if (schemaSeats.isEmpty()) RunSeat.DEFAULT_SEATS else schemaSeats.toSet()
             if (command.seat !in allowed) return@write err(seatNotFound(command.seat))
 
-            store.findActive(run.id, command.itemId, command.seat)?.let { previous ->
+            val previous = store.findActive(run.id, command.itemId, command.seat)
+            val attempt = store.maxAttempt(run.id, command.itemId, command.seat) + 1
+            admission.admit(this, run, command.itemId, command.seat, attempt, supersedes = previous != null)?.let {
+                return@write err(it)
+            }
+            if (previous != null) {
                 store.end(previous.id, RunSeatOutcome.SUPERSEDED, now)
                 releaseClaimsOf(previous, ClaimReleaseReason.SUPERSEDED)?.let { return@write it }
             }
-            val attempt = store.maxAttempt(run.id, command.itemId, command.seat) + 1
             val token = newToken()
             val stored =
                 store.create(
@@ -247,7 +257,8 @@ class SeatService(
 
     /**
      * Records the absolute usage a seat reported (task-scope D9): per field, the higher of the stored and the reported
-     * value is kept. Joins the caller's unit.
+     * value is kept. The run's `reported_tokens` / `reported_cost_micro` are then set to the SUM over every assignment
+     * of the run, ended ones included (R27), without bumping the run's version. Joins the caller's unit.
      */
     suspend fun reportUsage(
         assignmentId: UUID,
@@ -255,7 +266,12 @@ class SeatService(
         costMicroUsd: Long?
     ): Outcome<RunSeat?> =
         unitOfWork.write(OP_USAGE) {
-            Outcome.Ok(store.recordUsage(assignmentId, tokens, costMicroUsd))
+            val seat = store.recordUsage(assignmentId, tokens, costMicroUsd)
+            if (seat != null) {
+                val totals = store.usageTotals(seat.runId)
+                stores.runStore().setReportedUsage(seat.runId, totals.tokens, totals.costMicroUsd)
+            }
+            Outcome.Ok(seat)
         }
 
     /** The assignments of [runId], oldest first: on [itemId] only when given, ended ones only when [includeEnded]. */
