@@ -77,6 +77,13 @@ data class WorkItem(
      */
     val claimAssignmentId: UUID? = null,
     /**
+     * Why this item is BLOCKED (V37); null outside the blocked role and on a legacy blocked row (read through
+     * [effectiveBlockedReason], which folds that NULL to manual). Written only by the advance service.
+     */
+    val blockedReason: BlockedReason? = null,
+    /** The decision request id this item waits on; set with, and only with, [BlockedReason.AWAITING_DECISION]. */
+    val blockedRef: UUID? = null,
+    /**
      * The config this item is pinned to (plan section 3.8); null for a row that was never pinned (it resolves at the
      * config heads). Written only through the application's pin writer and the `pin-backfill` data step.
      */
@@ -130,8 +137,19 @@ data class WorkItem(
         }
         if (claimAssignmentId != null && claimedBy == null) out += "claimAssignmentId requires claimedBy"
         pin?.let { out += it.violations() }
+        if (blockedReason != null && role != Role.BLOCKED) out += "blockedReason requires role blocked"
+        if (blockedRef != null && blockedReason != BlockedReason.AWAITING_DECISION) {
+            out += "blockedRef requires blockedReason awaiting_decision"
+        }
+        if (blockedReason == BlockedReason.AWAITING_DECISION && blockedRef == null) {
+            out += "blockedReason awaiting_decision requires blockedRef"
+        }
         return out
     }
+
+    /** The blocked reason every read reports: the stored one, or manual for a legacy blocked row; null when not blocked. */
+    val effectiveBlockedReason: BlockedReason?
+        get() = if (role == Role.BLOCKED) blockedReason ?: BlockedReason.MANUAL else null
 
     /**
      * Create a new version with updated modifiedAt timestamp.

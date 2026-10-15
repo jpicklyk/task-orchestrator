@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResult
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
@@ -110,6 +111,7 @@ object ItemsReadOverview {
                             buildJsonObject {
                                 put("item", ItemView.full(view.item, pin = env.schemaPinService.view(view.item)))
                                 put("childCounts", countsJson(view.childCounts))
+                                blockedByReasonJson(view.blockedByReason)?.let { put("blockedByReason", it) }
                                 putPage(view.children) { entryView(it) }
                             }
                         )
@@ -137,9 +139,17 @@ object ItemsReadOverview {
     /** A listed entry: the compact view plus `childCounts`, and the global-only `claimSummary` / `children`. */
     private fun entryView(entry: OverviewEntry): JsonObject {
         var view = ItemView.with(ItemView.compact(entry.item), "childCounts", countsJson(entry.childCounts))
+        blockedByReasonJson(entry.blockedByReason)?.let { view = ItemView.with(view, "blockedByReason", it) }
         entry.claimSummary?.let { view = ItemView.with(view, "claimSummary", claimJson(it)) }
         entry.children?.let { children -> view = ItemView.with(view, "children", JsonArray(children.map { entryView(it) })) }
         return view
+    }
+
+    /** The BLOCKED children by typed reason in enum order, zero counts omitted; null (member omitted) when none. */
+    private fun blockedByReasonJson(counts: Map<BlockedReason, Int>): JsonObject? {
+        val nonZero = BlockedReason.entries.filter { (counts[it] ?: 0) > 0 }
+        if (nonZero.isEmpty()) return null
+        return buildJsonObject { nonZero.forEach { put(it.wire, counts.getValue(it)) } }
     }
 
     private fun claimJson(counts: ClaimStatusCounts): JsonObject =
