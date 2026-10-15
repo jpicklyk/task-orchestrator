@@ -17,7 +17,7 @@ tool section ends with a block between `<!-- generated:tool NAME -->` markers, a
 class `@Doc` (or the op's profile, capability or errors) and run `./gradlew :current:regenerateApiReference`;
 `ApiReferenceFreshnessTest` fails when a block is stale and names that task. The same data is served at runtime
 by a `describe: true` call on any tool. A write element also takes `op` and an optional `idempotencyKey`, and a select call takes
-`select` and `describe`; the dispatcher reads those first, so the generated tables do not list them. No call takes
+`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or coordinator token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. No call takes
 an `actor`: the caller is the principal its transport established (the bearer credential over REST and HTTP `/mcp`,
 the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
 with no principal is `unauthenticated` before anything in it is read.
@@ -46,7 +46,7 @@ over MCP.
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
 applied to stdio only. `POST /api/v1/ops/{tool}` serves every registered select and op whatever its profile set,
-REST-only members included. The `initialize` `instructions` is one sentence naming the profile and `describe`. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+REST-only members included. The `runs_read` and `runs_write` tool descriptions are shared by the profiles, so a description can name an op the connected profile lacks; the table above and the per-op blocks under [Runs](#category-runs) name the profiles of each op. The `initialize` `instructions` is one sentence naming the profile and `describe`. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
 
 ## Tool Categories
 
@@ -977,7 +977,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
 - **Attribution.** The note records the call's principal (`api:<id>` for a credential, `local` for the local
   principal) with its verification, on every transport; a body `actor` is `unknown_parameter`. A write under a
   `seatToken` also records that token's seat as the note's attribution seat (`notes.seat`, rewritten on every write
-  like the actor, NULL without a token); the independence gate compares the attribution pair (actor, seat).
+  like the actor, NULL without a token); the independence gate compares the attribution pair (actor, seat). Attribution (`notes.seat`) is separate from ownership (`notes.owner_seat`, below): the first changes on every write, the second only when the owner changes.
 - **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. A note created or adopted under a `seatToken` is owned by the pair (principal, seat), stored as `notes.owner_id` and `notes.owner_seat`, which are written only together (create, adoption, takeover; a takeover is never under a token, so it clears the owner seat). Another owner pair's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other` (with `ownerSeat` when the owner is a seat); only an admin `takeover` moves an owned note. `notes_read` shows `owner{id, seat?}` under the attribution rule and omits it for an unowned note.
 
 ```json
@@ -1247,6 +1247,14 @@ does not admit is `{itemId}` only (the same rule applies to `complete_tree` item
 phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?, waived?}]`, present only when the list is
 non-empty. Empty and null members are omitted.
 
+**Block and hold.** `block` and `hold` take an optional `reason` (`awaiting_decision`, `dependency`, `resource` or
+`manual`, default `manual`). `decisionId` is allowed only with `awaiting_decision`, where it names an open decision on that
+item, and is then required. The reason and the decision id are stored with the blocked role and cleared by every way out of
+it: `resume`, `cancel` and `complete_tree`. A cascade never moves an item out of `blocked` (`blocked: role`), and an answer
+to a decision never resumes its item; `runs_write` `raise` with `block: true` blocks the item in the same unit as the raise.
+`items_read` `context` and `get` show `blockedReason` and `decisionId` for a blocked item; the order of the fields in a view
+is not part of the contract.
+
 **Ownership.** When an item has an active (non-expired) claim, `transition` requires the caller's trusted actor id to equal the
 holder, on every trigger and on both MCP and REST; any other caller gets `not_claim_holder`. A claim taken under a
 `seatToken` is held by the pair (principal, assignment), so a stdio or local agent that presents a `seatToken` holds
@@ -1312,11 +1320,16 @@ caused it (see Suppressed below), and a cascade applies only when the parent's s
 - **Suppressed, reported.** A cascade that would apply but is stopped by a gate appears with `applied: false`
   and its reason: `blocked: ownership` (the parent has an active claim held by a principal other than the caller,
   checked before every other gate; the parent keeps its role and claim and the chain stops there; `items_write`
-  reports `reason: not_claim_holder`), `blocked: seat` (the parent is a member of an open run whose pinned schema declares
+  reports `reason: not_claim_holder`), `blocked: seat` (the parent is a member of a run that is not closed (open or paused) whose pinned schema declares
   `seats` and the write's caller could not send the equivalent trigger to it directly: `start` for a start cascade,
-  `complete` for a terminal cascade, `reopen` for a reopen cascade; checked after ownership and before every other
-  gate; the coordinator, a human and a seat token bound to the parent whose seat may send the trigger pass; the parent
-  keeps its role and claim and the chain stops there; `items_write` reports `reason: seat_forbidden`), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
+  `complete` for a terminal cascade, `reopen` for a reopen cascade; this holds for a `start`, `complete`, `cancel` or
+  `reopen` and for the reparent and delete cascades of `items_write`. The check runs in the order ownership, then
+  seat, then the other gates. The coordinator token and a human credential pass. A member-seat token passes only for
+  the one item it is bound to, so a seat child cascades into a member parent only when its token is bound to that
+  parent, and it needs the equivalent trigger in its seat's `transitions` (or `enters` for `start`). The parent keeps
+  its role and claim and the chain stops there; the wire shows `blocked: seat` and no seat, run or holder, and
+  `items_write` reports `reason: seat_forbidden`. To recover, the coordinator token or a human credential advances the
+  parent directly), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
   unless it descends from a `cancel`, a start cascade checks the parent's current phase only, a reopen cascade
   never checks notes), `blocked: dependency` (the parent has an unmet blocker; `blockers`), `blocked: resource`
   (a start or reopen cascade into `work` whose exclusive lease is held elsewhere; `contended`), or `blocked: role`
@@ -1945,7 +1958,7 @@ both on `/runId`. `anchorId` resolves like any item id (a hex prefix of 8 to 32 
 
 **`rollup` (run).** `runId` rolls up one whole run. It resolves like `runs_read` `get` (a full UUID, or a hex prefix of
 8 to 32 characters; unrestricted: unknown `not_found`, several matches `ambiguous_id`; under a restricted scope an
-unknown run or a run of another root is `forbidden`, never `not_found`). A run rollup always covers the whole run, so
+unknown run or a run of another root is `forbidden`, never `not_found`). A call names exactly one of `anchorId` and `runId`. A run rollup always covers the whole run, so
 `since` with `runId` is `invalid_request` on `/since` (`until` alone on `/until`). A tag-scoped credential is
 `forbidden` before anything is read, as for the anchor.
 
@@ -1973,7 +1986,10 @@ unknown run or a run of another root is `forbidden`, never `not_found`). A run r
 - **Closed runs.** Every close (any terminal reason, the decision `stop` included) stores the rollup it computes at
   that moment in the `run.ended` event (`data.rollup`). A closed run answers that snapshot, so the figures survive
   event and call-log retention and ignore calls logged after the close; a run closed before the snapshot existed is
-  computed live.
+  computed live. An open or paused run is always computed live.
+- **Size.** The full REST response body of a run rollup, the envelope included, is at most 1,500 UTF-8 bytes for a 50-member
+  run with one stalled seat and 2,000 bytes in the worst case (five stalled seats, every blocked reason, three classes, three
+  severities). The bound is on the response, not on the snapshot stored in the `run.ended` event.
 
 ```json
 { "select": "usage" }
@@ -2000,7 +2016,7 @@ Aggregate reports. select: usage (call metrics per group), gates (rejected trans
 | `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the last page. |
+| `cursor` | string | no | page.next of the prior page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2013,7 +2029,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the last page. |
+| `cursor` | string | no | page.next of the prior page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2026,7 +2042,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
 | `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no | Row grouping; subset and default per select. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the last page. |
+| `cursor` | string | no | page.next of the prior page. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2077,9 +2093,11 @@ member seats (never the coordinator) and `stalledSeats` those of them that are s
 
 **Stalled.** One rule for seats and the coordinator: stalled when the time since last seen is strictly longer than the
 run's own `stallAfterSeconds` (pinned at open; never re-read from config), compared exactly. A seat is last seen at its
-`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. Only a write tool
-called with the seat's token (an `advance` `heartbeat` included) refreshes them; a read, or a `describe: true` call on any
-tool, never does. A closed run is
+`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. Only a call
+made with the seat's token (or the coordinator token, for the coordinator) refreshes them, and only on a tool that takes an
+`ops` array, whichever op it names: a read-only op such as `config` `get` or `history` touches it as much as an `advance`
+`heartbeat` does. A call to a `select` tool (`runs_read`, `items_read`), and a `describe: true` call on any tool, never
+does. A closed run is
 never stalled. Stalled is a derived view only: nothing is ended, released or raised.
 
 **Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, ready:
@@ -2166,15 +2184,53 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 **Ops.** `open` (a run on a root over up to 500 of its items; the caller is recorded as `openedBy`), `update` (add or remove
 items, lower the budget, replace the hints; `expectedVersion` guards a concurrent change), `close` (reason `completed`,
 `cancelled`, `failed` or `abandoned`; the answer adds `snapshot: {reason, countsByRole, inFlight, released, openDecisions}`),
-`pause`, `resume` and `mark` (REST only: sets a named instant, first write wins, at most 32 marks; the answer adds
-`marked`, false for a replay). Every op needs the `runs` capability and a run whose root is in scope.
+`pause`, `resume`, `assign` (a seat of a member item; returns the seat token once), `end_seat` (the calling seat ends its own
+assignment), `raise`, `ack`, `answer` and `withdraw` (decisions, below) and `mark` (REST only: sets a named instant, first
+write wins, at most 32 marks; the answer adds `marked`, false for a replay). Every op needs the `runs` capability (`ack` and
+`answer` need `decide`) and a run whose root is in scope.
+
+**Tokens.** `open` returns a `coordinatorToken` once; a keyed replay omits it (`tokenRedacted: true`). The coordinator is the
+caller that presents that token as the top-level `seatToken`. `assign` returns a seat token once, bound to one member item
+and one seat; re-assigning the seat supersedes the old token. A token that is unknown, ended, superseded or another
+principal's is `unauthenticated` with no detail. When a run closes, its tokens die with it: a coordinator token of a
+closed run is `unauthenticated` (for example on `update`), while a director or human `close` still works. A lost
+coordinator token cannot be recovered: close the run and open another.
 
 **Permissions.** `open` any caller with `runs`. `close`, any reason: the coordinator, the director profile or a human
-token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update`: the
-coordinator only. `mark`: any caller with `runs`. Until the coordinator token ships, the coordinator is the caller that
-opened the run: the same principal id and the same credential kind (the local principal is `local`, kind `agent`). A refusal is `forbidden` with `detail:
-{scope: "principal_kind", required}` where `required` lists the allowed kinds. The scope check on the run's root comes
-first, so a permission refusal never reveals whether an out-of-scope run exists.
+token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update` and `assign`: the
+coordinator token only. `end_seat`: the seat's own token. `mark`: any caller with `runs`. A refusal is `forbidden` with `detail:
+{scope: "principal_kind", required}` where `required` lists the allowed kinds. Errors come in a fixed order: the scope check
+on the run's root first, so a permission refusal never reveals whether an out-of-scope run exists; then the permission
+refusal; then the state of the run (`run_closed`, `run_paused`, `invalid_run_state`). `assign` follows the same order, so a
+caller outside the scope never learns whether the run is closed.
+
+**Marks.** `mark` has no rule about its key's kind, is first-write-wins with no way to remove a mark, and a run holds at
+most 32. Any token with `runs` whose scope reaches the run can stamp any key, `retro` included, which hides that run from
+`runs_read` `list` with `unmarked: retro`. Treat a mark as a hint, not as proof that the named work happened.
+
+**Decisions.** A decision is a question raised under a class (see
+[Decision classes](config-reference.md#decision-classes-decision_classes)) that a human or a director answers.
+`raise` is under the orchestration profile (a seat token supplies its run and item); `ack`, `answer` and `withdraw`
+are served by the director profile, and REST `POST /api/v1/ops/runs_write` serves every op. Who may `ack` or `answer`:
+
+| Class answerers | A human (human credential, real proof, no seat token) | The director profile (no seat token) | Any other caller |
+|---|---|---|---|
+| `human-only` | yes | no | no |
+| `director-or-human` | yes | yes | no |
+| `any-actor` | yes | yes | yes |
+
+`ack` uses the same answerer check as `answer`; an acknowledged decision is returned unchanged by a second `ack`. An answer
+is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
+checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the coordinator token of
+the decision's run. The decisions the server raises for a limit (`run-budget`, `attempt-cap`) are never withdrawable; they stay
+pending until answered or the run closes. Expiry (a class's `expires_after`) escalates the severity only: the decision reads
+one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
+decision and reports the pending ones in `snapshot.openDecisions`. An `answer` never resumes a blocked item; a decision that
+was raised with `block: true` leaves its item blocked until someone resumes it.
+
+`runs_read` `decisions` lists decisions of every status, withdrawn included, and has no `status` filter: filter on `status`,
+`overdue` and `effectiveSeverity` on the client. The `decisions[]` of `items_read` `context` lists the item's decisions
+without the withdrawn ones.
 
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
@@ -2286,7 +2342,7 @@ Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `par
 | `itemId` | string | no | Item id: a UUID or a hex prefix of 8 to 32 characters. |
 | `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
 | `rootId` | string | no | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
-| `severity` | string: high \| normal \| low | no | Default normal. |
+| `severity` | string: high \| normal \| low | no | Class default. |
 | `block` | boolean | no | true: also block itemId as awaiting_decision in the same unit. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`

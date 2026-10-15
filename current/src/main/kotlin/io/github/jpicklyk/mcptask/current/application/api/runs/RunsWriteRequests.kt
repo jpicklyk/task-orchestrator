@@ -158,7 +158,7 @@ data class RunsRaiseRequest(
     @Doc(ITEM_DOC) val itemId: IdRef? = null,
     @Doc(RUN_ID_DOC) val runId: IdRef? = null,
     @Doc(ROOT_DOC) val rootId: IdRef? = null,
-    @Doc("Default normal.") val severity: DecisionSeverityRequest? = null,
+    @Doc("Class default.") val severity: DecisionSeverityRequest? = null,
     @Doc("true: also block itemId as awaiting_decision in the same unit.") val block: Boolean? = null
 )
 

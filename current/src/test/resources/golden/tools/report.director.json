@@ -49,7 +49,7 @@
       },
       "cursor": {
         "type": "string",
-        "description": "page.next of the last page. [select: usage, gates, contention]"
+        "description": "page.next of the prior page. [select: usage, gates, contention]"
       },
       "anchorId": {
         "type": "string",

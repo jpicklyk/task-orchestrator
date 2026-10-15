@@ -868,7 +868,11 @@ paths:
         The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
         removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
         `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
-        Claim ownership and resource leases are enforced on this route exactly as on MCP. A `claim` that takes
+        Claim ownership and resource leases are enforced on this route exactly as on MCP. Inside a run that is not closed,
+        whose pinned schema declares `seats`, a `transition` is also checked against the caller's seat: a caller that
+        may not send the trigger to that item is `403 seat_forbidden` (`detail`: `itemId`, `seat` (omitted without a
+        token), `action`, `allowedSeats`), nothing is applied, and a human credential is exempt. A cascade into such a
+        member the caller could not advance directly is not applied and is reported with `blocked: seat`. A `claim` that takes
         an item over another holder pair's lapsed claim adds `displaced: {assignmentId?, expiredAt, principal?}`
         to its result (`principal` only for a caller that may see principals) and records the table-only
         `claim.expired` row with `reason: "displaced"` and `displacedBy` (the new holder's assignment id, or
@@ -930,7 +934,8 @@ paths:
         whose item currently carries an allowed tag, and a root-scoped token sees only the events of its roots.
 
         The `runs_read` tool (`get`, `list`, `seats`, `frontier`; capability `read`) and the `runs_write` tool (`open`, `update`,
-        `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`; capability `runs`) serve runs. A run is as visible as
+        `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`; capability `runs`, and `ack` and `answer` with
+        capability `decide`) serve runs and decisions. A run is as visible as
         its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
         rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's coordinator credential (shown once).
         A token is shown once: a keyed replay of `open` or `assign` returns the stored result without
@@ -957,7 +962,11 @@ paths:
         under a token loses ADMIN, holds claims as its seat (principal plus assignment), owns the notes it creates or
         adopts as its seat (owner pair), records its seat as each written note's attribution seat, and is its own
         idempotency principal. `advance` `heartbeat` takes `usage{tokens, costUsd}` under a
-        token.
+        token. The run errors are 409 `run_closed` (`runId`, `terminalReason`), `run_paused` (`runId`, `pauseReason`,
+        `pauseDecisionId?`), `invalid_run_state` (`runId`, `status`, `allowed`), `run_at_capacity` (transient; `runId`,
+        `active`, `max`) and `decision_closed` (`decisionId`, `status`); a refused seat is 403 `seat_forbidden`. The check
+        order is scope, then permission, then the state of the run. The coordinator token of a closed run is dead
+        (`401 unauthenticated`); a director or human `close` still works.
       parameters:
         - name: tool
           in: path
@@ -1416,14 +1425,18 @@ paths:
                   Each event: id:<n>\nevent:<type>\ndata:<ApiEvent JSON>\n\n
                   Event types: item.created, item.updated, item.deleted, item.advanced,
                   note.upserted, note.deleted, note.ownership_transferred, dependency.added, dependency.removed,
-                  scope.entered, scope.left, sync.lost, auth.expired
+                  scope.entered, scope.left, run.opened, run.updated, run.paused, run.resumed, run.ended,
+                  run.marked, seat.ended, decision.raised, decision.acknowledged, decision.answered,
+                  decision.withdrawn, sync.lost, auth.expired
 
                   ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
                   modifiedAt, newRole (item.advanced only), actor ({id, kind, parent?}, the writer;
                   domain events only; omitted when unknown, or for a non-admin caller when
                   API_REDACT_NOTE_ATTRIBUTION is true; never proof/verification), rootId (depth-0
                   ancestor of the item; present on every domain event since 4.0, live and on
-                  replay; never redacted), and reason -- set only on sync.lost,
+                  replay; never redacted), runId (run.*, seat.ended and decision.* events; run.* carry no
+                  itemId), decisionId, class and severity (decision.* events only; a decision event never
+                  carries an actor), and reason -- set only on sync.lost,
                   one of queue_overflow (per-connection queue overflowed), buffer_evicted
                   (resumed Last-Event-ID further behind than the replay window), or
                   unknown_event_id (resumed Last-Event-ID above the newest event, below the
