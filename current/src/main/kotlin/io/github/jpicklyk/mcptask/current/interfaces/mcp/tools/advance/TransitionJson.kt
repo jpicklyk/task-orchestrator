@@ -80,6 +80,7 @@ internal object TransitionJson {
             val blocked =
                 when {
                     event.ownershipBlocked -> "ownership"
+                    event.seatBlocked -> "seat"
                     event.gateBlocked -> "gate"
                     event.resourceBlocked -> "resource"
                     event.roleBlocked -> "role"

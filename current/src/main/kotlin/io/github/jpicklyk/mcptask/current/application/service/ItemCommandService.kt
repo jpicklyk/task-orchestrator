@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ParentFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -193,12 +194,14 @@ class ItemCommandService(
     /**
      * Patches one item (fields, and optionally its parent) in one write unit, made by [caller]. An item with an active
      * claim another holder holds is `not_claim_holder` ([FenceGuard]), checked right after the lookup and before the
-     * version compare; [caller] also fences the structural cascade into the old parent.
+     * version compare; [caller] also fences the structural cascade into the old parent, and [seatCaller] seat-checks
+     * it (the default fails closed: a caller without a seat token).
      */
     suspend fun patch(
         cmd: ItemPatchCommand,
-        caller: ClaimHolder?
-    ): Outcome<ItemPatchResult> = guarded(PATCH_OP) { patchBody(cmd, caller) }
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller = SeatCaller.NONE
+    ): Outcome<ItemPatchResult> = guarded(PATCH_OP) { patchBody(cmd, caller, seatCaller) }
 
     /**
      * Deletes [itemId] in one write unit, made by [caller]. Non-recursive with direct children fails with
@@ -211,8 +214,9 @@ class ItemCommandService(
     suspend fun delete(
         itemId: UUID,
         recursive: Boolean,
-        caller: ClaimHolder?
-    ): Outcome<ItemDeleteResult> = guarded(DELETE_OP) { deleteBody(itemId, recursive, caller) }
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller = SeatCaller.NONE
+    ): Outcome<ItemDeleteResult> = guarded(DELETE_OP) { deleteBody(itemId, recursive, caller, seatCaller) }
 
     /**
      * Re-pins [itemId] to the current config heads in one write unit (the `repin` pin point). A non-null
@@ -339,7 +343,8 @@ class ItemCommandService(
 
     private suspend fun WriteScope.patchBody(
         cmd: ItemPatchCommand,
-        caller: ClaimHolder?
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller
     ): Outcome<ItemPatchResult> {
         val existing = items.getById(cmd.itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(cmd.itemId))
         FenceGuard.check(existing, caller, now).let { if (it is Outcome.Err) return it }
@@ -519,7 +524,7 @@ class ItemCommandService(
         }
         if (newRoot != oldRoot) restampLinkRoots(listOf(stored.id) + descendants.map { it.id }, newRoot)
 
-        val cascades = cascade(existing.parentId, followUps, caller)
+        val cascades = cascade(existing.parentId, followUps, caller, seatCaller)
         return Outcome.Ok(ItemPatchResult(stored, reparented = true, descendantsRestamped = restamped, cascadeEvents = cascades))
     }
 
@@ -701,7 +706,8 @@ class ItemCommandService(
     private suspend fun WriteScope.deleteBody(
         itemId: UUID,
         recursive: Boolean,
-        caller: ClaimHolder?
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller
     ): Outcome<ItemDeleteResult> {
         // Lookup, then the fence, before anything else: a non-holder learns nothing about the item's children.
         val root = items.getById(itemId) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(itemId))
@@ -792,7 +798,7 @@ class ItemCommandService(
                 is Decision.Allow -> decision.followUps
                 else -> emptyList()
             }
-        val cascades = cascade(root.parentId, followUps, caller)
+        val cascades = cascade(root.parentId, followUps, caller, seatCaller)
         return Outcome.Ok(ItemDeleteResult(itemId, descendantsDeleted, cascades))
     }
 
@@ -879,16 +885,17 @@ class ItemCommandService(
 
     /**
      * Runs the structural [followUps] (the OLD parent [oldParentId]'s re-evaluation) in the current unit, fenced for
-     * [caller] (the patch or delete's own caller).
+     * [caller] (the patch or delete's own caller) and seat-checked for [seatCaller].
      */
     private suspend fun cascade(
         oldParentId: UUID?,
         followUps: List<FollowUp>,
-        caller: ClaimHolder?
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller
     ): List<AdvanceCascadeEvent> {
         if (oldParentId == null || followUps.isEmpty()) return emptyList()
         val oldParent = items.getById(oldParentId) ?: return emptyList()
-        return advanceServiceFactory.forItem(oldParent).cascadeInUnit(followUps, caller)
+        return advanceServiceFactory.forItem(oldParent).cascadeInUnit(followUps, caller, seatCaller)
     }
 
     /**
