@@ -54,7 +54,10 @@ internal val runsRaiseOp =
                 ErrorCode.AMBIGUOUS_ID,
                 ErrorCode.FORBIDDEN,
                 ErrorCode.IDEMPOTENCY_MISMATCH,
-                ErrorCode.PAYLOAD_TOO_LARGE
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                ErrorCode.INVALID_TRANSITION,
+                ErrorCode.SEAT_FORBIDDEN,
+                ErrorCode.NOT_CLAIM_HOLDER
             ),
         execute = { env, ctx, req -> raiseDecision(env, ctx, req) }
     )

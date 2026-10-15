@@ -1011,8 +1011,8 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `manual`) and `decisionId` on the `block` and `hold` triggers only (anything else is `invalid_request` on
 `/reason` or `/decisionId`). `reason` defaults to `manual`; `decisionId` goes with, and only with,
 `awaiting_decision`, and must name a pending (open or acknowledged) decision about the same item (`invalid_request` on
-`/decisionId` otherwise: absent, another item's, answered or withdrawn). `resume`, `cancel` and a cascade out of
-blocked clear both. A blocked item before V37 has no stored reason and reads as `manual`. The reason shows as
+`/decisionId` otherwise: absent, another item's, answered or withdrawn). `resume`, `cancel` and `complete_tree`
+clear both. A blocked item before V37 has no stored reason and reads as `manual`. The reason shows as
 `blockedReason` (and `decisionId`) on `items_read` `get` and the `context` item, as `reason` / `decisionId` on
 `blocked` entries and the `context` health blocked list, and as `blockedByReason` (zero counts omitted, NULL counted
 as `manual`) beside every `childCounts` of `overview`. An `awaiting_decision` `blocked` entry also carries

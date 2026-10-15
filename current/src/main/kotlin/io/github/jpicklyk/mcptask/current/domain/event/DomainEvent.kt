@@ -124,7 +124,7 @@ sealed class DomainEvent {
         val consumedCredentials: List<String> = emptyList(),
         /** The typed blocked reason (wire), set only on a transition into blocked. */
         val blockedReason: String? = null,
-        /** The decision an waiting_decision block waits on, set only with that reason. */
+        /** The decision an awaiting_decision block waits on, set only with that reason. */
         val decisionId: UUID? = null
     ) : DomainEvent() {
         override val type: String get() = ITEM_TRANSITIONED

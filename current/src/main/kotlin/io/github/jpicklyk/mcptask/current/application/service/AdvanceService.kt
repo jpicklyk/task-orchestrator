@@ -399,7 +399,7 @@ class AdvanceService(
      * @param assignmentId the seat assignment of the call's seat token (the claim holder pair's second member).
      * @param seatCaller who sends the trigger, for the SEAT gate (R23); [SeatCaller.NONE] is an agent without a token.
      * @param block the caller's raw typed-block fields (R26); null when neither
-eason nor decisionId was supplied.
+     * reason nor decisionId was supplied.
      */
     suspend fun advance(
         item: WorkItem,
@@ -1464,7 +1464,7 @@ private fun Decision.Allow.lifecycleFrom(): Role = checkNotNull(from) { "A lifec
 private fun Decision.Allow.lifecycleTarget(): Role = checkNotNull(target) { "A lifecycle transition was allowed without a target role" }
 
 /**
- * The caller's raw typed-block fields of a lock or hold (R26); a null member was not supplied. Validated and
+ * The caller's raw typed-block fields of a block or hold (R26); a null member was not supplied. Validated and
  * defaulted inside the advance unit.
  */
 data class BlockInput(

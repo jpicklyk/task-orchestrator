@@ -92,7 +92,7 @@ object ItemView {
         if (pin.stale) put("stale", true)
     }
 
-    /** lockedReason (effective: a legacy NULL reads as manual) and decisionId, only for a BLOCKED item. */
+    /** blockedReason (effective: a legacy NULL reads as manual) and decisionId, only for a BLOCKED item. */
     fun JsonObjectBuilder.blockedMembers(item: WorkItem) {
         val reason = item.effectiveBlockedReason ?: return
         put("blockedReason", reason.wire)
