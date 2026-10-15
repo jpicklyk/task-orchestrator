@@ -927,6 +927,9 @@ paths:
         `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`; capability `runs`) serve runs. A run is as visible as
         its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
         rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's coordinator credential (shown once).
+        A token is shown once: a keyed replay of `open` or `assign` returns the stored result without
+        `coordinatorToken` or `seatToken` and with `tokenRedacted: true` (the idempotency store never holds a token);
+        re-assign the seat for a fresh token, or close the run and open a new one for a new coordinator token.
         The coordinator is the caller presenting that token as the top-level `seatToken`. `close` is for the
         coordinator, the director profile or a human token; `pause` and `resume` for the director profile or a human
         token (never under a seat token); `update` and `assign` for the coordinator; `end_seat` for the seat's own

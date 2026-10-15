@@ -11,9 +11,28 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import java.util.UUID
 
 /**
+ * The three-way outcome of the seat rule (ownership rule 2) for one write.
+ * - [Refuse]: the write is refused with [Refuse.error], returned as is; `takeover` is never consulted after it.
+ * - [Allow]: the seat rule admits the write decisively; rule 3 (the owner pair and `takeover`) is not consulted. The write
+ *   may still create a note or adopt an unowned one (`owner_id IS NULL`), but it never moves an existing owner.
+ * - [Defer]: the seat rule has no say (no open run, a seat-less schema, an unowned or `shared` key); rule 3 decides.
+ */
+sealed interface SeatVerdict {
+    /** The write is refused with [error]. */
+    data class Refuse(
+        val error: DomainError
+    ) : SeatVerdict
+
+    /** The write is admitted; rule 3 is skipped. */
+    data object Allow : SeatVerdict
+
+    /** The seat rule does not decide; rule 3 applies. */
+    data object Defer : SeatVerdict
+}
+
+/**
  * The seat rule (ownership rule 2): a seat-named key on an item in an open run is governed by the seat, never by the
- * writer's identity and never agent-overridable. R21 ships only the seam ([NONE]); the open-run rule is supplied by R23.
- * A non-null return refuses the write and is returned as is, so [NoteOwnership] never consults `takeover` after it.
+ * writer's identity and never agent-overridable. The open-run rule is [NoteSeatRule] (R23); [NONE] always defers.
  */
 fun interface SeatRule {
     fun check(
@@ -21,11 +40,11 @@ fun interface SeatRule {
         key: String,
         existing: Note?,
         callerSeat: String?
-    ): DomainError?
+    ): SeatVerdict
 
     companion object {
-        /** No seat rule: every write passes rule 2. */
-        val NONE = SeatRule { _, _, _, _ -> null }
+        /** No seat rule: every write defers to rule 3. */
+        val NONE = SeatRule { _, _, _, _ -> SeatVerdict.Defer }
     }
 }
 
@@ -37,7 +56,9 @@ fun interface SeatRule {
  * note, or whose admin `takeover` moved it. It is kept by every other write, shared-key writes included. Attribution
  * (`actor`, `verification`) is a separate record of the last writer and is never compared here. Rules, in order:
  * 1. `shared: true` on the key's schema entry: allowed.
- * 2. [SeatRule]: a refusal wins and is never overridden by `takeover`.
+ * 2. [SeatRule]: a [SeatVerdict.Refuse] wins and is never overridden by `takeover`. A [SeatVerdict.Allow] is decisive:
+ *    a missing note is created and an unowned note adopted as below, but an owned note is written with its owner
+ *    unchanged, without the owner compare and without a `takeover` transfer. [SeatVerdict.Defer] goes on to rule 3.
  * 3. A missing note is a create (allowed). A note with no owner (every pre-4.0 note) is adopted by a non-null caller
  *    ([Decision.Adopted], takeover or not); a null caller leaves it unowned. An owner `(owner id, seat)` equal to the
  *    caller's `(principalId, callerSeat)` (exact, case-sensitive) is allowed; any other caller is
@@ -86,12 +107,14 @@ object NoteOwnership {
         if (takeover && !takeoverAllowed) return Outcome.Err(adminRequired())
         if (takeover && caller?.assignmentId != null) return Outcome.Err(takeoverUnderSeat())
         if (entry?.shared == true) return Outcome.Ok(Decision.Allowed)
-        seatRule.check(itemId, key, existing, callerSeat)?.let { return Outcome.Err(it) }
+        val verdict = seatRule.check(itemId, key, existing, callerSeat)
+        if (verdict is SeatVerdict.Refuse) return Outcome.Err(verdict.error)
         if (existing == null) return Outcome.Ok(Decision.Allowed)
         val owner = existing.ownerId
         if (owner == null) {
             return Outcome.Ok(if (caller != null) Decision.Adopted(existing.actorClaim?.id) else Decision.Allowed)
         }
+        if (verdict == SeatVerdict.Allow) return Outcome.Ok(Decision.Allowed)
         if (caller != null && owner == caller.principalId && ownerSeat == callerSeat) return Outcome.Ok(Decision.Allowed)
         if (takeover && caller != null) return Outcome.Ok(Decision.Transferred(owner, caller.principalId))
         return Outcome.Err(ownedByOther(itemId, key, ownerSeat))

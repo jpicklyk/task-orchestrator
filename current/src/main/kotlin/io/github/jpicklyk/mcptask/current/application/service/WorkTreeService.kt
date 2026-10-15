@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -104,7 +105,9 @@ data class WorkTreeRequest(
     val verification: VerificationResult? = null,
     val caller: ClaimHolder?,
     /** The seat of the call's seat token, null without one: the owner seat of every note the tree writes. */
-    val callerSeat: String? = null
+    val callerSeat: String? = null,
+    /** Who writes the tree's notes, for note-ownership rule 2 ([NoteSeatRule]); an agent without a token by default. */
+    val seatCaller: SeatCaller = SeatCaller.NONE
 )
 
 /** One item a tree wrote (or attached to): its [ref], [id] and stored [depth]. */
@@ -156,7 +159,8 @@ class WorkTreePlan internal constructor(
     internal val actorClaim: ActorClaim?,
     internal val verification: VerificationResult?,
     internal val caller: ClaimHolder?,
-    internal val callerSeat: String? = null
+    internal val callerSeat: String? = null,
+    internal val seatCaller: SeatCaller = SeatCaller.NONE
 )
 
 /** A note that passed the write policy, ready to upsert. [derivedFrom] is the anchor its body was cut at, if any. */
@@ -383,7 +387,8 @@ class WorkTreeService(
                 actorClaim = request.actorClaim,
                 verification = request.verification,
                 caller = request.caller,
-                callerSeat = request.callerSeat
+                callerSeat = request.callerSeat,
+                seatCaller = request.seatCaller
             )
         )
     }
@@ -426,7 +431,8 @@ class WorkTreeService(
                             plan.actorClaim,
                             plan.verification,
                             plan.caller,
-                            callerSeat = plan.callerSeat
+                            callerSeat = plan.callerSeat,
+                            seatCaller = plan.seatCaller
                         )
                     )
                 when (upserted) {

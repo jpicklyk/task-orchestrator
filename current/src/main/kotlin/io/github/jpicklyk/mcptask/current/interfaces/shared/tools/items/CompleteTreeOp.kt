@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
@@ -12,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionServ
 import io.github.jpicklyk.mcptask.current.application.service.TreeItemOutcome
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.TransitionJson
@@ -116,7 +118,8 @@ private suspend fun WriteScope.completeTree(
                     req.trigger.wire,
                     ctx.principal.claim,
                     ctx.principal.verification,
-                    ctx.seat?.assignmentId
+                    ctx.seat?.assignmentId,
+                    SeatCaller.of(ctx)
                 )
         ) {
             is Outcome.Err -> return run

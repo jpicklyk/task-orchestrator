@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.api
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.util.UUID
@@ -83,4 +84,17 @@ data class CallContext(
             profile = profile
         )
     }
+}
+
+/**
+ * Whether [ctx] is a human caller: a [PrincipalKind.HUMAN] credential carrying no seat token (a seat is always an
+ * agent). The single human predicate: run permissions and seat enforcement (R23) both read it. A profile (the director
+ * view) is not a kind, so it never makes a caller human.
+ */
+fun isHumanCaller(ctx: CallContext): Boolean = ctx.seat == null && ctx.principal.principal?.kind == PrincipalKind.HUMAN
+
+/** The seat-enforcement caller of [ctx]: its seat token's seat, run and member item, and whether it is human. */
+fun SeatCaller.Companion.of(ctx: CallContext): SeatCaller {
+    val seat = ctx.seat
+    return SeatCaller(seat = seat?.seat, runId = seat?.runId, itemId = seat?.itemId, human = isHumanCaller(ctx))
 }

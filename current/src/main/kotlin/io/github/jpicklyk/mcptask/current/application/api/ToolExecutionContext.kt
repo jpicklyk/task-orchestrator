@@ -113,8 +113,24 @@ class ToolExecutionContext(
             resourceLeasesEnforced = { resourceLeasesEnforced },
             clock = clock,
             claimService = claimService,
-            schemaPinService = schemaPinService
+            schemaPinService = schemaPinService,
+            openRunResolver = ::openRunOf
         )
+    }
+
+    /**
+     * The not-closed run (open or paused) [itemId] is a member of, for seat enforcement (R23); read inside the caller's
+     * unit. A provider that serves no runs (its `runStore()` throws [UnsupportedOperationException], as the interface
+     * default does) has none, so it never enforces seats.
+     */
+    private suspend fun openRunOf(itemId: UUID): UUID? {
+        val runStore =
+            try {
+                repositoryProvider.runStore()
+            } catch (e: UnsupportedOperationException) {
+                return null
+            }
+        return runStore.openRunByItem(setOf(itemId))[itemId]
     }
 
     /**
@@ -152,7 +168,9 @@ class ToolExecutionContext(
     /**
      * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
      */
-    val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
+    val noteCommandService: NoteCommandService by lazy {
+        NoteCommandService(repositoryProvider, configResolver, unitOfWork, openRunResolver = ::openRunOf)
+    }
 
     /**
      * The single owner of the dependency write policy (normalization, duplicate and cycle rules), shared by

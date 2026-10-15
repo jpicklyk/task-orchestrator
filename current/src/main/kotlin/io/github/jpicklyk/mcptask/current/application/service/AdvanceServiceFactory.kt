@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import java.util.UUID
 
 /**
  * Builds a per-item [AdvanceService] (status labels bound to that item's `rootId` through
@@ -33,7 +34,12 @@ class AdvanceServiceFactory(
     /** Where every built [AdvanceService] routes its claim and lease writes (and their events). */
     private val claimService: ClaimService,
     /** The pin writer every built [AdvanceService] re-pins with when a transition leaves TERMINAL. */
-    private val schemaPinService: SchemaPinService = SchemaPinService(configResolver)
+    private val schemaPinService: SchemaPinService = SchemaPinService(configResolver),
+    /**
+     * The not-closed run an item is a member of, for the SEAT gate (R23) of every built [AdvanceService]; the default
+     * resolves none (seats never enforced). Previews never read it: they evaluate without a caller.
+     */
+    private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
     private val previewLazy by lazy {
         TransitionPreview(
@@ -78,7 +84,8 @@ class AdvanceServiceFactory(
             independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) },
             clock = clock,
             claimService = claimService,
-            schemaPinService = schemaPinService
+            schemaPinService = schemaPinService,
+            openRunResolver = openRunResolver
         )
     }
 

@@ -32,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
@@ -71,6 +72,15 @@ sealed class AdvanceFailure {
 
     /** The caller does not hold the active claim on an actively-claimed item. */
     data class OwnershipRejected(
+        val message: String,
+        override val error: DomainError
+    ) : AdvanceFailure()
+
+    /**
+     * The caller's seat may not send this trigger to an item in an open run whose pinned schema is seat-aware (R23,
+     * `seat_forbidden`). A permission refusal like [OwnershipRejected]: no rejection row is recorded.
+     */
+    data class SeatForbidden(
         val message: String,
         override val error: DomainError
     ) : AdvanceFailure()
@@ -307,6 +317,8 @@ data class AdvanceResult(
  *   cascade) re-pins the item to the config heads and records one `item.pinned` row (reason `reopen`) after its
  *   `item.transitioned` row; that transition's own gate was already evaluated under the old pin. Null (or pins off):
  *   no pin is written.
+ * @property openRunResolver the not-closed run an item is a member of (R23 seat enforcement), read inside the unit and
+ *   only for a seat-aware schema under a user trigger; the default resolves none (seats never enforced).
  */
 class AdvanceService(
     private val workItemRepository: WorkItemRepository,
@@ -325,7 +337,8 @@ class AdvanceService(
     private val policy: TransitionPolicy = TransitionPolicy(),
     /** The owner of claim and lease writes and their events: always the shared instance wired by [AdvanceServiceFactory]. */
     claimService: ClaimService,
-    private val schemaPinService: SchemaPinService? = null
+    private val schemaPinService: SchemaPinService? = null,
+    private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
     private val claims: ClaimService = claimService
 
@@ -337,7 +350,8 @@ class AdvanceService(
             resourceLeaseRepository,
             schemaResolver,
             resourceRequirementsResolver,
-            independencePolicyResolver
+            independencePolicyResolver,
+            openRunResolver
         )
 
     companion object {
@@ -376,6 +390,8 @@ class AdvanceService(
      * @param enforceResourceLeases when true (the default), the resource-lease gate and acquisition run;
      *   only an explicit ADMIN-only `overrideResourceLeases` request flag lowers it. ANDed with
      *   [resourceLeasesEnforced].
+     * @param assignmentId the seat assignment of the call's seat token (the claim holder pair's second member).
+     * @param seatCaller who sends the trigger, for the SEAT gate (R23); [SeatCaller.NONE] is an agent without a token.
      */
     suspend fun advance(
         item: WorkItem,
@@ -385,7 +401,8 @@ class AdvanceService(
         verification: VerificationResult?,
         credentialRefs: List<String> = emptyList(),
         enforceResourceLeases: Boolean = true,
-        assignmentId: UUID? = null
+        assignmentId: UUID? = null,
+        seatCaller: SeatCaller = SeatCaller.NONE
     ): AdvanceOutcome {
         val userTrigger =
             Trigger.User.parse(trigger)
@@ -409,6 +426,7 @@ class AdvanceService(
                 actorClaim = actorClaim,
                 verification = verification,
                 ownership = OwnershipInput(enforced = true, callerId = actorClaim?.id, callerAssignmentId = assignmentId),
+                seat = SeatInput(enforced = true, caller = seatCaller),
                 leaseGateActive = leaseGateActive,
                 credentialRefs = credentialRefs
             )
@@ -452,6 +470,7 @@ class AdvanceService(
         val actorClaim: ActorClaim?,
         val verification: VerificationResult?,
         val ownership: OwnershipInput,
+        val seat: SeatInput,
         val leaseGateActive: Boolean,
         val credentialRefs: List<String>
     )
@@ -569,7 +588,7 @@ class AdvanceService(
         // the hourly sweep backstops it.
         if (item.claimedBy != null) claims.detectExpiry(item).orAbort()
 
-        val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive))
+        val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive), request.seat)
         val snapshot = loaded.snapshot
         val decision = policy.evaluate(snapshot, trigger)
         val target = (decision as? Decision.Allow)?.target ?: resolvedTarget(snapshot, trigger)
@@ -725,6 +744,8 @@ class AdvanceService(
                     }
                 AdvanceFailure.OwnershipRejected(message, decision.error)
             }
+            // A permission refusal, like OWNERSHIP: no rejection row (the call log carries it).
+            GateId.SEAT -> AdvanceFailure.SeatForbidden("Seat check failed: ${decision.error.message}", decision.error)
             GateId.TABLE, GateId.HOLD ->
                 AdvanceFailure.ResolutionFailed(legacyTableMessage(item, trigger, decision), decision.error)
             GateId.DEPENDENCY -> {
@@ -1230,7 +1251,7 @@ class AdvanceService(
                     resourceBlocked = true,
                     contendedResources = (decision.context as? RejectContext.Lease)?.contended.orEmpty()
                 )
-            GateId.OWNERSHIP, GateId.TABLE -> null
+            GateId.OWNERSHIP, GateId.SEAT, GateId.TABLE -> null
         }
     }
 

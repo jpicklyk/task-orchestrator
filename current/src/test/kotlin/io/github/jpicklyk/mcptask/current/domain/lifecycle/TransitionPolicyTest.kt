@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role.QUEUE
 import io.github.jpicklyk.mcptask.current.domain.model.Role.REVIEW
 import io.github.jpicklyk.mcptask.current.domain.model.Role.TERMINAL
 import io.github.jpicklyk.mcptask.current.domain.model.Role.WORK
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -49,7 +50,8 @@ class TransitionPolicyTest {
         children: ChildFacts = ChildFacts.NONE,
         blockers: List<BlockerState> = emptyList(),
         ownership: OwnershipFacts = OwnershipFacts.NONE,
-        lease: LeaseFacts = LeaseFacts.NONE
+        lease: LeaseFacts = LeaseFacts.NONE,
+        seat: SeatFacts = SeatFacts.NONE
     ) = TransitionSnapshot(
         item = ItemFacts(id, role, previousRole, parent),
         schema = schema,
@@ -59,7 +61,8 @@ class TransitionPolicyTest {
         children = children,
         blockers = blockers,
         ownership = ownership,
-        lease = lease
+        lease = lease,
+        seat = seat
     )
 
     private val unmet = BlockerState(BlockingEdge(blockerId, id), WORK)
@@ -739,5 +742,240 @@ class TransitionPolicyTest {
         assertEquals("queue", QUEUE.wire())
         assertEquals("terminal", TERMINAL.wire())
         assertEquals("blocked", BLOCKED.wire())
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // R23 (item 9536cf09) SEAT gate. Oracle: frozen task-scope "What to build" 3 (gate rules, the
+    // allowedSeats rule, the error shape) and decisions D3-D6; plan 4.1 R23 table. Gate order:
+    // OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> DEPENDENCY -> NOTE -> LEASE.
+    // ---------------------------------------------------------------------------------------------
+
+    private val runId = UUID.fromString("00000000-0000-0000-0000-0000000000c1")
+    private val otherRunId = UUID.fromString("00000000-0000-0000-0000-0000000000c2")
+    private val otherItemId = UUID.fromString("00000000-0000-0000-0000-0000000000d1")
+
+    private val seatSet =
+        listOf(
+            SeatDefinition("planner", QUEUE, enters = true),
+            SeatDefinition("builder", WORK, enters = true),
+            SeatDefinition("checker", WORK, transitions = listOf("complete")),
+            SeatDefinition("orchestrator", WORK),
+            SeatDefinition("silent", WORK, transitions = emptyList()),
+            SeatDefinition("reviewer", REVIEW, enters = true)
+        )
+
+    private fun seatFacts(
+        caller: SeatCaller,
+        enforced: Boolean = true,
+        openRun: UUID? = runId,
+        seats: List<SeatDefinition> = seatSet
+    ) = SeatFacts(enforced = enforced, openRunId = openRun, seats = seats, caller = caller)
+
+    private fun memberSeat(
+        seat: String,
+        run: UUID = runId,
+        item: UUID? = id
+    ) = SeatCaller(seat = seat, runId = run, itemId = item, human = false)
+
+    private val coordinatorCaller = SeatCaller(seat = "coordinator", runId = runId, itemId = null, human = false)
+    private val humanCaller = SeatCaller(seat = null, runId = null, itemId = null, human = true)
+
+    private fun seatRejected(
+        s: TransitionSnapshot,
+        t: Trigger,
+        label: String
+    ): Decision.Reject {
+        val r = rejected(s, t)
+        assertEquals(GateId.SEAT, r.gate, "$label: gate")
+        assertEquals(ErrorCode.SEAT_FORBIDDEN, r.error.code, "$label: code")
+        return r
+    }
+
+    private fun seatDetail(r: Decision.Reject) = assertIs<ErrorDetail.SeatForbidden>(r.error.detail)
+
+    @Test
+    fun `R23 S9 gate order puts SEAT after OWNERSHIP and before TABLE DEPENDENCY NOTE and LEASE`() {
+        // Everything fails at once: ownership answers first.
+        var s =
+            snap(
+                QUEUE,
+                blockers = listOf(unmet),
+                notes = listOf(scopeNote),
+                ownership = heldOwnership,
+                lease = contended,
+                seat = seatFacts(SeatCaller.NONE)
+            )
+        assertEquals(GateId.OWNERSHIP, rejected(s, Trigger.User.START).gate)
+
+        // Clear ownership: the seat refusal answers before dependency, notes and lease.
+        s = s.copy(ownership = OwnershipFacts.NONE)
+        assertEquals(GateId.SEAT, rejected(s, Trigger.User.START).gate)
+
+        // The coordinator passes the seat gate, so the next gates answer in their order.
+        s = s.copy(seat = seatFacts(coordinatorCaller))
+        assertEquals(GateId.DEPENDENCY, rejected(s, Trigger.User.START).gate)
+        s = s.copy(blockers = emptyList())
+        assertEquals(GateId.NOTE, rejected(s, Trigger.User.START).gate)
+        s = s.copy(filledKeys = setOf("scope"))
+        assertEquals(GateId.LEASE, rejected(s, Trigger.User.START).gate)
+    }
+
+    @Test
+    fun `R23 S9 a seat refusal answers before the transition table and the table answers once the seat passes`() {
+        // resume from queue is invalid in the table; the token-less agent is stopped by the seat gate first.
+        seatRejected(snap(QUEUE, seat = seatFacts(SeatCaller.NONE)), Trigger.User.RESUME, "token-less resume from queue")
+        // start from terminal is invalid in the table; the builder token is stopped by the seat gate first.
+        seatRejected(snap(TERMINAL, seat = seatFacts(memberSeat("builder"))), Trigger.User.START, "builder start from terminal")
+        // control: with a passing caller the table is what refuses.
+        val viaCoordinator = rejected(snap(QUEUE, seat = seatFacts(coordinatorCaller)), Trigger.User.RESUME)
+        assertEquals(GateId.TABLE, viaCoordinator.gate)
+        assertEquals(ErrorCode.INVALID_TRANSITION, viaCoordinator.error.code)
+        assertEquals(GateId.TABLE, rejected(snap(TERMINAL, seat = seatFacts(humanCaller)), Trigger.User.START).gate)
+    }
+
+    @Test
+    fun `R23 S2 a member seat starts only into the phase it enters`() {
+        val builder = seatFacts(memberSeat("builder"))
+        assertEquals(WORK, allowed(snap(QUEUE, seat = builder), Trigger.User.START).target)
+        // the planner enters queue, not work
+        seatRejected(snap(QUEUE, seat = seatFacts(memberSeat("planner"))), Trigger.User.START, "planner start into work")
+        // a seat that does not enter at all
+        seatRejected(snap(QUEUE, seat = seatFacts(memberSeat("orchestrator"))), Trigger.User.START, "non-entering seat")
+        // start from work lands in review (review-phase schema) or terminal; the builder enters neither
+        seatRejected(snap(WORK, schema = autoReview, seat = builder), Trigger.User.START, "builder start into review")
+        seatRejected(snap(WORK, seat = builder), Trigger.User.START, "builder start into terminal")
+        // the reviewer enters review
+        val reviewer = seatFacts(memberSeat("reviewer"))
+        assertEquals(REVIEW, allowed(snap(WORK, schema = autoReview, seat = reviewer), Trigger.User.START).target)
+        seatRejected(snap(QUEUE, seat = reviewer), Trigger.User.START, "reviewer start into work")
+    }
+
+    @Test
+    fun `R23 S2 a member seat runs the default block and hold, and complete only when it declares it`() {
+        val builder = seatFacts(memberSeat("builder"))
+        assertEquals(BLOCKED, allowed(snap(QUEUE, seat = builder), Trigger.User.BLOCK).target)
+        assertEquals(BLOCKED, allowed(snap(WORK, seat = builder), Trigger.User.HOLD).target)
+        // not declared: complete, cancel, resume, reopen
+        seatRejected(snap(WORK, seat = builder), Trigger.User.COMPLETE, "builder complete")
+        seatRejected(snap(WORK, seat = builder), Trigger.User.CANCEL, "builder cancel")
+        seatRejected(snap(BLOCKED, previousRole = WORK, seat = builder), Trigger.User.RESUME, "builder resume")
+        seatRejected(snap(TERMINAL, seat = builder), Trigger.User.REOPEN, "builder reopen")
+
+        // the checker declares [complete] only: complete passes, the defaults no longer apply
+        val checker = seatFacts(memberSeat("checker"))
+        assertEquals(TERMINAL, allowed(snap(WORK, seat = checker), Trigger.User.COMPLETE).target)
+        seatRejected(snap(WORK, seat = checker), Trigger.User.BLOCK, "checker block")
+        seatRejected(snap(WORK, seat = checker), Trigger.User.HOLD, "checker hold")
+
+        // a declared EMPTY list is not the same as an absent one: nothing is allowed
+        val silent = seatFacts(memberSeat("silent"))
+        seatRejected(snap(QUEUE, seat = silent), Trigger.User.BLOCK, "silent block")
+        seatRejected(snap(WORK, seat = silent), Trigger.User.HOLD, "silent hold")
+        // control: the seat with no declaration gets the defaults
+        assertEquals(BLOCKED, allowed(snap(QUEUE, seat = seatFacts(memberSeat("orchestrator"))), Trigger.User.BLOCK).target)
+
+        // control for every refusal above: the coordinator of the run does the same transitions
+        val coordinator = seatFacts(coordinatorCaller)
+        assertEquals(TERMINAL, allowed(snap(WORK, seat = coordinator), Trigger.User.COMPLETE).target)
+        assertEquals(TERMINAL, allowed(snap(WORK, seat = coordinator), Trigger.User.CANCEL).target)
+        assertEquals(WORK, allowed(snap(BLOCKED, previousRole = WORK, seat = coordinator), Trigger.User.RESUME).target)
+        assertEquals(QUEUE, allowed(snap(TERMINAL, seat = coordinator), Trigger.User.REOPEN).target)
+    }
+
+    @Test
+    fun `R23 S3 the coordinator of this run may run every user trigger the table allows`() {
+        val c = seatFacts(coordinatorCaller)
+        assertEquals(WORK, allowed(snap(QUEUE, seat = c), Trigger.User.START).target)
+        assertEquals(TERMINAL, allowed(snap(WORK, seat = c), Trigger.User.COMPLETE).target)
+        assertEquals(BLOCKED, allowed(snap(QUEUE, seat = c), Trigger.User.BLOCK).target)
+        assertEquals(BLOCKED, allowed(snap(WORK, seat = c), Trigger.User.HOLD).target)
+        assertEquals(QUEUE, allowed(snap(BLOCKED, previousRole = QUEUE, seat = c), Trigger.User.RESUME).target)
+        assertEquals(TERMINAL, allowed(snap(QUEUE, seat = c), Trigger.User.CANCEL).target)
+        assertEquals(QUEUE, allowed(snap(TERMINAL, seat = c), Trigger.User.REOPEN).target)
+    }
+
+    @Test
+    fun `R23 S5 a human is exempt and the same snapshot refuses a token-less agent`() {
+        val human = seatFacts(humanCaller)
+        val cases =
+            listOf(
+                snap(QUEUE, seat = human) to Trigger.User.START,
+                snap(WORK, seat = human) to Trigger.User.COMPLETE,
+                snap(WORK, seat = human) to Trigger.User.CANCEL,
+                snap(TERMINAL, seat = human) to Trigger.User.REOPEN
+            )
+        for ((s, t) in cases) {
+            assertTrue(eval(s, t) is Decision.Allow, "human $t from ${s.item.role}")
+            seatRejected(s.copy(seat = seatFacts(SeatCaller.NONE)), t, "agent $t from ${s.item.role}")
+        }
+    }
+
+    @Test
+    fun `R23 S7 a token bound to another run, another item, no item or an undeclared seat is refused`() {
+        val cases =
+            listOf(
+                "token of another run" to memberSeat("builder", run = otherRunId),
+                "token for another item" to memberSeat("builder", item = otherItemId),
+                "member seat without an item" to memberSeat("builder", item = null),
+                "seat the schema does not declare" to memberSeat("ghost"),
+                "seat name with another case" to memberSeat("Builder"),
+                "seat name with trailing space" to memberSeat("builder "),
+                "coordinator of another run" to SeatCaller("coordinator", otherRunId, null, false)
+            )
+        for ((label, caller) in cases) {
+            val r = seatRejected(snap(QUEUE, seat = seatFacts(caller)), Trigger.User.START, label)
+            assertEquals(caller.seat, seatDetail(r).seat, "$label: the refusal names the presented seat")
+        }
+        // control: the exact token passes
+        assertEquals(WORK, allowed(snap(QUEUE, seat = seatFacts(memberSeat("builder"))), Trigger.User.START).target)
+    }
+
+    @Test
+    fun `R23 S7 and S8 the refusal carries the item, the presented seat, the action and the allowed seats`() {
+        // member seat on start: allowedSeats = coordinator, then the seat entering the target phase
+        val start = seatRejected(snap(QUEUE, seat = seatFacts(memberSeat("planner"))), Trigger.User.START, "planner start")
+        assertEquals(ErrorDetail.SeatForbidden(id, "planner", "start", listOf("coordinator", "builder")), start.error.detail)
+        assertTrue(start.error.message.contains("start") && start.error.message.contains(id.toString()), start.error.message)
+
+        // token-less agent: the seat is absent (null), not an empty string
+        val tokenless = seatRejected(snap(QUEUE, seat = seatFacts(SeatCaller.NONE)), Trigger.User.START, "token-less start")
+        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("coordinator", "builder")), tokenless.error.detail)
+
+        // other triggers: the seats whose effective transitions contain the trigger, in declared order
+        val complete = seatRejected(snap(WORK, seat = seatFacts(memberSeat("builder"))), Trigger.User.COMPLETE, "builder complete")
+        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "complete", listOf("coordinator", "checker")), complete.error.detail)
+        val block = seatRejected(snap(WORK, seat = seatFacts(memberSeat("checker"))), Trigger.User.BLOCK, "checker block")
+        assertEquals(
+            ErrorDetail.SeatForbidden(id, "checker", "block", listOf("coordinator", "planner", "builder", "orchestrator", "reviewer")),
+            block.error.detail
+        )
+        val cancel = seatRejected(snap(WORK, seat = seatFacts(memberSeat("builder"))), Trigger.User.CANCEL, "builder cancel")
+        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "cancel", listOf("coordinator")), cancel.error.detail)
+
+        // a start into review lists the reviewer
+        val review =
+            seatRejected(snap(WORK, schema = autoReview, seat = seatFacts(SeatCaller.NONE)), Trigger.User.START, "start into review")
+        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("coordinator", "reviewer")), review.error.detail)
+    }
+
+    @Test
+    fun `R23 the seat gate does not apply outside enforcement, outside an open run, without seats or to non-user triggers`() {
+        val enforcedNone = seatFacts(SeatCaller.NONE)
+        // control: the enforced snapshot refuses
+        seatRejected(snap(QUEUE, seat = enforcedNone), Trigger.User.START, "control")
+        assertTrue(eval(snap(QUEUE, seat = enforcedNone.copy(enforced = false)), Trigger.User.START) is Decision.Allow, "not enforced")
+        assertTrue(eval(snap(QUEUE, seat = enforcedNone.copy(openRunId = null)), Trigger.User.START) is Decision.Allow, "no open run")
+        assertTrue(eval(snap(QUEUE, seat = enforcedNone.copy(seats = emptyList())), Trigger.User.START) is Decision.Allow, "no seats")
+
+        // cascades and structural triggers never carry a caller (decision D3)
+        assertTrue(eval(snap(QUEUE, parent = parentId, seat = enforcedNone), Trigger.Cascade.Start) is Decision.Allow, "cascade start")
+        assertTrue(eval(snap(TERMINAL, seat = enforcedNone), Trigger.Cascade.Reopen) is Decision.Allow, "cascade reopen")
+        assertTrue(eval(snap(QUEUE, seat = enforcedNone), Trigger.Structural.Delete) is Decision.Allow, "structural delete")
+    }
+
+    @Test
+    fun `R23 replaying the same refused evaluation gives the same decision`() {
+        val s = snap(QUEUE, seat = seatFacts(memberSeat("planner")))
+        assertEquals(eval(s, Trigger.User.START), eval(s, Trigger.User.START))
     }
 }

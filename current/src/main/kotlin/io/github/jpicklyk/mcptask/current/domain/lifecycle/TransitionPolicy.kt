@@ -17,6 +17,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import java.util.UUID
 
 /** What a [TransitionGate] sees: the snapshot, the trigger, and the table resolution for it. */
@@ -116,6 +118,26 @@ object StandardGates {
                         fixArgs = mapOf("itemId" to id.toString())
                     )
                 )
+            }
+        }
+
+    /**
+     * Seat enforcement (R23), user triggers only. Applies only when the caller is known ([SeatFacts.enforced]), the item
+     * is a member of a not-closed run ([SeatFacts.openRunId]) and its pinned schema is seat-aware; a human caller is
+     * exempt. Then the coordinator token of THIS run may send any trigger the table allows, a member-seat token of THIS
+     * run bound to THIS item may `start` only into the phase its seat enters and send any other trigger only when its
+     * seat's effective `transitions:` list it, and every other caller (no token, another run's token, a token for another
+     * item, a seat the schema does not declare) is refused with `seat_forbidden`.
+     */
+    val SEAT: TransitionGate =
+        TransitionGate { input ->
+            val facts = input.snapshot.seat
+            val trigger = input.trigger
+            when {
+                trigger !is User -> null
+                !facts.enforced || facts.openRunId == null || facts.seats.isEmpty() || facts.caller.human -> null
+                seatAllows(facts, trigger, input.snapshot.item.id, input.target) -> null
+                else -> seatForbidden(facts, trigger, input.snapshot.item.id, input.target)
             }
         }
 
@@ -278,6 +300,58 @@ object StandardGates {
     }
 }
 
+/** Whether [facts]' caller may send [trigger] to [itemId] (resolved [target], null when the table resolved none). */
+private fun seatAllows(
+    facts: SeatFacts,
+    trigger: User,
+    itemId: UUID,
+    target: Role?
+): Boolean {
+    val caller = facts.caller
+    val seat = caller.seat ?: return false
+    // A token of another run carries no authority here, whatever its seat.
+    if (caller.runId == null || caller.runId != facts.openRunId) return false
+    if (seat == RunSeat.COORDINATOR) return true
+    // A member-seat token acts only on the item it is assigned to.
+    if (caller.itemId != itemId) return false
+    // Fail closed on a seat name the pinned schema does not declare.
+    val definition = facts.seats.firstOrNull { it.name == seat } ?: return false
+    return seatMayRun(definition, trigger, target)
+}
+
+/** Whether [definition] may send [trigger] given the resolved [target]: `start` only into the phase it enters. */
+private fun seatMayRun(
+    definition: SeatDefinition,
+    trigger: User,
+    target: Role?
+): Boolean =
+    if (trigger == User.START) {
+        definition.enters && target != null && definition.phase == target
+    } else {
+        trigger.wire in definition.effectiveTransitions
+    }
+
+/** The `seat_forbidden` rejection: `allowedSeats` lists the coordinator, then the schema seats that may send [trigger]. */
+private fun seatForbidden(
+    facts: SeatFacts,
+    trigger: User,
+    itemId: UUID,
+    target: Role?
+): Decision.Reject {
+    val seat = facts.caller.seat
+    val allowedSeats = listOf(RunSeat.COORDINATOR) + facts.seats.filter { seatMayRun(it, trigger, target) }.map { it.name }
+    val who = if (seat != null) "seat $seat" else "a caller without a seat"
+    return Decision.Reject(
+        GateId.SEAT,
+        DomainError(
+            code = ErrorCode.SEAT_FORBIDDEN,
+            message = "Trigger ${trigger.wire} on item $itemId is not allowed for $who.",
+            detail = ErrorDetail.SeatForbidden(itemId, seat, trigger.wire, allowedSeats),
+            fixArgs = mapOf("itemId" to itemId.toString(), "action" to trigger.wire)
+        )
+    )
+}
+
 internal fun invalidTransition(
     gate: GateId,
     itemId: UUID,
@@ -374,10 +448,11 @@ class TransitionPolicy(
         }
 
     companion object {
-        /** OWNERSHIP -> TABLE -> WARRANT -> HOLD -> DEPENDENCY -> NOTE -> LEASE. W5 appends SEAT. */
+        /** OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> DEPENDENCY -> NOTE -> LEASE. */
         val DEFAULT_GATES: List<TransitionGate> =
             listOf(
                 StandardGates.OWNERSHIP,
+                StandardGates.SEAT,
                 StandardGates.TABLE,
                 StandardGates.WARRANT,
                 StandardGates.HOLD,
