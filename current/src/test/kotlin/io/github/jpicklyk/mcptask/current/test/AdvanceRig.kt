@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
@@ -191,7 +192,7 @@ internal suspend fun ToolExecutionContext.advanceDirect(
 ): AdvanceOutcome {
     val fresh = checkNotNull(workItemRepository().getById(item.id)) { "item ${item.id} does not exist" }
     // The dispatcher verifies a lifted actor before any op runs; do the same when the test supplies none.
-    val verified = verification ?: actor?.let { actorVerifier().verify(it) }
+    val verified = verification ?: actor?.let { VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop") }
     return withEventActor(actor) {
         advanceServiceFactory().forItem(fresh).advance(
             item = fresh,

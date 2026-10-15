@@ -168,7 +168,6 @@ class SseResolverPathTest {
         val provider = mockk<JwksKeySetProvider>()
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         coEvery { provider.getKeySet() } returns result
-        coEvery { provider.getKeySetForIssuer(any()) } returns result
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return JwksApiVerifier(jwksConfig(), provider)

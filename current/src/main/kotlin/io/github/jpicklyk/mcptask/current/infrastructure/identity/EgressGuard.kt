@@ -7,7 +7,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 
 /**
- * Thrown by [EgressGuard.check] when an outbound key-material or DID-document fetch would reach a
+ * Thrown by [EgressGuard.check] when an outbound key-material fetch would reach a
  * non-public address.
  *
  * @param host The host named by the refused URL (as parsed, without IPv6 brackets).
@@ -24,8 +24,7 @@ class EgressRefusedException(
     )
 
 /**
- * Egress guard for every outbound fetch of key material (JWKS, OIDC discovery document) and of
- * `did:web` DID documents (AR-05 rec 4).
+ * Egress guard for every outbound fetch of key material (JWKS, OIDC discovery document) (AR-05 rec 4).
  *
  * [check] parses the URL's host, resolves it (a literal IP needs no DNS) and refuses the fetch when
  * ANY resolved address falls in a non-public class -- fail closed, so a name that resolves to a mix

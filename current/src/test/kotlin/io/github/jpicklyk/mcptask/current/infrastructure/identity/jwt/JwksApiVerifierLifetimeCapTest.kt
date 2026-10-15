@@ -75,8 +75,6 @@ class JwksApiVerifierLifetimeCapTest {
             JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
-        coEvery { provider.getKeySetForIssuer(any()) } returns
-            JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         return provider
     }
 

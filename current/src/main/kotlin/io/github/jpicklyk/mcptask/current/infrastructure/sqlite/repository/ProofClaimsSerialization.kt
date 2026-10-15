@@ -17,7 +17,7 @@ import org.slf4j.Logger
  * `role_transitions` table used it too; its rows now live in `events` (V29).
  *
  * [ProofClaims] deliberately carries no `@Serializable` annotation — domain models in this
- * codebase stay free of serialization framework coupling (see `DidDocument.kt`) — so encoding
+ * codebase stay free of serialization framework coupling (see the other persisted domain records) — so encoding
  * is done by hand with `kotlinx.serialization.json`'s tree builders, the same approach
  * `EntityJsonSerializers.kt` uses for MCP response bodies.
  */

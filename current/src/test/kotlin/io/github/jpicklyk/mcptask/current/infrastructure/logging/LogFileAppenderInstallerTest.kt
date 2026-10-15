@@ -35,8 +35,7 @@ class LogFileAppenderInstallerTest {
     /**
      * Captures WARN-level log records emitted by [LogFileAppenderInstaller] during [block] --
      * same [ch.qos.logback.core.read.ListAppender] convention used by
-     * `RejectedProofWarnLogTest.captureWarnLogs`, `EnvBooleanTest.captureWarnLogs` and
-     * `DidDocumentJwksExtractorTest`.
+     * `RejectedProofWarnLogTest.captureWarnLogs`, and `EnvBooleanTest.captureWarnLogs`.
      */
     private fun captureWarnLogs(block: () -> Unit): List<String> {
         val logbackLogger =

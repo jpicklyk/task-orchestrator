@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -99,7 +98,6 @@ class SelectorAncestorClaimTest {
     private fun contextOver(repository: WorkItemRepository): ToolExecutionContext =
         ToolExecutionContext(
             InterloperProvider(sqlite.db.repositoryProvider(), repository),
-            actorVerifier = NoOpActorVerifier,
             unitOfWork = sqlite.db.unitOfWork()
         )
 

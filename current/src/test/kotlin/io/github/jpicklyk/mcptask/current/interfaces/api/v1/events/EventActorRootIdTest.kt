@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
@@ -108,7 +107,6 @@ class EventActorRootIdTest {
         val (provider, unitOfWork) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
         return ToolExecutionContext(
             repositoryProvider = provider,
-            actorVerifier = NoOpActorVerifier,
             unitOfWork = unitOfWork,
         )
     }

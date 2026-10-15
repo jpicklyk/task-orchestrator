@@ -162,7 +162,7 @@ private suspend fun serveOps(
 
 /**
  * Byte cap of an `/ops/{tool}` request body (1 MiB, the cap the bounded-read safety limits elsewhere use, e.g.
- * `DidWebResolver.MAX_BODY_BYTES`): the body is read at most one byte past it and never buffered whole.
+ * `DefaultJwksKeySetProvider.MAX_BODY_BYTES`): the body is read at most one byte past it and never buffered whole.
  */
 const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024
 

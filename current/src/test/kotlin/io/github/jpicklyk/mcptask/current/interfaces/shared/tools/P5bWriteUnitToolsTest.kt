@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -92,7 +91,6 @@ class P5bWriteUnitToolsTest {
     private fun contextOver(uow: CountingUnitOfWork = CountingUnitOfWork(db.unitOfWork())): Pair<ToolExecutionContext, CountingUnitOfWork> =
         ToolExecutionContext(
             db.repositoryProvider(),
-            actorVerifier = NoOpActorVerifier,
             unitOfWork = uow
         ) to uow
 

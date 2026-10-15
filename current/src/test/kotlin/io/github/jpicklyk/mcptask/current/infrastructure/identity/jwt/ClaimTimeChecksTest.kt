@@ -9,7 +9,7 @@ import java.time.Instant
  * Independent test-author coverage for item 3dcfcbab, ADDENDUM 2 (fix cycle round 2, commit
  * 009c4867): direct unit coverage of [ClaimTimeChecks.isExpired] and
  * [ClaimTimeChecks.isNotYetValid] at nanosecond precision around the AUTH_CLOCK_SKEW_SECONDS
- * (60s) boundary -- the exact precision cache-level (JtiReplayCache) and end-to-end verifier
+ * (60s) boundary -- the exact precision end-to-end verifier
  * tests cannot pin down as directly as a pure Instant-in/Boolean-out unit does.
  *
  * Oracles:

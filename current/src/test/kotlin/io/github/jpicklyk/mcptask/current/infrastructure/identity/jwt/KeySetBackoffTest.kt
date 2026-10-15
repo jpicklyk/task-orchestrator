@@ -1,31 +1,18 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
-import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWKSet
-import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
-import com.nimbusds.jose.util.Base64URL
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidDocument
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.DidResolverRegistry
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.did.VerificationMethod
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.mockk.coEvery
-import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
-import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
-import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -34,19 +21,17 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
-import java.security.SecureRandom
 import java.security.Security
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Test-author coverage for item 385444c2 (R8), key-provider half: refresh backoff (AR-32), bounded
  * staleness (`max_stale_seconds`), and the rate-limited refresh on an unknown kid, for both the
- * static JWKS path and the per-issuer DID path of [DefaultJwksKeySetProvider].
+ * static JWKS path of [DefaultJwksKeySetProvider].
  *
  * Oracles (frozen in the item's task-scope s2 and test-plan at queue phase): D3 = "retry = 15 s
  * doubling per consecutive failure, capped at 300 s, reset on success; the entry is served stale
@@ -373,17 +358,17 @@ class KeySetBackoffTest {
 
                 up.body = jwksBody(newKey)
                 clock.now = at(10)
-                val refreshed = p.refreshForUnknownKid("bo-new", null)
+                val refreshed = p.refreshForUnknownKid("bo-new")
                 assertNotNull(refreshed, "a forced refresh is allowed even though the cache is fresh")
                 assertNotNull(refreshed!!.keys.getKeyByKeyId("bo-new"))
                 assertEquals(2, up.fetches.get())
 
                 clock.now = at(39) // 29 s after the first forced refresh
-                assertNull(p.refreshForUnknownKid("bo-new", null), "rate-limited inside 30 s")
+                assertNull(p.refreshForUnknownKid("bo-new"), "rate-limited inside 30 s")
                 assertEquals(2, up.fetches.get(), "a rate-limited call must not touch the network")
 
                 clock.now = at(40) // 30 s after
-                assertNotNull(p.refreshForUnknownKid("bo-new", null))
+                assertNotNull(p.refreshForUnknownKid("bo-new"))
                 assertEquals(3, up.fetches.get())
 
                 clock.now = at(45)
@@ -407,7 +392,7 @@ class KeySetBackoffTest {
                 up.failing = true
                 clock.now = at(10)
 
-                assertNull(p.refreshForUnknownKid("bo-new", null))
+                assertNull(p.refreshForUnknownKid("bo-new"))
 
                 val cached = p.getKeySet() // still inside the TTL
                 assertNotNull(cached.keys.getKeyByKeyId("bo-key"))
@@ -430,179 +415,8 @@ class KeySetBackoffTest {
                 assertEquals(2, up.fetches.get())
 
                 clock.now = at(125)
-                assertNull(p.refreshForUnknownKid("bo-new", null))
+                assertNull(p.refreshForUnknownKid("bo-new"))
                 assertEquals(2, up.fetches.get(), "no network call while the backoff window is open")
-            } finally {
-                p.close()
-            }
-        }
-
-    // -------------------------------------------------------------------------
-    // S17 - the per-issuer DID path follows the same rules
-    // -------------------------------------------------------------------------
-
-    private fun didDocument(did: String): DidDocument {
-        val gen = Ed25519KeyPairGenerator()
-        gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
-        val pub = gen.generateKeyPair().public as Ed25519PublicKeyParameters
-        val edKey = OctetKeyPair.Builder(Curve.Ed25519, Base64URL.encode(pub.encoded)).keyID("key-1").build()
-        val jwk =
-            JsonObject(
-                mapOf(
-                    "kty" to JsonPrimitive("OKP"),
-                    "crv" to JsonPrimitive("Ed25519"),
-                    "x" to JsonPrimitive(edKey.x.toString()),
-                    "kid" to JsonPrimitive("key-1"),
-                ),
-            )
-        val vm = VerificationMethod(id = "$did#key-1", type = "JsonWebKey2020", controller = did, publicKeyJwk = jwk)
-        return DidDocument(id = did, verificationMethods = listOf(vm), assertionMethod = listOf("$did#key-1"))
-    }
-
-    private class DidWorld(
-        didA: String,
-        didB: String,
-        docA: DidDocument,
-        docB: DidDocument,
-    ) {
-        val callsA = AtomicInteger(0)
-        val callsB = AtomicInteger(0)
-        val failingA = AtomicBoolean(false)
-        val registry = mockk<DidResolverRegistry>(relaxed = true)
-
-        init {
-            coEvery { registry.resolve(didA) } coAnswers {
-                callsA.incrementAndGet()
-                if (failingA.get()) throw java.io.IOException("did host a is down")
-                docA
-            }
-            coEvery { registry.resolve(didB) } coAnswers {
-                callsB.incrementAndGet()
-                docB
-            }
-        }
-    }
-
-    private val didA = "did:web:a.bo.example"
-    private val didB = "did:web:b.bo.example"
-
-    private fun didProvider(
-        world: DidWorld,
-        clock: TestClock,
-    ): DefaultJwksKeySetProvider {
-        val config = KeySourceConfig(didAllowlist = listOf(didA, didB), cacheTtlSeconds = 60)
-        return DefaultJwksKeySetProvider(
-            config,
-            Path.of("."),
-            clock = clock,
-            didResolverRegistry = world.registry,
-            egressGuard = publicEgressGuard(),
-        )
-    }
-
-    @Test
-    fun `S17 the DID path backs off per issuer and does not refetch on every call`() =
-        runTest {
-            val world = DidWorld(didA, didB, didDocument(didA), didDocument(didB))
-            val clock = TestClock(T0)
-            val p = didProvider(world, clock)
-            try {
-                p.getKeySetForIssuer(didA)
-                assertEquals(1, world.callsA.get())
-
-                world.failingA.set(true)
-                clock.now = at(120)
-                val stale = p.getKeySetForIssuer(didA)
-                assertTrue(stale.cacheState.fromStaleCache)
-                assertEquals(120L, stale.cacheState.ageSeconds)
-                assertEquals(2, world.callsA.get())
-
-                clock.now = at(134) // inside the 15 s window
-                repeat(3) { p.getKeySetForIssuer(didA) }
-                assertEquals(2, world.callsA.get())
-
-                clock.now = at(136) // past it: one more attempt, window becomes 30 s
-                p.getKeySetForIssuer(didA)
-                assertEquals(3, world.callsA.get())
-
-                clock.now = at(136 + 29)
-                p.getKeySetForIssuer(didA)
-                assertEquals(3, world.callsA.get(), "the window doubled to 30 s")
-
-                clock.now = at(136 + 31)
-                p.getKeySetForIssuer(didA)
-                assertEquals(4, world.callsA.get())
-            } finally {
-                p.close()
-            }
-        }
-
-    @Test
-    fun `S17 one issuer's outage does not put another issuer into backoff`() =
-        runTest {
-            val world = DidWorld(didA, didB, didDocument(didA), didDocument(didB))
-            val clock = TestClock(T0)
-            val p = didProvider(world, clock)
-            try {
-                p.getKeySetForIssuer(didA)
-                p.getKeySetForIssuer(didB)
-                world.failingA.set(true)
-
-                clock.now = at(120)
-                p.getKeySetForIssuer(didA) // A enters backoff
-                val b = p.getKeySetForIssuer(didB) // B is expired and healthy: refetched
-
-                assertEquals(2, world.callsB.get())
-                assertFalse(b.cacheState.fromStaleCache)
-            } finally {
-                p.close()
-            }
-        }
-
-    @Test
-    fun `S17 the DID path refuses stale keys past max_stale_seconds`() =
-        runTest {
-            val world = DidWorld(didA, didB, didDocument(didA), didDocument(didB))
-            val clock = TestClock(T0)
-            val p = didProvider(world, clock)
-            try {
-                p.getKeySetForIssuer(didA)
-                world.failingA.set(true)
-
-                clock.now = at(3600)
-                val atLimit = p.getKeySetForIssuer(didA)
-                assertTrue(atLimit.cacheState.fromStaleCache)
-                assertEquals(3600L, atLimit.cacheState.ageSeconds)
-
-                clock.now = at(3601)
-                val ex = thrownBy { p.getKeySetForIssuer(didA) }
-                assertTrue(ex is KeySetUnavailableException, "expected KeySetUnavailableException but was $ex")
-            } finally {
-                p.close()
-            }
-        }
-
-    @Test
-    fun `S17 the DID path forces one refresh per 30 seconds for an unknown kid`() =
-        runTest {
-            val world = DidWorld(didA, didB, didDocument(didA), didDocument(didB))
-            val clock = TestClock(T0)
-            val p = didProvider(world, clock)
-            try {
-                p.getKeySetForIssuer(didA)
-                assertEquals(1, world.callsA.get())
-
-                clock.now = at(10)
-                assertNotNull(p.refreshForUnknownKid("rotated", didA))
-                assertEquals(2, world.callsA.get())
-
-                clock.now = at(39)
-                assertNull(p.refreshForUnknownKid("rotated", didA))
-                assertEquals(2, world.callsA.get())
-
-                clock.now = at(40)
-                assertNotNull(p.refreshForUnknownKid("rotated", didA))
-                assertEquals(3, world.callsA.get())
             } finally {
                 p.close()
             }
