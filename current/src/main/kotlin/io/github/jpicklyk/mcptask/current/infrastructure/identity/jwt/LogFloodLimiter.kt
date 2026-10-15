@@ -5,8 +5,8 @@ import java.time.Instant
 
 /**
  * Per-key flood limit for a log line (the API JWT rejection INFO line, the claim-defect and pipeline-fault WARN lines): at most [MAX_PER_WINDOW] lines per
- * [WINDOW] per key. A key's window opens at its first rejection when none is open and stays open
- * while `now < start + WINDOW`. Rejections beyond the cap are counted; the next window's first line
+ * [WINDOW] per key. A key's window opens at its first event when none is open and stays open
+ * while `now < start + WINDOW`. Events beyond the cap are counted; the next window's first line
  * reports (and resets) that count. Keyed by a bounded, constant-derived key set (never token content), so state is O(1). Thread-safe.
  */
 internal class LogFloodLimiter {
@@ -18,7 +18,7 @@ internal class LogFloodLimiter {
 
     private val states = HashMap<String, State>()
 
-    /** The suppressed count to report on the line to emit, or null when this rejection must not be logged. */
+    /** The suppressed count to report on the line to emit, or null when this event must not be logged. */
     fun tryAcquire(
         key: String,
         now: Instant
