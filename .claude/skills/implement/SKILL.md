@@ -338,7 +338,28 @@ the test suite AND the project linter:
 CI enforces both — a green test run with failing lint will still block the PR.
 If `ktlintCheck` fails, run `./gradlew :current:ktlintFormat` to auto-fix
 formatting violations, then verify with `ktlintCheck` again and re-run tests.
-Include both commands in every implementation-agent and review-agent prompt.
+
+**When each check runs, and who runs it.** The whole suite is the orchestrator's, once per
+wave; seats verify at the scope of what they wrote. Every seat prompt (implementer, test author,
+reviewer, and any post-run fix or second-round seat) points at the dispatch contract's "Who runs
+gradle" table for this; never paste a suite command into a seat prompt.
+
+| Check | When | Who |
+|---|---|---|
+| `ktlintFormat` + compile (the pinned self-check) | once, before the seat commits | every writer seat |
+| Own test classes, red then green (`-TestFiles`, scoped `--tests`) | while writing them | test author |
+| Test classes in the packages it changed (scoped `--tests`) | at most once, before committing | implementer |
+| Full `:current:test` + `:current:ktlintCheck`, incremental (no `--rerun-tasks`) | once per wave, after the last writer commits and before any PR opens (Step 4c) | orchestrator |
+| Full suite with `--rerun-tasks` | only the run after a dependency or Gradle upgrade | orchestrator |
+| Bug-fix revert red-proof, coupled-authorship red checks | per item, before merge | orchestrator |
+| Decision-point budget mutations | after the wave's PR merges, batched across the wave (Step 6) | orchestrator |
+| Reviewer | reads the recorded build state; runs nothing (a doubted red-proof is re-run scoped) | — |
+
+The checked-in lock helper (`references/gradle-locked.ps1`) enforces the seat rows: it refuses
+`:current:test`, `:current:ktlintCheck` and `--rerun-tasks` unless `TO_GRADLE_OWNER=orchestrator`
+is set inline on the call, which only the orchestrator's own invocations do. Evidence for the
+rule: on `release/4.0` every seat was running the forced suite (~8,000 tests, 7+ minutes each) so
+a 1-4 hour item spent an hour or more in Gradle (retrospectives `7e698694`, `462a33bb`).
 
 **Who runs the lint cycle** (proposal `ee6f5d32`, ~9 sessions of evidence):
 - **Delegated tier** (agent owns gradle): the implementation agent runs the
@@ -388,7 +409,12 @@ incremental compile cache retains class files from prior good builds. After a
 incremental compilation can keep the OLD class files alongside source that no
 longer compiles, producing apparent BUILD SUCCESSFUL on stale bytecode. Run
 `./gradlew :current:test --rerun-tasks` once after such changes to force a
-clean run; ordinary incremental builds are safe afterwards.
+clean run; ordinary incremental builds are safe afterwards. This is the ONLY
+use of the flag: it is orchestrator-only, never a routine verification, and a
+seat that reports a `--rerun-tasks` run has breached the contract (the lock
+helper refuses the flag without `TO_GRADLE_OWNER=orchestrator`). A forced run
+recompiles everything and reruns the whole suite; on a large suite that is the
+single most expensive thing a session can do per item.
 
 This step is **tier-conditional**:
 
@@ -606,9 +632,10 @@ re-open `test-plan`.
   `test-manifest` declares the single actor, and the disjointness check above does not apply (one
   actor, one range) — see Step 5's verdict rule for how this tier is scored.
 - **Delegated tier:** one additional **sequential** dispatch on the same branch, after the
-  implementation agent's commit lands. The test author owns its own gradle cycle on that branch
+  implementation agent's commit lands. The test author owns its own lint cycle on that branch
   (`ktlintCheck` → `ktlintFormat` → re-verify, same rule as Step 4's "Who runs the lint cycle")
-  and runs `:current:test` itself before committing.
+  and runs ONLY its own test classes (scoped `--tests`) to see them red and then green before
+  committing — never `:current:test`; the orchestrator runs the suite once before review.
 - **Parallel tier:** one test-author agent **per child**, dispatched as a dedicated wave between
   the implementation wave and the orchestrator's build verification (below). Authors in this
   tier do NOT run `:current:test` or `:current:ktlintCheck` — only `ktlintFormat` plus a compile
@@ -689,6 +716,10 @@ git -C <feature-worktree> status                            # confirm clean tree
 ./gradlew -p <feature-worktree> :current:test
 ./gradlew -p <feature-worktree> :current:ktlintCheck
 ```
+
+This is the wave's ONE full-suite run: incremental (no `--rerun-tasks` unless a dependency or
+Gradle upgrade landed in the wave), after the last writer seat has committed, before any PR
+opens. Do not re-run it per seat return, and do not let a seat run it for you.
 
 A failure means a recently-committed child broke something. Dispatch a fix agent
 (same shared worktree) before continuing. Do **not** advance any child to review
@@ -963,6 +994,18 @@ After review passes:
    advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
    ```
 7. After the item reaches terminal, follow the retrospective hook's directive if one fires (see `retrospective.mode`).
+8. **Wave-boundary red-proofs** (for a single Direct/Delegated item, the "wave" is the item).
+   Only the bug-fix revert ran before merge. The item's decision-point budget mutations (the
+   planner's `red-proof-shape`, test-author rule section 5) run NOW, after the merge, off the
+   critical path: one scratch worktree at the merged `main` SHA
+   (`git worktree add --detach <unique-tmp> origin/main`), each mutation applied with
+   `references/patch-anchored.py` (`DRY=1` first) and run only against the test classes the
+   item's `test-manifest` maps to that scenario (`--tests`), one full suite only for a survivor
+   (to classify it as covered at another seam). Record proofs run, gaps, equivalents and minutes
+   in the item's `red-proof-results` note (orchestrator-owned). A real gap becomes a test-only
+   follow-up item via `/task-orchestrator:create-item` (exempt from further proofs by policy),
+   never a reopen. Skip categories per the rule. Run it in the background when other work is
+   waiting; it never gates the merge or the terminal transition.
 
 Report the PR URL and a summary.
 
@@ -984,7 +1027,8 @@ For Parallel-tier features with a shared feature worktree:
 
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
    across children — distributed-tracking pattern works as today).
-2. Run final verification from the feature worktree:
+2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
+   the only whole-suite runs in the wave):
    ```bash
    ./gradlew -p <feature-worktree-path> :current:test
    ./gradlew -p <feature-worktree-path> :current:ktlintCheck
@@ -1031,7 +1075,14 @@ For Parallel-tier features with a shared feature worktree:
    git branch -D feat/<feature-slug>
    ```
 8. Advance the parent feature to terminal.
-9. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
+9. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
+   decision-point budget mutations in ONE batch (`run-wave` `post-run.md` Step 7a): a scratch
+   worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`
+   and run only against the test classes that child's `test-manifest` maps to it, one incremental
+   whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
+   A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
+   item, never a reopen. Background; it gates nothing.
+10. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
    In `dispatch` mode (see `retrospective.mode` in `.taskorchestrator/config.yaml`) it directs
    a background `/session-retrospective` automatically — follow its directive; in `nudge` mode,
    or if no directive arrives, suggest running it manually.
@@ -1071,10 +1122,11 @@ run plan doesn't apply.
    before build verification. Authors run `ktlintFormat` + compile self-check only (never
    `:current:test`/`:current:ktlintCheck` — the orchestrator owns those next). Capture
    Test-Pre-SHA/Test-Post-SHA per child and run the disjointness check before proceeding.
-4. **Build verification — orchestrator-owned, serialized.** After each parallel wave
-   (implementation or test-author), the orchestrator runs `:current:test` and
-   `:current:ktlintCheck` from the feature worktree. Fix failures before advancing
-   any child to review.
+4. **Build verification — orchestrator-owned, serialized, once per wave.** After the wave's
+   last writer seat (implementation or test-author) commits, the orchestrator runs
+   `:current:test` and `:current:ktlintCheck` once from the feature worktree, incrementally
+   (`--rerun-tasks` only after a dependency or Gradle upgrade). Fix failures before advancing
+   any child to review. No seat runs the suite; the checked-in lock helper refuses it.
 5. **Step 5 — Review per child, scoped to that child's owned files, when the child has
    a review phase.** `feature-task` children skip review by default (work→terminal
    directly) unless the `needs-task-review` trait is set, or `needs-test-author` is set
@@ -1086,7 +1138,9 @@ run plan doesn't apply.
    ownership two-range check only.
 6. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
-   orchestrator push `feat/<slug>` and open the single feature-level PR.
+   orchestrator push `feat/<slug>` and open the single feature-level PR. After that PR
+   merges, the wave-boundary red-proofs run (Step 6 item 9): every child's budget mutations
+   batched at the merged SHA, scoped to manifest-mapped test classes, in the background.
 7. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
    post-commit SHA → Test-Pre-SHA → Test-Post-SHA → status (implementing / test-authoring /
    reviewing / done / failed). Worktree path is shared across all children.

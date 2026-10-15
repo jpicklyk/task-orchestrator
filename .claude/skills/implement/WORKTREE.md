@@ -125,6 +125,10 @@ After each parallel wave completes (or between sequential children):
 ./gradlew -p <FEATURE_WORKTREE> :current:ktlintCheck
 ```
 
+This is the wave's one whole-suite run — incremental, never `--rerun-tasks` unless a dependency
+or Gradle upgrade landed in the wave; seats verify scoped, per the dispatch contract's "Who runs
+gradle" table, and the checked-in `references/gradle-locked.ps1` refuses the suite from a seat.
+
 If failure: dispatch a fix agent into the same worktree before advancing any child to
 review. The orchestrator owns these invocations because gradle daemon and `build/` cache
 are per-directory — parallel `gradlew test` against the same worktree will queue, corrupt
