@@ -43,7 +43,8 @@ import java.util.UUID
  * ## Who
  *
  * Acknowledge and answer need the request's answerers to admit the caller ([admits]); withdraw needs the raiser (same
- * principal and seat) or the coordinator token of the request's run. A refusal is `forbidden` (`principal_kind`),
+ * principal and seat) or the coordinator token of the request's run, and a server-raised request (`run-budget`,
+ * `attempt-cap`) cannot be withdrawn at all: it stays pending until answered or its run closes. A refusal is `forbidden` (`principal_kind`),
  * checked before the status. The caller has already checked that the request's root is in scope.
  *
  * ## Raise
@@ -264,7 +265,10 @@ class DecisionService(
     // withdraw
     // -------------------------------------------------------------------------
 
-    /** Withdraws request [decisionId]: its raiser or the coordinator token of its run, while it is pending. */
+    /**
+     * Withdraws request [decisionId]: its raiser or the coordinator token of its run, while it is pending. A
+     * server-raised request is never withdrawable.
+     */
     suspend fun withdraw(
         decisionId: UUID,
         caller: DecisionCaller
@@ -338,10 +342,17 @@ class DecisionService(
         decision: DecisionRequest,
         caller: DecisionCaller
     ): Boolean {
+        // A server-raised request (run-budget, attempt-cap) holds its run paused; no caller withdraws it (R27).
+        if (isServerRaised(decision)) return false
         val raiser = caller.principalId == decision.raisedById && caller.seat == decision.raisedBySeat
         val coordinator = caller.seat == RunSeat.COORDINATOR && decision.runId != null && caller.runId == decision.runId
         return raiser || coordinator
     }
+
+    /** True for a request the server raised: recorded as raised by `server`, or of a built-in server-raised class. */
+    private fun isServerRaised(decision: DecisionRequest): Boolean =
+        decision.raisedByKind == RunLimitDecisions.SERVER_RAISER ||
+            DecisionClasses.BUILT_IN[decision.decisionClass]?.serverRaised == true
 
     /** The field limits of a raise (task-scope D10), as JSON-pointer violations; empty when every field is valid. */
     private fun raiseViolations(command: DecisionRaiseCommand): List<FieldViolation> {

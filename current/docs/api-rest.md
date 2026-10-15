@@ -1050,7 +1050,8 @@ is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `dir
 option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
 1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
 {decisionId}` (director profile, `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
-decision's run (`required` `coordinator,raiser`). An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
+decision's run (`required` `coordinator,raiser`); a server-raised `run-budget` or `attempt-cap` decision cannot be
+withdrawn by anyone (the same `forbidden`): it stays pending until it is answered or its run is closed. An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
 is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
 `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
 profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status
