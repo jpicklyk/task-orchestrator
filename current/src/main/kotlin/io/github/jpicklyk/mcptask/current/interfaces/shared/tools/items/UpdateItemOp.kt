@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
@@ -13,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
@@ -165,7 +167,7 @@ private suspend fun WriteScope.updateItem(
             traits = req.traits ?: existing.traits
         )
     val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
-    return when (val patched = env.itemCommandService.patch(command, caller)) {
+    return when (val patched = env.itemCommandService.patch(command, caller, SeatCaller.of(ctx))) {
         is Outcome.Err -> patched
         is Outcome.Ok ->
             Outcome.Ok(

@@ -4,6 +4,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
+import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseIntervalPage
@@ -14,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.PageRequest
 import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.ClaimExpiryReason
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
@@ -52,7 +54,8 @@ data class ExpirySweep(
  * Whenever this class overwrites, clears or removes a lapsed instance (a take-over, a holder's own re-claim, a
  * supersede, a release, [clearClaim], a lease acquire over a lapsed row, a lease release, a force release, the sweep)
  * it records `claim.expired` / `lease.expired` for it and NOT released / superseded / cleared. Exactly one expired row
- * exists per lapsed instance, whichever detector gets there first:
+ * exists per lapsed instance, whichever detector gets there first. A take-over by a DIFFERENT holder pair records it
+ * with `reason: displaced` (and reports [ClaimResult.Success.displaced]); every other detector with `reason: expired`:
  *
  * - Claims are NOT consumed by detection: the claim columns stay, so `isExpired`, `claimStatus=expired` and the
  *   health-check expired counts keep their meaning. The one-row guarantee comes from the event log: a row is written
@@ -92,12 +95,26 @@ class ClaimService(
             val prior = items.getById(itemId)
             val heldBefore = items.findHeldBy(agentId, holder.assignmentId).associateBy { it.id }
 
-            val result = items.claim(itemId, agentId, ttlSeconds, holder.assignmentId)
+            var result = items.claim(itemId, agentId, ttlSeconds, holder.assignmentId)
             when (result) {
                 is ClaimResult.Success -> {
                     val out = mutableListOf<DomainEvent>()
-                    // The target's previous claim, if it had lapsed (take-over, or the holder's own late re-claim).
-                    if (prior != null) out += newClaimExpiredEvents(listOf(prior), now)
+                    // The target's previous claim, if it had lapsed: a take-over by another holder pair is a
+                    // displacement (AR-84 residual 1), the holder's own late re-claim a plain expiry. Recorded first,
+                    // once per lapsed instance (a sweep or advance that already reported it suppresses the row).
+                    val displaced = prior?.takeIf { isLapsed(it, now) && !holder.holds(it) }
+                    if (prior != null) out += newClaimExpiredEvents(listOf(prior), now, displacedBy = displaced?.let { holder })
+                    if (displaced != null) {
+                        result =
+                            result.copy(
+                                displaced =
+                                    DisplacedClaim(
+                                        checkNotNull(displaced.claimedBy),
+                                        displaced.claimAssignmentId,
+                                        checkNotNull(displaced.claimExpiresAt)
+                                    )
+                            )
+                    }
                     out += DomainEvent.ClaimAcquired(result.item.id, rootOf(result.item), agentId, ttlSeconds)
                     // Every OTHER item this agent held was auto-released as part of this claim.
                     val released = result.releasedItemIds.map { id -> heldBefore[id] to id }
@@ -328,18 +345,33 @@ class ClaimService(
 
     /**
      * `claim.expired` rows for the lapsed claims among [items] that no existing row names yet (matched on holder and
-     * `expiresAt` against the item's latest `claim.expired` row). One batched lookup.
+     * `expiresAt` against the item's latest `claim.expired` row). One batched lookup. With [displacedBy] the rows are
+     * `reason: displaced` naming that holder's assignment; otherwise `reason: expired`.
      */
     private suspend fun newClaimExpiredEvents(
         items: List<WorkItem>,
-        now: Instant
+        now: Instant,
+        displacedBy: ClaimHolder? = null
     ): List<DomainEvent> {
         val lapsed = items.filter { isLapsed(it, now) }.distinctBy { it.id }
         if (lapsed.isEmpty()) return emptyList()
         val latest = repositoryProvider.eventStore().latestOfType(DomainEvent.CLAIM_EXPIRED, lapsed.mapTo(HashSet()) { it.id })
         return lapsed
             .filterNot { names(latest[it.id], it) }
-            .map { DomainEvent.ClaimExpired(it.id, rootOf(it), it.claimedBy, it.claimExpiresAt) }
+            .map {
+                if (displacedBy != null) {
+                    DomainEvent.ClaimExpired(
+                        it.id,
+                        rootOf(it),
+                        it.claimedBy,
+                        it.claimExpiresAt,
+                        ClaimExpiryReason.DISPLACED,
+                        displacedBy.assignmentId
+                    )
+                } else {
+                    DomainEvent.ClaimExpired(it.id, rootOf(it), it.claimedBy, it.claimExpiresAt)
+                }
+            }
     }
 
     /** True when [record] is a `claim.expired` row for [item]'s current claim instance. */

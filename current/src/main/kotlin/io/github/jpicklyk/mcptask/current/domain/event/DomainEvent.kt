@@ -312,17 +312,29 @@ sealed class DomainEvent {
      * A claim whose TTL ran out ([expiresAt] <= the detecting unit's instant), held by [holder]. Recorded exactly once
      * per lapsed claim instance (item + holder + expiresAt) by `ClaimService`; the claim columns are left as they were.
      * Both fields default to null so a bare marker row stays constructible.
+     *
+     * [reason] says how the lapse was found (R25, AR-84 residual 1): `expired` for every detector except a take-over,
+     * `displaced` when a claim by a DIFFERENT holder pair took the item over the lapsed claim. A displaced row also
+     * carries `displacedBy`, the new holder's seat assignment id (null for a principal-level holder).
      */
     data class ClaimExpired(
         override val entityId: UUID,
         override val rootId: UUID,
         val holder: String? = null,
-        val expiresAt: Instant? = null
+        val expiresAt: Instant? = null,
+        val reason: ClaimExpiryReason = ClaimExpiryReason.EXPIRED,
+        val displacedBy: UUID? = null
     ) : DomainEvent() {
         override val type: String get() = CLAIM_EXPIRED
         override val entityKind: String get() = KIND_ITEM
 
-        override fun payload(): Map<String, Any?> = mapOf("holder" to holder, "expiresAt" to expiresAt)
+        override fun payload(): Map<String, Any?> =
+            buildMap {
+                put("holder", holder)
+                put("expiresAt", expiresAt)
+                put("reason", reason.wire)
+                if (reason == ClaimExpiryReason.DISPLACED) put("displacedBy", displacedBy)
+            }
     }
 
     // ---- leases (entity = the holder item) ----
@@ -854,6 +866,14 @@ enum class DeleteCause(
 ) {
     EXPLICIT("explicit"),
     CASCADE("cascade")
+}
+
+/** Why a `claim.expired` row was written: found lapsed ([EXPIRED]) or taken over by another holder ([DISPLACED]). */
+enum class ClaimExpiryReason(
+    val wire: String
+) {
+    EXPIRED("expired"),
+    DISPLACED("displaced")
 }
 
 enum class ClaimReleaseReason(

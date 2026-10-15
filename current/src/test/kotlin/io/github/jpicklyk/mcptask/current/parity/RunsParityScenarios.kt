@@ -381,6 +381,8 @@ internal object RunsParityScenarios {
 
     fun decision(decisionId: Any) = """{"select":"decision","decisionId":"$decisionId"}"""
 
+    fun frontier(runId: Any) = """{"select":"frontier","runId":"$runId"}"""
+
     private fun ids(vararg ids: Any) = ids.joinToString(",", "[", "]") { "\"$it\"" }
 
     private fun scopeRoot(required: UUID = r1) = listOf("\"code\":\"forbidden\"", "\"scope\":\"root\"", "\"required\":\"$required\"")
@@ -1705,6 +1707,39 @@ internal object RunsParityScenarios {
                 absent = listOf("not_found"),
                 seed = seedOpenAB
             ),
+            // R25 (task-scope Build 3 and AC4/AC7; ParityCoverageGuardTest demands one HAPPY and one SCOPE_FORBIDDEN per select)
+            read(
+                "frontier happy",
+                "frontier",
+                ParityKind.HAPPY,
+                reader,
+                frontier(ra),
+                contains =
+                    listOf(
+                        "\"runId\":\"$ra\"",
+                        "\"status\":\"open\"",
+                        "\"stalled\":",
+                        "\"counts\":{",
+                        "\"ready\":[",
+                        "\"title\":\"Alpha child one\"",
+                        "\"inFlight\":[]",
+                        "\"waiting\":[]"
+                    ),
+                absent = listOf("seatToken", "coordinatorToken", "tokenHash", "token_hash", "principalId", "assignmentId", ":null"),
+                seed = seedOpenAB
+            ),
+            read(
+                "frontier scope root",
+                "frontier",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                frontier(rb),
+                403,
+                "forbidden",
+                scopeRoot(),
+                absent = listOf("not_found", "Beta"),
+                seed = seedOpenAB
+            ),
             read(
                 "seats of an unknown run",
                 "seats",
@@ -2358,6 +2393,7 @@ internal object RunsParityScenarios {
             WRITE_TOOL to "resume",
             WRITE_TOOL to "mark",
             READ_TOOL to "seats",
+            READ_TOOL to "frontier",
             WRITE_TOOL to "assign",
             WRITE_TOOL to "end_seat",
             WRITE_TOOL to "raise",

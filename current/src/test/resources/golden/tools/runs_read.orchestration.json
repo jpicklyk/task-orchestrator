@@ -8,12 +8,13 @@
         "enum": [
           "get",
           "list",
-          "seats"
+          "seats",
+          "frontier"
         ]
       },
       "runId": {
         "type": "string",
-        "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [select: get, seats]"
+        "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [select: get, seats, frontier]"
       },
       "rootId": {
         "type": "string",
@@ -60,7 +61,7 @@
     },
     "type": "object"
   },
-  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run) or list (runs, newest first, with status, endedSince and unmarked filters) or seats (a run's seat assignments), decisions or decision. A run or decision is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
+  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest first), seats (a run's seat assignments), frontier (ready, in-flight and waiting members), decisions or decision. A run or decision is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

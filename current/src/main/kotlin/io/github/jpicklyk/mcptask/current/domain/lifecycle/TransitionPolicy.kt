@@ -319,6 +319,28 @@ private fun seatAllows(
     return seatMayRun(definition, trigger, target)
 }
 
+/**
+ * Whether a cascade into a seat-enforced member may proceed for the write's caller in [facts]: true when the seat gate
+ * cannot act (not enforced, no open run, seat-less schema, human caller), else when the caller could send the
+ * equivalent user trigger to [itemId] itself. [StandardGates.SEAT] itself ignores cascades; the cascade step applies
+ * this predicate to the cascade's parent.
+ */
+internal fun cascadeSeatAllowed(
+    facts: SeatFacts,
+    trigger: Cascade,
+    itemId: UUID,
+    target: Role?
+): Boolean {
+    if (!facts.enforced || facts.openRunId == null || facts.seats.isEmpty() || facts.caller.human) return true
+    val equivalent =
+        when (trigger) {
+            Cascade.Start -> User.START
+            is Cascade.Complete -> User.COMPLETE
+            Cascade.Reopen -> User.REOPEN
+        }
+    return seatAllows(facts, equivalent, itemId, target)
+}
+
 /** Whether [definition] may send [trigger] given the resolved [target]: `start` only into the phase it enters. */
 private fun seatMayRun(
     definition: SeatDefinition,

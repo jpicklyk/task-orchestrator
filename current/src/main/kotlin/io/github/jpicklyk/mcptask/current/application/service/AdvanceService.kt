@@ -37,6 +37,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.cascadeSeatAllowed
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -213,6 +214,9 @@ data class BlockerInfo(
  *   principal other than the write's caller ([FenceGuard]; a write with no caller is fenced by any active claim).
  *   [applied] is false and the parent keeps its role and claim. Checked before every other cascade gate. Never carries
  *   the holder.
+ * @property seatBlocked true when the cascade was suppressed because the parent is a seat-enforced member of an open run
+ *   and the write's caller could not send the equivalent user trigger to it. [applied] is false and the parent keeps its
+ *   role and claim. Checked after ownership and before every other cascade gate. Carries no seat, run or holder.
  */
 data class AdvanceCascadeEvent(
     val itemId: UUID,
@@ -230,7 +234,8 @@ data class AdvanceCascadeEvent(
     val blockers: List<BlockerInfo> = emptyList(),
     val error: String? = null,
     val violations: List<IndependenceViolation>? = null,
-    val ownershipBlocked: Boolean = false
+    val ownershipBlocked: Boolean = false,
+    val seatBlocked: Boolean = false
 )
 
 /** A downstream item that became fully unblocked as a result of the primary advance. */
@@ -445,18 +450,29 @@ class AdvanceService(
      * propagates and rolls the joined unit back.
      *
      * [caller] is the structural write's own caller: a parent with an active claim held by anyone else is suppressed
-     * as an [AdvanceCascadeEvent.ownershipBlocked] event ([FenceGuard]).
+     * as an [AdvanceCascadeEvent.ownershipBlocked] event ([FenceGuard]). [seatCaller] is the write's seat identity: a
+     * parent that is a seat-enforced member of an open run is suppressed as an [AdvanceCascadeEvent.seatBlocked] event
+     * unless the caller could send the equivalent trigger to it ([SeatCaller.NONE] fails closed).
      */
     suspend fun cascadeInUnit(
         followUps: List<FollowUp>,
-        caller: ClaimHolder?
+        caller: ClaimHolder?,
+        seatCaller: SeatCaller
     ): List<AdvanceCascadeEvent> {
         if (followUps.isEmpty()) return emptyList()
         var events: List<AdvanceCascadeEvent> = emptyList()
         val outcome =
             unitOfWork.write(UNIT_OP) {
                 val now = clock.unitNow()
-                events = runCascades(viewAt(this, now), followUps, resourceLeasesEnforced, caller, now)
+                events =
+                    runCascades(
+                        viewAt(this, now),
+                        followUps,
+                        resourceLeasesEnforced,
+                        caller,
+                        SeatInput(enforced = true, caller = seatCaller),
+                        now
+                    )
                 Outcome.Ok(Unit)
             }
         if (outcome is Outcome.Err) throw IllegalStateException(applyFaultMessage(outcome.error))
@@ -682,7 +698,7 @@ class AdvanceService(
             }
 
         val caller = request.ownership.callerId?.let { ClaimHolder(it, request.ownership.callerAssignmentId) }
-        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, caller, now)
+        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, caller, request.seat, now)
         val unblocked = findUnblocked(item.id)
 
         return AdvanceOutcome.Success(
@@ -1075,6 +1091,7 @@ class AdvanceService(
         followUps: List<FollowUp>,
         leaseGateActive: Boolean,
         caller: ClaimHolder?,
+        seat: SeatInput,
         now: Instant
     ): List<AdvanceCascadeEvent> {
         val out = mutableListOf<AdvanceCascadeEvent>()
@@ -1092,7 +1109,7 @@ class AdvanceService(
             val followUp = pending.removeFirst()
             val step =
                 try {
-                    cascadeStep(view, followUp, leaseGateActive, caller, now)
+                    cascadeStep(view, followUp, leaseGateActive, caller, seat, now)
                 } catch (e: PerRootConfigUnavailableException) {
                     // D7: a parent's config fault skips that cascade only; the primary still commits.
                     logger.warn(
@@ -1117,6 +1134,7 @@ class AdvanceService(
         followUp: FollowUp,
         leaseGateActive: Boolean,
         caller: ClaimHolder?,
+        seat: SeatInput,
         now: Instant
     ): CascadeStep? {
         val parent = workItemRepository.getById(followUp.parentId) ?: return null
@@ -1126,12 +1144,20 @@ class AdvanceService(
                 is FollowUp.StartCascade -> Trigger.Cascade.Start to "Auto-cascaded from child start"
                 is FollowUp.ReopenCascade -> Trigger.Cascade.Reopen to "Auto-cascaded from child reopen"
             }
-        val loaded = loader.loadDetailed(view, parent, trigger, OwnershipInput.NONE, LeaseInput(leaseGateActive))
+        val loaded = loader.loadDetailed(view, parent, trigger, OwnershipInput.NONE, LeaseInput(leaseGateActive), seat)
         val decision = policy.evaluate(loaded.snapshot, trigger)
         // Ownership precedes every other cascade gate: a parent another principal holds is not touched, whatever the
         // other gates said, and the chain stops there.
         if (decision !is Decision.NotApplicable && FenceGuard.check(parent, caller, now) is Outcome.Err) {
-            return ownershipBlockedEvent(parent, trigger, decision, loaded)?.let { CascadeStep(it, emptyList()) }
+            return blockedEvent(parent, trigger, decision, loaded) { copy(ownershipBlocked = true) }?.let { CascadeStep(it, emptyList()) }
+        }
+        // Seat follows ownership: a seat-enforced member of an open run is moved only when the write's caller could send
+        // the equivalent user trigger to it itself. An inapplicable cascade stays silent.
+        if (decision !is Decision.NotApplicable) {
+            val target = (decision as? Decision.Allow)?.lifecycleTarget() ?: resolvedTarget(loaded.snapshot, trigger)
+            if (!cascadeSeatAllowed(loaded.snapshot.seat, trigger, parent.id, target)) {
+                return blockedEvent(parent, trigger, decision, loaded) { copy(seatBlocked = true) }?.let { CascadeStep(it, emptyList()) }
+            }
         }
         return when (decision) {
             is Decision.NotApplicable -> null
@@ -1188,15 +1214,17 @@ class AdvanceService(
     }
 
     /**
-     * The [AdvanceCascadeEvent.ownershipBlocked] event of a cascade into [parent], fenced for its caller: the roles the
-     * cascade would have moved between ([decision]'s on an allow, the table's resolved target on a reject), not
-     * applied. Null when the cascade has no resolvable target (nothing to report).
+     * The suppressed event of a cascade into [parent] that [mark] flags ([AdvanceCascadeEvent.ownershipBlocked] or
+     * [AdvanceCascadeEvent.seatBlocked]): the roles the cascade would have moved between ([decision]'s on an allow, the
+     * table's resolved target on a reject), not applied. Null when the cascade has no resolvable target (nothing to
+     * report).
      */
-    private fun ownershipBlockedEvent(
+    private fun blockedEvent(
         parent: WorkItem,
         trigger: Trigger.Cascade,
         decision: Decision,
-        loaded: LoadedSnapshot
+        loaded: LoadedSnapshot,
+        mark: AdvanceCascadeEvent.() -> AdvanceCascadeEvent
     ): AdvanceCascadeEvent? {
         val (from, target) =
             when (decision) {
@@ -1208,9 +1236,8 @@ class AdvanceService(
             title = parent.title,
             previousRole = from,
             targetRole = target,
-            applied = false,
-            ownershipBlocked = true
-        )
+            applied = false
+        ).mark()
     }
 
     /** The suppressed-cascade event for a rejected cascade; null for a gate cascades cannot fail. */

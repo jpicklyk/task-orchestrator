@@ -3,13 +3,14 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
+import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.time.Duration
 import java.time.Instant
 
 /**
@@ -20,11 +21,28 @@ import java.time.Instant
 internal object RunView {
     private const val MICRO_PER_USD = 1_000_000.0
 
-    /** [members] is the member count and [activeSeats] the active seat count (0 until seats exist) at read time. */
+    /**
+     * [members] is the member count and [seats] the run's active seat assignments at read time (the coordinator may be
+     * among them; it is never counted). `activeSeats` is the number of active member seats and `stalledSeats` the number
+     * of those that are stalled ([RunLiveness.isSeatStalled], the run's pinned threshold); a closed run has neither.
+     */
     fun of(
         run: Run,
         members: Int,
+        seats: List<RunSeat>,
+        now: Instant
+    ): JsonObject {
+        val memberSeats = seats.filter { it.isActive && !it.isCoordinator }
+        val stalledSeats =
+            if (run.status == RunStatus.CLOSED) 0 else memberSeats.count { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
+        return of(run, members, memberSeats.size, stalledSeats, now)
+    }
+
+    private fun of(
+        run: Run,
+        members: Int,
         activeSeats: Int,
+        stalledSeats: Int,
         now: Instant
     ): JsonObject =
         buildJsonObject {
@@ -42,7 +60,7 @@ internal object RunView {
             run.closedBy?.let { put("closedBy", it) }
             run.closedAt?.let { put("closedAt", it.toString()) }
             run.coordinatorSeenAt?.let { put("coordinatorSeenAt", it.toString()) }
-            put("coordinatorStalled", stalled(run, now))
+            put("coordinatorStalled", RunLiveness.isCoordinatorStalled(run, now))
             put("stallAfterSeconds", run.stallAfterSeconds)
             run.budget?.takeUnless { it.isUnlimited }?.let { put("budget", budget(it)) }
             put(
@@ -57,6 +75,7 @@ internal object RunView {
             put("marks", JsonObject(run.marks.toSortedMap().mapValues { JsonPrimitive(it.value.toString()) }))
             put("members", members)
             put("activeSeats", activeSeats)
+            put("stalledSeats", stalledSeats)
             put("version", run.version)
         }
 
@@ -89,15 +108,6 @@ internal object RunView {
             )
             put("openDecisions", snapshot.openDecisions)
         }
-
-    private fun stalled(
-        run: Run,
-        now: Instant
-    ): Boolean {
-        if (run.status == RunStatus.CLOSED) return false
-        val seen = run.coordinatorSeenAt ?: return false
-        return Duration.between(seen, now).seconds > run.stallAfterSeconds
-    }
 
     private fun budget(budget: RunBudget): JsonObject =
         buildJsonObject {

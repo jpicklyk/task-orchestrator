@@ -50,8 +50,8 @@ data class OwnershipInput(
 
 /**
  * Seat-enforcement input to [TransitionSnapshotLoader.load] (R23): whether the SEAT gate is enforced for this evaluation
- * and who the [caller] is. [NONE] (not enforced) for every evaluation without a caller: previews, cascades and
- * structural follow-ups.
+ * and who the [caller] is. [NONE] (not enforced) for every evaluation without a caller: previews. Cascades carry the
+ * write's caller so a cascade into a seat-enforced member is checked.
  */
 data class SeatInput(
     val enforced: Boolean,
@@ -212,7 +212,12 @@ class TransitionSnapshotLoader(
         // The open run is read only when the SEAT gate can act: an enforced non-human caller, a user trigger and a
         // seat-aware schema. Every other evaluation reads nothing more.
         val seatFacts =
-            if (seat.enforced && !seat.caller.human && trigger is Trigger.User && schema != null && schema.isSeatAware()) {
+            if (seat.enforced &&
+                !seat.caller.human &&
+                (trigger is Trigger.User || trigger is Trigger.Cascade) &&
+                schema != null &&
+                schema.isSeatAware()
+            ) {
                 SeatFacts(enforced = true, openRunId = openRunResolver(item.id), seats = schema.seats, caller = seat.caller)
             } else {
                 SeatFacts.NONE
