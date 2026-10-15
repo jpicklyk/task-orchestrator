@@ -1026,7 +1026,7 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
 **Budgets and caps.** A run's `budget{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at
-most the configured `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower it.
+most the configured `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower a set field or set one that is absent.
 Usage: each seat's `heartbeat` `usage` is kept per assignment (the highest value per field) and the run's `usage`
 `reportedTokens` / `reportedCostUsd` are the SUM over every assignment of the run, ended ones included; `observedTokens`
 is the server's own estimate, the `responseTokensEst` of every call-log row carrying the run, added off-path by the

@@ -112,8 +112,8 @@ internal class ActiveUnit(
     var owner: UnitOfWork? = null
 
     /**
-     * Records [t], thrown out of a store transaction JOINED to this unit. Exposed has then already rolled the
-     * shared connection back, so the unit is poisoned: the runner never commits it (a later [Outcome.Ok]
+     * Records [t], thrown out of a store transaction JOINED to this unit. A SQL fault has then already rolled the
+     * shared connection back; any recorded fault poisons the unit: the runner never commits it (a later [Outcome.Ok]
      * becomes a rollback and an [Outcome.Err] of this fault). The first fault wins.
      */
     fun recordFault(t: Throwable) {
