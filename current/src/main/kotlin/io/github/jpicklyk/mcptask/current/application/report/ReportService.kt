@@ -290,8 +290,10 @@ class ReportService(
      * stamped with the run (no time predicate); decisions, seats, attempts and budget come from [runFacts].
      */
     private suspend fun ReadScope.liveRunRollup(run: Run): RollupReport {
+        val members = runFacts.members(run.id) ?: stores.runStore().members(run.id).toSet()
+        val facts = runFacts.snapshot(run, members, RollupAssembler.STALLED_CAP)
         val header =
-            runFacts.run(run.id)
+            facts.header
                 ?: RunHeader(
                     status = run.status,
                     terminalReason = run.terminalReason,
@@ -299,7 +301,6 @@ class ReportService(
                     closedAt = run.closedAt?.truncatedTo(ChronoUnit.MILLIS),
                     rootId = run.rootId
                 )
-        val members = runFacts.members(run.id) ?: stores.runStore().members(run.id).toSet()
         val since = header.openedAt
         val until = header.closedAt ?: clock.now().truncatedTo(ChronoUnit.MILLIS)
         val counts = stores.reportQueries().runRollup(RunRollupQuery(run.id, members, since, until))
@@ -320,12 +321,12 @@ class ReportService(
                         basis = RollupAssembler.BASIS_RUN
                     ),
                 run = header,
-                blockedReasons = runFacts.blockedReasons(members),
-                decisions = runFacts.openDecisions(run.id),
-                seats = runFacts.stalledSeats(run.id, RollupAssembler.STALLED_CAP),
-                attempts = runFacts.attempts(run.id),
-                budget = runFacts.budget(run.id),
-                resumable = runFacts.resumable(members),
+                blockedReasons = facts.blockedReasons,
+                decisions = facts.decisions,
+                seats = facts.seats,
+                attempts = facts.attempts,
+                budget = facts.budget,
+                resumable = facts.resumable,
                 dwellMs = counts.dwellMs
             )
         )

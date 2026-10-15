@@ -5,15 +5,21 @@ import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
+import io.github.jpicklyk.mcptask.current.application.port.RunFactsSnapshot
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeats
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
+import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import java.time.Duration
+import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 
@@ -90,12 +96,7 @@ class StoreRunFacts(
                 stores
                     .decisionRequestStore()
                     .list(runId = runId, statuses = PENDING)
-                    .filter { it.runId == runId }
-            DecisionCounts(
-                open = open.size,
-                byClass = open.groupingBy { it.decisionClass }.eachCount().toSortedMap(),
-                bySeverity = open.groupingBy { it.effectiveSeverity(now).wire }.eachCount().toSortedMap()
-            )
+            decisionCounts(open, now)
         }
     }
 
@@ -111,25 +112,14 @@ class StoreRunFacts(
         val now = clock.now().truncatedTo(ChronoUnit.MILLIS)
         return unitOfWork.read {
             val run = stores.runStore().getById(runId) ?: return@read null
-            val active = stores.runSeatStore().list(runId).filter { it.runId == runId && it.isActive && !it.isCoordinator }
-            val stalled =
-                active
-                    .filter { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
-                    .map { seat ->
-                        StalledSeat(
-                            seat = seat.seat,
-                            itemId = requireNotNull(seat.itemId) { "a member seat names its item" },
-                            silentMs = Duration.between(RunLiveness.seatReference(seat), now).toMillis()
-                        )
-                    }.sortedWith(compareByDescending<StalledSeat> { it.silentMs }.thenBy { it.itemId.toString() }.thenBy { it.seat })
-            StalledSeats(active = active.size, stalled = stalled.take(limit.coerceAtLeast(0)), count = stalled.size)
+            stalledOf(run, stores.runSeatStore().list(runId).filter { it.isActive && !it.isCoordinator }, now, limit)
         }
     }
 
     /** Every member-seat assignment of the run, ended ones included (the coordinator excluded), and the highest attempt. */
     override suspend fun attempts(runId: UUID): AttemptCounts =
         unitOfWork.read {
-            val rows = stores.runSeatStore().list(runId, includeEnded = true).filter { it.runId == runId && !it.isCoordinator }
+            val rows = stores.runSeatStore().list(runId, includeEnded = true).filter { !it.isCoordinator }
             AttemptCounts(total = rows.size, max = rows.maxOfOrNull { it.attempt } ?: 0)
         }
 
@@ -140,12 +130,97 @@ class StoreRunFacts(
     override suspend fun budget(runId: UUID): BudgetFacts? =
         unitOfWork.read {
             val run = stores.runStore().getById(runId) ?: return@read null
-            BudgetFacts(
-                used = maxOf(run.reportedTokens, run.observedTokens),
-                limit = run.budget?.tokens,
-                basis = BUDGET_BASIS_ENFORCED
+            budgetOf(run, stores.decisionRequestStore().list(runId = runId))
+        }
+
+    /**
+     * Every fact for [run] with one read per table: the member items, the run's seats (ended ones included), the run's
+     * decisions (any status) and, only when a member awaits a decision, the referenced decisions. The header and budget
+     * figures come from [run] itself.
+     */
+    override suspend fun snapshot(
+        run: Run,
+        members: Set<UUID>,
+        stalledLimit: Int
+    ): RunFactsSnapshot {
+        val now = clock.now().truncatedTo(ChronoUnit.MILLIS)
+        return unitOfWork.read {
+            val items = if (members.isEmpty()) emptyList() else stores.itemStore().findByIdSet(members)
+            val awaiting = items.filter { it.role == Role.BLOCKED && it.effectiveBlockedReason == BlockedReason.AWAITING_DECISION }
+            val refs = awaiting.mapNotNullTo(LinkedHashSet()) { it.blockedRef }
+            val referenced =
+                if (refs.isEmpty()) emptyMap() else stores.decisionRequestStore().findByIds(refs).associateBy { it.id }
+            val allDecisions = stores.decisionRequestStore().list(runId = run.id)
+            val open = allDecisions.filter { it.status in PENDING }
+            val allSeats = stores.runSeatStore().list(run.id, includeEnded = true).filter { !it.isCoordinator }
+            val active = allSeats.filter { it.isActive }
+            RunFactsSnapshot(
+                header =
+                    RunHeader(
+                        status = run.status,
+                        terminalReason = run.terminalReason,
+                        openedAt = run.openedAt.truncatedTo(ChronoUnit.MILLIS),
+                        closedAt = run.closedAt?.truncatedTo(ChronoUnit.MILLIS),
+                        rootId = run.rootId
+                    ),
+                blockedReasons =
+                    items
+                        .mapNotNull { it.effectiveBlockedReason?.wire }
+                        .groupingBy { it }
+                        .eachCount()
+                        .toSortedMap(),
+                resumable = awaiting.count { item -> referenced[item.blockedRef]?.status?.isPending != true },
+                decisions = decisionCounts(open, now),
+                seats = stalledOf(run, active, now, stalledLimit),
+                attempts = AttemptCounts(total = allSeats.size, max = allSeats.maxOfOrNull { it.attempt } ?: 0),
+                budget = budgetOf(run, allDecisions)
             )
         }
+    }
+
+    private fun decisionCounts(
+        open: List<DecisionRequest>,
+        now: Instant
+    ): DecisionCounts =
+        DecisionCounts(
+            open = open.size,
+            byClass = open.groupingBy { it.decisionClass }.eachCount().toSortedMap(),
+            bySeverity = open.groupingBy { it.effectiveSeverity(now).wire }.eachCount().toSortedMap()
+        )
+
+    private fun stalledOf(
+        run: Run,
+        active: List<RunSeat>,
+        now: Instant,
+        limit: Int
+    ): StalledSeats {
+        val stalled =
+            active
+                .filter { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
+                .map { seat ->
+                    StalledSeat(
+                        seat = seat.seat,
+                        itemId = requireNotNull(seat.itemId) { "a member seat names its item" },
+                        silentMs = Duration.between(RunLiveness.seatReference(seat), now).toMillis()
+                    )
+                }.sortedWith(compareByDescending<StalledSeat> { it.silentMs }.thenBy { it.itemId.toString() }.thenBy { it.seat })
+        return StalledSeats(active = active.size, stalled = stalled.take(limit.coerceAtLeast(0)), count = stalled.size)
+    }
+
+    /** The budget figures of [run]; breaches and extends come from the run's `run-budget` decisions in [decisions]. */
+    private fun budgetOf(
+        run: Run,
+        decisions: List<DecisionRequest>
+    ): BudgetFacts {
+        val budgetDecisions = decisions.filter { it.decisionClass == RunLimitDecisions.RUN_BUDGET }
+        return BudgetFacts(
+            used = maxOf(run.reportedTokens, run.observedTokens),
+            limit = run.budget?.tokens,
+            basis = BUDGET_BASIS_ENFORCED,
+            breaches = budgetDecisions.size,
+            extends = budgetDecisions.count { it.answer?.option == RunLimitDecisions.EXTEND }
+        )
+    }
 
     companion object {
         /** `budget.basis`: the figure the run's token budget is enforced on. */

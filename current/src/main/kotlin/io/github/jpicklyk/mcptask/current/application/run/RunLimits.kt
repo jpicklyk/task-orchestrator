@@ -72,9 +72,21 @@ class RunLimits(
 
     /**
      * The budget check of run [runId] (see the class rules); joins the caller's unit. Returns the id of the decision the
-     * run is paused on for its budget (just raised, or the standing one), else null.
+     * run is paused on for its budget (just raised, or the standing one), else null. [runLimited] is the server-derived
+     * hint from token resolution (the run has any budget field): false answers null with no read, and the default true
+     * keeps every caller without the hint checking.
      */
-    suspend fun checkBudget(runId: UUID): Outcome<UUID?> =
+    suspend fun checkBudget(
+        runId: UUID,
+        runLimited: Boolean = true
+    ): Outcome<UUID?> =
+        if (!runLimited) {
+            Outcome.Ok(null)
+        } else {
+            checkBudgetInUnit(runId)
+        }
+
+    private suspend fun checkBudgetInUnit(runId: UUID): Outcome<UUID?> =
         unitOfWork.write(OP_CHECK) {
             val run = runs.getById(runId) ?: return@write Outcome.Ok(null)
             val budget = run.budget

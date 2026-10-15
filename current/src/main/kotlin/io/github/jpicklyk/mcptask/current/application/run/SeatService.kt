@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
+import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -235,10 +236,16 @@ class SeatService(
     suspend fun resolve(
         token: String,
         principalId: String
-    ): RunSeat? {
+    ): RunSeat? = resolveMatch(token, principalId)?.seat
+
+    /** [resolve] with the server-derived [SeatTokenMatch.runLimited] hint, from the same single token lookup. */
+    suspend fun resolveMatch(
+        token: String,
+        principalId: String
+    ): SeatTokenMatch? {
         if (token.length != TOKEN_LENGTH) return null
-        val seat = unitOfWork.read { stores.runSeatStore().findByTokenHash(hash(token)) } ?: return null
-        return seat.takeIf { it.isActive && it.principalId == principalId }
+        val match = unitOfWork.read { stores.runSeatStore().findTokenMatch(hash(token)) } ?: return null
+        return match.takeIf { it.seat.isActive && it.seat.principalId == principalId }
     }
 
     /**

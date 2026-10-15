@@ -510,14 +510,14 @@ class SqliteReportQueries(
                     "UNION ALL SELECT 'cost', NULL, COUNT(*), COALESCE(SUM(outcome = 'error'), 0), " +
                     "COALESCE(SUM(attempts - 1), 0), COALESCE(SUM(response_bytes), 0), COALESCE(SUM(response_tokens_est), 0), " +
                     "NULL, NULL FROM call_log WHERE run_id = unhex(?) " +
-                    "UNION ALL SELECT 'dwell', COALESCE(reason, '${BlockedReason.MANUAL.wire}'), 0, 0, 0, 0, 0, at, nxt FROM iv " +
+                    "UNION ALL SELECT 'dwell', reason, 0, 0, 0, 0, 0, at, nxt FROM iv " +
                     "WHERE role = '$BLOCKED_ROLE' AND (nxt IS NULL OR nxt > ?)",
                 args
             ) { rs ->
                 while (rs.next()) {
                     val m = rs.getString("m")
                     if (m == "dwell") {
-                        val reason = rs.getString("k")
+                        val reason = BlockedReason.effectiveOfWire(rs.getString("k")).wire
                         val start = maxOf(UtcTimestamp.parse(rs.getString("a")), query.since)
                         val end = rs.getString("b")?.let { minOf(UtcTimestamp.parse(it), query.until) } ?: query.until
                         if (end.isAfter(start)) dwell[reason] = (dwell[reason] ?: 0L) + Duration.between(start, end).toMillis()

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import java.time.Instant
@@ -48,7 +49,25 @@ data class AttemptCounts(
 data class BudgetFacts(
     val used: Long,
     val limit: Long?,
-    val basis: String
+    val basis: String,
+    /** How many `run-budget` decisions the run raised (any status); the attempt-cap decisions are not counted. */
+    val breaches: Int = 0,
+    /** How many of those were answered `extend`. */
+    val extends: Int = 0
+)
+
+/**
+ * Every run-only fact of one run read together by [RunFacts.snapshot]: the same values the individual [RunFacts] methods
+ * answer, each null when not tracked. [header] is null only when the facts could not name the run.
+ */
+data class RunFactsSnapshot(
+    val header: RunHeader?,
+    val blockedReasons: Map<String, Int>?,
+    val resumable: Int?,
+    val decisions: DecisionCounts?,
+    val seats: StalledSeats?,
+    val attempts: AttemptCounts?,
+    val budget: BudgetFacts?
 )
 
 /**
@@ -90,4 +109,23 @@ interface RunFacts {
 
     /** The budget of run [runId], or null when not tracked. */
     suspend fun budget(runId: UUID): BudgetFacts?
+
+    /**
+     * Every fact above for [run] over its CURRENT [members], with at most [stalledLimit] stalled entries. The default
+     * calls the individual methods; an implementation over a store overrides it to read each table once.
+     */
+    suspend fun snapshot(
+        run: Run,
+        members: Set<UUID>,
+        stalledLimit: Int
+    ): RunFactsSnapshot =
+        RunFactsSnapshot(
+            header = run(run.id),
+            blockedReasons = blockedReasons(members),
+            resumable = resumable(members),
+            decisions = openDecisions(run.id),
+            seats = stalledSeats(run.id, stalledLimit),
+            attempts = attempts(run.id),
+            budget = budget(run.id)
+        )
 }

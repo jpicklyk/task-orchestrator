@@ -208,7 +208,7 @@ private suspend fun WriteScope.raiseDecision(
         if (token == null) {
             null
         } else {
-            when (val r = env.runLimits.checkBudget(token.runId)) {
+            when (val r = env.runLimits.checkBudget(token.runId, token.runLimited)) {
                 is Outcome.Ok -> r.value
                 is Outcome.Err -> return r
             }

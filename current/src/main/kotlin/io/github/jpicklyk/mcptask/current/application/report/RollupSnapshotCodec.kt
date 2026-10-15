@@ -146,6 +146,8 @@ object RollupSnapshotCodec {
                         put("used", budget.used)
                         budget.limit?.let { put("limit", it) }
                         put("basis", budget.basis)
+                        if (budget.breaches != 0) put("breaches", budget.breaches)
+                        if (budget.extends != 0) put("extends", budget.extends)
                     }
                 )
             }
@@ -253,7 +255,13 @@ object RollupSnapshotCodec {
             attempts = o.optObj("attempts")?.let { AttemptCounts(it.int("total"), it.int("max")) },
             budget =
                 o.optObj("budget")?.let { b ->
-                    BudgetFacts(used = b.long("used"), limit = b.optPrimitive("limit")?.long, basis = b.string("basis"))
+                    BudgetFacts(
+                        used = b.long("used"),
+                        limit = b.optPrimitive("limit")?.long,
+                        basis = b.string("basis"),
+                        breaches = b.optPrimitive("breaches")?.int ?: 0,
+                        extends = b.optPrimitive("extends")?.int ?: 0
+                    )
                 }
         )
     }

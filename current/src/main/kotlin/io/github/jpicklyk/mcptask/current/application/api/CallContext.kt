@@ -30,7 +30,12 @@ data class SeatContext(
     val runId: UUID,
     val assignmentId: UUID,
     val itemId: UUID?,
-    val seat: String
+    val seat: String,
+    /**
+     * Server-derived at token resolution (never from a request): true when the seat's run has any budget field set.
+     * False lets a write skip the run-limit reads; the default is the conservative true.
+     */
+    val runLimited: Boolean = true
 )
 
 /**

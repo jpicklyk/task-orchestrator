@@ -50,5 +50,5 @@ private suspend fun WriteScope.pauseRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    return Outcome.Ok(RunsSupport.view(env, stores, paused))
+    return Outcome.Ok(RunsSupport.view(env, stores, paused, ctx.scope))
 }

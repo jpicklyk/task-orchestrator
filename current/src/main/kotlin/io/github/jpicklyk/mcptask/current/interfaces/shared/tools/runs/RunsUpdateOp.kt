@@ -70,5 +70,5 @@ private suspend fun WriteScope.updateRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    return Outcome.Ok(RunsSupport.view(env, stores, updated))
+    return Outcome.Ok(RunsSupport.view(env, stores, updated, ctx.scope))
 }

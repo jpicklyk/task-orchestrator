@@ -149,7 +149,7 @@ data class WorkItem(
 
     /** The blocked reason every read reports: the stored one, or manual for a legacy blocked row; null when not blocked. */
     val effectiveBlockedReason: BlockedReason?
-        get() = if (role == Role.BLOCKED) blockedReason ?: BlockedReason.MANUAL else null
+        get() = if (role == Role.BLOCKED) BlockedReason.effective(blockedReason) else null
 
     /**
      * Create a new version with updated modifiedAt timestamp.

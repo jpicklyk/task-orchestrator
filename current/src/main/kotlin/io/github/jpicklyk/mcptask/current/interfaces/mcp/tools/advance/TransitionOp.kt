@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
+import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
@@ -98,7 +99,8 @@ private suspend fun WriteScope.runTransition(
     // While a run is paused for a limit (budget or attempts), a start under one of its seat tokens is refused (R27); a
     // start without a token is not, and a manual pause leaves in-flight seats free to start (R23).
     val seat = ctx.seat
-    if (seat != null && req.trigger == TransitionTrigger.START) {
+    // An unlimited run (no budget field) cannot be limit-paused, so its seats skip the read.
+    if (seat != null && seat.runLimited && req.trigger == TransitionTrigger.START) {
         val run = stores.runStore().getById(seat.runId)
         if (run != null && run.status == RunStatus.PAUSED && run.pauseReason != RunPauseReason.MANUAL) {
             return Outcome.Err(RunService.runPaused(run))
@@ -113,7 +115,14 @@ private suspend fun WriteScope.runTransition(
                 is Outcome.Ok -> resolved.value
             }
         }
-    val block = if (req.reason != null || decisionId != null) BlockInput(req.reason?.domain, decisionId) else null
+    // Under a restricted scope a full-UUID decision outside it must read like an unused id, not "belongs to another item".
+    val decisionHidden =
+        decisionId != null &&
+            !ctx.scope.isUnrestricted &&
+            stores.decisionRequestStore().getById(decisionId).let { found ->
+                found == null || ScopeGuard.check(ctx.scope, found.rootId, stores.workItemRepository()) is Outcome.Err
+            }
+    val block = if (req.reason != null || decisionId != null) BlockInput(req.reason?.domain, decisionId, decisionHidden) else null
 
     val claim = ctx.principal.claim
     val outcome =
@@ -143,7 +152,7 @@ private suspend fun WriteScope.runTransition(
                 if (seat == null) {
                     null
                 } else {
-                    when (val checked = env.runLimits.checkBudget(seat.runId)) {
+                    when (val checked = env.runLimits.checkBudget(seat.runId, seat.runLimited)) {
                         is Outcome.Err -> return checked
                         is Outcome.Ok -> checked.value
                     }
