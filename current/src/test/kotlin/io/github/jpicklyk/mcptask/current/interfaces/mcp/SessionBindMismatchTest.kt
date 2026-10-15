@@ -83,7 +83,7 @@ class SessionBindMismatchTest {
 
     @Test
     fun `an unbound session and a missing session id have no principal`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions())
         assertNull(sessions.principalOf("never-bound"))
         assertNull(sessions.access("never-bound").principal, "an unbound session gets an access with no principal")
         assertNull(sessions.access(null).principal, "no session id at all gets an access with no principal")
@@ -91,14 +91,14 @@ class SessionBindMismatchTest {
 
     @Test
     fun `a bound session answers the principal's audit id, capabilities, scope and its own session id`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("s1"))
         val scoped =
             principal(
                 "scoped",
                 setOf(ApiCapability.READ),
                 AccessScope.principal(rootIds = setOf(UUID.randomUUID()), tagsInclude = emptySet())
             )
-        sessions.bind("s1", scoped)
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", scoped) })
 
         assertEquals("scoped", sessions.principalOf("s1")?.id)
         val access = sessions.access("s1")
@@ -111,9 +111,9 @@ class SessionBindMismatchTest {
 
     @Test
     fun `two sessions keep two principals`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
-        sessions.bind("s1", principal("alice"))
-        sessions.bind("s2", principal("bob"))
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("s1", "s2"))
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", principal("alice")) })
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s2", principal("bob")) })
         assertEquals(
             "api:alice",
             sessions
@@ -134,9 +134,9 @@ class SessionBindMismatchTest {
 
     @Test
     fun `the first binding of a session wins and a rebind by another principal does not replace it`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
-        sessions.bind("s1", principal("alice"))
-        sessions.bind("s1", principal("bob"))
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("s1"))
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", principal("alice")) })
+        assertEquals(BindOutcome.OTHER_PRINCIPAL, runBlocking { sessions.bind("s1", principal("bob")) })
         assertEquals("alice", sessions.principalOf("s1")?.id)
         assertEquals(
             "api:alice",
@@ -150,18 +150,18 @@ class SessionBindMismatchTest {
 
     @Test
     fun `a second credential of the same principal id leaves the binding on that principal`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
-        sessions.bind("s1", principal("alice"))
-        sessions.bind("s1", principal("alice", setOf(ApiCapability.READ)))
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("s1"))
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", principal("alice")) })
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", principal("alice", setOf(ApiCapability.READ))) })
         assertEquals("alice", sessions.principalOf("s1")?.id)
         assertNotNull(sessions.access("s1").principal)
     }
 
     @Test
     fun `forget removes the binding and forgetting an unknown session is harmless`() {
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
-        sessions.bind("s1", principal("alice"))
-        sessions.bind("s2", principal("bob"))
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("s1", "s2"))
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s1", principal("alice")) })
+        assertEquals(BindOutcome.BOUND, runBlocking { sessions.bind("s2", principal("bob")) })
         sessions.forget("s1")
         sessions.forget("never-bound")
         assertNull(sessions.principalOf("s1"))
@@ -171,14 +171,14 @@ class SessionBindMismatchTest {
 
     @Test
     fun `note attribution is redacted for a READ bearer, visible for ADMIN and for an unredacted deployment`() {
-        val redacting = McpSessionPrincipals(redactNoteAttribution = true)
-        redacting.bind("reader", principal("reader", setOf(ApiCapability.READ)))
-        redacting.bind("admin", principal("admin", setOf(ApiCapability.ADMIN)))
+        val redacting = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions("reader", "admin"))
+        assertEquals(BindOutcome.BOUND, runBlocking { redacting.bind("reader", principal("reader", setOf(ApiCapability.READ))) })
+        assertEquals(BindOutcome.BOUND, runBlocking { redacting.bind("admin", principal("admin", setOf(ApiCapability.ADMIN))) })
         assertFalse(redacting.access("reader").attributionVisible, "a READ bearer is redacted like REST")
         assertTrue(redacting.access("admin").attributionVisible, "ADMIN sees note attribution")
 
-        val open = McpSessionPrincipals(redactNoteAttribution = false)
-        open.bind("reader", principal("reader", setOf(ApiCapability.READ)))
+        val open = McpSessionPrincipals(redactNoteAttribution = false, sdkSessions = fakeSdkSessions("reader"))
+        assertEquals(BindOutcome.BOUND, runBlocking { open.bind("reader", principal("reader", setOf(ApiCapability.READ))) })
         assertTrue(open.access("reader").attributionVisible, "with redaction off the attribution is visible")
     }
 
@@ -378,7 +378,7 @@ class SessionBindMismatchTest {
     @Test
     fun `S4 a tool call in a session with no binding is refused as unauthenticated by the dispatcher`() {
         val rig = EventLogRig.build(db.db, dir)
-        val sessions = McpSessionPrincipals(redactNoteAttribution = true)
+        val sessions = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = fakeSdkSessions())
         val refused = runBlocking { callOverPair(sessions::access, rig) }
         assertEquals(true, refused.isError, "a session nobody bound cannot call a tool")
         val code =
