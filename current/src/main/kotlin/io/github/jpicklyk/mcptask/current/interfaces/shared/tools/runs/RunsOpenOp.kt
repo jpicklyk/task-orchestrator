@@ -103,7 +103,7 @@ private suspend fun WriteScope.openRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    val view = RunsSupport.view(env, stores, opened)
+    val view = RunsSupport.view(env, stores, opened, ctx.scope)
     return Outcome.Ok(
         buildJsonObject {
             for ((key, value) in view) put(key, value)

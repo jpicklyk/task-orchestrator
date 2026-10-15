@@ -170,6 +170,8 @@ internal fun rollupJson(report: RollupReport): JsonObject =
                     put("used", budget.used)
                     budget.limit?.let { put("limit", it) }
                     put("basis", budget.basis)
+                    if (budget.breaches != 0) put("breaches", budget.breaches)
+                    if (budget.extends != 0) put("extends", budget.extends)
                 }
             )
         }

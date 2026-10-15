@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.RunUsageTotals
+import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeatLink
@@ -12,12 +13,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeatStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunSeatsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunsTable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -74,6 +77,16 @@ class SqliteRunSeatStore(
                 .where { RunSeatsTable.tokenHash eq tokenHash }
                 .singleOrNull()
                 ?.let(::toSeat)
+        }
+
+    override suspend fun findTokenMatch(tokenHash: String): SeatTokenMatch? =
+        databaseManager.readTx {
+            RunSeatsTable
+                .join(RunsTable, JoinType.INNER, onColumn = RunSeatsTable.runId, otherColumn = RunsTable.id)
+                .select(RunSeatsTable.columns + RunsTable.budget)
+                .where { RunSeatsTable.tokenHash eq tokenHash }
+                .singleOrNull()
+                ?.let { SeatTokenMatch(toSeat(it), runLimited = it[RunsTable.budget] != null) }
         }
 
     override suspend fun findActive(

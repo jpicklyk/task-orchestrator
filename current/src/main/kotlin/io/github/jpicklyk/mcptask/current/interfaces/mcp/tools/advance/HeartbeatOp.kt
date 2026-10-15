@@ -92,7 +92,7 @@ private suspend fun WriteScope.runHeartbeat(
     // The budget check (R27) runs after the heartbeat's own writes, in its unit; a crossing still lets the heartbeat land.
     val paused =
         if (seat != null && result is ClaimResult.Success) {
-            when (val checked = env.runLimits.checkBudget(seat.runId)) {
+            when (val checked = env.runLimits.checkBudget(seat.runId, seat.runLimited)) {
                 is Outcome.Err -> return checked
                 is Outcome.Ok -> checked.value
             }

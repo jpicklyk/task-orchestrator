@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -187,7 +188,8 @@ class RunsLivenessDisplacementTest {
             assertEquals("displaced", expired.text("reason"))
             assertEquals(w.orchId, expired.text("holder"), "the displaced holder")
             assertEquals(expiry, Instant.parse(assertNotNull(expired.text("expiresAt"))))
-            assertNull(expired.text("displacedBy"), "the new holder has no assignment: null")
+            assertTrue("displacedBy" in expired.keys, "the key is present even when the new holder has no assignment: $expired")
+            assertEquals(JsonNull, expired.getValue("displacedBy"), "and its value is JSON null, not a missing key")
         }
 
     @Test

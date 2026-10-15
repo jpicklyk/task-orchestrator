@@ -13,6 +13,15 @@ data class RunUsageTotals(
 )
 
 /**
+ * A seat assignment found by its token, with a server-derived hint: [runLimited] is true when its run has any budget
+ * field set (so a limit check can matter) and defaults conservative (true) wherever the hint is not known.
+ */
+data class SeatTokenMatch(
+    val seat: RunSeat,
+    val runLimited: Boolean = true
+)
+
+/**
  * Persistence of seat assignments (`run_seats`). Every method joins the caller's unit; the writes belong to
  * `SeatService` (and, through [RunSeatPort], to the run close). A database failure is thrown.
  */
@@ -24,6 +33,12 @@ interface RunSeatStore : RunSeatPort {
 
     /** The assignment whose token hashes to [tokenHash] (active or ended), or null. */
     suspend fun findByTokenHash(tokenHash: String): RunSeat?
+
+    /**
+     * [findByTokenHash] plus the [SeatTokenMatch.runLimited] hint, in one statement where the store can. The default
+     * answers the conservative hint (limited) from [findByTokenHash].
+     */
+    suspend fun findTokenMatch(tokenHash: String): SeatTokenMatch? = findByTokenHash(tokenHash)?.let { SeatTokenMatch(it) }
 
     /** The active assignment of [seat] on [itemId] in [runId], or null. */
     suspend fun findActive(

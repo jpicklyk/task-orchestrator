@@ -42,7 +42,7 @@ data class BudgetBreach(
  * raises a `run-budget` decision (dedupe `budget:<runId>:<n>`, n the breach ordinal over the run's budget decisions,
  * options `extend`/`stop`, recommended `stop`, context the numbers) and pauses the run (`budget`) with it; both commit
  * with the caller's write, which still succeeds. A run already paused for its budget answers its pause decision again,
- * recording nothing. A run without a token or cost limit is never checked past its row read.
+ * recording nothing. An unbudgeted run's token writes skip the run-row read via the token lookup's `runLimited` hint; a budgeted run's are checked in the unit.
  *
  * ## Assign ([admit], through [assign])
  *
@@ -72,9 +72,21 @@ class RunLimits(
 
     /**
      * The budget check of run [runId] (see the class rules); joins the caller's unit. Returns the id of the decision the
-     * run is paused on for its budget (just raised, or the standing one), else null.
+     * run is paused on for its budget (just raised, or the standing one), else null. [runLimited] is the server-derived
+     * hint from token resolution (the run has any budget field): false answers null with no read, and the default true
+     * keeps every caller without the hint checking.
      */
-    suspend fun checkBudget(runId: UUID): Outcome<UUID?> =
+    suspend fun checkBudget(
+        runId: UUID,
+        runLimited: Boolean = true
+    ): Outcome<UUID?> =
+        if (!runLimited) {
+            Outcome.Ok(null)
+        } else {
+            checkBudgetInUnit(runId)
+        }
+
+    private suspend fun checkBudgetInUnit(runId: UUID): Outcome<UUID?> =
         unitOfWork.write(OP_CHECK) {
             val run = runs.getById(runId) ?: return@write Outcome.Ok(null)
             val budget = run.budget

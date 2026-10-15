@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.configName
 import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -24,7 +25,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -111,7 +111,7 @@ class ToolDispatcher(
                     null
                 }
             val effective = if (seat != null) narrowForSeat(access) else access
-            if (seat != null) recordCallRun(seat.runId, seat.seat)
+            if (seat != null) recordCallRun(seat.seat.runId, seat.seat.seat)
             val ctx =
                 CallContext(
                     reqId,
@@ -124,7 +124,7 @@ class ToolDispatcher(
                     sessionId = effective.sessionId,
                     rootWritesAllowed = effective.rootWritesAllowed,
                     takeoverAllowed = effective.takeoverAllowed,
-                    seat = seat?.let { SeatContext(it.runId, it.id, it.itemId, it.seat) }
+                    seat = seat?.let { SeatContext(it.seat.runId, it.seat.id, it.seat.itemId, it.seat.seat, it.runLimited) }
                 )
 
             when (val describe = describeFlag(arguments)) {
@@ -136,7 +136,7 @@ class ToolDispatcher(
                     }
             }
             // Liveness (R25 Ruling A): only a token-carrying ops call touches the seat; describe (answered above) never does.
-            if (seat != null && spec is OpsToolSpec<*>) env.seatService.touch(seat)
+            if (seat != null && spec is OpsToolSpec<*>) env.seatService.touch(seat.seat)
 
             when (spec) {
                 is SelectToolSpec -> {
@@ -186,10 +186,10 @@ class ToolDispatcher(
     private suspend fun resolveSeat(
         raw: JsonElement?,
         principalId: String
-    ): RunSeat? {
+    ): SeatTokenMatch? {
         val token = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
         if (token.isEmpty()) return null
-        return env.seatService.resolve(token, principalId)
+        return env.seatService.resolveMatch(token, principalId)
     }
 
     /**

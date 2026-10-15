@@ -609,7 +609,7 @@ class AdvanceService(
         } else if (ref != null) {
             val found = stores.decisionRequestStore().getById(ref)
             when {
-                found == null -> faults += FieldViolation("/decisionId", "names no decision", ref.toString())
+                found == null || block.decisionHidden -> faults += FieldViolation("/decisionId", "names no decision", ref.toString())
                 found.itemId != item.id -> faults += FieldViolation("/decisionId", "belongs to another item", ref.toString())
                 !found.status.isPending ->
                     faults +=
@@ -1469,5 +1469,10 @@ private fun Decision.Allow.lifecycleTarget(): Role = checkNotNull(target) { "A l
  */
 data class BlockInput(
     val reason: BlockedReason?,
-    val decisionId: UUID?
+    val decisionId: UUID?,
+    /**
+     * True when the caller's restricted scope cannot see the decision [decisionId] names (missing, or its root fails the
+     * scope check). It then reads as "names no decision", exactly like an unused id, so existence is not disclosed.
+     */
+    val decisionHidden: Boolean = false
 )

@@ -11,5 +11,11 @@ enum class BlockedReason(
 
     companion object {
         fun fromWire(value: String): BlockedReason? = entries.firstOrNull { it.wire == value }
+
+        /** The one legacy fold: a blocked row or event with no stored reason reads manual. */
+        fun effective(stored: BlockedReason?): BlockedReason = stored ?: MANUAL
+
+        /** [effective] over a raw wire string: absent or unknown spelling reads manual. */
+        fun effectiveOfWire(raw: String?): BlockedReason = effective(raw?.let { fromWire(it) })
     }
 }

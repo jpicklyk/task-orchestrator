@@ -528,7 +528,7 @@ class SqliteItemStore(
                 .forEach { row ->
                     val parent = row[WorkItemsTable.parentId] ?: return@forEach
                     // The one legacy rule: a blocked row with a NULL (or unknown) reason reads as manual.
-                    val reason = row[WorkItemsTable.blockedReason]?.let { BlockedReason.fromWire(it) } ?: BlockedReason.MANUAL
+                    val reason = BlockedReason.effectiveOfWire(row[WorkItemsTable.blockedReason])
                     val counts = result.getOrPut(parent) { mutableMapOf() }
                     counts[reason] = (counts[reason] ?: 0) + row[total].toInt()
                 }
@@ -562,7 +562,7 @@ class SqliteItemStore(
             selectSql(sql, args) { rs ->
                 while (rs.next()) {
                     val top = uuidOf(rs.getObject("top")!!)
-                    val reason = rs.getString("reason")?.let { BlockedReason.fromWire(it) } ?: BlockedReason.MANUAL
+                    val reason = BlockedReason.effectiveOfWire(rs.getString("reason"))
                     val counts = result.getOrPut(top) { mutableMapOf() }
                     counts[reason] = (counts[reason] ?: 0) + rs.getInt("n")
                 }

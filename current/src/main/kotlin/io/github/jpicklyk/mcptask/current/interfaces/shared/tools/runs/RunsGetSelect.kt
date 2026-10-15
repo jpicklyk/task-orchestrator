@@ -33,6 +33,6 @@ private suspend fun getRun(
     env.unitOfWork.read {
         when (val run = RunsSupport.loadRun(stores, ctx, req.runId)) {
             is Outcome.Err -> run
-            is Outcome.Ok -> Outcome.Ok(RunsSupport.view(env, stores, run.value))
+            is Outcome.Ok -> Outcome.Ok(RunsSupport.view(env, stores, run.value, ctx.scope))
         }
     }

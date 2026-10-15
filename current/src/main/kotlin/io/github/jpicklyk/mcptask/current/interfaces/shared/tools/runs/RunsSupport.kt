@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import kotlinx.serialization.json.JsonObject
+import java.time.Instant
 import java.util.UUID
 
 /** Helpers shared by the `runs_read` and `runs_write` handlers. */
@@ -38,18 +39,31 @@ internal object RunsSupport {
         ref: IdRef
     ): Outcome<Run> = RunRefs.loadRun(stores, ctx.scope, ref)
 
-    /** [run] as its wire view: the member count and the active seats (one seat read) are read now. */
+    /**
+     * [run] as its wire view: the member count and the active seats (one seat read) are read now. Under a restricted
+     * [scope] only members and seats on items the scope can see are counted (one `filterVisible` statement); an
+     * unrestricted scope reads nothing extra.
+     */
     suspend fun view(
         env: ToolExecutionContext,
         stores: RepositoryProvider,
-        run: Run
-    ): JsonObject =
-        RunView.of(
-            run = run,
-            members = stores.runStore().members(run.id).size,
-            seats = stores.runSeatStore().list(run.id),
-            now = env.clock.now()
-        )
+        run: Run,
+        scope: AccessScope
+    ): JsonObject = view(stores, run, scope, env.clock.now())
+
+    /** [view] at the instant [now]. */
+    suspend fun view(
+        stores: RepositoryProvider,
+        run: Run,
+        scope: AccessScope,
+        now: Instant
+    ): JsonObject {
+        val members = stores.runStore().members(run.id)
+        val seats = stores.runSeatStore().list(run.id)
+        if (scope.isUnrestricted) return RunView.of(run, members.size, seats, now)
+        val visible = stores.itemStore().filterVisible(members.toHashSet() + seats.mapNotNull { it.itemId }, scope)
+        return RunView.of(run, members.count { it in visible }, seats.filter { it.itemId == null || it.itemId in visible }, now)
+    }
 
     /** The request budget as a domain budget (dollars to micro-USD); `invalid_request` on [field] for a cost that is not a number of dollars. */
     fun budget(

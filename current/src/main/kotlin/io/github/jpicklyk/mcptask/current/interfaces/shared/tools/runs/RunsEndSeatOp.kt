@@ -58,7 +58,7 @@ private suspend fun WriteScope.endSeat(
         }
     val ended = result.seat
     val paused =
-        when (val r = env.runLimits.checkBudget(ended.runId)) {
+        when (val r = env.runLimits.checkBudget(ended.runId, seat.runLimited)) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
