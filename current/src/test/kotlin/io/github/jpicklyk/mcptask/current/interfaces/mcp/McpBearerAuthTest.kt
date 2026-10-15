@@ -330,7 +330,7 @@ internal class McpAuthHttpFixture(
  * created), the plan paragraph (the plugin runs after the Host guard and on every request), AC1, AC6, test-plan S10 (`/mcp/other`
  * is 404 not 401), the `extractBearerToken` KDoc (case-insensitive `Bearer` plus one or more SP, a tab or a bare/mismatched
  * scheme does not match, one prefix stripped) and RFC 6750 section 3.1 (the challenge codes); the REST twin
- * (`BearerSchemeParsingTest`) for the header-shape table; D2 (call_log kind `external`, id `api:<token id>`) and R10 provenance
+ * (`BearerSchemeParsingTest`) for the header-shape table; D2 (call_log id `api:<token id>`, kind = credential kind) and R10 provenance
  * (principal id, kind, proof, host = clientInfo.name, session id, served profile).
  *
  * Negative-assertion conditions (what makes each fail without the feature): every refusal is paired with a control that differs
