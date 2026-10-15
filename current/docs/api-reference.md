@@ -1341,6 +1341,8 @@ Move items through their phases and manage who owns them. Each ops[] element has
 | `trigger` | string: start \| complete \| block \| hold \| resume \| cancel \| reopen | yes | The trigger to apply: start, complete, block, hold, resume, cancel or reopen. |
 | `summary` | string | no | Optional human-readable summary recorded on the transition. |
 | `credentialRefs` | array of string | no | Audit labels of the credentials this transition consumed (opaque labels, never secret values): at most 8, each 1 to 128 characters matching ^[a-z0-9][a-z0-9\-_./]*$. |
+| `reason` | string: awaiting_decision \| dependency \| resource \| manual | no | Why the item blocks, block or hold only; default manual. resume clears it. |
+| `decisionId` | string | no | With reason awaiting_decision only: the open decision on this item. |
 
 Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `resource_unavailable`, `run_paused`, `seat_forbidden`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
@@ -2251,8 +2253,9 @@ Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `par
 | `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
 | `rootId` | string | no | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
 | `severity` | string: high \| normal \| low | no | Default normal. |
+| `block` | boolean | no | true: also block itemId as awaiting_decision in the same unit. |
 
-Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `payload_too_large`, `unavailable`, `unknown_parameter`
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
 
 **`runs_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real proof and no seat token; director-or-human: also the director profile without a seat token). An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
 

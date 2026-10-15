@@ -47,6 +47,9 @@ interface DecisionRequestStore {
         statuses: Set<DecisionRequestStatus>? = null
     ): List<DecisionRequest>
 
+    /** The requests whose id is in [ids] (one batched read; ids with no row are absent), in no particular order. */
+    suspend fun findByIds(ids: Set<UUID>): List<DecisionRequest>
+
     /** The number of requests of run [runId] still waiting for an answer (open or acknowledged). */
     suspend fun openCount(runId: UUID): Int
 

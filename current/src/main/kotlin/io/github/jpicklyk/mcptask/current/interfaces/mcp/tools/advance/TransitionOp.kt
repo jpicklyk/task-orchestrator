@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
+import io.github.jpicklyk.mcptask.current.application.service.BlockInput
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -28,6 +29,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runLimits
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.withPaused
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -103,6 +105,16 @@ private suspend fun WriteScope.runTransition(
         }
     }
 
+    // A decision named by prefix resolves under the call scope before the advance; the unit re-checks its state (R26).
+    val decisionId =
+        req.decisionId?.let { ref ->
+            when (val resolved = DecisionLoader.resolveId(stores, ctx.scope, ref)) {
+                is Outcome.Err -> return resolved
+                is Outcome.Ok -> resolved.value
+            }
+        }
+    val block = if (req.reason != null || decisionId != null) BlockInput(req.reason?.domain, decisionId) else null
+
     val claim = ctx.principal.claim
     val outcome =
         try {
@@ -115,7 +127,8 @@ private suspend fun WriteScope.runTransition(
                 credentialRefs = refs,
                 enforceResourceLeases = true,
                 assignmentId = ctx.seat?.assignmentId,
-                seatCaller = SeatCaller.of(ctx)
+                seatCaller = SeatCaller.of(ctx),
+                block = block
             )
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))

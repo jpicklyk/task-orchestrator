@@ -106,6 +106,7 @@ internal object FrontierView {
                             buildJsonObject {
                                 put("id", ItemView.shortId(entry.itemId))
                                 put("reason", entry.reason.wire)
+                                entry.decisionId?.let { put("decisionId", it.toString()) }
                                 if (entry.reason == FrontierWaitReason.DEPENDENCY) {
                                     put("blockers", buildJsonArray { entry.blockers.forEach { add(ItemView.shortId(it)) } })
                                 }

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -66,6 +67,8 @@ internal object WorkItemRows {
                 claimExpiresAt = readInstant(row, WorkItemsTable.claimExpiresAt, unreadable),
                 originalClaimedAt = readInstant(row, WorkItemsTable.originalClaimedAt, unreadable),
                 claimAssignmentId = row[WorkItemsTable.claimAssignmentId],
+                blockedReason = row[WorkItemsTable.blockedReason]?.let { BlockedReason.fromWire(it) },
+                blockedRef = row[WorkItemsTable.blockedRef],
                 pin = readPin(row, unreadable),
                 diagnostics = emptyList()
             )

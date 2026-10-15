@@ -154,7 +154,18 @@ object ItemsReadContext {
 
         return Outcome.Ok(
             buildJsonObject {
-                put("item", withAncestors(ItemView.compact(item), item, chains, ctx.scope))
+                put(
+                    "item",
+                    withAncestors(
+                        buildJsonObject {
+                            ItemView.compact(item).forEach { (k, v) -> put(k, v) }
+                            with(ItemView) { blockedMembers(item) }
+                        },
+                        item,
+                        chains,
+                        ctx.scope
+                    )
+                )
                 put(
                     "schema",
                     buildExpectedNotesJson(
@@ -348,7 +359,9 @@ object ItemsReadContext {
                     buildJsonObject {
                         putPage(view.blocked) { item ->
                             val blockType = if (item.role == Role.BLOCKED) "explicit" else "dependency"
-                            val entry = ItemView.with(ItemView.compact(item), "blockType", JsonPrimitive(blockType))
+                            var entry = ItemView.with(ItemView.compact(item), "blockType", JsonPrimitive(blockType))
+                            item.effectiveBlockedReason?.let { entry = ItemView.with(entry, "reason", JsonPrimitive(it.wire)) }
+                            item.blockedRef?.let { entry = ItemView.with(entry, "decisionId", JsonPrimitive(it.toString())) }
                             withAncestors(entry, item, chains, ctx.scope)
                         }
                     }

@@ -94,6 +94,9 @@ object ItemsReadBlocked {
     ): JsonObject {
         var view = ItemView.compact(entry.item, summary = summary)
         view = ItemView.with(view, "blockType", JsonPrimitive(if (entry.blockType == BlockType.EXPLICIT) "explicit" else "dependency"))
+        entry.reason?.let { view = ItemView.with(view, "reason", JsonPrimitive(it.wire)) }
+        entry.decisionId?.let { view = ItemView.with(view, "decisionId", JsonPrimitive(it.toString())) }
+        entry.resumable?.let { view = ItemView.with(view, "resumable", JsonPrimitive(it)) }
         if (entry.blockers.isNotEmpty()) {
             val blockers =
                 entry.blockers.map { blocker ->

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.api.advance
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -39,6 +40,24 @@ enum class TransitionTrigger(
 
     @SerialName("reopen")
     REOPEN("reopen")
+}
+
+/** The typed reason of a `block` or `hold` (wire names; the domain twin is `BlockedReason`). */
+@Serializable
+enum class BlockedReasonRequest(
+    val domain: BlockedReason
+) {
+    @SerialName("awaiting_decision")
+    AWAITING_DECISION(BlockedReason.AWAITING_DECISION),
+
+    @SerialName("dependency")
+    DEPENDENCY(BlockedReason.DEPENDENCY),
+
+    @SerialName("resource")
+    RESOURCE(BlockedReason.RESOURCE),
+
+    @SerialName("manual")
+    MANUAL(BlockedReason.MANUAL)
 }
 
 /** The role a `claim` selector looks in. */
@@ -95,7 +114,9 @@ data class TransitionRequest(
     @Doc(
         "Audit labels of the credentials this transition consumed (opaque labels, never secret values): at most 8, " +
             "each 1 to 128 characters matching ^[a-z0-9][a-z0-9\\-_./]*\$."
-    ) val credentialRefs: List<String>? = null
+    ) val credentialRefs: List<String>? = null,
+    @Doc("Why the item blocks, block or hold only; default manual. resume clears it.") val reason: BlockedReasonRequest? = null,
+    @Doc("With reason awaiting_decision only: the open decision on this item.") val decisionId: IdRef? = null
 )
 
 /** The filters of a `claim` selector. */
