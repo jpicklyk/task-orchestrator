@@ -174,8 +174,8 @@ class IdentityPackageTest {
     }
 
     @Test
-    fun `S5 all 16 identity files exist at their mapped path with the matching package`() {
-        assertEquals(16, inventory.size, "the inventory itself must list 16 files")
+    fun `S5 all 9 identity files exist at their mapped path with the matching package`() {
+        assertEquals(9, inventory.size, "the inventory itself must list 9 files")
         val sources = GuardSupport.productionSources().associateBy { it.path }
         for ((path, expectedPackage) in inventory) {
             val source = assertNotNull(sources[path], "missing production file: $path")
@@ -193,12 +193,16 @@ class IdentityPackageTest {
     fun `S5 the left-behind matcher detects a moved name at each former directory`() {
         val seeded =
             listOf(
-                synthetic("infrastructure/config/DidWebResolver.kt", "package p"),
+                synthetic("infrastructure/config/JwksApiVerifier.kt", "package p"),
                 synthetic("interfaces/api/v1/auth/CredentialResolver.kt", "package p"),
-                synthetic("domain/model/DidDocument.kt", "package p")
+                synthetic("domain/model/BearerTokenStore.kt", "package p")
             )
         assertEquals(
-            setOf("infrastructure/config/DidWebResolver.kt", "interfaces/api/v1/auth/CredentialResolver.kt", "domain/model/DidDocument.kt"),
+            setOf(
+                "infrastructure/config/JwksApiVerifier.kt",
+                "interfaces/api/v1/auth/CredentialResolver.kt",
+                "domain/model/BearerTokenStore.kt"
+            ),
             leftBehind(seeded).toSet()
         )
         assertEquals(emptyList(), leftBehind(listOf(synthetic("infrastructure/config/AppConfig.kt", "package p"))))
