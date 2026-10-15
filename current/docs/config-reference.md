@@ -163,6 +163,10 @@ decision_classes:
     expires_after: 86400
 ```
 
+**Single-developer stdio.** On a stdio server, every caller is the one `local` principal, whose kind is `agent`, so a
+`human-only` class cannot be answered there: an answer needs a credential with kind `human`, and a stdio server has
+none. The built-in classes are unaffected, because their answerers are `director-or-human` or `any-actor`.
+
 ## Strict validation
 
 A pushed document is validated before it is stored, and nothing is stored if any error is found. Validation has

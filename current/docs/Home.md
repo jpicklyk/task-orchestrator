@@ -92,6 +92,7 @@ After running, restart Claude Code and run `/mcp` to verify the connection. You 
 | [API Reference](api-reference.md) | Every MCP tool — parameters, response shapes, and examples |
 | [Workflow Guide](workflow-guide.md) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior, runs, seats and decisions |
 | [Fleet Deployment](fleet-deployment.md) | Multi-agent fleet operators: identity policy, SQLite tuning, capacity planning, claim disclosure, observability |
+| [Reporting](reporting.md) | The director-profile `report` tool: which select answers which question, how to read its bases, and what retention changes in an answer |
 | [Integration Guides](integration-guides/index.md) | Progressive tiers from bare MCP tools to self-improving orchestration |
 
 ---

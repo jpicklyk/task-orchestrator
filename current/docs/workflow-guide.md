@@ -1261,13 +1261,7 @@ A decision is a question with 1 to 8 options that a seat or the coordinator rais
           "recommended": "spec"}]}
 ```
 
-Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The answerers are:
-
-| Class answerers | Who may `ack` or `answer` |
-|---|---|
-| `human-only` | a human credential with a real proof, no seat token |
-| `director-or-human` | also the director profile, no seat token |
-| `any-actor` | any caller that can reach the op and holds the `decide` capability |
+Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#runs_write).
 
 The director (or the human) lists and reads decisions with `runs_read` `decisions` and `decision`, then `ack`s and `answer`s with `runs_write`. An answer is final. The raiser or the run's coordinator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
 
