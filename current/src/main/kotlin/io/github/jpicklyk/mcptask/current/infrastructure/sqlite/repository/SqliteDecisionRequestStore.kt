@@ -129,6 +129,18 @@ class SqliteDecisionRequestStore(
         }
     }
 
+    override suspend fun findByIds(ids: Set<UUID>): List<DecisionRequest> {
+        if (ids.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                DecisionRequestsTable
+                    .selectAll()
+                    .where { DecisionRequestsTable.id inList chunk }
+                    .map { toDecision(it) }
+            }
+        }
+    }
+
     override suspend fun openCount(runId: UUID): Int =
         databaseManager.readTx {
             val n = DecisionRequestsTable.id.count()

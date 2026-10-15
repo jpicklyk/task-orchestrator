@@ -81,18 +81,21 @@ function body in front of an author trying, in good faith, to resolve a signatur
 
 This section is the single statement of the red-proof policy; other docs point here. A red-proof
 is a mutation or revert run against the item's own tests to confirm they can fail. It is a
-targeted spend, not a per-scenario mandate.
+targeted spend, not a per-scenario mandate, and it runs at two different times: the proofs that
+establish a fix (rules 1 and 6) run per item before merge; the budget mutations that audit test
+quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
 
-1. **Bug fix: always.** Revert the fix and confirm the regression test fails before the fix and
-   passes after. One run. Write the test from the `diagnosis` reproduction and observe it red
-   against the pre-fix code; never assume a reproduction description implies a failing
-   assertion. A waiver needs a stated reason (a failing reproduction is impractical).
+1. **Bug fix: always, per item, before merge.** Revert the fix and confirm the regression test
+   fails before the fix and passes after. One run, scoped to that test class. Write the test from
+   the `diagnosis` reproduction and observe it red against the pre-fix code; never assume a
+   reproduction description implies a failing assertion. A waiver needs a stated reason (a
+   failing reproduction is impractical).
 2. **New behaviour in guards, gates, transitions, classification, boundaries, or security
    predicates: a capped budget of about 5 mutations per item** (a cap, not a target): one per
    distinct decision point, at most one per line, only on changed lines the new tests reach.
    Preferred operators: drop one of several parallel enforcement paths, flip or shift a boundary
    comparison, invert a predicate, remove a guard, give a source-scan guard an alternate
-   spelling. All budget mutations run in ONE batched round per item.
+   spelling. The budget is per item; the mutations run under rule 10, batched per wave.
 3. **Concurrency or atomicity items:** the same budget, aimed at a fault injected at each write
    inside the unit and at the lock or ordering seam.
 4. **Escalate on evidence.** If a budget mutation exposes a real gap, expand to the rest of that
@@ -100,15 +103,30 @@ targeted spend, not a per-scenario mandate.
 5. **Skip:** test-only items (tests for already-correct behaviour), pure refactors and package
    moves (the existing suite staying green is the check), migrations (the upgrade harness is the
    check), and glue, config, wiring, logging or docs.
-6. **Coupled authorship exception.** When test authorship is not independent (the same agent
-   wrote code and tests, or the author read the implementation), every scenario asserting new
-   behaviour gets a red check.
+6. **Coupled authorship exception, per item, before merge.** When test authorship is not
+   independent (the same agent wrote code and tests, or the author read the implementation),
+   every scenario asserting new behaviour gets a red check.
 7. **A surviving mutation is triage, not an automatic failure.** Classify it as weak test,
    equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
-   new test.
+   new test. A real gap found at the wave boundary does not reopen the merged item: it becomes a
+   carry-in note on the next item touching that seam, or one test-only follow-up item per wave.
 8. **Reviewers read the recorded results; they do not re-run them**, except to verify a specific
-   result they doubt.
-9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes.
+   result they doubt, and then scoped to the test classes in question, never as the whole suite.
+9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes — pre-merge
+   results on the item, wave-boundary results on the wave parent's `red-proof-results` note.
+10. **Budget mutations run at the wave boundary, scoped.** After the wave's PRs merge (a single
+    item is its own wave), the orchestrator batches every item's budget in ONE scratch worktree
+    at the merged SHA, one mutation present at a time, and runs each only against the test
+    classes the item's `test-manifest` maps to that scenario (`--tests`); one whole-suite run,
+    incremental, only for a survivor, to tell "covered at another seam" from a real gap. Never
+    `--rerun-tasks`. Mutating the merged state is deliberate: it also catches a merge round that
+    weakened an oracle. The stage never gates a merge and runs in the background while the next
+    wave plans.
+11. **Who runs gradle.** The whole suite belongs to the orchestrator, once per wave. A seat
+    verifies at the scope of what it wrote: the pinned compile self-check, and a scoped run of
+    its own test classes to see them red then green. A seat never runs `:current:test`,
+    `:current:ktlintCheck` or `--rerun-tasks`; the lock helper refuses them. A `VERIFY` line in
+    `test-manifest` therefore cites the scoped classes and their result, never a suite count.
 
 The plan seat's `red-proof-shape` field carries this budget for the item: the bug-fix revert, up
 to about 5 decision-point mutations, or `skip: <category>`. The surface labels in section 2 still

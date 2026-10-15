@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
@@ -93,9 +94,17 @@ class ToolExecutionContext(
     val bodySource: BodySource = BodySource.DISABLED,
     /** The lease kill switch (`AppConfig.resourceLeasesEnforced`, read once at startup). */
     private val resourceLeasesEnforced: Boolean = true,
-    /** What an answer to a server-raised decision class does (R27); the default does nothing. */
-    val decisionEffects: DecisionEffects = DecisionEffects.NONE,
+    /** What an answer to a server-raised decision class does (R27); null (the default) wires [RunDecisionEffects]. */
+    decisionEffects: DecisionEffects? = null,
 ) {
+    private val decisionEffectsOverride: DecisionEffects? = decisionEffects
+
+    /**
+     * What an answer to a server-raised decision class does inside the answer's unit (R27): the constructor's override,
+     * else [RunDecisionEffects] over [runService]. Lazy for the same reason as [runService].
+     */
+    val decisionEffects: DecisionEffects by lazy { decisionEffectsOverride ?: RunDecisionEffects(runService) }
+
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
      * (most tests) do not build it.

@@ -955,7 +955,9 @@ seat assignments of one run, oldest first: active ones, or every one with `ended
 `itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
 endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
 or the bound principal) and `frontier` (`{runId, status, stalled, counts, ready, inFlight, waiting}`: the ready members,
-the active member seats with their stalled flag and the waiting members with a reason, `manual` or `dependency`; item
+the active member seats with their stalled flag and the waiting members with a reason (`manual`, `dependency`,
+`awaiting_decision` or `resource`; a blocked member reports its typed blocked reason, and an `awaiting_decision` one
+also its full `decisionId`); item
 ids are 8-hex short ids; members and blockers outside the token's scope are left out; also served on
 `/ops/director/runs_read`). `POST /ops/runs_write` serves `open`, `update`, `close`, `pause`, `resume`, `mark`, `assign` and
 `end_seat`, each needing `runs`. A run is as visible as its root:
@@ -1005,8 +1007,47 @@ nothing for a key already set. Every run result is the run view (`runId`, `rootI
 `costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
+**Budgets and caps.** A run's `budget{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at
+most the configured `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower it.
+Usage: each seat's `heartbeat` `usage` is kept per assignment (the highest value per field) and the run's `usage`
+`reportedTokens` / `reportedCostUsd` are the SUM over every assignment of the run, ended ones included; `observedTokens`
+is the server's own estimate, the `responseTokensEst` of every call-log row carrying the run, added off-path by the
+call-log writer. Enforced figures: tokens `max(reported, observed)`, cost reported only; a run breaches when a figure is
+strictly over its limit. Every token-carrying write (`heartbeat`, `transition`, `assign`, `end_seat`, `raise`) checks
+its run after its own change: on a crossing the run is paused (`pauseReason: budget`) and a server-raised `run-budget`
+decision is raised (dedupe key `budget:<runId>:<n>`, options `extend` / `stop`, recommended `stop`, `context` a JSON
+object naming the breached `dimension` with `used` and `limit`), both committed with the write, which still succeeds and
+carries `paused: {decisionId}` in its result. While a run is paused for a limit, `assign` and a `start` transition
+under a seat token are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause
+does not refuse `start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
+(`attempts`), and the run pauses on a server-raised `attempt-cap` decision (dedupe key
+`attempts:<runId>:<itemId>:<seat>:<attempt>`, options `allow_one` / `skip_item` / `stop`) written although the assign
+is refused. An otherwise admissible `assign` that would not supersede an active seat is `409 run_at_capacity` (transient,
+`detail: {runId, active, max}`) while `maxActiveSeats` member seats are active; nothing pauses, retry when a seat ends.
+Answering the pause decision (director or human, `runs_write` `answer`) acts on the run: `extend` (with `amount`, whole
+tokens or US dollars in the context's `dimension`; it may exceed the configured ceiling) raises that limit and resumes
+(`run.updated` with `budgetChanged`, then `run.resumed`); `allow_one` gives that (item, seat) one more attempt and
+resumes; `skip_item` removes the item and resumes; `stop` closes the run `budget_exhausted` with the full close cascade.
+A manual `resume` of a limit pause stays `invalid_run_state`.
+
+**Typed blocked reason.** `advance` `transition` takes `reason` (`awaiting_decision`, `dependency`, `resource` or
+`manual`) and `decisionId` on the `block` and `hold` triggers only (anything else is `invalid_request` on
+`/reason` or `/decisionId`). `reason` defaults to `manual`; `decisionId` goes with, and only with,
+`awaiting_decision`, and must name a pending (open or acknowledged) decision about the same item (`invalid_request` on
+`/decisionId` otherwise: absent, another item's, answered or withdrawn). `resume`, `cancel` and `complete_tree`
+clear both. A blocked item before V37 has no stored reason and reads as `manual`. The reason shows as
+`blockedReason` (and `decisionId`) on `items_read` `get` and the `context` item, as `reason` / `decisionId` on
+`blocked` entries and the `context` health blocked list, and as `blockedByReason` (zero counts omitted, NULL counted
+as `manual`) beside every `childCounts` of `overview`. An `awaiting_decision` `blocked` entry also carries
+`resumable`: `true` once the decision is answered, withdrawn or gone, `false` while it is pending. Answering a
+decision never resumes the item. The `item.transitioned` row of a transition into blocked adds `blockedReason` and
+`decisionId` to its payload (SSE `item.advanced` and `history` are unchanged). `runs_write` `raise` with
+`block: true` also blocks the item (`itemId` or the token's item) as `awaiting_decision` in the same unit: a refused
+block refuses the raise, a replay does not block twice, an already-answered decision does not block, and the result adds
+`blocked`.
+
 **Decisions.** `runs_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
-rootId?, severity?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
+rootId?, severity?, block?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
 required (under a seat token an absent `runId` / `itemId` defaults to the token's); the root is the item's, else the
 run's, else `rootId` (a root item), and they must agree (`invalid_request` on `/itemId` or `/rootId`); an item without a
 lifecycle is `invalid_request` on `/itemId`. `class` names a decision class: the built-ins are `question` (any-actor,
@@ -1027,7 +1068,8 @@ is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `dir
 option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
 1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
 {decisionId}` (director profile, `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
-decision's run (`required` `coordinator,raiser`). An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
+decision's run (`required` `coordinator,raiser`); a server-raised `run-budget` or `attempt-cap` decision cannot be
+withdrawn by anyone (the same `forbidden`): it stays pending until it is answered or its run is closed. An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
 is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
 `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
 profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status

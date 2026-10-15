@@ -40,6 +40,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.cascadeSeatAllowed
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -397,6 +398,8 @@ class AdvanceService(
      *   [resourceLeasesEnforced].
      * @param assignmentId the seat assignment of the call's seat token (the claim holder pair's second member).
      * @param seatCaller who sends the trigger, for the SEAT gate (R23); [SeatCaller.NONE] is an agent without a token.
+     * @param block the caller's raw typed-block fields (R26); null when neither
+     * reason nor decisionId was supplied.
      */
     suspend fun advance(
         item: WorkItem,
@@ -407,7 +410,8 @@ class AdvanceService(
         credentialRefs: List<String> = emptyList(),
         enforceResourceLeases: Boolean = true,
         assignmentId: UUID? = null,
-        seatCaller: SeatCaller = SeatCaller.NONE
+        seatCaller: SeatCaller = SeatCaller.NONE,
+        block: BlockInput? = null
     ): AdvanceOutcome {
         val userTrigger =
             Trigger.User.parse(trigger)
@@ -433,7 +437,8 @@ class AdvanceService(
                 ownership = OwnershipInput(enforced = true, callerId = actorClaim?.id, callerAssignmentId = assignmentId),
                 seat = SeatInput(enforced = true, caller = seatCaller),
                 leaseGateActive = leaseGateActive,
-                credentialRefs = credentialRefs
+                credentialRefs = credentialRefs,
+                block = block
             )
         return runUnit { primary(request) }
     }
@@ -488,7 +493,8 @@ class AdvanceService(
         val ownership: OwnershipInput,
         val seat: SeatInput,
         val leaseGateActive: Boolean,
-        val credentialRefs: List<String>
+        val credentialRefs: List<String>,
+        val block: BlockInput? = null
     )
 
     /** The value of a claim-service call; a fault aborts the advance (the unit rolls back, `apply_failed`). */
@@ -575,6 +581,59 @@ class AdvanceService(
         }
     }
 
+    /**
+     * The invalid_request for the typed-block fields ([block]) of a user trigger, or null when they are valid (R26). Runs
+     * inside the unit, after the item re-read and before the policy; an unsupplied block is always valid.
+     */
+    private suspend fun WriteScope.blockRequestError(
+        item: WorkItem,
+        trigger: Trigger.User,
+        block: BlockInput?
+    ): DomainError? {
+        if (block == null) return null
+        val faults = ArrayList<FieldViolation>()
+        val blocking = trigger == Trigger.User.BLOCK || trigger == Trigger.User.HOLD
+        if (!blocking) {
+            if (block.reason != null) faults += FieldViolation("/reason", "allowed only with trigger block or hold", block.reason.wire)
+            if (block.decisionId != null) {
+                faults += FieldViolation("/decisionId", "allowed only with trigger block or hold", block.decisionId.toString())
+            }
+            return invalidBlock(faults)
+        }
+        val reason = block.reason ?: BlockedReason.MANUAL
+        val ref = block.decisionId
+        if (ref != null && reason != BlockedReason.AWAITING_DECISION) {
+            faults += FieldViolation("/decisionId", "allowed only with reason awaiting_decision", ref.toString())
+        } else if (ref == null && reason == BlockedReason.AWAITING_DECISION) {
+            faults += FieldViolation("/decisionId", "required with reason awaiting_decision")
+        } else if (ref != null) {
+            val found = stores.decisionRequestStore().getById(ref)
+            when {
+                found == null -> faults += FieldViolation("/decisionId", "names no decision", ref.toString())
+                found.itemId != item.id -> faults += FieldViolation("/decisionId", "belongs to another item", ref.toString())
+                !found.status.isPending ->
+                    faults +=
+                        FieldViolation(
+                            "/decisionId",
+                            "is ${found.status.wire}; only an open or acknowledged decision can be waited on",
+                            ref.toString()
+                        )
+            }
+        }
+        return invalidBlock(faults)
+    }
+
+    private fun invalidBlock(faults: List<FieldViolation>): DomainError? =
+        if (faults.isEmpty()) {
+            null
+        } else {
+            DomainError(
+                code = ErrorCode.INVALID_REQUEST,
+                message = "Invalid typed block: ${faults.joinToString("; ") { "${it.field} ${it.reason}" }}",
+                detail = ErrorDetail.InvalidRequest(faults)
+            )
+        }
+
     private fun applyFaultMessage(error: DomainError): String = "Failed to apply transition: ${LegacyFaults.message(error)}"
 
     /** A view of [scope] whose `now` is [at] (the service clock's unit instant). */
@@ -599,6 +658,10 @@ class AdvanceService(
                         AdvanceErrors.itemNotFound(request.itemId)
                     )
                 )
+
+        blockRequestError(item, trigger, request.block)?.let {
+            return AdvanceOutcome.Failure(AdvanceFailure.ResolutionFailed(it.message, it))
+        }
 
         // An advance that evaluates a lapsed claim reports it (deduped); a rejected advance rolls the row back and
         // the hourly sweep backstops it.
@@ -674,7 +737,8 @@ class AdvanceService(
                         consumedCredentials = consumedCredentials,
                         requirements = loaded.requirements,
                         registry = registry,
-                        now = now
+                        now = now,
+                        block = request.block
                     )
             ) {
                 is ApplyResult.Applied -> result.item
@@ -939,7 +1003,8 @@ class AdvanceService(
         consumedCredentials: List<String>,
         requirements: List<ResourceRequirement>,
         registry: Map<String, ResourceDefinition>?,
-        now: Instant
+        now: Instant,
+        block: BlockInput? = null
     ): ApplyResult {
         val leaseRepo = resourceLeaseRepository
         if (decision.acquireLeases.isNotEmpty() && leaseRepo != null) {
@@ -972,10 +1037,15 @@ class AdvanceService(
             )
         }
 
+        // The typed block (R26): only a transition INTO blocked writes a reason; every other target clears both.
+        val blockedReason = if (targetRole == Role.BLOCKED) block?.reason ?: BlockedReason.MANUAL else null
+        val blockedRef = if (blockedReason == BlockedReason.AWAITING_DECISION) block?.decisionId else null
         val updatedItem =
             item.update { current ->
                 current.copy(
                     role = targetRole,
+                    blockedReason = blockedReason,
+                    blockedRef = blockedRef,
                     previousRole =
                         when {
                             targetRole == Role.BLOCKED -> previousRole
@@ -1044,7 +1114,9 @@ class AdvanceService(
                 actor = actorClaim,
                 verification = verification,
                 summary = transition.summary,
-                consumedCredentials = transition.consumedCredentials
+                consumedCredentials = transition.consumedCredentials,
+                blockedReason = blockedReason?.wire,
+                decisionId = blockedRef
             )
         )
         if (reopenPin != null) {
@@ -1390,3 +1462,12 @@ private fun Decision.Allow.lifecycleFrom(): Role = checkNotNull(from) { "A lifec
 
 /** [Decision.Allow.target] of a user or cascade transition, which the table never allows for a lifecycle-free item. */
 private fun Decision.Allow.lifecycleTarget(): Role = checkNotNull(target) { "A lifecycle transition was allowed without a target role" }
+
+/**
+ * The caller's raw typed-block fields of a block or hold (R26); a null member was not supplied. Validated and
+ * defaulted inside the advance unit.
+ */
+data class BlockInput(
+    val reason: BlockedReason?,
+    val decisionId: UUID?
+)

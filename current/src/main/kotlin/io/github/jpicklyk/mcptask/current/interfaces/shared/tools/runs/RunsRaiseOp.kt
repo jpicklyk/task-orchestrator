@@ -5,16 +5,26 @@ import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsRaiseRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionRaiseCommand
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.BlockInput
 import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestOption
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
@@ -44,7 +54,10 @@ internal val runsRaiseOp =
                 ErrorCode.AMBIGUOUS_ID,
                 ErrorCode.FORBIDDEN,
                 ErrorCode.IDEMPOTENCY_MISMATCH,
-                ErrorCode.PAYLOAD_TOO_LARGE
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                ErrorCode.INVALID_TRANSITION,
+                ErrorCode.SEAT_FORBIDDEN,
+                ErrorCode.NOT_CLAIM_HOLDER
             ),
         execute = { env, ctx, req -> raiseDecision(env, ctx, req) }
     )
@@ -64,6 +77,9 @@ private suspend fun WriteScope.raiseDecision(
     ctx: CallContext,
     req: RunsRaiseRequest
 ): Outcome<JsonObject> {
+    if (req.block == true && req.itemId == null && ctx.seat?.itemId == null) {
+        return Outcome.Err(RunsSupport.invalid("/block", "needs an item (itemId or the seat token's item)"))
+    }
     val options =
         when (val r = options(req.options)) {
             is Outcome.Ok -> r.value
@@ -154,8 +170,54 @@ private suspend fun WriteScope.raiseDecision(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    val view = DecisionView.full(result.decision, env.clock.now(), ctx.principalsVisible)
-    return Outcome.Ok(JsonObject(view + ("existing" to JsonPrimitive(result.existing))))
+    val decision = result.decision
+    var blocked: Boolean? = null
+    if (req.block == true && item != null) {
+        // Same unit as the raise: a refused block returns Err, which rolls the raise back (no decision row, no event).
+        blocked =
+            when {
+                !decision.status.isPending -> false
+                item.role == Role.BLOCKED && item.blockedRef == decision.id -> true
+                else -> {
+                    val outcome =
+                        try {
+                            env.advanceServiceFactory().forItem(item).advance(
+                                item = item,
+                                trigger = "block",
+                                summary = null,
+                                actorClaim = ctx.principal.claim,
+                                verification = ctx.principal.verification,
+                                enforceResourceLeases = true,
+                                assignmentId = ctx.seat?.assignmentId,
+                                seatCaller = SeatCaller.of(ctx),
+                                block = BlockInput(BlockedReason.AWAITING_DECISION, decision.id)
+                            )
+                        } catch (e: PerRootConfigUnavailableException) {
+                            return Outcome.Err(AdvanceSupport.configUnavailable(e.message))
+                        } catch (e: PerRootConfigInvalidException) {
+                            return Outcome.Err(e.toDomainError())
+                        }
+                    when (outcome) {
+                        is AdvanceOutcome.Failure -> return Outcome.Err(AdvanceSupport.rooted(outcome.failure.error))
+                        is AdvanceOutcome.Success -> true
+                    }
+                }
+            }
+    }
+    val paused =
+        if (token == null) {
+            null
+        } else {
+            when (val r = env.runLimits.checkBudget(token.runId)) {
+                is Outcome.Ok -> r.value
+                is Outcome.Err -> return r
+            }
+        }
+    val view = DecisionView.full(decision, env.clock.now(), ctx.principalsVisible)
+    val extra = LinkedHashMap<String, JsonElement>()
+    extra["existing"] = JsonPrimitive(result.existing)
+    blocked?.let { extra["blocked"] = JsonPrimitive(it) }
+    return Outcome.Ok(JsonObject(view + extra).withPaused(paused))
 }
 
 /**

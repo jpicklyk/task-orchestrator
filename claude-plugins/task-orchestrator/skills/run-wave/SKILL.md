@@ -112,7 +112,8 @@ test-author default key on it.
 | 6b Launch B | Run the Method B loop — see `references/method-b.md` |
 | 7 Post-run | Runs only when triggered by the Method A notification, or by Method B's own loop reaching `next → {complete: true}`. See `references/post-run.md` |
 | 8 Review | Method B generic review (F-9 in the design) unless the project's `run-profile.json` sets `review: "handoff"`, in which case control passes to the project's own review step (this repo: `/implement` Step 5) |
-| 9 Loop | Re-run from Step 2. Items surfaced in the last `advance_item` response's `unblockedItems` join the next frontier automatically |
+| 8a Wave red-proofs | Once the wave's PRs have merged: the decision-point budget mutations for every item in the wave, batched in one scratch worktree at the merged SHA, each scoped to the test classes its `test-manifest` maps to, recorded once on the wave parent's `red-proof-results`. Background; never a merge gate. See `references/post-run.md` Step 7a |
+| 9 Loop | Re-run from Step 2 without waiting for 8a. Items surfaced in the last `advance_item` response's `unblockedItems` join the next frontier automatically |
 
 Steps 1–5 are the **planning** half of a run; Steps 6–9 are the **execution** half. A run can
 span many orchestrator turns — see turn-boundary discipline below.

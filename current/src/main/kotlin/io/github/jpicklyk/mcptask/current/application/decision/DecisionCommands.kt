@@ -71,7 +71,8 @@ fun DecisionRequestAnswerers.required(): String =
 /**
  * Raises a decision request under root [rootId], about run [runId] and member [itemId] when given (the caller has
  * resolved them, checked their scope and that they agree on the root). [severity] null takes the class default.
- * [raisedById], [raisedByKind] and [raisedBySeat] record who raised it.
+ * [raisedById], [raisedByKind] and [raisedBySeat] record who raised it. [id], when given, is the id a new request takes
+ * (a server raise names its decision before storing it); null draws a random one.
  */
 data class DecisionRaiseCommand(
     val rootId: UUID,
@@ -87,7 +88,8 @@ data class DecisionRaiseCommand(
     val severity: DecisionRequestSeverity? = null,
     val raisedById: String,
     val raisedByKind: String,
-    val raisedBySeat: String? = null
+    val raisedBySeat: String? = null,
+    val id: UUID? = null
 )
 
 /** The request a raise returns, and whether it already existed ([existing] true: a re-raise matched it). */
@@ -96,9 +98,13 @@ data class DecisionRaiseResult(
     val existing: Boolean
 )
 
-/** Answers a decision request with an [option] key and/or free [text] (freeform classes only), and a [rationale]. */
+/**
+ * Answers a decision request with an [option] key and/or free [text] (freeform classes only), and a [rationale].
+ * [amount] is the extend amount of a `run-budget` `extend` answer (R27), in the breached dimension: tokens or US dollars.
+ */
 data class DecisionAnswerCommand(
     val option: String? = null,
     val text: String? = null,
-    val rationale: String? = null
+    val rationale: String? = null,
+    val amount: Double? = null
 )

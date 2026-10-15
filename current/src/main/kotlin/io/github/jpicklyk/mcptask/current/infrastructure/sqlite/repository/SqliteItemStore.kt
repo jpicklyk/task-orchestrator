@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -100,6 +101,8 @@ class SqliteItemStore(
             it[claimExpiresAt] = item.claimExpiresAt
             it[originalClaimedAt] = item.originalClaimedAt
             it[claimAssignmentId] = item.claimAssignmentId
+            it[blockedReason] = item.blockedReason?.wire
+            it[blockedRef] = item.blockedRef
             writePin(it, item.pin)
         }
         insertTraits(item)
@@ -171,6 +174,8 @@ class SqliteItemStore(
                     it[modifiedAt] = item.modifiedAt
                     it[roleChangedAt] = item.roleChangedAt
                     it[version] = item.version + 1
+                    it[blockedReason] = item.blockedReason?.wire
+                    it[blockedRef] = item.blockedRef
                     writePin(it, item.pin)
                 }
             if (updatedCount > 0) {
@@ -496,6 +501,70 @@ class SqliteItemStore(
                     val role = Role.fromString(rs.getString("role") ?: continue) ?: Role.QUEUE
                     val counts = result.getOrPut(top) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + rs.getInt("n")
+                }
+            }
+            result
+        }
+    }
+
+    override suspend fun countBlockedByParentAndReason(
+        parentIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, Map<BlockedReason, Int>> {
+        if (parentIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, MutableMap<BlockedReason, Int>>()
+            parentIds.forEach { result[it] = mutableMapOf() }
+            val visible = visibilityConditions(scope) ?: return@readTx result
+            val total = WorkItemsTable.id.count()
+            val blockedOnly = WorkItemsTable.role eq Role.BLOCKED.name.lowercase()
+            val condition =
+                (listOf(WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds), blockedOnly) + visible)
+                    .reduce { acc, op -> acc and op }
+            WorkItemsTable
+                .select(WorkItemsTable.parentId, WorkItemsTable.blockedReason, total)
+                .where { condition }
+                .groupBy(WorkItemsTable.parentId, WorkItemsTable.blockedReason)
+                .forEach { row ->
+                    val parent = row[WorkItemsTable.parentId] ?: return@forEach
+                    // The one legacy rule: a blocked row with a NULL (or unknown) reason reads as manual.
+                    val reason = row[WorkItemsTable.blockedReason]?.let { BlockedReason.fromWire(it) } ?: BlockedReason.MANUAL
+                    val counts = result.getOrPut(parent) { mutableMapOf() }
+                    counts[reason] = (counts[reason] ?: 0) + row[total].toInt()
+                }
+            result
+        }
+    }
+
+    override suspend fun rollupBlockedByTopChild(
+        topIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, Map<BlockedReason, Int>> {
+        if (topIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, MutableMap<BlockedReason, Int>>()
+            topIds.forEach { result[it] = mutableMapOf() }
+            val roots = resolveRoots(scope) ?: return@readTx result
+            val visible = WorkViewSql.visibility("y", roots.resolved, scope.tagsInclude)
+            val sql =
+                """
+                WITH RECURSIVE walk(top, id) AS (
+                    SELECT id, id FROM work_items WHERE id IN (${WorkViewSql.ID_SET_SELECT})
+                    UNION
+                    SELECT w.top, x.id FROM work_items x JOIN walk w ON x.parent_id = w.id
+                )
+                SELECT walk.top AS top, y.blocked_reason AS reason, COUNT(*) AS n
+                FROM walk JOIN work_items y ON y.id = walk.id
+                WHERE walk.id <> walk.top AND y.role = 'blocked'${visible?.let { " AND " + it.sql } ?: ""}
+                GROUP BY walk.top, y.blocked_reason
+                """.trimIndent()
+            val args = listOf(WorkViewSql.idSetArgument(topIds)) + (visible?.args ?: emptyList())
+            selectSql(sql, args) { rs ->
+                while (rs.next()) {
+                    val top = uuidOf(rs.getObject("top")!!)
+                    val reason = rs.getString("reason")?.let { BlockedReason.fromWire(it) } ?: BlockedReason.MANUAL
+                    val counts = result.getOrPut(top) { mutableMapOf() }
+                    counts[reason] = (counts[reason] ?: 0) + rs.getInt("n")
                 }
             }
             result

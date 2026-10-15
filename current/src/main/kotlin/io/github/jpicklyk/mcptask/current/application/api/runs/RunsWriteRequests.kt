@@ -158,7 +158,8 @@ data class RunsRaiseRequest(
     @Doc(ITEM_DOC) val itemId: IdRef? = null,
     @Doc(RUN_ID_DOC) val runId: IdRef? = null,
     @Doc(ROOT_DOC) val rootId: IdRef? = null,
-    @Doc("Default normal.") val severity: DecisionSeverityRequest? = null
+    @Doc("Default normal.") val severity: DecisionSeverityRequest? = null,
+    @Doc("true: also block itemId as awaiting_decision in the same unit.") val block: Boolean? = null
 )
 
 /** `runs_write ack`: acknowledges an open decision. */
@@ -173,7 +174,9 @@ data class RunsAnswerRequest(
     @Doc(DECISION_ID_DOC) val decisionId: IdRef,
     @Doc("Key of the chosen option.") val option: String? = null,
     @Doc("Free-form answer, at most 1000 characters; freeform classes only.") val text: String? = null,
-    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null
+    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null,
+    @Doc("run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars).")
+    val amount: Double? = null
 )
 
 /** `runs_write withdraw`: withdraws a pending decision. */

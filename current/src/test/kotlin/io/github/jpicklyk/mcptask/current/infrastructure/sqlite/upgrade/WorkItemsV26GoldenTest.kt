@@ -432,7 +432,10 @@ class WorkItemsV26GoldenTest {
                     "pinned_schema_layer",
                     "pinned_at",
                     // V35 appends the claim assignment (nullable BLOB); the list is read at the latest schema
-                    "claim_assignment_id"
+                    "claim_assignment_id",
+                    // V37 appends the typed blocked reason and its decision reference (nullable TEXT and BLOB)
+                    "blocked_reason",
+                    "blocked_ref"
                 ),
                 cols.map { it.name },
                 "column list and order"

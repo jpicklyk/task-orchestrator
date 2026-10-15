@@ -48,6 +48,7 @@ class ErrorCatalogTest {
             Row(ErrorCode.RESOURCE_UNAVAILABLE, "resource_unavailable", ErrorKind.TRANSIENT, 409, ErrorDetail.ResourceUnavailable::class),
             Row(ErrorCode.RUN_CLOSED, "run_closed", ErrorKind.PERMANENT, 409, ErrorDetail.RunClosed::class),
             Row(ErrorCode.RUN_PAUSED, "run_paused", ErrorKind.PERMANENT, 409, ErrorDetail.RunPaused::class),
+            Row(ErrorCode.RUN_AT_CAPACITY, "run_at_capacity", ErrorKind.TRANSIENT, 409, ErrorDetail.RunAtCapacity::class),
             Row(ErrorCode.INVALID_RUN_STATE, "invalid_run_state", ErrorKind.PERMANENT, 409, ErrorDetail.InvalidRunState::class),
             Row(ErrorCode.DECISION_CLOSED, "decision_closed", ErrorKind.PERMANENT, 409, ErrorDetail.DecisionClosed::class),
             Row(ErrorCode.SCHEMA_VIOLATION, "schema_violation", ErrorKind.PERMANENT, 422, ErrorDetail.SchemaViolation::class),
@@ -86,6 +87,7 @@ class ErrorCatalogTest {
             ErrorCode.RESOURCE_UNAVAILABLE to setOf("itemId"),
             ErrorCode.RUN_CLOSED to setOf("runId", "terminalReason"),
             ErrorCode.RUN_PAUSED to setOf("runId", "pauseReason"),
+            ErrorCode.RUN_AT_CAPACITY to setOf("runId", "active", "max"),
             ErrorCode.INVALID_RUN_STATE to setOf("runId", "status"),
             ErrorCode.DECISION_CLOSED to setOf("decisionId", "status"),
             ErrorCode.SCHEMA_PINNED_CONFLICT to setOf("itemId", "pinnedVersion", "currentVersion"),
@@ -99,9 +101,9 @@ class ErrorCatalogTest {
 
     // S1
     @Test
-    fun `S1 catalog table lists exactly 31 codes and every ErrorCode appears once`() {
-        assertEquals(31, catalog.size)
-        assertEquals(31, ErrorCode.entries.size)
+    fun `S1 catalog table lists exactly 32 codes and every ErrorCode appears once`() {
+        assertEquals(32, catalog.size)
+        assertEquals(32, ErrorCode.entries.size)
         assertEquals(ErrorCode.entries.toSet(), catalog.map { it.code }.toSet())
     }
 
@@ -128,9 +130,9 @@ class ErrorCatalogTest {
     }
 
     @Test
-    fun `S2 only claim_held resource_unavailable and internal are transient and only unavailable is shedding`() {
+    fun `S2 only claim_held resource_unavailable run_at_capacity and internal are transient and only unavailable is shedding`() {
         assertEquals(
-            setOf(ErrorCode.CLAIM_HELD, ErrorCode.RESOURCE_UNAVAILABLE, ErrorCode.INTERNAL),
+            setOf(ErrorCode.CLAIM_HELD, ErrorCode.RESOURCE_UNAVAILABLE, ErrorCode.RUN_AT_CAPACITY, ErrorCode.INTERNAL),
             ErrorCode.entries.filter { it.kind == ErrorKind.TRANSIENT }.toSet(),
         )
         assertEquals(setOf(ErrorCode.UNAVAILABLE), ErrorCode.entries.filter { it.kind == ErrorKind.SHEDDING }.toSet())
@@ -161,10 +163,10 @@ class ErrorCatalogTest {
     // Q34-S9 (oracle: envelope section 4 - the detail shapes are sealed ErrorDetail subtypes, one per code). The scan
     // covers every production declaration, so a top-level subtype beside the catalog is seen like a nested one.
     @Test
-    fun `Q34-S9 the 27 detail classes are distinct and are exactly the ErrorDetail subtypes in production`() {
+    fun `Q34-S9 the 28 detail classes are distinct and are exactly the ErrorDetail subtypes in production`() {
         val declared = ErrorCode.entries.mapNotNull { it.detailClass?.qualifiedName }
-        assertEquals(27, declared.size)
-        assertEquals(27, declared.toSet().size, "each detail class used by one code only")
+        assertEquals(28, declared.size)
+        assertEquals(28, declared.toSet().size, "each detail class used by one code only")
         val errorDetailFqn = ErrorDetail::class.qualifiedName
         val scope = Konsist.scopeFromProduction()
         val all = scope.classes() + scope.interfaces() + scope.objects()

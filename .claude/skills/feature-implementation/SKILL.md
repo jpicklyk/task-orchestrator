@@ -151,9 +151,11 @@ manage_notes(
 )
 ```
 
-**What to write:** Run `./gradlew :current:test`. Report total count and any failures,
-new test classes or cases added, and a summary of what changed this session. This note
-comes from the `session-tracked` default trait and feeds `/session-retrospective`.
+**What to write:** Run `./gradlew :current:test` ONCE here, incrementally (no
+`--rerun-tasks`) — this is the orchestrator's single whole-suite run for the item; no seat
+ran it before you and the reviewer will not run it after. Report total count and any
+failures, new test classes or cases added, and a summary of what changed this session. This
+note comes from the `session-tracked` default trait and feeds `/session-retrospective`.
 
 ### 2d. Advance to review
 

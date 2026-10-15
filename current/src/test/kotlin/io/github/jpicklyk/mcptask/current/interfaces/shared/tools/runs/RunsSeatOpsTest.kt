@@ -825,21 +825,10 @@ class RunsSeatOpsTest {
 
     @Test
     fun `the planned deltas no longer hold what the registered tools now carry, and keep what is still planned`() {
-        fun keys(file: String): Set<String> = Json.parseToJsonElement(assertNotNull(resource(file), file).readText()).jsonObject.keys
-
-        val write = keys("planned/runs_write.orchestration.delta.json")
-        for (consumed in listOf("seat", "outcome", "summary", "links")) {
-            assertFalse(consumed in write, "$consumed is registered now, so the planned delta no longer holds it: $write")
-        }
-        // R24 registered the decision `raise` request without `block` (R26 owns the blocked-reason column): `block` is all that is left.
-        for (consumed in listOf("class", "question", "options", "recommended", "context", "dedupeKey", "severity")) {
-            assertFalse(consumed in write, "$consumed is registered now (raise), so the planned delta no longer holds it: $write")
-        }
-        assertTrue("block" in write, "block is still planned (raise): $write")
+        // R26 registered `block` on raise and `reason`/`decisionId` on advance: both orchestration deltas are spent.
+        assertNull(resource("planned/runs_write.orchestration.delta.json"), "seat, the decision raise members and block are registered now")
         assertNull(resource("planned/runs_read.orchestration.delta.json"), "itemId and ended are registered now, nothing is left to plan")
-        val advance = keys("planned/advance.orchestration.delta.json")
-        assertFalse("usage" in advance, "usage is registered now: $advance")
-        assertTrue("reason" in advance && "decisionId" in advance, "the still-planned transition fields stay: $advance")
+        assertNull(resource("planned/advance.orchestration.delta.json"), "usage, reason and decisionId are registered now")
         assertEquals(emptyList(), PlannedSurfaceChecks.violations(registry))
     }
 

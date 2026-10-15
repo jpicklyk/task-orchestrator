@@ -107,6 +107,10 @@
               "type": "string",
               "description": "Why this answer, at most 1000 characters. [ops: answer]"
             },
+            "amount": {
+              "type": "number",
+              "description": "run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars). [ops: answer]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
