@@ -1985,6 +1985,32 @@ decision_classes:
         }
 
     @Test
+    fun `S7 decisions has no status filter - the argument is an unknown parameter, and every summary carries its own status`() =
+        world { w ->
+            val extra = ""","rootId":"${w.root.id}""""
+            val open = decisionId(w.raise("s-open", cls = "chat", extra = extra))
+            val acked = decisionId(w.raise("s-ack", cls = "chat", extra = extra))
+            val answered = decisionId(w.raise("s-ans", cls = "chat", extra = extra))
+            val withdrawn = decisionId(w.raise("s-wd", cls = "chat", extra = extra))
+            assertTrue(w.writeDirector("""{"op":"ack","decisionId":"$acked"}""", dtHuman).ok())
+            assertTrue(w.writeDirector("""{"op":"answer","decisionId":"$answered","option":"a"}""", dtHuman).ok())
+            assertTrue(w.writeDirector("""{"op":"withdraw","decisionId":"$withdrawn"}""", dtOrch).ok())
+
+            // control: without a filter the read succeeds and each listed request carries its status
+            val all = w.readDecisions()
+            assertTrue(all.ok(), "$all")
+            val byId = summaries(all).associateBy { it.str("id") }
+            for (id in listOf(open, acked, answered)) assertTrue(id in byId, "$id is listed: ${byId.keys}")
+            assertEquals("open", byId.getValue(open).str("status"))
+            assertEquals("acknowledged", byId.getValue(acked).str("status"))
+            assertEquals("answered", byId.getValue(answered).str("status"))
+
+            // a status argument would have narrowed the list had the filter existed; it is refused instead
+            val filtered = w.readDecisions(""","status":"open"""")
+            assertEquals("unknown_parameter", filtered.code(), "$filtered")
+        }
+
+    @Test
     fun `decisions pages with a limit and a cursor and visits every decision once`() =
         world { w ->
             val ids =
