@@ -153,6 +153,9 @@ custom claims the issuer sets:
   WARN naming `to_capabilities`; if the claim is present but is not a string list, it is treated as
   absent (WARN logged) and the default `[read]` applies.
 
+Every one of these defects logs a WARN that names the claim. The line shapes and reason codes are in
+[Fleet deployment: Logging](fleet-deployment.md#logging) ("API JWT claim defects and verifier faults").
+
 Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
 inside `to_scope` are treated as malformed.
 
@@ -601,8 +604,8 @@ plain JSON object described in section 14 (ISO-8601 instants).
 ```
 
 `actor`, `rootId`, `runId`, `decisionId`, `class` and `severity` are additive and are absent from the JSON when null (see §21
-"Actor and rootId"). `runId` is set on `run.*`, `seat.ended` and `decision.*` events; `decisionId`, `class` and `severity` on
-`decision.*` events only.
+"Actor and rootId"). `runId` is set on `run.*` and `seat.ended` events, and on `decision.*` events only when the decision names a run;
+`decisionId`, `class` and `severity` are set on `decision.*` events only.
 
 ---
 
@@ -795,8 +798,10 @@ releasedAt?, releaseReason?, releasedByActorId?}` (`releaseReason` is `released`
 last three are absent while the interval is open), `page.total` is the count of ALL matching intervals on every page, `page.truncated` is true while intervals remain after this page, and `page.next` is then the cursor for the next page (absent on the last page); walking `next` visits every interval exactly once only while no lease starts or ends during the walk (history is newest-first, so a walk during lease activity can repeat or skip rows). `acquiredByActorId` / `releasedByActorId`
 are present only for `ADMIN` callers.
 
-No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
-(documented, accepted behavior; see `current/src/main/resources/db/migration/sqlite/V16__Resource_Lease_History.sql`).
+Closed intervals are pruned by `RETENTION_LEASE_HISTORY_DAYS` (default 365, `0` keeps them forever; see
+[Data Retention](fleet-deployment.md#data-retention)); open intervals are never pruned. The table is otherwise
+append-only and grows with lease-event cardinality (see
+`current/src/main/resources/db/migration/sqlite/V16__Resource_Lease_History.sql`).
 
 ---
 

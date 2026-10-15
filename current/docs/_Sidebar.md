@@ -21,6 +21,7 @@
 
 **Operations**
 - [Fleet Deployment](fleet-deployment.md)
+- [Reporting](reporting.md)
 
 **Project**
 - [GitHub Repository](https://github.com/jpicklyk/task-orchestrator)

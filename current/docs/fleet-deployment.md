@@ -29,7 +29,7 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 
 **Credential mode.** A missing, malformed or empty `Authorization` header is `401 unauthenticated` with `WWW-Authenticate: Bearer error="invalid_request"`; an unknown, rejected or expired credential is `401 unauthenticated` with `error="invalid_token"`; a JWKS key set that is unavailable (never fetched, or older than `API_JWKS_MAX_STALE_SECONDS`) is `503 unavailable`. Refusals are the 4.0 JSON error envelope, not a JSON-RPC error, and the MCP SDK is never reached. The `/mcp` mount is no longer a public path: the REST bearer plugin delegates `/mcp*` to the MCP authentication, so a request is authenticated exactly once.
 
-**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal; only an id the server issued is bound (an unknown id binds nothing and gets the SDK's `404`). At most 1024 sessions are bound: sessions idle for 24 hours, or, beyond 1024, the least recently used session of whichever principal holds the most sessions (so one credential's flood closes its own sessions first), are closed on the next new session, so their next request is `404` and the client re-initializes (there is no background sweeper). An evicted or forged session id gets the MCP-spec `404`, and the client re-initializes. A `POST` without a session id that is not `initialize` is refused by the SDK, and the session it leaves behind is closed by a later `POST` without a session id, once it has been seen without an id for 30 seconds (never sooner). A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
+**Session binding.** The first request of an MCP session binds its `Mcp-Session-Id` to the caller's principal; only an id the server issued is bound (an unknown id binds nothing and gets the SDK's `404`). At most 1024 sessions are bound: sessions idle for 24 hours, or, beyond 1024, the least recently used session of whichever principal holds the most sessions (so one credential's flood closes its own sessions first), are closed on the next new session, so their next request is `404` and the client re-initializes (there is no background sweeper). A `POST` without a session id that is not `initialize` is refused by the SDK, and the session it leaves behind is closed by a later `POST` without a session id, once it has been seen without an id for 30 seconds (never sooner). A later request on that session from a different principal is `401 unauthenticated` and no tool runs; `DELETE` ends the session and forgets the binding. A leaked session id is therefore useless without the matching credential.
 
 **Director confinement.** A credential with `profile: director` reaches only `/mcp/director` (and `POST /api/v1/ops/director/{tool}` over REST); on any other `/mcp*` path it is `403 forbidden` (scope `capability`, required `director`).
 
@@ -231,7 +231,17 @@ claims are defective also logs the claim-defect WARN described below, which carr
 value. One identity WARN does name a subject: a refused `scope.root_ids` anchor logs the verified `sub`, at most once
 per subject. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no rejection line.
 
-**API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim> reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants: `to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value` (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT verification fault: reason=internal suppressed=<n>` on the same logger. Each key (`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides on the first line of the next window, as for rejections. Neither line carries the token, a claim value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an unknown `kid` logs the fetch error only, never the `kid`.
+**API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom
+claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim>
+reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants:
+`to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value`
+(rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token
+however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT
+verification fault: reason=internal suppressed=<n>` on the same logger. Each key
+(`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides
+on the first line of the next window, as for rejections. Neither line carries the token, a claim
+value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an
+unknown `kid` logs the fetch error only, never the `kid`.
 
 ### Call log and `reqId`
 
@@ -320,9 +330,9 @@ segment, and the raw request path is never stored; `operation` is kept only when
 (any other supplied value is stored as `invalid`); `request_shape` keeps at most 16 flags whose key
 matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
 
-On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
-`ActorClaim` cap (the same bound as actor ids already stored in notes and in the `events` table's `principal_id`); `proof_status` says
-whether the id was verified. On REST rows it holds the authenticated API principal (`api:<id>`), never client text.
+On every row, MCP and REST alike, the `principal_id` column holds the audited id of the call's transport principal:
+`api:<id>` for a credential, the bare `local` for stdio and the local modes, and never client text (a row for a call
+that had no principal holds none). `principal_kind` and `proof_status` record that principal's kind and proof.
 
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
@@ -387,6 +397,17 @@ estimate sums the table rows (one `runs` row, 10 `run_items` rows, 31 `run_seats
 writes (about a dozen rows, among them a `run.ended` event that carries the close snapshot, about 10 KB). Larger
 summaries, links, decision contexts and snapshots push it up; smaller runs pull it down. Archival and per-root
 pruning are deferred.
+
+**Known limit: the `claim.expired` guard.** To keep the latest `claim.expired` row per item, each prune unit for that
+event type re-evaluates a correlated "latest row per entity" subquery for every candidate row (the guard in
+`SqliteEventStore.prune`), so a pass re-scans those rows every time. A benchmark over 100,000 such rows measured about
+1.85 seconds per pass with a longest write unit of 374 ms. The cost grows with the number of distinct-entity
+`claim.expired` rows: at around a million of them, one unit could hold the writer long enough for concurrent writes to
+hit `SQLITE_BUSY` and retry. A keyset cursor that removes the re-scan is deferred past 4.0; a lower
+`RETENTION_EVENTS_DAYS` keeps that set smaller in the meantime.
+
+How pruning shows in `report` answers (`window.retainedSince`, `truncatedByRetention`, the daily basis) is described in
+[Reporting](reporting.md#retention-and-what-a-report-can-see).
 
 The pruner runs no `VACUUM`: freed pages are reused by new rows, so the database file stops growing but does not
 shrink. To reclaim disk space after a large first prune (for example on a volume upgraded from 3.x), stop the server
@@ -1196,9 +1217,9 @@ lifecycle). What an operator sees:
 
 ## Observability Gaps
 
-As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE, see [api-rest.md](api-rest.md) section 21).
+As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE, see [api-rest.md](api-rest.md) section 21), and the director-profile `report` tool turns both into aggregates (see [Reporting](reporting.md)).
 
-Fleet operators should treat this as a known gap when planning production rollouts.
+Fleet operators should treat the missing metrics endpoint as a known gap when planning production rollouts.
 
 ### Available Signals Today
 
@@ -1209,21 +1230,23 @@ Fleet operators should treat this as a known gap when planning production rollou
 | Per-root claim breakdown | `items_read` `overview` -> `claimSummary` per root item |
 | Stalled items (missing required notes) | `items_read` `context` (health view) -> `stalled` |
 | Recent role transitions | `items_read` select `history` (`since`/`until`, optional `itemId`) |
-| Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `notes_read` and `items_read` `history` |
-
-The audit log of persisted actor claims is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
+| Tool usage, errors, latency and tokens | `report` select `usage` (`groupBy` tool, operation, host, surface, principalKind, errorCode, day, principal) |
+| Gate rejections by note, type or trait | `report` select `gates` |
+| Claim and lease contention, expiry and force-release rates | `report` select `contention` |
+| Call-pattern waste | `report` select `waste` |
+| One subtree or one run as a summary | `report` select `rollup` (`anchorId` or `runId`) |
+| Per-operation attribution | Notes and events carry the principal that wrote them (`notes_read`, `items_read` `history`); every call is a `call_log` row with its principal, host and `reqId` |
 
 ### Known Gaps — Plan Accordingly
 
-- No write latency histograms
-- No `SQLITE_BUSY` error rate counters
-- No claim acquisition success/failure rate
-- No per-agent throughput tracking
+- No metrics endpoint and no scrape format; `report` is a pull query, not a time series
+- No write latency histograms (`report` gives the mean and the maximum, not percentiles)
+- No `SQLITE_BUSY` error rate counters (a call's retry count is in `call_log` and `report` `usage`)
 - No alerting integration
 
-If your fleet rollout requires real-time dashboards or alerting on these signals, plan to instrument them at the client side (agent telemetry) or proxy level until server-side metrics are added.
+Claim acquisition and rejection rates are `report` `contention`, and per-principal throughput is `report` `usage` with `groupBy: principal` (inside the raw call-log horizon only). If your fleet rollout requires real-time dashboards or alerting, plan to instrument them at the client side (agent telemetry) or proxy level until server-side metrics are added.
 
-Metrics and observability infrastructure are explicitly deferred to a future release (see issue tracker). The audit log is the recommended bridge for compliance and post-incident review until then.
+Metrics and observability infrastructure are explicitly deferred to a future release (see issue tracker).
 
 ---
 
