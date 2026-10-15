@@ -824,11 +824,12 @@ class RunsSeatOpsTest {
     private fun resource(name: String) = RunsSeatOpsTest::class.java.getResource("/golden/tools/$name")
 
     @Test
-    fun `the planned deltas no longer hold what the registered tools now carry, and keep what is still planned`() {
+    fun `the planned deltas no longer hold what the registered tools now carry, and nothing is planned after R28`() {
         // R26 registered `block` on raise and `reason`/`decisionId` on advance: both orchestration deltas are spent.
         assertNull(resource("planned/runs_write.orchestration.delta.json"), "seat, the decision raise members and block are registered now")
         assertNull(resource("planned/runs_read.orchestration.delta.json"), "itemId and ended are registered now, nothing is left to plan")
         assertNull(resource("planned/advance.orchestration.delta.json"), "usage, reason and decisionId are registered now")
+        assertNull(resource("planned/report.director.delta.json"), "R28 shipped the rollup runId")
         assertEquals(emptyList(), PlannedSurfaceChecks.violations(registry))
     }
 

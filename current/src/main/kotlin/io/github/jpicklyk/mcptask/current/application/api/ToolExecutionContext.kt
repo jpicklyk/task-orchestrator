@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
+import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
@@ -93,6 +94,11 @@ class ToolExecutionContext(
     private val resourceLeasesEnforced: Boolean = true,
     /** What an answer to a server-raised decision class does (R27); null (the default) wires [RunDecisionEffects]. */
     decisionEffects: DecisionEffects? = null,
+    /**
+     * The run rollup snapshot a close stores in `run.ended` (R28). Production wires the report-backed one in
+     * `ServerComposition`; the default stores none.
+     */
+    private val rollupSnapshot: RunRollupSnapshot = RunRollupSnapshot.NONE,
 ) {
     private val decisionEffectsOverride: DecisionEffects? = decisionEffects
 
@@ -166,7 +172,8 @@ class ToolExecutionContext(
             claimService,
             runsConfig = { rootId -> configResolver.resolveRunsConfig(rootId) },
             seats = seatService,
-            decisions = RunDecisionPort.over(repositoryProvider)
+            decisions = RunDecisionPort.over(repositoryProvider),
+            rollupSnapshot = rollupSnapshot
         )
     }
 

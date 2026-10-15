@@ -896,8 +896,8 @@ paths:
         `push`, `rollback` and `reset` (capability `write-config`). Only `GET /config/schema` stays a route.
 
         The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
-        reports. Its selects are `usage` (windows at most 400 days), `gates`, `contention` and `rollup` (at most 31
-        days) and `waste` (at most 7 days). `usage` reports call-log calls, errors,
+        reports. Its selects are `usage` (windows at most 400 days), `gates`, `contention` and an anchor `rollup` (at
+        most 31 days), `waste` (at most 7 days) and a run `rollup` (the whole run). `usage` reports call-log calls, errors,
         response bytes, token estimate, average and maximum latency, retries and replays per `groupBy` group over a
         half-open `[since, until)` window (default the last 7 days, at most 400; at most 31 inside the raw horizon reads
         `call_log`, `basis: raw`, otherwise the per-day summaries plus the raw tail, `basis: daily`), with
@@ -909,12 +909,20 @@ paths:
         when the group value is missing (never a JSON `null`). `waste` answers one object of call-pattern waste
         signals (`redundantReads`, `overFetch`, `readsWithoutLaterWrite`, `emptyNext`, `relatedFollowThrough`,
         `lifecycleFreeRejections`, each `{value?, numerator, denominator, basis?}`), with no grouping and no page.
-        `rollup` takes a required `anchorId` and answers one object for the anchor's subtree (inclusive):
+        `rollup` takes exactly one of `anchorId` and `runId` (neither is `invalid_request` on `/anchorId`, both on
+        `/runId`). With `anchorId` it answers one object for the anchor's subtree (inclusive):
         `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
         transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes,
         responseTokensEst, basis: targets}}`, short ids only; with neither `since` nor `until` the window runs from the
         subtree's first event to its last plus 1 ms, clamped to 31 days (`window.clamped`). Its cost is a lower bound
-        (calls that named a subtree item or wrote one of its events).
+        (calls that named a subtree item or wrote one of its events). With `runId` (resolved like `runs_read` `get`;
+        `since` or `until` with it is `invalid_request` on that field) it answers the whole run: `scope: {runId,
+        rootId}`, `window` from `openedAt` to `closedAt` or now, `run: {status, terminalReason?, openedAt, closedAt?}`,
+        item and blocked counts over the current members (`blocked.byReason`, plus `resumable` and `dwellMs` when
+        non-zero), transitions and notes from the events stamped with the run, `cost` (`basis: run`) from the calls
+        stamped with it, `decisions: {open, byClass, bySeverity}`, `seats: {active, stalled, count}`, `attempts: {total,
+        max}` and `budget: {used, limit?, basis: enforced}`. A closed run answers the snapshot stored in its
+        `run.ended` event; a root-scoped token sees only runs of its roots.
         Scope differs per select. `usage`, `waste` and `rollup` read `call_log` rows, which carry no tags: a tag-scoped token is
         `forbidden` (`scope: tag`) and a root-scoped token sees only calls recorded against its roots; `groupBy:
         principal` needs `admin` (else `forbidden`, `scope: capability`) and is raw-only (`invalid_request` on the
