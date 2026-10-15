@@ -1036,7 +1036,7 @@ its run after its own change: on a crossing the run is paused (`pauseReason: bud
 decision is raised (dedupe key `budget:<runId>:<n>`, options `extend` / `stop`, recommended `stop`, `context` a JSON
 object naming the breached `dimension` with `used` and `limit`), both committed with the write, which still succeeds and
 carries `paused: {decisionId}` in its result. While a run is paused for a limit, `assign` and a `start` transition
-under a seat token are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause
+under any of the run's tokens (a member seat's or the coordinator's; a start with no token is not refused) are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause
 does not refuse `start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
 (`attempts`), and the run pauses on a server-raised `attempt-cap` decision (dedupe key
 `attempts:<runId>:<itemId>:<seat>:<attempt>`, options `allow_one` / `skip_item` / `stop`) written although the assign
