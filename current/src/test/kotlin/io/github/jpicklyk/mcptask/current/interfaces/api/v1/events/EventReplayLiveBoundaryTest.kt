@@ -146,9 +146,9 @@ class EventReplayLiveBoundaryTest {
                 coroutineScope {
                     val job = launch { flow.collect { got += it.id } }
                     while (got.size < expectedCount) {
-                        delay(10)
+                        delay(10) // settle-ok: poll interval waiting for the expected frame count
                     }
-                    delay(300) // grace window: a boundary duplicate would arrive here
+                    delay(300) // settle-ok: boundary grace window: a boundary duplicate would arrive here
                     job.cancel()
                 }
             }

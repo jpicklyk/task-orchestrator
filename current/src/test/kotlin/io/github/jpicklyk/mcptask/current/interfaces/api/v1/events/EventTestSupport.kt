@@ -22,9 +22,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
+import io.ktor.sse.ServerSentEvent
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.util.UUID
 
@@ -245,3 +248,61 @@ internal class LazyEventStore(
 
     override suspend fun maxSeq(): Long = store.maxSeq()
 }
+
+/**
+ * Waits until [expected] subscribers are registered on this bus. `GET /events` registers its subscriber and sets
+ * its tail atomically in `connect`, so a row committed after this returns is delivered to that connection.
+ * Throws an [AssertionError] naming the counts on timeout.
+ */
+internal suspend fun ApiEventBus.awaitSubscribers(
+    expected: Int = 1,
+    timeoutMs: Long = 5_000,
+) {
+    val reached =
+        withTimeoutOrNull(timeoutMs) {
+            while (subscriberCount() < expected) delay(5) // settle-ok: poll interval inside the readiness helper
+            true
+        }
+    if (reached == null) throw AssertionError("expected $expected subscribers, saw ${subscriberCount()}")
+}
+
+/** Polls [condition] until it holds or [timeoutMs] elapses (then fails with [message]). */
+internal suspend fun awaitUntil(
+    message: String,
+    timeoutMs: Long = 5_000,
+    condition: () -> Boolean,
+) {
+    val reached =
+        withTimeoutOrNull(timeoutMs) {
+            while (!condition()) delay(5) // settle-ok: poll interval inside the readiness helper
+            true
+        }
+    if (reached == null) throw AssertionError(message)
+}
+
+/**
+ * Collects the frames of this SSE connection until [done] holds for what has arrived so far, then stops. Returns
+ * what arrived (partial on timeout) so the caller's own assertion message still prints it; only a failure that is
+ * not the barrier signal (an SSE transport error, for example) is rethrown.
+ */
+internal suspend fun Flow<ServerSentEvent>.collectUntil(
+    decode: (String?) -> ApiEvent,
+    timeoutMs: Long = 5_000,
+    done: (List<ApiEvent>) -> Boolean,
+): List<ApiEvent> {
+    val collected = mutableListOf<ApiEvent>()
+    try {
+        withTimeoutOrNull(timeoutMs) {
+            collect { frame ->
+                collected += decode(frame.data)
+                if (done(collected)) throw CollectDone()
+            }
+        }
+    } catch (e: Exception) {
+        // barrier reached; the Ktor SSE client wraps the signal in an SSEClientException
+        if (generateSequence<Throwable>(e) { it.cause }.none { it is CollectDone }) throw e
+    }
+    return collected
+}
+
+private class CollectDone : RuntimeException("collectUntil done")
