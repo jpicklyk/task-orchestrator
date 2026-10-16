@@ -2,7 +2,7 @@
 // AC1 (pure at import), AC2 (stdin and emit plumbing lives in lib), AC3 (marker implementations delegate
 // to lib/markers.mjs), AC7 (api-client.mjs is a re-export shim of lib/api-client.mjs with the same four
 // exports), AC8 (hand-written tool-names list with a P9 TODO), AC9 (README row per lib module, a
-// CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (only session-start imports server-compat).
+// CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (session-start imports server-compat; per AC2 of 0bbdc4cc also the envelope readers dispatch-hint and phase-guard-record).
 // Source scans read hook files as text; they do not execute them.
 
 import { test, after } from 'node:test';
@@ -142,12 +142,12 @@ test('S21: tool-names.mjs carries the GENERATED marker and exports ERROR_KINDS, 
   assert.deepEqual(Object.keys(mod).sort(), ['ERROR_KINDS', 'PROFILES', 'TOOLS', 'WRITE_TOOLS']);
 });
 
-// ---- D3: server-compat is wired into session-start and nowhere else ----
+// ---- D3: server-compat is wired into session-start and, per AC2 (legacyShapeWarningOnce), the two envelope readers ----
 
-test('S21: session-start imports lib/server-compat.mjs; no other top-level hook does', () => {
+test('S21: session-start imports lib/server-compat.mjs; only the envelope readers (dispatch-hint, phase-guard-record) also do', () => {
   assert.ok(importsModule(hookSource('session-start.mjs'), './lib/server-compat.mjs'));
   for (const f of topLevelHookFiles()) {
-    if (f === 'session-start.mjs') continue;
+    if (f === 'session-start.mjs' || f === 'dispatch-hint.mjs' || f === 'phase-guard-record.mjs') continue;
     assert.ok(!hookSource(f).includes('server-compat'), `${f} must not import server-compat (D3)`);
   }
 });

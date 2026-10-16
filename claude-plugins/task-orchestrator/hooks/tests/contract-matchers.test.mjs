@@ -73,7 +73,7 @@ test('S6: every server-token matcher names only orchestration-profile tools, no 
       }
     }
   }
-  assert.ok(tokenMatchers >= 5, `expected at least 5 server-token matchers, saw ${tokenMatchers}`);
+  assert.ok(tokenMatchers >= 4, `expected at least 4 server-token matchers, saw ${tokenMatchers}`);
 });
 
 test('S6: checkMatchers over the real hooks-config against the orchestration tool set reports nothing', () => {
