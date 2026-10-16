@@ -221,6 +221,10 @@ test('S13 [E]: reason lists the distinct mine files of the first deferring highe
 })
 
 
+// ============================================================================================
+// S14 - worktree-absolute claims
+// ============================================================================================
+
 test('S14 [N]: worktree-absolute claims for the same append-only file under two worktrees are exempt; a non-append-only file under the same roots still defers by its repo-relative name (TS Contract + path-keys D4)', () => {
   const REPO = '/repo'
   const wtA = '/repo/.claude/worktrees/a'
