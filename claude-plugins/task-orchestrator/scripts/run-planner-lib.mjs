@@ -19,6 +19,12 @@ export const PLAN_DOC_MAX_BYTES = 61440;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLE_ENUM = new Set(['queue', 'work', 'review', 'blocked', 'terminal']);
 
+// Canonicalises exactly as appendOnlyMatch in workflows/implement-wave.js does (backslash to '/',
+// leading './' removed, repeated '/' collapsed), so the planner and the core agree on each entry.
+function canonAppendOnly(raw) {
+  return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
@@ -72,6 +78,30 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  if (snap.scopes !== undefined) {
+    const sc = snap.scopes;
+    if (sc === null || typeof sc !== 'object' || Array.isArray(sc)) {
+      errors.push('scopes must be an object');
+    } else {
+      const candidateIds = new Set(candidates.map((c) => c && c.id));
+      for (const [id, entry] of Object.entries(sc)) {
+        if (!candidateIds.has(id)) {
+          errors.push(`scopes ${id}: not a candidate`);
+          continue;
+        }
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errors.push(`scopes ${id}: entry must be an object`);
+          continue;
+        }
+        if (!Array.isArray(entry.files) || entry.files.some((k) => typeof k !== 'string')) {
+          errors.push(`scopes ${id}: files must be an array of strings`);
+        }
+        if (entry.dependsOn !== undefined && (!Array.isArray(entry.dependsOn) || entry.dependsOn.some((k) => typeof k !== 'string'))) {
+          errors.push(`scopes ${id}: dependsOn must be an array of strings`);
+        }
+      }
+    }
+  }
   // E1 (blocker B1): git.repoRoot and profile are load-bearing for assembleArgs (worktree paths,
   // <scratchpad>/<worktree> substitution) but were never validated, so a snapshot missing either
   // passed silently and produced broken paths downstream.
@@ -81,6 +111,20 @@ export function validateSnapshot(snap) {
   }
   if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
     errors.push('profile must be an object');
+  }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile) && 'appendOnlyFiles' in snap.profile) {
+    const aof = snap.profile.appendOnlyFiles;
+    if (!Array.isArray(aof) || aof.some((e) => typeof e !== 'string' || e === '')) {
+      errors.push('profile.appendOnlyFiles must be an array of strings');
+    } else {
+      for (const raw of aof) {
+        const c = canonAppendOnly(raw);
+        const segs = c.split('/');
+        if (c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
+          errors.push(`profile.appendOnlyFiles entry "${raw}" is not a repo-relative file pattern`);
+        }
+      }
+    }
   }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
@@ -811,6 +855,64 @@ function shortFromId(id) {
   return String(id || '').replace(/-/g, '').slice(0, 8);
 }
 
+// Canonical form of a scope file for exact-equality comparison; '' means "not a plain file path".
+function canonicalScopeFile(p, repoRoot) {
+  if (typeof p !== 'string') return '';
+  let out = p.trim().replace(/\\/g, '/');
+  if (/[*?]/.test(out)) return '';
+  const drive = /^([A-Za-z]):\//.test(out);
+  const segs = out.split('/').filter((x) => x !== '' && x !== '.');
+  const lead = out.startsWith('/') ? '/' : '';
+  out = lead + segs.join('/');
+  if (drive) out = out[0].toLowerCase() + out.slice(1);
+  if (typeof repoRoot === 'string' && repoRoot.trim() !== '') {
+    let root = repoRoot.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    if (/^[A-Za-z]:/.test(root)) root = root[0].toLowerCase() + root.slice(1);
+    const cmp = drive || /^[a-z]:/.test(root);
+    const a = cmp ? out.toLowerCase() : out;
+    const b = cmp ? root.toLowerCase() : root;
+    if (a.startsWith(b + '/')) out = out.slice(root.length + 1);
+  }
+  return out;
+}
+
+/**
+ * sharedFileEdgeWarnings(snap, mode) -> string[]
+ * Advisory only. In shared mode, per-file locks already serialize two items that declare one file,
+ * so a dependency edge between same-parent candidates whose scopes share a file, and whose
+ * dependent states no dependency on the blocker, may be redundant. Warns on every unsatisfied
+ * dependency edge regardless of the role at which it unblocks.
+ */
+export function sharedFileEdgeWarnings(snap, mode) {
+  if (mode !== 'shared') return [];
+  const scopes = (snap && snap.scopes) || {};
+  const candById = new Map(((snap && snap.candidates) || []).map((c) => [c.id, c]));
+  const repoRoot = snap && snap.git && snap.git.repoRoot;
+  const canon = (id) => new Set(((scopes[id] && scopes[id].files) || []).map((f) => canonicalScopeFile(f, repoRoot)).filter((f) => f !== ''));
+  const out = [];
+  for (const b of (snap && snap.blocked) || []) {
+    if (b.blockType !== 'dependency') continue;
+    const dep = candById.get(b.itemId);
+    if (!dep || dep.hasChildren || !scopes[b.itemId]) continue;
+    for (const bb of b.blockedBy || []) {
+      if (bb.satisfied) continue;
+      const blk = candById.get(bb.itemId);
+      if (!blk || blk.hasChildren || !scopes[bb.itemId]) continue;
+      if (dep.parentId == null || dep.parentId !== blk.parentId) continue;
+      const declared = ((scopes[b.itemId].dependsOn) || []).map((d) => String(d).toLowerCase());
+      if (declared.includes(String(bb.itemId).toLowerCase()) || declared.includes(shortFromId(bb.itemId).toLowerCase())) continue;
+      const a = canon(b.itemId);
+      const shared = [...canon(bb.itemId)].filter((f) => a.has(f));
+      if (!shared.length) continue;
+      const files = [...new Set(shared)].sort().join(', ');
+      const bs = shortFromId(bb.itemId);
+      const ds = shortFromId(b.itemId);
+      out.push(`shared-file edge ${bs} -> ${ds}: same feature, both scopes name ${files}, and ${ds} states no dependency on ${bs} - per-file locks already serialize a shared file in one run; drop the edge unless it is a semantic dependency (record it as "Depends on ${bs}: <reason>")`);
+    }
+  }
+  return out;
+}
+
 function normalizePath(p) {
   if (typeof p !== 'string') return p;
   let out = p.replace(/\\/g, '/');
@@ -923,6 +1025,7 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
@@ -1000,6 +1103,7 @@ export function buildPlanDoc(snap, opts = {}) {
 
   const mode = chooseMode(snap, modeReq);
   const entryMode = chooseEntry(probe, entryReq);
+  const sharedFileWarnings = sharedFileEdgeWarnings(snap, mode);
 
   const guardErrors = [];
   if (entryReq === 'seat' && !probe.phase0Hooks) {
@@ -1102,7 +1206,7 @@ export function buildPlanDoc(snap, opts = {}) {
         worktreesToCreate: [],
         excluded,
         deferred: allDeferred,
-        warnings: zeroRunWarnings,
+        warnings: [...zeroRunWarnings, ...sharedFileWarnings],
         estAgents: 0,
         sizeGuideline: probe.workflowSizeGuideline ?? null,
         degradations,
@@ -1140,6 +1244,8 @@ export function buildPlanDoc(snap, opts = {}) {
     const w = (derivedById[ex.id] && derivedById[ex.id].warnings) || [];
     warnings.push(...w);
   }
+
+  warnings.push(...sharedFileWarnings);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);
   const worktreesToCreate = buildWorktreesToCreate(snap, args, mode);
@@ -1206,6 +1312,9 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
+  if ((meta.warnings || []).length) {
+    lines.push(`Warnings: ${meta.warnings.join('; ')}`);
+  }
   return lines.join('\n');
 }
 

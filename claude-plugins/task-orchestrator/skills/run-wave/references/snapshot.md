@@ -15,6 +15,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
           notes:[{key, role, required, seat?, skill?}], seats?, dispatch?, dispatchBySeat?, resources?}},
+ scopes?:{<itemId>: {files:[string], dependsOn?:[string]}},        // only candidates joined to a same-parent candidate by an unsatisfied dependency edge
  noteActors:{<itemId>: [{key, actorId}]},              // only for role=work candidates (S4 resume)
  parents:{<id>: {role, canAdvance, missing[]}},         // S11
  profile:{…parsed run-profile.json, or {} when absent},
@@ -26,12 +27,14 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 - `profile` — the parsed `.taskorchestrator/run-profile.json`, or `{}` when the file is absent.
   `plan` applies the project-profile defaults itself (`worktreeRoot`, `branchPrefix`, `maxItems`,
-  `defaultModels`, `review`) — the skill never fills those defaults in by hand before writing the
+  `defaultModels`, `review`) and carries `appendOnlyFiles` (repo-relative glob patterns, canonicalised
+  into `args.project.appendOnlyFiles`; see post-run.md) — the skill never fills those defaults in by hand before writing the
   snapshot.
 - `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
   `workflowSizeGuideline`, `allow`, and whatever else it emits — copy it as-is, do not curate the
   fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry mode and `plan` copies
   `probe.pluginVersion`/`probe.workflowSizeGuideline` into `capabilities`/`sizeGuideline`.
+- `scopes` - optional. One entry per candidate that an unsatisfied dependency edge joins to another candidate with the same `parentId`. `files` is every repo path the item's planner queue note or summary names as a file to edit (including `Shared file, lock-serialized:` lines); `dependsOn` is the ids (short or full UUID) on its `Depends on <id>:` lines. Only the extracted paths and ids enter the snapshot, not the note body. In `shared` mode `plan` compares canonical `files` for exact equality (backslashes become `/`, empty and `.` segments dropped, drive letter lowercased, a `git.repoRoot` prefix stripped; entries with `*` or `?` are skipped) and puts one advisory `shared-file edge` string in `meta.warnings` per edge whose two scopes share a file and whose dependent has no matching `dependsOn`. A directory-vs-file overlap and a blocker that is not a candidate get no warning. `explain` prints the warnings on a `Warnings:` line.
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.
@@ -42,12 +45,16 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 ## `validateSnapshot` errors this shape introduces
 
-Two structural checks beyond the ones already documented in the helper's own doc comment:
+Structural checks beyond the ones already documented in the helper's own doc comment:
 
 - `git.repoRoot must be a non-empty string` — fires when `git` is missing entirely, or
   `git.repoRoot` is missing, empty, or not a string.
 - `profile must be an object` — fires only when `profile` is present and is not a plain object
   (an array, a string, `null`, …). An absent `profile` is valid and is treated as `{}`.
+- `profile.appendOnlyFiles must be an array of strings` — the key is present but is not an array of
+  non-empty strings (including `null`).
+- `profile.appendOnlyFiles entry "<raw>" is not a repo-relative file pattern` — one per entry that is
+  absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
 - `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
   Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 
@@ -75,6 +82,12 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 - Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An
   `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
   WITH a test-author stage owns `existingTestEdits[].file` only.
+- No test owner: a seat-aware item (implementer stage not `implicitOwner`) with no test-author stage whose planner returns
+  non-empty `testFiles` is stopped with `no-test-owner: add needs-test-author or clear testFiles (<list>)` before the
+  implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
+  exempt. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
+  `TESTS ARE YOURS: <paths> - no test-author seat runs on this item; write, run and commit them yourself.` (testFiles then
+  existingTestEdits files, exact duplicates once). Method A and B share one core, so both behave identically.
 - `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
   `node --test` entry never receives `.kt` files.
 - An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.

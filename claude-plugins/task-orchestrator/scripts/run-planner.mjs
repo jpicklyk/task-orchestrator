@@ -7,7 +7,7 @@
 // the filesystem or environment variables — run-planner-lib.mjs stays pure.
 //
 // B2b adds rows to the subcommand table below: next, prompt, stage-result, scan-declarations,
-// verify, actors, provenance, review-prompt.
+// verify, actors, provenance, review-prompt, reseat.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -180,7 +180,11 @@ const EXEC_IO = {
   },
   readText(path) {
     if (!path) return '';
-    return safeRead(path);
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return null;
+    }
   },
   writeOut(text) {
     process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
@@ -209,7 +213,7 @@ const EXEC_IO = {
 
 // ---------------------------------------------------------------------------------------
 // Subcommand table. B2b adds: next, prompt, stage-result, scan-declarations, verify,
-// actors, provenance, review-prompt.
+// actors, provenance, review-prompt, reseat.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
@@ -223,7 +227,8 @@ const SUBCOMMANDS = {
   verify: (args) => exec.EXEC_COMMANDS.verify(args, EXEC_IO),
   actors: (args) => exec.EXEC_COMMANDS.actors(args, EXEC_IO),
   provenance: (args) => exec.EXEC_COMMANDS.provenance(args, EXEC_IO),
-  'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO)
+  'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO),
+  reseat: (args) => exec.EXEC_COMMANDS.reseat(args, EXEC_IO)
 };
 
 function main() {

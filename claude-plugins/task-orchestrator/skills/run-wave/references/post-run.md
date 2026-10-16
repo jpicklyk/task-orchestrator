@@ -244,9 +244,26 @@ cap on cycles.
 
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
 run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
-any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`)
-and the same scope, so the actor audit and audit trail distinguish the cycle. The helper and verify
-do not special-case `-a<n>` ids.
+any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage)
+and the same scope, so the actor audit and audit trail distinguish the cycle. Render that seat's
+prompt with the helper's `reseat` command instead of writing it by hand:
+
+```
+node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
+  --item <short> --seat <seat>-a<n> [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>]
+```
+
+`--seat` must be a stage seat of the item plus `-a<n>` (n >= 1, no leading zero); a reviewer seat
+is not reseated (use `review-prompt`). The prompt is the base stage's prompt under the `<seat>-a<n>`
+actor id and commit trailer, with no ENTRY block and a `FIX CYCLE A<n>` line. A test-author base on
+an item with a declarations stage needs declarations from the result or `--declarations <file>`
+(plain text; `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`.
+The output JSON carries a `result` copy with the seat appended to `items[].reseats`
+(`{seat, baseSeat, cycle, model, tokens, pre}`; `pre` defaults to the item worktree's `HEAD`, is
+recorded once and never moves): write it back to `result.json`. Verify then judges the
+test-author-before-implementer order only over item commits at or before the earliest recorded
+`pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
+finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`. The actor audit (`actors`) does not yet accept `-a<n>` actors.
 
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
@@ -264,7 +281,10 @@ replaces the recorded run total with `tokens=unknown`) — and
 re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor flip) with the
 two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
-reported. `--extra-seats` requires `--item`.
+reported. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
+so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
+named in both takes the flag's model and tokens. `--item` alone now restricts the output to that
+item; `--extra-seats` requires `--item`.
 
 ---
 
@@ -279,6 +299,15 @@ process requires:
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
   repo: `/implement` Step 6).
+- Merge rounds that conflict on `CHANGELOG.md` (the `[Unreleased]` bullets) are resolved with
+  `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
+  --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
+  from the side that made it, and when both sides changed the same bullet differently the base
+  branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
+  Exit 0 resolved, 1 duplicate heading (`DUPLICATE <kind> <name>`; fix by hand), 2 invalid input
+  (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
+  merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the
+  base; in a rebase onto the base the two swap.
 
 ---
 

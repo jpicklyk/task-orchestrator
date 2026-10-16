@@ -37,7 +37,8 @@
             }
           }
         },
-        "searchScope": { "type": "array", "items": { "type": "string" } }
+        "searchScope": { "type": "array", "items": { "type": "string" } },
+        "appendOnlyFiles": { "type": "array", "items": { "type": "string" } }
       }
     },
     "items": {
