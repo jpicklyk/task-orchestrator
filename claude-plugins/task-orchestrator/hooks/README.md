@@ -50,16 +50,15 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `post-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
 | `plan-capture.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
 | `skill-enforcement.mjs` | Not gated | Not gated | Not read | Not gated |
-| `enforce-actor-attribution.mjs` | Not gated | Not gated | Not read | Not gated |
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
 | `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
-| `retro-trigger.mjs` | `{}` | Parent-completion nudge suppressed | Not read (`retrospective.mode` `off` gives `{}`) | Not gated |
-| `phase-guard-record.mjs` | `{}` | Acts only inside a subagent | Not read | Not gated |
-| `phase-guard.mjs` | `{}` | Acts on phase-owner agent types | Not read | Not gated |
-| `subagent-start.mjs` | Exits silently | Acts on phase-owner agent types | Not read | Not gated |
-| `retro-backstop.mjs` | `{}` | Not gated | Not read (`retrospective.mode` `off` gives `{}`) | Not gated |
+| `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+| `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded | Not read | Not gated |
+| `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
+| `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
+| `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
 
-The `retro-*`, `phase-guard*`, `dispatch-hint`, `subagent-start`, `skill-enforcement` and `enforce-actor-attribution`
-rows describe current behaviour; the items that rewrite those hooks update their rows.
+Every row was re-derived from the hook sources at the P10/P12/P13 merge. A change that alters a hook's gating
+updates that hook's row in the same PR.
 
 Run the tests by glob: `node --test "claude-plugins/task-orchestrator/hooks/tests/*.test.mjs"`.
