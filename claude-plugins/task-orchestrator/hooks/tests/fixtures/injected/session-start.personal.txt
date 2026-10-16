@@ -1,0 +1,14 @@
+## Task Orchestrator — Session Context
+
+- Move items between phases with `advance` op `transition`, never raw status edits. Ids accept a full UUID or a hex prefix of 8 or more characters.
+- Resume or inspect with `items_read` select `context` (no arguments lists active and stalled items; pass `itemId` for one item's gate status). Find the next work with `items_read` select `next`.
+- Hierarchy: items have parentId and depth; trees nest to any depth. `items_write` op `create` requires `type`.
+- These are orchestration-profile tools (the `profiles` entry in the tool catalog); a server running another profile may not expose them.
+
+## Personal Scope
+
+Personal root: Me (`22222222-2222-2222-2222-222222222222`)
+Config: <HOME>/.taskorchestrator/config.yaml
+
+- Anchor new root-level items under the personal root by setting `parentId: "22222222-2222-2222-2222-222222222222"`.
+- Do NOT pass `ancestorId` on `items_read` selects (`list`, `search`, `context`, `next`, `blocked`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.

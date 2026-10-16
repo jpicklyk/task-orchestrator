@@ -56,16 +56,6 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance|notes_write)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-actor-attribution.mjs\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Agent",
         "hooks": [
           {

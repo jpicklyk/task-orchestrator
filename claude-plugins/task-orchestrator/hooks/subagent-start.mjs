@@ -15,9 +15,9 @@
 //   5. The subagent's `agent_type` is not a phase-owner type (implementer/reviewer, bare or
 //      plugin-qualified) — the protocol only applies to an agent that owns a work/review phase;
 //      injecting it into Explore/Plan/general-purpose/etc. tells agents that own no phase to
-//      call advance_item and commit, which is wrong for them.
+//      call advance and commit, which is wrong for them.
 //
-// The injected wording itself is conditional rather than a blanket "call advance_item(start)":
+// The injected wording itself is conditional rather than a blanket "call advance(start)":
 // it tells the agent to defer to whatever seat its OWN dispatch prompt assigned it (only an
 // entry seat, or a single-phase owner with no seat named, advances the item; a non-entry or
 // read-only seat never does), since this hook cannot see the dispatch prompt's seat assignment.
@@ -25,6 +25,8 @@ import { readHookInput } from './lib/stdin.mjs';
 import { emit } from './lib/emit.mjs';
 import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
+import { ERROR_KINDS } from './lib/tool-names.mjs';
+import { readFileSync } from 'fs';
 
 if (isHeadlessIteration()) {
   process.exit(0);
@@ -44,18 +46,42 @@ if (!isPhaseOwnerAgentType(hookInput.agent_type)) {
   process.exit(0);
 }
 
-const output = {
-  hookSpecificOutput: {
-    hookEventName: "SubagentStart",
-    additionalContext: `## Agent-Owned-Phase Protocol
+// The codes an `advance` transition can answer, from the generated catalog, partitioned by the
+// generated ERROR_KINDS (permanent | transient | shedding). `gate_blocked` is the already-in-phase
+// signal and is named separately.
+function transitionCodes() {
+  try {
+    const catalog = JSON.parse(readFileSync(new URL('./lib/tool-catalog.json', import.meta.url), 'utf8'));
+    const errors = catalog?.tools?.advance?.entries?.transition?.errors;
+    return Array.isArray(errors) ? errors : [];
+  } catch {
+    return [];
+  }
+}
 
-**Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance_item(transitions=[{itemId: "<your-item-UUID>", trigger: "start"}])\`. A non-entry seat or a **read-only** agent never calls \`advance_item\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`manage_notes(operation="upsert", ...)\` — each upsert response returns the next note's guidance. If the item is already in your phase, \`advance_item\` fails with \`errorCode: "gate_blocked"\` and \`previousRole\` equal to your phase — call \`get_context(itemId=...)\` once for guidance instead. Every \`advance_item\` failure now carries an \`errorCode\`; branch on which POSITIVE code you got, never on the absence of one.
+function codeLists() {
+  const codes = transitionCodes().filter((c) => c !== 'gate_blocked');
+  const kind = (c) => ERROR_KINDS[c];
+  const list = (arr) => arr.map((c) => `\`${c}\``).join(', ');
+  return {
+    retry: list(codes.filter((c) => kind(c) === 'transient' || kind(c) === 'shedding')),
+    permanent: list(codes.filter((c) => kind(c) === 'permanent')),
+  };
+}
 
-**If \`advance_item\` instead fails with \`errorCode: "resource_unavailable"\` (\`errorKind: "transient"\`), do NOT treat it as already-in-phase and do NOT retry.** A shared resource this item declares is currently held by another item. Stop immediately and report the contended resource key(s) (\`contendedResources\`) back to the orchestrator — do not proceed as if you had entered work phase, and do not spin-retry the same call.
+const { retry, permanent } = codeLists();
 
-**Any other \`errorCode\`** (\`item_not_found\`, \`invalid_trigger\`, \`invalid_actor\`, \`dependency_blocked\`, \`validation_failed\`, \`invalid_transition\`, \`apply_failed\`, \`not_claim_holder\`, \`rejected_by_policy\`) means the transition did not put the item in your phase. Stop immediately and report the \`errorCode\` and \`error\` message back to the orchestrator — do not proceed as if you had entered your phase, and do not retry the same call.
+const protocol = `## Agent-Owned-Phase Protocol
 
-**Never call \`advance_item\` again after entering your phase, and never use \`trigger: "complete"\`** — the orchestrator owns all subsequent transitions.
+**Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance\` with \`ops: [{op: "transition", itemId: "<your-item-UUID>", trigger: "start"}]\`. A non-entry seat or a **read-only** agent never calls \`advance\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`notes_write\` (\`ops: [{op: "upsert", itemId, key, role, body}]\`). When your dispatch prompt carries a \`seatToken\`, send it as a top-level field of every call you make. Read the item's gate and guidance with \`items_read\` (\`select: "context"\`, \`itemId\`).
+
+Every result is an envelope: branch on \`ok\` and on \`error.code\` / \`error.kind\` (and \`retryAfterMs\` when present) of the element, never on the absence of an error. If the item is already in your phase, the transition fails with \`error.code: "gate_blocked"\` and \`error.detail.role\` equal to your phase — do not retry; call \`items_read\` (\`select: "context"\`) once for guidance and proceed.
+
+**If the transition fails with a transient or shedding code (${retry || 'none'}), do NOT treat it as already-in-phase and do NOT retry or spin.** Stop immediately and report the \`error.code\`, the \`error.message\` and \`retryAfterMs\` back to the orchestrator — do not proceed as if you had entered your phase.
+
+**Any other code** (${permanent || 'none'}) means the transition did not put the item in your phase. Stop immediately and report the \`error.code\` and \`error.message\` back to the orchestrator — do not proceed as if you had entered your phase, and do not retry the same call.
+
+**Never call \`advance\` again after entering your phase, and never use \`trigger: "complete"\`** — the orchestrator owns all subsequent transitions.
 
 If you stop with your phase's required notes still unfilled, you will be sent back (up to twice) with the missing keys named — fill them, or state plainly what blocks you.
 
@@ -64,7 +90,12 @@ If you stop with your phase's required notes still unfilled, you will be sent ba
 1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.
 2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits. Deliver what the task asked at the scope intended: finish the whole task rather than leaving stubs, and stop short of work clearly beyond it.
 3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.
-4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. \`~/.gradle/caches\`); never search from \`/\` or a drive root.`
+4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. \`~/.gradle/caches\`); never search from \`/\` or a drive root.`;
+
+const output = {
+  hookSpecificOutput: {
+    hookEventName: "SubagentStart",
+    additionalContext: protocol
   }
 };
 emit(output);

@@ -1,45 +1,39 @@
 #!/usr/bin/env node
-// PostToolUse:advance_item — records which items a subagent has entered its own phase for, so
+// PostToolUse:advance — records which items a subagent has entered its own phase for, so
 // phase-guard.mjs (SubagentStop) can re-check their gate status when the subagent tries to
 // return.
 //
 // Acts only inside a subagent call — the hook input carries `agent_id` only when firing inside a
 // subagent call (plugin hooks also run for the main session, where `agent_id` is absent) — and
-// only when the REST API is configured (TASK_ORCHESTRATOR_API_URL set): with no API URL,
-// phase-guard.mjs can never read the gate back, so recording anything would be dead weight.
+// only when the REST API is configured: with no API URL, phase-guard.mjs can never read the gate
+// back, so recording anything would be dead weight.
 //
 // Fail-open by design: any read/parse error, missing env, or unrecognized tool_response shape
-// results in a silent `{}` on stdout and exit 0 — this hook must never block advance_item.
+// results in a silent `{}` on stdout and exit 0 — this hook must never block advance.
 //
-// Workflow-seat exclusion: a transition whose actor.parent starts with the literal prefix
-// "workflow:" belongs to a Claude workflow-script seat, not an ordinary subagent dispatch —
-// those seats never call manage_notes the way a dispatched subagent does, so recording them
-// would only ever produce false SubagentStop blocks later. buildActorMap() reads the actor for
-// each transition from tool_input, tolerating both advance_item call shapes: the batch
-// `transitions[]` array (each element carries its own `actor`) and the top-level singular-sugar
-// shape (`{itemId, trigger, actor}`, normalized server-side but NOT in the raw tool_input this
-// hook observes). Results are matched back to their transition via `actorForResult()` — a
-// hex-prefix input itemId (4+ hex chars) won't equal the full UUID the server echoes back in
-// `results[]`, so matching falls back to a prefix comparison (either direction) and then array
-// position before giving up, rather than a plain exact-key lookup that would miss a prefix-keyed
-// entry and let a workflow-seat transition slip through unfiltered.
+// Reads the 4.0 envelope through lib/envelope.mjs: every element of `results[]` is considered.
+// An element is recordable when it is `ok: true` with a string `newRole` (the role entered), or
+// `ok: false` with `error.code === 'gate_blocked'` (the already-in-phase case: the server binds
+// `error.detail.role` to the item's CURRENT role, the phase the agent already sits in, and
+// `error.detail.itemId` to the item). Every other failure code means the transition never
+// touched the item, or the item is not this agent's, and records nothing.
 //
-// Entered-role tracking: alongside the recorded itemIds, this hook now also records the ROLE the
-// agent entered for each item (`newRole` on an applied:true result, `previousRole` on the
-// already-in-phase gate_blocked case — the server's AdvanceService.checkGate sets `previousRole`
-// to the item's CURRENT role, i.e. the phase the agent is already sitting in, and `targetRole` to
-// the phase it tried to move to next; the phase this agent entered is `previousRole`, not
-// `targetRole`) in the marker's `enteredRoles` map. phase-guard.mjs uses this so a SubagentStop
-// check blocks only on the role this agent actually entered, never on whatever role the item has
-// since moved to under a later seat.
+// Workflow-seat exclusion: a call carrying a non-empty top-level `seatToken` belongs to a run
+// seat, not an ordinary subagent dispatch; those seats never return through phase-guard.mjs's
+// SubagentStop check, so recording them would only produce false blocks.
+//
+// Entered-role tracking: the marker's `enteredRoles` map holds the role the agent entered for
+// each item; phase-guard.mjs blocks only on that role, never on whatever role the item has since
+// moved to under a later seat.
 
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { apiBaseUrl } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
-import { emitEmpty as writeEmpty } from './lib/emit.mjs';
+import { emitEmpty as writeEmpty, emitSystemMessage } from './lib/emit.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
-import { extractResponseJson } from './retro-lib.mjs';
+import { parseToolResult } from './lib/envelope.mjs';
+import { legacyShapeWarningOnce } from './lib/server-compat.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 
 const MAX_ITEMS_PER_AGENT = 50;
@@ -86,117 +80,48 @@ export function isFullUuid(value) {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
-/**
- * From an advance_item response payload's `results[]`, the itemIds worth recording: a full UUID
- * (a hex-prefix resolve failure echoes the raw, non-UUID input) AND either `applied===true`
- * (the transition succeeded) OR `errorCode==="gate_blocked"` (the "already in phase" case — the
- * item is still this agent's, it just didn't move). Every OTHER structured failure
- * (`not_claim_holder`, `rejected_by_policy`, `resource_unavailable`, `dependency_blocked`,
- * `validation_failed`, `invalid_transition`, `apply_failed`, `item_not_found`, `invalid_trigger`,
- * `invalid_actor`) means the transition never touched the item, or the item isn't this agent's —
- * branch on the presence of one of the two POSITIVE signals above, never on the absence of an
- * `errorCode` (a codeless `applied:false` is not a valid outcome shape any more; every failure
- * path in `advance_item` now carries one).
- */
-export function extractRecordableItemIds(payload) {
-  const results = Array.isArray(payload?.results) ? payload.results : [];
-  return results
-    .filter((r) => r && isFullUuid(r.itemId) && (r.applied === true || r.errorCode === 'gate_blocked'))
-    .map((r) => r.itemId);
-}
-
-/**
- * Maps itemId -> actor (possibly undefined) from the raw `tool_input` of an advance_item call,
- * tolerating both call shapes (AdvanceItemTool.kt normalizes the singular shape into `transitions`
- * server-side, but this hook observes the caller's RAW tool_input, before that normalization):
- *  - batch: `{transitions: [{itemId, trigger, actor?}, ...]}` — each element's own actor.
- *  - singular sugar: `{itemId, trigger, actor?}` — one actor applies to that one itemId.
- * Malformed/missing input yields an empty map (nothing is treated as a workflow actor).
- *
- * The itemId keyed here is the caller's RAW input id, which may be a hex prefix (4+ hex chars)
- * rather than the full UUID the server resolves and echoes back in `results[]` — see
- * `actorForResult()`, which matches a result back to this map by prefix (or position) rather than
- * an exact key lookup, since an exact `map.get(fullUuid)` would silently miss a prefix-keyed entry
- * and let a workflow-seat transition slip through unfiltered.
- */
-export function buildActorMap(toolInput) {
-  const map = new Map();
-  if (!toolInput || typeof toolInput !== 'object') return map;
-  if (Array.isArray(toolInput.transitions)) {
-    for (const t of toolInput.transitions) {
-      if (t && typeof t === 'object' && typeof t.itemId === 'string') {
-        map.set(t.itemId, t.actor);
-      }
-    }
-  } else if (typeof toolInput.itemId === 'string') {
-    map.set(toolInput.itemId, toolInput.actor);
+function recordable(r) {
+  if (!r || typeof r !== 'object') return null;
+  if (r.ok === true) {
+    if (isFullUuid(r.itemId) && typeof r.newRole === 'string' && r.newRole) return { id: r.itemId, role: r.newRole };
+    return null;
   }
-  return map;
-}
-
-/**
- * Resolves the actor for one `results[]` entry from an actor map keyed by the (possibly
- * hex-prefix) input itemId, in an order that tolerates either being longer than the other:
- *  1. Exact match — the common case, and the only one possible for the batch `transitions[]`
- *     shape (whose keys are never truncated).
- *  2. Case-insensitive prefix match — the singular-sugar shape's key can be a hex prefix (4+
- *     hex chars) of the full UUID the server resolves and echoes back in `result.itemId`, or, in
- *     principle, the reverse; matching in either direction covers both.
- *  3. Positional fallback — when the map has exactly as many entries as the results array (the
- *     normal 1:1 batch case) and neither of the above matched, fall back to matching by array
- *     position so a key that isn't textually related to the resolved id (defensive; not expected
- *     in practice) still resolves rather than silently passing the actor-less filter.
- * Returns `undefined` when nothing matches, same as a plain `Map.get` miss.
- */
-export function actorForResult(actorMap, resultItemId, resultIndex, totalResults) {
-  if (!(actorMap instanceof Map) || typeof resultItemId !== 'string') return undefined;
-  if (actorMap.has(resultItemId)) return actorMap.get(resultItemId);
-
-  const lowerResult = resultItemId.toLowerCase();
-  for (const [key, actor] of actorMap) {
-    if (typeof key !== 'string' || key.length === 0) continue;
-    const lowerKey = key.toLowerCase();
-    if (lowerResult.startsWith(lowerKey) || lowerKey.startsWith(lowerResult)) {
-      return actor;
+  if (r.ok === false && r.error && r.error.code === 'gate_blocked') {
+    const d = r.error.detail;
+    if (d && typeof d === 'object' && isFullUuid(d.itemId)) {
+      return { id: d.itemId, role: typeof d.role === 'string' && d.role ? d.role : null };
     }
   }
-
-  if (actorMap.size === totalResults) {
-    const keys = [...actorMap.keys()];
-    if (resultIndex >= 0 && resultIndex < keys.length) {
-      return actorMap.get(keys[resultIndex]);
-    }
-  }
-
-  return undefined;
-}
-
-/** True only when `actor.parent` is a string starting with the literal prefix "workflow:". */
-export function isWorkflowSeatActor(actor) {
-  return !!actor && typeof actor === 'object' && typeof actor.parent === 'string' && actor.parent.startsWith('workflow:');
+  return null;
 }
 
 /**
- * From a (workflow-actor-filtered) advance_item response payload's `results[]`, the role each
- * recordable item actually ENTERED: `newRole` on an `applied:true` result, or `previousRole` on
- * the already-in-phase `errorCode:"gate_blocked"` case. The server (AdvanceService.checkGate)
- * constructs `GateBlocked(message, item.role, targetRole, ...)` — `previousRole` is bound to
- * `item.role`, the item's CURRENT role (the phase the agent is already sitting in), while
- * `targetRole` is the phase the blocked transition tried to reach. The role this agent entered is
- * therefore `previousRole`, not `targetRole`. Mirrors extractRecordableItemIds's inclusion rule so
- * every id it returns has a chance at a role here too; an item with no recognizable role string is
- * simply omitted from the map.
+ * From a parsed 4.0 advance result (`lib/envelope.mjs` Parsed), the itemIds worth recording: a
+ * full UUID AND either `ok === true` with a string `newRole` (the transition succeeded) OR
+ * `error.code === 'gate_blocked'` (the "already in phase" case). Every other code, or `ok: false`
+ * without a code, records nothing. Every element of `results[]` is considered.
  */
-export function extractEnteredRoles(payload) {
-  const results = Array.isArray(payload?.results) ? payload.results : [];
+export function extractRecordableItemIds(parsed) {
+  const results = Array.isArray(parsed?.results) ? parsed.results : [];
+  const ids = [];
+  for (const r of results) {
+    const rec = recordable(r);
+    if (rec) ids.push(rec.id);
+  }
+  return ids;
+}
+
+/**
+ * The role each recordable item actually ENTERED: `newRole` on an `ok: true` result, or
+ * `error.detail.role` on the already-in-phase `gate_blocked` case. An item with no recognizable
+ * role string is simply omitted from the map.
+ */
+export function extractEnteredRoles(parsed) {
+  const results = Array.isArray(parsed?.results) ? parsed.results : [];
   const roles = {};
   for (const r of results) {
-    if (!r || !isFullUuid(r.itemId)) continue;
-    if (r.applied === true && typeof r.newRole === 'string' && r.newRole) {
-      roles[r.itemId] = r.newRole;
-    } else if (r.errorCode === 'gate_blocked' && typeof r.previousRole === 'string' && r.previousRole) {
-      roles[r.itemId] = r.previousRole;
-    }
+    const rec = recordable(r);
+    if (rec && rec.role) roles[rec.id] = rec.role;
   }
   return roles;
 }
@@ -226,28 +151,24 @@ function main() {
     // No REST API configured → phase-guard.mjs can never read the gate back; recording is moot.
     if (!apiBaseUrl()) emitEmpty();
 
-    // The MCP CallToolResult shape carries a human-readable `content[0].text` summary alongside
-    // the machine-readable `structuredContent` object — prefer structuredContent when present
-    // (avoids trying to JSON.parse the human summary text) and fall back to the raw tool_response
-    // for shapes that lack it (bare {results,summary}, or the content[] wrapper with a JSON text
-    // block, both handled by extractResponseJson's shape tolerance).
-    const toolResponse = hookInput.tool_response;
-    const structured = toolResponse?.structuredContent ?? toolResponse;
-    const payload = extractResponseJson(structured);
+    // Run seats (a non-empty top-level seatToken) never return through phase-guard.mjs.
+    const seatToken = hookInput.tool_input?.seatToken;
+    if (typeof seatToken === 'string' && seatToken.length > 0) emitEmpty();
 
-    // Drop any result whose transition actor is a workflow seat (actor.parent startsWith
-    // "workflow:") before recording — those seats never return through phase-guard.mjs's
-    // SubagentStop check the way an ordinary subagent dispatch does.
-    const actorMap = buildActorMap(hookInput.tool_input);
-    const rawResults = Array.isArray(payload?.results) ? payload.results : [];
-    const nonWorkflowResults = rawResults.filter(
-      (r, i) => !isWorkflowSeatActor(actorForResult(actorMap, r?.itemId, i, rawResults.length)),
-    );
-    const filteredPayload = { ...payload, results: nonWorkflowResults };
+    const parsed = parseToolResult(hookInput.tool_response);
+    if (!parsed) emitEmpty();
+    if (parsed.legacy) {
+      const warning = legacyShapeWarningOnce(hookInput.session_id);
+      if (warning) {
+        emitSystemMessage(warning);
+        process.exit(0);
+      }
+      emitEmpty();
+    }
 
-    const newItems = extractRecordableItemIds(filteredPayload);
+    const newItems = extractRecordableItemIds(parsed);
     if (newItems.length === 0) emitEmpty();
-    const newEnteredRoles = extractEnteredRoles(filteredPayload);
+    const newEnteredRoles = extractEnteredRoles(parsed);
 
     const path = phaseGuardMarkerPath(hookInput.session_id, hookInput.agent_id);
     const marker = readPhaseGuardMarker(path);

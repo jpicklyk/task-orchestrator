@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, dirname } from 'node:path';
+import { directorMarkerPath } from '../execution-mode.mjs';
+import { RETIRED_3X_TOOLS } from '../../scripts/lib/contract-checks.mjs';
 
 const HOOK = fileURLToPath(new URL('../session-start.mjs', import.meta.url));
 
@@ -51,6 +53,7 @@ function runHook(agentConfigDir, extraEnv = {}) {
       ...extraEnv.env,
     },
     encoding: 'utf-8',
+    input: extraEnv.input,
     cwd: agentConfigDir, // avoid the cwd-walk fallback finding this repo's real config.yaml
   });
 }
@@ -75,7 +78,7 @@ test('no config discoverable -> base guidance only, no Project Scope section', (
 test('config present but no project: block -> not-project-scoped guidance', () => {
   const dir = tmpConfigDir();
   try {
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     const res = runHook(dir);
     const out = JSON.parse(res.stdout);
     assert.ok(out.hookSpecificOutput.additionalContext.includes('not project-scoped'));
@@ -483,7 +486,7 @@ test('none state -> Setup Status naming /task-orchestrator:init, no Project Scop
 test('no-root state (project file) -> not project-scoped, names the config path', () => {
   const dir = tmpConfigDir();
   try {
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
     assert.ok(ctx.includes('## Setup Status'));
     assert.ok(ctx.includes('not project-scoped'));
@@ -573,7 +576,7 @@ test('hint: no-root + registration -> systemMessage names the config path', () =
   const dir = tmpConfigDir();
   try {
     writeUserClaudeJson(dir, COMPLIANT_STDIO);
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     const out = parse(runHook(dir));
     assert.ok(out.systemMessage.includes('/task-orchestrator:init'));
     assert.ok(out.systemMessage.includes(join(dir, '.taskorchestrator', 'config.yaml')));
@@ -666,13 +669,80 @@ test('config-sync notice: absent for stdio registration, API URL set, or none st
 // Oracle: frozen-texts blocks BASE, T1..T8 (planner, frozen before implementation).
 // ─────────────────────────────────────────────────────────────────────────
 
-const BASE = [
-  '## Task Orchestrator — Session Context',
-  '',
-  '- Use `advance_item` for role transitions — not raw status edits.',
-  '- Hierarchy: items have parentId and depth; trees nest to any depth.',
-  '- To resume: call `get_context()` with no args to see active and stalled items.',
-].join('\n');
+// The guidance block is rewritten for 4.0, so it is checked by property (task-scope AC4, AC8, AC9), not by
+// an exact string: an exact string would just be a copy of whatever the hook prints.
+const STALE = [/depth 0/i, /Process-global/i, /actor.attribution/i, /OUTSIDE the (project|personal) root/i];
+const RETIRED_NAMES = RETIRED_3X_TOOLS.filter((n) => n !== 'complete_tree');
+
+function assertNoStaleText(text, label) {
+  for (const re of STALE) assert.ok(!re.test(text), label + ': stale text ' + re + ' in: ' + text);
+  for (const tool of RETIRED_NAMES) {
+    assert.ok(!new RegExp('\\b' + tool + '\\b').test(text), label + ': bare retired tool name ' + tool + ' in: ' + text);
+  }
+}
+
+function assertGuidance(block) {
+  assert.ok(block.startsWith('## Task Orchestrator'), 'guidance block must lead: ' + block.slice(0, 60));
+  assert.match(block, /Session Context/);
+  assertNoStaleText(block, 'guidance');
+  assert.match(block, /`advance`/);
+  assert.match(block, /`transition`/);
+  assert.match(block, /`items_read`/);
+  assert.match(block, /`context`/);
+  assert.match(block, /`next`/);
+  assert.match(block, /UUID/);
+  assert.match(block, /\b8\b/);
+  assert.match(block, /hex/i);
+  assert.ok(
+    block.split('\n').some((l) => /items_write/.test(l) && /create/.test(l) && /\btype\b/.test(l)),
+    'a guidance line must say items_write create requires type',
+  );
+  assert.match(block, /profile/i);
+}
+
+const label = (r, n) => (n ? n + ' (`' + r + '`)' : '`' + r + '`');
+
+// Scope sections: structure and the pieces AC4 pins (selects named for ancestorId, the parentId anchoring
+// line, the personal-root no-ancestorId rule).
+const personalScope = (r, n, p) => (block) => {
+  assert.ok(block.startsWith('## Personal Scope'), block);
+  assert.ok(block.includes('Personal root: ' + label(r, n)), block);
+  assert.ok(block.includes('Config: ' + p), block);
+  assert.ok(
+    block.split('\n').includes('- Anchor new root-level items under the personal root by setting `parentId: "' + r + '"`.'),
+    'parentId anchoring line missing: ' + block,
+  );
+  assert.ok(block.split('\n').some((l) => /Do NOT pass `ancestorId`/.test(l) && /items_read/.test(l)), 'no-ancestorId rule must name items_read: ' + block);
+  assertNoStaleText(block, 'personal scope');
+};
+
+const projectScope = (r, n, p) => (block) => {
+  assert.ok(block.startsWith('## Project Scope'), block);
+  assert.ok(block.includes('Active project: ' + label(r, n)), block);
+  assert.ok(block.includes('Config: ' + p), block);
+  assert.ok(
+    block.split('\n').some((l) => /items_read/.test(l) && l.includes('ancestorId: "' + r + '"')),
+    'a line must pass ancestorId on items_read selects: ' + block,
+  );
+  assert.ok(
+    block.split('\n').includes('- Anchor new root-level items under this project by setting `parentId: "' + r + '"`.'),
+    'parentId anchoring line missing: ' + block,
+  );
+  assertNoStaleText(block, 'project scope');
+};
+
+// additionalContext = guidance block, then one block per '## ' section. expected[i] is the exact text of
+// section i (string) or a checker (function).
+const blocksOf = (ctx) => ctx.split(/\n\n(?=## )/);
+function assertCtx(ctx, expected, msg = '') {
+  const blocks = blocksOf(ctx);
+  assertGuidance(blocks[0]);
+  assert.equal(blocks.length, expected.length + 1, msg + ' section count; got headings: ' + blocks.map((b) => b.split('\n')[0]).join(' | '));
+  expected.forEach((e, i) => {
+    if (typeof e === 'function') e(blocks[i + 1]);
+    else assert.equal(blocks[i + 1], e, msg);
+  });
+}
 
 const T1 = [
   '## Setup Status',
@@ -692,30 +762,6 @@ const t2b = (p) => [
   '',
   'This workspace is not project-scoped — no `project.rootId` in `' + p + '`.',
   'Run `/task-orchestrator:init --user` to create a personal root.',
-].join('\n');
-
-const label = (r, n) => (n ? n + ' (`' + r + '`)' : '`' + r + '`');
-
-const t3 = (r, n, p) => [
-  '## Personal Scope',
-  '',
-  'Personal root: ' + label(r, n),
-  'Config: ' + p,
-  '',
-  '- Anchor new root-level items under the personal root by setting `parentId: "' + r + '"`.',
-  "- Do NOT pass `ancestorId` on reads (`query_items`, `get_next_item`, `get_context`, `get_blocked_items`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.",
-  '- Process-global items stay OUTSIDE the personal root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items.',
-].join('\n');
-
-const t4 = (r, n, p) => [
-  '## Project Scope',
-  '',
-  'Active project: ' + label(r, n),
-  'Config: ' + p,
-  '',
-  '- Pass `ancestorId: "' + r + '"` on `query_items` (list mode), `get_next_item`, `get_context`, and `get_blocked_items` to scope results to this project.',
-  '- Anchor new root-level items under this project by setting `parentId: "' + r + '"`.',
-  '- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under `' + r + '`.',
 ].join('\n');
 
 const T5 = 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.';
@@ -759,34 +805,34 @@ function markerDir(tmpDir) {
 
 // ── Four state sections, exact text ──────────────────────────────────────
 
-test('S1 none state -> additionalContext is exactly BASE + Setup Status (T1), no systemMessage', () => {
+test('S1 none state -> additionalContext is guidance block + Setup Status (T1), no systemMessage', () => {
   const dir = tmpConfigDir();
   try {
     const out = parse(runHook(dir));
-    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + T1);
+    assertCtx(out.hookSpecificOutput.additionalContext, [T1]);
     assert.ok(!('systemMessage' in out));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('S2 no-root state, project file -> exactly BASE + T2a', () => {
+test('S2 no-root state, project file -> guidance block + T2a', () => {
   const dir = tmpConfigDir();
   try {
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t2a(cfgPath(dir)));
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
+    assertCtx(ctxOf(runHook(dir)), [t2a(cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('S3 no-root state, user file -> exactly BASE + T2b; watchPaths = [user path]', () => {
+test('S3 no-root state, user file -> guidance block + T2b; watchPaths = [user path]', () => {
   const dir = tmpConfigDir();
   const toHome = tmpConfigDir();
   try {
-    writeConfig(toHome, 'retrospective:\n  mode: nudge\n');
+    writeConfig(toHome, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     const out = parse(runHook(dir, { toHome }));
-    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + t2b(cfgPath(toHome)));
+    assertCtx(out.hookSpecificOutput.additionalContext, [t2b(cfgPath(toHome))]);
     assert.deepEqual(out.hookSpecificOutput.watchPaths, [cfgPath(toHome)]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -794,11 +840,11 @@ test('S3 no-root state, user file -> exactly BASE + T2b; watchPaths = [user path
   }
 });
 
-test('S4 project state with name -> exactly BASE + T4', () => {
+test('S4 project state with name -> guidance block + T4', () => {
   const dir = tmpConfigDir();
   try {
     writeConfig(dir, 'project:\n  rootId: proj-exact-1\n  name: "Exact One"\n');
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-exact-1', 'Exact One', cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir)), [projectScope('proj-exact-1', 'Exact One', cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -808,18 +854,18 @@ test('S4b project state without name -> label is just the backticked rootId', ()
   const dir = tmpConfigDir();
   try {
     writeConfig(dir, 'project:\n  rootId: proj-exact-2\n');
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-exact-2', null, cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir)), [projectScope('proj-exact-2', null, cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('S5 user state -> exactly BASE + T3', () => {
+test('S5 user state -> guidance block + T3', () => {
   const dir = tmpConfigDir();
   const toHome = tmpConfigDir();
   try {
     writeConfig(toHome, 'project:\n  rootId: personal-exact-1\n  name: "Me"\n');
-    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t3('personal-exact-1', 'Me', cfgPath(toHome)));
+    assertCtx(ctxOf(runHook(dir, { toHome })), [personalScope('personal-exact-1', 'Me', cfgPath(toHome))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(toHome, { recursive: true, force: true });
@@ -842,7 +888,7 @@ test('S7 hint, no-root project file -> systemMessage is exactly T6 (project word
   const dir = tmpConfigDir();
   try {
     writeUserClaudeJson(dir, COMPLIANT_STDIO);
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     assert.equal(parse(runHook(dir)).systemMessage, t6Project(cfgPath(dir)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -854,10 +900,10 @@ test('S8 hint, no-root USER file -> systemMessage names init --user, agreeing wi
   const toHome = tmpConfigDir();
   try {
     writeUserClaudeJson(dir, COMPLIANT_STDIO);
-    writeConfig(toHome, 'retrospective:\n  mode: nudge\n');
+    writeConfig(toHome, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
     const out = parse(runHook(dir, { toHome }));
     assert.equal(out.systemMessage, t6User(cfgPath(toHome)));
-    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + t2b(cfgPath(toHome)));
+    assertCtx(out.hookSpecificOutput.additionalContext, [t2b(cfgPath(toHome))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(toHome, { recursive: true, force: true });
@@ -866,29 +912,29 @@ test('S8 hint, no-root USER file -> systemMessage names init --user, agreeing wi
 
 // ── Config Sync notice, exact text and gating ────────────────────────────
 
-test('S9 project state + http registration, no API URL -> BASE + T4 + T7 (project command)', () => {
+test('S9 project state + http registration, no API URL -> guidance + T4 + T7 (project command)', () => {
   const dir = tmpConfigDir();
   try {
     writeConfig(dir, 'project:\n  rootId: proj-sync-1\n  name: "Sync One"\n');
     writeUserClaudeJson(dir, HTTP_REG);
-    assert.equal(
+    assertCtx(
       ctxOf(runHook(dir)),
-      BASE + '\n\n' + t4('proj-sync-1', 'Sync One', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+      [projectScope('proj-sync-1', 'Sync One', cfgPath(dir)), T7_PROJECT],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('S10 user state + http registration, no API URL -> BASE + T3 + T7 naming init --user', () => {
+test('S10 user state + http registration, no API URL -> guidance + T3 + T7 naming init --user', () => {
   const dir = tmpConfigDir();
   const toHome = tmpConfigDir();
   try {
     writeConfig(toHome, 'project:\n  rootId: personal-sync-1\n  name: "Me"\n');
     writeUserClaudeJson(dir, HTTP_REG);
-    assert.equal(
+    assertCtx(
       ctxOf(runHook(dir, { toHome })),
-      BASE + '\n\n' + t3('personal-sync-1', 'Me', cfgPath(toHome)) + '\n\n' + T7_USER,
+      [personalScope('personal-sync-1', 'Me', cfgPath(toHome)), T7_USER],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -902,7 +948,7 @@ test('S11a notice absent when a loopback project client.json resolves the URL', 
     writeConfig(dir, 'project:\n  rootId: proj-sync-2\n  name: "Sync Two"\n');
     writeUserClaudeJson(dir, HTTP_REG);
     writeClientJson(dir, { apiUrl: 'http://127.0.0.1:3001' });
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-sync-2', 'Sync Two', cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir)), [projectScope('proj-sync-2', 'Sync Two', cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -915,7 +961,7 @@ test('S11b notice absent in project state when a user client.json resolves the U
     writeConfig(dir, 'project:\n  rootId: proj-sync-3\n  name: "Sync Three"\n');
     writeUserClaudeJson(dir, HTTP_REG);
     writeClientJson(toHome, { apiUrl: 'http://127.0.0.1:3001' });
-    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t4('proj-sync-3', 'Sync Three', cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir, { toHome })), [projectScope('proj-sync-3', 'Sync Three', cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(toHome, { recursive: true, force: true });
@@ -929,7 +975,7 @@ test('S11c notice absent in user state when a user client.json resolves the URL'
     writeConfig(toHome, 'project:\n  rootId: personal-sync-2\n  name: "Me"\n');
     writeUserClaudeJson(dir, HTTP_REG);
     writeClientJson(toHome, { apiUrl: 'http://127.0.0.1:3001' });
-    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t3('personal-sync-2', 'Me', cfgPath(toHome)));
+    assertCtx(ctxOf(runHook(dir, { toHome })), [personalScope('personal-sync-2', 'Me', cfgPath(toHome))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(toHome, { recursive: true, force: true });
@@ -943,9 +989,9 @@ test('S12 non-loopback or malformed project client.json does not resolve -> noti
       writeConfig(dir, 'project:\n  rootId: proj-sync-4\n  name: "Sync Four"\n');
       writeUserClaudeJson(dir, HTTP_REG);
       writeClientJson(dir, content);
-      assert.equal(
+      assertCtx(
         ctxOf(runHook(dir)),
-        BASE + '\n\n' + t4('proj-sync-4', 'Sync Four', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+        [projectScope('proj-sync-4', 'Sync Four', cfgPath(dir)), T7_PROJECT],
         'client.json content: ' + content,
       );
     } finally {
@@ -958,9 +1004,9 @@ test('S13 none and no-root states + http registration -> no Config Sync section'
   const dir = tmpConfigDir();
   try {
     writeUserClaudeJson(dir, HTTP_REG);
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + T1);
-    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t2a(cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir)), [T1]);
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
+    assertCtx(ctxOf(runHook(dir)), [t2a(cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1136,9 +1182,9 @@ test('probe: empty or blank apiUrl in a project client.json does not resolve -> 
       writeConfig(dir, 'project:\n  rootId: proj-probe-1\n  name: "Probe"\n');
       writeUserClaudeJson(dir, HTTP_REG);
       writeClientJson(dir, { apiUrl });
-      assert.equal(
+      assertCtx(
         ctxOf(runHook(dir)),
-        BASE + '\n\n' + t4('proj-probe-1', 'Probe', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+        [projectScope('proj-probe-1', 'Probe', cfgPath(dir)), T7_PROJECT],
         'apiUrl: ' + JSON.stringify(apiUrl),
       );
     } finally {
@@ -1153,7 +1199,7 @@ test('probe: BOM-prefixed loopback client.json still resolves -> notice absent',
     writeConfig(dir, 'project:\n  rootId: proj-probe-2\n  name: "Probe"\n');
     writeUserClaudeJson(dir, HTTP_REG);
     writeClientJson(dir, '﻿' + JSON.stringify({ apiUrl: 'http://127.0.0.1:3001' }));
-    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-probe-2', 'Probe', cfgPath(dir)));
+    assertCtx(ctxOf(runHook(dir)), [projectScope('proj-probe-2', 'Probe', cfgPath(dir))]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1171,8 +1217,7 @@ test('probe: loopback variants 127.0.0.2 and [::1] resolve; localhost.evil.com d
       writeConfig(dir, 'project:\n  rootId: proj-probe-3\n  name: "Probe"\n');
       writeUserClaudeJson(dir, HTTP_REG);
       writeClientJson(dir, { apiUrl });
-      const expected = BASE + '\n\n' + t4('proj-probe-3', 'Probe', cfgPath(dir)) + (expectNotice ? '\n\n' + T7_PROJECT : '');
-      assert.equal(ctxOf(runHook(dir)), expected, 'apiUrl: ' + apiUrl);
+      assertCtx(ctxOf(runHook(dir)), [projectScope('proj-probe-3', 'Probe', cfgPath(dir)), ...(expectNotice ? [T7_PROJECT] : [])], 'apiUrl: ' + apiUrl);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1208,5 +1253,341 @@ test("probe: today's marker path is a directory -> exit 0, no systemMessage", ()
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Item 8cd79bc0: S6 mode gating (guidance vs diagnostics) and S7 Config Shape diagnostic.
+// Oracle: task-scope AC3/AC4 - guidance (base guidance, Setup Status, Personal/Project Scope) is omitted
+// when suppressionReason is non-null (headless iteration, subagent agent_id, director marker);
+// diagnostics (setup hint, registration check, config-sync notice, plugin drift, watchPaths, Config
+// Shape) are always computed; with nothing left additionalContext is omitted (no empty string); stdin is
+// read through readHookInput so empty or malformed stdin is a main session.
+// ─────────────────────────────────────────────────────────────────────────
+
+const HEADLESS_ENV = { TASK_ORCHESTRATOR_MODE: 'headless-iteration' };
+const ctxIn = (out) => (out.hookSpecificOutput ? out.hookSpecificOutput.additionalContext : undefined);
+
+function plantDirectorIn(tmpDir, sessionId) {
+  const saved = {};
+  for (const k of ['TMPDIR', 'TEMP', 'TMP']) {
+    saved[k] = process.env[k];
+    process.env[k] = tmpDir;
+  }
+  try {
+    const p = directorMarkerPath(sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, '');
+  } finally {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+// Each suppression yields extra runHook options. Every one gets its own tmpDir so a director marker is
+// visible to the hook (which pins TEMP to it).
+const SUPPRESSIONS = [
+  ['headless iteration', (tmpDir) => ({ tmpDir, env: HEADLESS_ENV, input: JSON.stringify({ session_id: 'main-s' }) })],
+  ['subagent (agent_id)', (tmpDir) => ({ tmpDir, input: JSON.stringify({ session_id: 'main-s', agent_id: 'agent-7' }) })],
+  [
+    'director marker',
+    (tmpDir) => {
+      plantDirectorIn(tmpDir, 'dir-s');
+      return { tmpDir, input: JSON.stringify({ session_id: 'dir-s' }) };
+    },
+  ],
+  [
+    'director marker after /compact',
+    (tmpDir) => {
+      plantDirectorIn(tmpDir, 'dir-s');
+      return { tmpDir, input: JSON.stringify({ session_id: 'dir-s', source: 'compact' }) };
+    },
+  ],
+];
+
+function eachSuppression(fn) {
+  for (const [name, mk] of SUPPRESSIONS) {
+    const dir = tmpConfigDir();
+    const tmpDir = tmpConfigDir();
+    try {
+      fn(name, dir, mk(tmpDir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+}
+
+test('S6 suppressed, project state -> no guidance, no additionalContext key at all, watchPaths kept', () => {
+  eachSuppression((name, dir, opts) => {
+    writeConfig(dir, 'project:\n  rootId: proj-gate-1\n  name: "Gate One"\n');
+    const out = parse(runHook(dir, opts));
+    assert.equal(ctxIn(out), undefined, name);
+    assert.ok(!out.hookSpecificOutput || !('additionalContext' in out.hookSpecificOutput), name + ': empty-string additionalContext is not allowed');
+    assert.deepEqual(out.hookSpecificOutput && out.hookSpecificOutput.watchPaths, [cfgPath(dir)], name);
+  });
+});
+
+test('S6 suppressed, none state + registration -> setup hint (systemMessage) still shown, Setup Status guidance omitted', () => {
+  eachSuppression((name, dir, opts) => {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const out = parse(runHook(dir, opts));
+    assert.equal(out.systemMessage, T5, name);
+    assert.equal(ctxIn(out), undefined, name);
+  });
+});
+
+test('S6 suppressed, no-root and user states -> Setup Status / Personal Scope guidance omitted', () => {
+  eachSuppression((name, dir, opts) => {
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
+    assert.equal(ctxIn(parse(runHook(dir, opts))), undefined, name + ' no-root');
+  });
+  eachSuppression((name, dir, opts) => {
+    const toHome = tmpConfigDir();
+    try {
+      writeConfig(toHome, 'project:\n  rootId: personal-gate-1\n  name: "Me"\n');
+      const out = parse(runHook(dir, { ...opts, toHome }));
+      assert.equal(ctxIn(out), undefined, name + ' user');
+      assert.deepEqual(out.hookSpecificOutput.watchPaths, [cfgPath(toHome)], name + ' user');
+    } finally {
+      rmSync(toHome, { recursive: true, force: true });
+    }
+  });
+});
+
+test('S6 suppressed -> the registration check diagnostic is still produced, alone', () => {
+  eachSuppression((name, dir, opts) => {
+    writeConfig(dir, 'project:\n  rootId: proj-gate-2\n  name: "Gate Two"\n');
+    writeUserClaudeJson(dir, { mcpServers: { tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] } } });
+    const ctx = ctxIn(parse(runHook(dir, opts)));
+    assert.ok(ctx && ctx.includes('Hook Registration Check'), name);
+    assert.ok(ctx.includes('tasks'), name);
+    for (const guidance of ['Session Context', '## Project Scope', '## Setup Status', '## Personal Scope']) {
+      assert.ok(!ctx.includes(guidance), name + ': guidance leaked: ' + guidance);
+    }
+    assert.match(ctx, /^## /, name);
+  });
+});
+
+test('S6 suppressed -> the plugin version drift diagnostic is still produced, guidance omitted', () => {
+  eachSuppression((name, dir, opts) => {
+    const runningRoot = tmpConfigDir();
+    try {
+      writeDevCheckoutPluginJson(dir, '3.8.0');
+      writeRunningPluginJson(runningRoot, '3.7.0');
+      const ctx = ctxIn(parse(runHook(dir, { ...opts, env: { ...(opts.env || {}), CLAUDE_PLUGIN_ROOT: runningRoot } })));
+      assert.ok(ctx && ctx.includes('Plugin Version Drift'), name);
+      assert.ok(ctx.includes('3.8.0') && ctx.includes('3.7.0'), name);
+      assert.ok(!ctx.includes('Session Context'), name);
+    } finally {
+      rmSync(runningRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test('S6 suppressed -> the config-sync notice diagnostic is still produced, guidance omitted', () => {
+  eachSuppression((name, dir, opts) => {
+    writeConfig(dir, 'project:\n  rootId: proj-gate-3\n  name: "Gate Three"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    const ctx = ctxIn(parse(runHook(dir, opts)));
+    assert.equal(ctx, T7_PROJECT, name);
+  });
+});
+
+test('S6 unsuppressed variants still get the guidance: empty/non-string agent_id, no marker, wrong-case sentinel, bad stdin', () => {
+  const variants = [
+    ['agent_id empty', { input: JSON.stringify({ session_id: 'main-s', agent_id: '' }) }],
+    ['agent_id number', { input: JSON.stringify({ session_id: 'main-s', agent_id: 5 }) }],
+    ['agent_id null', { input: JSON.stringify({ session_id: 'main-s', agent_id: null }) }],
+    ['session without marker', { input: JSON.stringify({ session_id: 'plain-s' }) }],
+    ['empty session id', { input: JSON.stringify({ session_id: '' }) }],
+    ['no session id', { input: JSON.stringify({ source: 'startup' }) }],
+    ['wrong-case sentinel', { env: { TASK_ORCHESTRATOR_MODE: 'HEADLESS-ITERATION' }, input: JSON.stringify({ session_id: 'main-s' }) }],
+    ['other mode value', { env: { TASK_ORCHESTRATOR_MODE: 'interactive' }, input: JSON.stringify({ session_id: 'main-s' }) }],
+    ['empty stdin', { input: '' }],
+    ['malformed stdin', { input: 'not json' }],
+    ['non-object stdin', { input: '[1,2]' }],
+    ['no stdin option', {}],
+  ];
+  for (const [name, opts] of variants) {
+    const dir = tmpConfigDir();
+    try {
+      writeConfig(dir, 'project:\n  rootId: proj-gate-4\n  name: "Gate Four"\n');
+      assertCtx(ctxOf(runHook(dir, opts)), [projectScope('proj-gate-4', 'Gate Four', cfgPath(dir))], name);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('S6 a director marker for another session does not suppress this one', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-gate-5\n');
+    plantDirectorIn(tmpDir, 'dir-s');
+    assertCtx(ctxOf(runHook(dir, { tmpDir, input: JSON.stringify({ session_id: 'someone-else' }) })), [projectScope('proj-gate-5', null, cfgPath(dir))]);
+    assert.equal(ctxIn(parse(runHook(dir, { tmpDir, input: JSON.stringify({ session_id: 'dir-s' }) }))), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S6 headless beats an otherwise unsuppressed session on every state, and the guidance returns once the env is lifted', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-gate-6\n');
+    assert.equal(ctxIn(parse(runHook(dir, { env: HEADLESS_ENV }))), undefined);
+    assertCtx(ctxOf(runHook(dir, {})), [projectScope('proj-gate-6', null, cfgPath(dir))]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S6 guidance and diagnostics: no state emits a stale depth-0 line, actor-attribution wording or a bare 3.x tool name', () => {
+  const cases = [];
+  {
+    const dir = tmpConfigDir();
+    writeUserClaudeJson(dir, { mcpServers: { tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] } } });
+    cases.push(['none + offending registration', dir, {}]);
+  }
+  {
+    const dir = tmpConfigDir();
+    writeConfig(dir, 'extensions:\n  claude-code:\n    retrospective:\n      mode: nudge\n');
+    writeUserClaudeJson(dir, { mcpServers: { tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] } } });
+    cases.push(['no-root + offending registration', dir, {}]);
+  }
+  {
+    const dir = tmpConfigDir();
+    writeConfig(dir, 'project:\n  rootId: proj-gate-7\n  name: "P"\n');
+    writeUserClaudeJson(dir, { mcpServers: { tasks: { type: 'http', url: 'http://host/task-orchestrator/mcp' } } });
+    cases.push(['project + offending http registration', dir, {}]);
+  }
+  {
+    const dir = tmpConfigDir();
+    const toHome = tmpConfigDir();
+    writeConfig(toHome, 'project:\n  rootId: personal-gate-2\n  name: "Me"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    cases.push(['user + http registration', dir, { toHome }]);
+  }
+  try {
+    for (const [name, dir, opts] of cases) {
+      const out = parse(runHook(dir, opts));
+      assertNoStaleText(ctxIn(out) || '', name);
+      assertNoStaleText(out.systemMessage || '', name + ' systemMessage');
+    }
+  } finally {
+    for (const [, dir, opts] of cases) {
+      rmSync(dir, { recursive: true, force: true });
+      if (opts.toHome) rmSync(opts.toHome, { recursive: true, force: true });
+    }
+  }
+});
+
+// ── S7: Config Shape diagnostic ──────────────────────────────────────────
+
+const shapeBlocks = (ctx) => blocksOf(ctx || '').filter((b) => b.startsWith('## Config Shape'));
+const shapeBody = (block) => block.split('\n').slice(1).filter((l) => l.trim() !== '');
+const PROJ = 'project:\n  rootId: proj-shape-1\n  name: "Shape"\n';
+
+function shapeFor(configText, opts = {}) {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, configText);
+    return shapeBlocks(ctxIn(parse(runHook(dir, opts))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('S7 a top-level orchestration: section -> exactly one Config Shape line saying it is ignored and naming extensions.claude-code', () => {
+  for (const text of [PROJ + 'orchestration:\n  mode: off\n', PROJ + 'orchestration: { mode: schema }\n']) {
+    const blocks = shapeFor(text);
+    assert.equal(blocks.length, 1, text);
+    const body = shapeBody(blocks[0]);
+    assert.equal(body.length, 1, 'exactly one line: ' + blocks[0]);
+    assert.match(body[0], /orchestration/);
+    assert.match(body[0], /ignored/i);
+    assert.match(body[0], /extensions\.claude-code/);
+  }
+});
+
+test('S7 a top-level retrospective: section -> exactly one Config Shape line naming it', () => {
+  const blocks = shapeFor(PROJ + 'retrospective:\n  mode: nudge\n');
+  assert.equal(blocks.length, 1);
+  const body = shapeBody(blocks[0]);
+  assert.equal(body.length, 1);
+  assert.match(body[0], /retrospective/);
+  assert.match(body[0], /ignored/i);
+  assert.match(body[0], /extensions\.claude-code/);
+});
+
+test('S7 both top-level sections -> a single Config Shape heading that names both', () => {
+  const blocks = shapeFor(PROJ + 'orchestration:\n  mode: off\nretrospective:\n  mode: nudge\n');
+  assert.equal(blocks.length, 1);
+  assert.match(blocks[0], /orchestration/);
+  assert.match(blocks[0], /retrospective/);
+  assert.match(blocks[0], /ignored/i);
+});
+
+test('S7 keys already under extensions.claude-code -> no Config Shape section', () => {
+  const nested = PROJ + 'extensions:\n  claude-code:\n    orchestration:\n      mode: off\n    retrospective:\n      mode: nudge\n';
+  assert.equal(shapeFor(nested).length, 0);
+  assert.equal(shapeFor(PROJ).length, 0);
+});
+
+test('S7 probe: look-alikes are not top-level sections - comment, prefixed key, string value, indented key under another parent', () => {
+  for (const text of [
+    PROJ + '# orchestration:\n',
+    PROJ + 'orchestration-notes: x\n',
+    PROJ + 'retrospective_extra: x\n',
+    PROJ + 'note: "orchestration:"\n',
+    PROJ + 'other:\n  orchestration:\n    mode: off\n',
+    PROJ + 'extensions:\n  other-tool:\n    retrospective:\n      mode: nudge\n',
+  ]) {
+    assert.equal(shapeFor(text).length, 0, text);
+  }
+});
+
+test('S7 probe: CRLF config is recognised', () => {
+  assert.equal(shapeFor('project:\r\n  rootId: proj-shape-2\r\norchestration:\r\n  mode: off\r\n').length, 1);
+});
+
+test('S7 the notice appears for a located user-scope config too, and not when no config is located', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    assert.equal(shapeBlocks(ctxIn(parse(runHook(dir)))).length, 0);
+    writeConfig(toHome, 'project:\n  rootId: personal-shape\n  name: "Me"\norchestration:\n  mode: off\n');
+    assert.equal(shapeBlocks(ctxIn(parse(runHook(dir, { toHome })))).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('S7 the notice is a diagnostic: it is still produced when the guidance is suppressed, alone', () => {
+  eachSuppression((name, dir, opts) => {
+    writeConfig(dir, PROJ + 'orchestration:\n  mode: off\n');
+    const ctx = ctxIn(parse(runHook(dir, opts)));
+    const blocks = shapeBlocks(ctx);
+    assert.equal(blocks.length, 1, name);
+    assert.ok(!ctx.includes('Session Context') && !ctx.includes('## Project Scope'), name + ': guidance leaked');
+  });
+});
+
+test('S7 the notice sits next to normal guidance in an unsuppressed session (guidance first, scope section present)', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, PROJ + 'orchestration:\n  mode: off\n');
+    const blocks = blocksOf(ctxOf(runHook(dir)));
+    assertGuidance(blocks[0]);
+    assert.ok(blocks.some((b) => b.startsWith('## Project Scope')));
+    assert.equal(blocks.filter((b) => b.startsWith('## Config Shape')).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,7 +1,7 @@
 // Structural contract for the hooks/lib adoption (fc131c71, scenario S21). Oracle: task-scope
 // AC1 (pure at import), AC2 (stdin and emit plumbing lives in lib), AC3 (marker implementations delegate
 // to lib/markers.mjs), AC7 (the api-client.mjs shim, deleted by eb262d39 AC8), AC8 (hand-written tool-names list with a P9 TODO), AC9 (README row per lib module, a
-// CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (only session-start imports server-compat).
+// CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (session-start imports server-compat; per AC2 of 0bbdc4cc also the envelope readers dispatch-hint and phase-guard-record).
 // Source scans read hook files as text; they do not execute them.
 
 import { test, after } from 'node:test';
@@ -23,7 +23,7 @@ const topLevelHookFiles = () => readdirSync(HOOKS_DIR).filter((f) => f.endsWith(
 const LIB_MODULES = ['stdin', 'emit', 'markers', 'envelope', 'ops', 'api-client', 'server-compat', 'tool-names'];
 
 const STDIN_READERS = [
-  'config-sync', 'dispatch-hint', 'dispatch-model-guard', 'enforce-actor-attribution', 'phase-guard-record',
+  'config-sync', 'dispatch-hint', 'dispatch-model-guard', 'phase-guard-record',
   'phase-guard', 'plan-capture', 'retro-backstop', 'retro-trigger', 'skill-enforcement', 'subagent-start',
 ];
 const AC2_EMITTERS = [...STDIN_READERS, 'session-start', 'orchestration-context', 'pre-plan', 'post-plan'];
@@ -135,12 +135,12 @@ test('S21: tool-names.mjs carries the GENERATED marker and exports ERROR_KINDS, 
   assert.deepEqual(Object.keys(mod).sort(), ['ERROR_KINDS', 'PROFILES', 'TOOLS', 'WRITE_TOOLS']);
 });
 
-// ---- D3: server-compat is wired into session-start and nowhere else ----
+// ---- D3: server-compat is wired into session-start and, per AC2 (legacyShapeWarningOnce), the two envelope readers ----
 
-test('S21: session-start imports lib/server-compat.mjs; no other top-level hook does', () => {
+test('S21: session-start imports lib/server-compat.mjs; only the envelope readers (dispatch-hint, phase-guard-record) also do', () => {
   assert.ok(importsModule(hookSource('session-start.mjs'), './lib/server-compat.mjs'));
   for (const f of topLevelHookFiles()) {
-    if (f === 'session-start.mjs') continue;
+    if (f === 'session-start.mjs' || f === 'dispatch-hint.mjs' || f === 'phase-guard-record.mjs') continue;
     assert.ok(!hookSource(f).includes('server-compat'), `${f} must not import server-compat (D3)`);
   }
 });
