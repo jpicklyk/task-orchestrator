@@ -19,6 +19,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { scriptText, coreSlice, loadMeta, loadScript, fakeParallel } from './workflow-harness.mjs'
+import { RETIRED_3X_TOOLS } from '../lib/contract-checks.mjs'
 import {
   loadCoreNamed,
   autoAgent,
@@ -1137,13 +1138,38 @@ test('S6: every non-synthesis prompt is READ-ONLY and excludes write-tool names;
     assert.equal(c.opts.isolation, undefined, `call ${c.label} must not set opts.isolation`)
     if (c.label === 'synthesis') continue
     assert.match(c.prompt, /READ-ONLY/, `${c.label} prompt must contain READ-ONLY`)
-    for (const forbidden of ['manage_items', 'manage_notes', 'advance_item', 'create_work_tree']) {
+    for (const forbidden of ['manage_items', 'manage_notes', 'advance_item', 'create_work_tree', 'items_write', 'notes_write', 'runs_write', 'docs_write']) {
       assert.equal(c.prompt.includes(forbidden), false, `${c.label} prompt must not mention ${forbidden}`)
     }
   }
   const synth = calls.find((c) => c.label === 'synthesis')
   assert.ok(synth, 'synthesis must have been called')
   assert.ok(synth.prompt.includes(plan.reportPath), 'synthesis prompt must name reportPath')
+})
+
+// 4.0 port (cac1bffa, AC2/AC11): no retired 3.x tool name may appear in any rendered audit prompt.
+// Fixture condition that would fail it: the 3.x prompts named query_items / query_notes / get_context.
+test('S14 (4.0): no audit prompt names a retired 3.x tool (RETIRED_3X_TOOLS), whole-word', async () => {
+  const plan = buildPlan({ gaps: { enabled: true, max: 1 }, items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' } })
+  const responder = async (label) => {
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'critic') return criticResult({ gaps: [{ label: 'g', prompt: 'p' }] })
+    if (label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    if (label.startsWith('triage:')) return triageResult({ results: [{ findingId: 'r1-1', candidates: [], likelyDuplicate: 'none' }] })
+    throw new Error('unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.ok(calls.length > 0)
+  for (const c of calls) {
+    for (const name of RETIRED_3X_TOOLS) {
+      const re = new RegExp('(^|[^A-Za-z0-9_])' + name + '([^A-Za-z0-9_]|$)')
+      assert.equal(re.test(c.prompt), false, `${c.label} prompt names retired tool ${name}`)
+    }
+  }
 })
 
 // ── S5 (part 3, integration replay across the whole run) ────────────────────
@@ -1267,7 +1293,7 @@ test('Follow-up: raw === 0 skips Merge and Verify entirely (no such agent calls)
   assert.equal(calls.some((c) => c.label.startsWith('verify:')), false)
 })
 
-test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names query_items search', async () => {
+test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names items_read search', async () => {
   const plan = buildPlan({
     scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
     items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
@@ -1290,8 +1316,9 @@ test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names query
   assert.match(scopeCall.prompt, /READ-ONLY/)
   const triageCall = calls.find((c) => c.label.startsWith('triage:'))
   assert.ok(triageCall, 'triage must have been called')
-  assert.match(triageCall.prompt, /query_items/)
+  assert.match(triageCall.prompt, /items_read/)
   assert.match(triageCall.prompt, /search/)
+  assert.equal(triageCall.prompt.includes('query_items'), false, 'the retired 3.x read tool name must be gone (AC11)')
 })
 
 test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs), per Appendix B', async () => {
@@ -1368,7 +1395,7 @@ test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts 
   }
 })
 
-test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT field, and query_items (how alreadyTrackedId is derived)', async () => {
+test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT field, and items_read (how alreadyTrackedId is derived)', async () => {
   const plan = buildPlan({
     verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40 },
   })
@@ -1395,7 +1422,8 @@ test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT fie
     for (const field of VERDICT_FIELDS) {
       assert.ok(c.prompt.includes(field), `${c.label} prompt must name VERDICT field "${field}"`)
     }
-    assert.ok(c.prompt.includes('query_items'), `${c.label} prompt must mention query_items (alreadyTrackedId derivation)`)
+    assert.ok(c.prompt.includes('items_read'), `${c.label} prompt must mention items_read (alreadyTrackedId derivation)`)
+    assert.equal(c.prompt.includes('query_items'), false, `${c.label} prompt must not name the retired query_items`)
   }
 })
 

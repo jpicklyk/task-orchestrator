@@ -70,7 +70,7 @@
       ]
     }
   },
-  "noteActors": { "aaaaaaaa-1111-4111-8111-111111111111": [] },
+  "noteOwners": { "aaaaaaaa-1111-4111-8111-111111111111": [] },
   "parents": {
     "cccccccc-3333-4333-8333-333333333333": { "role": "work", "canAdvance": true, "missing": [] }
   },
