@@ -1,8 +1,8 @@
 // Shared helpers for the retrospective-trigger hooks (retro-trigger.mjs, retro-ack.mjs).
 // Pure module — no side effects at import time, no top-level I/O.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 import { sharedMarkerPath, readMarker as readMarkerFile, writeMarker as writeMarkerFile } from './lib/markers.mjs';
