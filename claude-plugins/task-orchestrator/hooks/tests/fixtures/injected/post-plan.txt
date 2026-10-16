@@ -1,0 +1,5 @@
+## NEXT STEP — Required before implementation
+
+The plan has been approved. You MUST invoke the `task-orchestrator:post-plan-workflow` skill NOW to materialize MCP items and dispatch implementation.
+
+Do not begin any implementation work until this completes.

@@ -5,7 +5,8 @@
 // The deny reason tells the caller how to retry. The value is NOT validated: the Agent tool owns that.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not Agent -> headless
-// iteration -> no located config -> orchestration.mode off -> model present.
+// iteration -> no located config -> orchestration mode off -> model present.
+// A director session is still guarded (its dispatches must pass `model` too).
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
 // Fail-open: any throw yields `{}` and exit 0.
 
@@ -17,11 +18,11 @@ import { parseOrchestrationConfig } from './orchestration-lib.mjs';
 
 const RULE =
   'Task Orchestrator dispatch rule: every Agent dispatch must pass `model` explicitly. The shipped agents use `model: inherit`, so omitting it silently runs the subagent on your own model. Retry the same call (keep `subagent_type`, `description`, `prompt`) with `model` set.';
-const OFF_POINTER = 'Set `orchestration.mode: off` in .taskorchestrator/config.yaml to disable this guard.';
+const OFF_POINTER = 'Set `mode: off` under `extensions.claude-code.orchestration` in .taskorchestrator/config.yaml to disable this guard.';
 
-const WORKFLOW_REASON = `${RULE} Use the item's dispatch profile \`model\` (from \`advance_item\` / \`get_context\`) when it has one. Otherwise use the delegation table: \`haiku\` for MCP bulk ops, materialization, and simple queries; \`sonnet\` for code reading, implementation, and test writing; \`opus\` for architecture, complex tradeoffs, and multi-file synthesis (see \`task-orchestrator:orchestrate\`). ${OFF_POINTER}`;
+const WORKFLOW_REASON = `${RULE} Use the item's dispatch profile \`model\` (from the \`advance\` result or \`items_read\` \`context\`) when it has one. Otherwise use the delegation table: \`haiku\` for MCP bulk ops, materialization, and simple queries; \`sonnet\` for code reading, implementation, and test writing; \`opus\` for architecture, complex tradeoffs, and multi-file synthesis (see \`task-orchestrator:orchestrate\`). ${OFF_POINTER}`;
 
-const SCHEMA_REASON = `${RULE} Use the dispatch profile \`model\` for the item (\`dispatch\` / \`dispatchBySeat\` from \`advance_item\` / \`get_context\`), or otherwise a model you choose explicitly for the work. ${OFF_POINTER}`;
+const SCHEMA_REASON = `${RULE} Use the dispatch profile \`model\` for the item (\`dispatch\` / \`dispatchBySeat\` from the \`advance\` result or \`items_read\` \`context\`), or otherwise a model you choose explicitly for the work. ${OFF_POINTER}`;
 
 function hasModel(toolInput) {
   const m = toolInput && typeof toolInput === 'object' ? toolInput.model : undefined;
