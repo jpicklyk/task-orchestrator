@@ -282,7 +282,8 @@ internal suspend fun awaitUntil(
 
 /**
  * Collects the frames of this SSE connection until [done] holds for what has arrived so far, then stops. Returns
- * what arrived (partial on timeout) and never throws, so the caller's own assertion message still prints it.
+ * what arrived (partial on timeout) so the caller's own assertion message still prints it; only a failure that is
+ * not the barrier signal (an SSE transport error, for example) is rethrown.
  */
 internal suspend fun Flow<ServerSentEvent>.collectUntil(
     decode: (String?) -> ApiEvent,
