@@ -57,10 +57,6 @@
       "owner": "c6740063"
     },
     {
-      "file": "skills/quick-start/SKILL.md",
-      "owner": "6018d76a"
-    },
-    {
       "file": "skills/ralph/SKILL.md",
       "owner": "cae5d141"
     },
@@ -71,10 +67,6 @@
     {
       "file": "skills/ralph/iteration-system-prompt.md",
       "owner": "cae5d141"
-    },
-    {
-      "file": "skills/review-proposals/SKILL.md",
-      "owner": "6018d76a"
     },
     {
       "file": "skills/run-wave/SKILL.md",
@@ -91,18 +83,6 @@
     {
       "file": "skills/run-wave/references/snapshot.md",
       "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/session-retrospective/SKILL.md",
-      "owner": "6018d76a"
-    },
-    {
-      "file": "skills/session-retrospective/references/github-feedback.md",
-      "owner": "6018d76a"
-    },
-    {
-      "file": "skills/work-summary/SKILL.md",
-      "owner": "6018d76a"
     }
   ],
   "proseExceptions": []
