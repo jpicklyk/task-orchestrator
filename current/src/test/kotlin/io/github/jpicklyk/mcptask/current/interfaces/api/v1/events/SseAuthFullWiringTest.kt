@@ -5,9 +5,9 @@ import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig

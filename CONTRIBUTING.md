@@ -140,10 +140,11 @@ Fixes #53
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
 - A tool is a `ToolSpec` of selects or ops registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`); its request classes live in `application/api/<area>/`
-- Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist),
-  with known pre-existing violations tracked in the checked-in, two-way-ratcheted baseline
-  `current/src/test/resources/architecture/layering-baseline.txt` — new violations fail the test;
-  fixing a baselined violation requires deleting its line from the baseline file.
+- Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), and
+  `PackageCycleTest` keeps the `application/<sub>` packages acyclic. Both check against two-way-ratcheted
+  baselines under `current/src/test/resources/architecture/` (`layering-baseline.txt`,
+  `package-cycle-baseline.txt`) that are empty: any new violation or cycle fails the test. Fix the import
+  or move the shared type down instead of adding a baseline line.
 
 ### Adding New Tools
 

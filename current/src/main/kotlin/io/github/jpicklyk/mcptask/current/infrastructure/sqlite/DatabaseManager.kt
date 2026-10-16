@@ -19,7 +19,7 @@ import java.io.File
 import java.sql.Connection
 
 /**
- * Manages database connections and schema management for the Current (v3) MCP Task Orchestrator.
+ * Manages database connections and schema management for the Current (4.0) MCP Task Orchestrator.
  *
  * Two Exposed [Database]s sit over HikariCP pools (AR-16): [writer] has ONE connection that begins
  * every transaction IMMEDIATE and is serialized in-process by [units]; [reader] has

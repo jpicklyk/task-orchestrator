@@ -1,10 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.RunRefs
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
@@ -14,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
 import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
@@ -26,7 +25,8 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.port.WasteCount
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
 import io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts
-import io.github.jpicklyk.mcptask.current.application.support.PageRequest
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode

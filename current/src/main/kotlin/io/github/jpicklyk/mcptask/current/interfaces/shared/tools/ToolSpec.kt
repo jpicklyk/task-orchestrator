@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

@@ -361,7 +361,7 @@ Every tool answers one response envelope, and `describe: true` on any call retur
 - **Ktor** for the REST API and SSE
 - **Docker** for one-command deployment
 
-A layered architecture (Domain → Application → Infrastructure → Interfaces, enforced by a Konsist test against a ratcheting baseline of pre-existing violations) with an extensive JUnit 5 test suite.
+A layered architecture (Domain → Application → Infrastructure → Interfaces, enforced by Konsist layering and package-cycle tests, both with empty baselines) with an extensive JUnit 5 test suite.
 
 ---
 

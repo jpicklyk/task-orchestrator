@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchHit
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec

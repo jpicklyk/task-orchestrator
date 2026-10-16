@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.test.tools
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixtures
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome

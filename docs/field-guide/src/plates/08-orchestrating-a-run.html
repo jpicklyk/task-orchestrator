@@ -72,17 +72,17 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <li><div class="what"><h3>Enter plan mode</h3><span class="by">hook on EnterPlanMode → pre-plan-workflow</span></div><span class="then">Reads existing items and the schemas' required notes, so the plan covers what the gates will ask for.</span><span class="holds">Nothing new. Creating items before approval is forbidden.</span></li>
     <li><div class="what"><h3>Approve the plan</h3><span class="by">hook on ExitPlanMode → plan-capture</span></div><span class="then">Stores the approved plan text on the server. Skipped silently when no REST API is configured.</span><span class="holds">A plan document under the project root.</span></li>
     <li><div class="what"><h3>Materialize</h3><span class="by">post-plan-workflow</span></div><span class="then">Creates the work tree, wires dependency edges and fills the queue notes.</span><span class="holds">Every item, edge and queue note, before any code is written.</span></li>
-    <li><div class="what"><h3>Dispatch</h3><span class="by">run-wave, or hand dispatch</span></div><span class="then">Sends agents to items. Each entering agent calls <code>advance_item(start)</code> once, fills its notes and returns.</span><span class="holds">Items in work, with actors on every transition and note.</span></li>
+    <li><div class="what"><h3>Dispatch</h3><span class="by">run-wave, or hand dispatch</span></div><span class="then">Sends agents to items. Each entering agent calls <code>advance</code> (<code>transition</code>, <code>start</code>) once, fills its notes and returns.</span><span class="holds">Items in work, with actors on every transition and note.</span></li>
     <li><div class="what"><h3>Verify and advance</h3><span class="by">orchestrator</span></div><span class="then">Checks the commits, audits the actors, writes its own tracking notes, then advances the items in one batch.</span><span class="holds">Items in review, or terminal when the schema has no review notes.</span></li>
     <li><div class="what"><h3>Review</h3><span class="by">reviewer agent</span></div><span class="then">Verifies the work against the plan and fills the review notes. The orchestrator completes the items.</span><span class="holds">Terminal items. The parent completes by cascade.</span></li>
-    <li><div class="what"><h3>Retrospective</h3><span class="by">hook on advance_item</span></div><span class="then">A finished run triggers a nudge or a background retrospective. Plate 9 follows it from there.</span><span class="holds">A retrospective item.</span></li>
+    <li><div class="what"><h3>Retrospective</h3><span class="by">hook on advance</span></div><span class="then">A finished run triggers a nudge or a background retrospective. Plate 9 follows it from there.</span><span class="holds">A retrospective item.</span></li>
   </ol>
   <p class="sub small">Columns: the step, what drives it, what happens, and what the server holds afterwards.</p>
 </section>
 
 <section>
   <h2>The plan becomes the queue notes</h2>
-  <p>The approved plan is already written. Retyping it into notes would cost tokens and invite drift. So <code>create_work_tree</code> can point at the stored plan document and name which heading feeds which note.</p>
+  <p>The approved plan is already written. Retyping it into notes would cost tokens and invite drift. So <code>items_write</code> <code>create_tree</code> can point at the stored plan document and name which heading feeds which note.</p>
   <figure>
     <div class="panel scroll">
       <svg class="d" viewBox="0 0 900 200" role="img" aria-label="A stored plan document with three headings. Each heading's section is sliced out and becomes a queue note on a different work item: the overview becomes the feature summary, and each task section becomes that task's scope note.">
@@ -151,7 +151,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
 
 <section>
   <h2>Rules: operating text the server hands out</h2>
-  <p>A rule is a short piece of operating text stored per project and served verbatim by <code>query_rules</code>. Agents fetch a rule by key when they need it, so a dispatch prompt can name a rule and leave the text out.</p>
+  <p>A rule is a short piece of operating text stored per project and served verbatim by the <code>rules</code> op of <code>config</code>. Agents fetch a rule by key when they need it, so a dispatch prompt can name a rule and leave the text out.</p>
   <div class="grid2">
     <div class="tscroll"><table>
       <thead><tr><th>Bundled rule</th><th>What it tells an agent</th></tr></thead>
@@ -166,9 +166,9 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>Where rule text comes from</h3><p class="small">Your own rules live in <code>.taskorchestrator/rules/&lt;key&gt;.md</code>. The plugin ships the five on the left. Both are synced to the server at session start, and a workspace file with the same key wins.</p></div>
       <div class="rule"><h3>Safe updates</h3><p class="small">A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
-      <pre>query_rules(operation="get", rootId, key="commit-discipline")
-query_rules(operation="get", itemId, noteKey="test-manifest")
-query_rules(operation="list", rootId)</pre>
+      <pre>config(op="rules", rootId, key="commit-discipline")
+config(op="rules", itemId, noteKey="test-manifest")
+config(op="rules", rootId)</pre>
     </div>
   </div>
 </section>
@@ -179,7 +179,7 @@ query_rules(operation="list", rootId)</pre>
     <thead><tr><th></th><th><code>run-wave</code></th><th><code>ralph</code></th></tr></thead>
     <tbody>
       <tr><td>Where it runs</td><td>In your interactive session</td><td>A detached script that starts a fresh headless Claude process and worktree per item</td></tr>
-      <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration claims one item from the queue with <code>claim_item</code></td></tr>
+      <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration claims one item from the queue with the <code>claim</code> op of <code>advance</code></td></tr>
       <tr><td>Planning</td><td>A run plan of seat stages</td><td>None. The claimed item's schema is the contract.</td></tr>
       <tr><td>Agents</td><td>One per seat, dispatched by the orchestrator</td><td>No sub-agents. One process does the item.</td></tr>
       <tr><td>How it stops</td><td>The frontier is done, or a human checkpoint</td><td>The queue is empty, or a limit trips</td></tr>

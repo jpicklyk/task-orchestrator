@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.api
+package io.github.jpicklyk.mcptask.current.application.port
 
 /**
  * One page of a list read (envelope `data.items` + `data.page`).
@@ -48,6 +48,3 @@ data class ListPage<out T>(
         }
     }
 }
-
-/** Moved to application.support so application.service can use it without reaching application.api. */
-typealias PageRequest = io.github.jpicklyk.mcptask.current.application.support.PageRequest

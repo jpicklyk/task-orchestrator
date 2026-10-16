@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -156,7 +155,6 @@ class SyncLostReplayTest {
             val flow = bus.subscribe("s4", emptySet(), lastEventId = null)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
 
-            delay(50)
             val live = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
 
             val events = collected.await()
@@ -329,7 +327,6 @@ class SyncLostReplayTest {
             // No crash publishing further events, and no history is retained.
             val flow2 = bus.subscribe("probe-buf0-live", emptySet(), lastEventId = null)
             val live = async { withTimeout(5.seconds) { flow2.take(1).toList() } }
-            delay(50)
             val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             val events = live.await()
             assertEquals(1, events.size)
@@ -362,7 +359,6 @@ class SyncLostReplayTest {
             // and is answered with sync.lost unknown_event_id (F2).
             val flow = bus.subscribe("probe-zero", emptySet(), lastEventId = FROM_START.toLong())
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
-            delay(50)
             val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             val events = collected.await()
             assertEquals(1, events.size)

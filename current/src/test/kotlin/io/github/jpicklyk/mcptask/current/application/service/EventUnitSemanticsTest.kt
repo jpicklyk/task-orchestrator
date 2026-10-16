@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixtures

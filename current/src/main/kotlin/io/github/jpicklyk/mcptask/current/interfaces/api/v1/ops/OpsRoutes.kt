@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

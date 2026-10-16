@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.configName
 import io.github.jpicklyk.mcptask.current.application.api.grants
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

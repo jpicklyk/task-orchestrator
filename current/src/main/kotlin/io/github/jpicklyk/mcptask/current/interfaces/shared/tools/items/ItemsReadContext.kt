@@ -1,10 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
 import io.github.jpicklyk.mcptask.current.application.read.ContextView
@@ -17,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion

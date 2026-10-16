@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.BlockInput
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome

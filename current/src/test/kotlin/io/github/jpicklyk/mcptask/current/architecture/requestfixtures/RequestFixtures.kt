@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.architecture.requestfixtures
 
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor

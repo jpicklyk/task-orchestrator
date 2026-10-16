@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ContentionKind
 import io.github.jpicklyk.mcptask.current.application.port.ContentionPage
@@ -26,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.application.report.ReportGatesRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportGroupBy
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
 import io.github.jpicklyk.mcptask.current.application.report.ReportUsageRequest
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope

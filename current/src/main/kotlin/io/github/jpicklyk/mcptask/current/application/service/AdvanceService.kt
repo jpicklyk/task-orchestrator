@@ -2,6 +2,8 @@
 
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.statusLabelKey
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
@@ -15,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind

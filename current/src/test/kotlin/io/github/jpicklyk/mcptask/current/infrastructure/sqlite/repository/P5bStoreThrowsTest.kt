@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.RawWriterLock
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

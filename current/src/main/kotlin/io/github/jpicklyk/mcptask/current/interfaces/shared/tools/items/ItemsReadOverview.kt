@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.read.OverviewEntry
 import io.github.jpicklyk.mcptask.current.application.read.OverviewRequest
 import io.github.jpicklyk.mcptask.current.application.read.OverviewView
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation

@@ -11,6 +11,7 @@
 import { isHeadlessIteration } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
+import { emit } from './lib/emit.mjs';
 
 const SHARED_SCHEMA_WORKFLOW = `## Note Schema Workflow
 
@@ -130,5 +131,5 @@ try {
 } catch {
   out = {};
 }
-process.stdout.write(JSON.stringify(out));
+emit(out);
 process.exit(0);

@@ -3,8 +3,10 @@ package io.github.jpicklyk.mcptask.current.application.api
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
@@ -31,13 +33,11 @@ import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandS
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
-import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition

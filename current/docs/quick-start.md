@@ -1,7 +1,5 @@
 # Quick Start: MCP Task Orchestrator
 
-> **4.0 notice.** The server contract changed in 4.0 (new tool names, call shapes and response envelope). The call examples below still show the 3.x shapes and are being rewritten with the 4.0 plugin; the 4.0 contract is in the [API Reference](./api-reference.md).
-
 MCP Task Orchestrator gives AI agents persistent, structured task tracking that survives across sessions. Instead of loading your entire project state into context on every prompt, agents read and write a shared graph of `WorkItem` entities — keeping context lean and work visible.
 
 > **Working across multiple projects?** Set up one persistent server with the REST API enabled, and
@@ -90,7 +88,14 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `manage_items`, `query_items`, `advance_item`, `claim_item`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `get_next_item`, `get_blocked_items`, `get_next_status`, `get_context`, `create_work_tree`, and `complete_tree`.
+You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read` and `runs_write`.
+
+Two things to know before you read any example in this guide:
+
+- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (everything except the director-only `report` tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
+- **`describe: true`.** Any tool answers `{"describe": true}` with its own contract: every select or op in your profile, each field with its type and description, and the error codes. Ask the tool when you are unsure of a field name.
+
+Every example below is the JSON request body of one tool call. A read tool takes a `select`, a write tool takes an `ops` array whose elements name an `op`, and every tool answers the same `{ok, data | error, meta}` envelope ([Calling the tools](./workflow-guide.md#calling-the-tools) in the workflow guide).
 
 If the server shows as disconnected, check that Docker is running and that the image pulled successfully:
 
@@ -173,9 +178,9 @@ You describe what you want
         │                       Items, dependencies, notes — execution tracking
         ▼
   Implement                  ← Subagents work, each transitioning their MCP item
-        │                       advance_item(start) → work → advance_item(complete)
+        │                       advance transition: start → work → complete
         ▼
-  Health check               ← get_context() shows what completed and what didn't
+  Health check               ← items_read context shows what completed and what didn't
 ```
 
 The plan file and the MCP items are not duplicates — they serve different roles:
@@ -199,7 +204,7 @@ The easiest way to get started is to just tell Claude what you want to build.
 You: "I want to build user authentication with a database schema,
       API endpoints, and a login UI."
 
-Claude: → Calls create_work_tree to create a root item and three child items
+Claude: → Calls items_write create_tree to create a root item and four child items
         → Wires dependency edges so the UI and API must complete before integration tests
         → Shows the structure and which items are immediately actionable
 ```
@@ -209,10 +214,10 @@ Claude: → Calls create_work_tree to create a root item and three child items
 ```
 You: "What should I work on next?"
 
-Claude: → Calls get_next_item() to find the highest-priority unblocked item
+Claude: → Reads items_read next to find the highest-priority unblocked item
         → Reports: "Database schema is ready — no blockers, high priority"
         → Starts working on it, filling notes as it goes
-        → Calls advance_item(trigger="complete") when done
+        → Sends an advance transition with trigger "complete" when done
 ```
 
 **Checking overall status:**
@@ -220,7 +225,7 @@ Claude: → Calls get_next_item() to find the highest-priority unblocked item
 ```
 You: "Where do we stand on the authentication work?"
 
-Claude: → Calls get_context() for a health snapshot
+Claude: → Reads items_read context for a health snapshot
         → Reports: 2 items complete, 1 in progress, 1 blocked on the in-progress item
 ```
 
@@ -228,34 +233,71 @@ Claude: → Calls get_context() for a health snapshot
 
 The conversational examples above translate to these tool calls:
 
-```
-# Build a work tree with children and dependencies in one call
-create_work_tree(
-  root={title: "Authentication system", type: "feature", priority: "high"},
-  children=[
-    {ref: "schema", title: "Database schema"},
-    {ref: "api",    title: "Auth API endpoints"},
-    {ref: "ui",     title: "Login UI"},
-    {ref: "tests",  title: "Integration tests"}
-  ],
-  deps=[
-    {from: "api",   to: "tests"},
-    {from: "ui",    to: "tests"}
+Build a work tree with children and dependencies in one call (`items_write`). Every item names a `type` that your config declares; the example assumes `feature` and `task`:
+
+```json
+{
+  "ops": [
+    {
+      "op": "create_tree",
+      "root": { "title": "Authentication system", "type": "feature", "priority": "high" },
+      "children": [
+        { "ref": "schema", "title": "Database schema", "type": "task" },
+        { "ref": "api",    "title": "Auth API endpoints", "type": "task" },
+        { "ref": "ui",     "title": "Login UI", "type": "task" },
+        { "ref": "tests",  "title": "Integration tests", "type": "task" }
+      ],
+      "deps": [
+        { "from": "api", "to": "tests" },
+        { "from": "ui",  "to": "tests" }
+      ]
+    }
   ]
-)
+}
+```
 
-# Find the next thing to work on (highest-priority, dependency-unblocked)
-get_next_item()
+```json
+{
+  "ok": true,
+  "data": {
+    "results": [
+      { "ok": true, "id": "5b21c0de-91a4-4c3e-8d57-2f0a6b7e1c94", "version": 1,
+        "items": [ { "ref": "root", "id": "5b21c0de-91a4-4c3e-8d57-2f0a6b7e1c94", "depth": 0 },
+                   { "ref": "schema", "id": "3d7e91ab-5c0e-4f1a-9b2d-0a6e8c4d1f37", "depth": 1 } ],
+        "deps": [], "notes": [] }
+    ],
+    "summary": { "ok": 1, "failed": 0 }
+  },
+  "meta": { "reqId": "k7f3q9ab" }
+}
+```
 
-# Find the next high-priority quick win (complexity ≤ 3)
-get_next_item(priority="high", complexityMax=3)
+(Abridged: the real answer lists all five items and both dependencies, each with a full UUID. The compact views that later reads return show the 8-hex short id, `3d7e91ab`, and every id field accepts it.)
 
-# Transition an item through its lifecycle
-advance_item(transitions=[{itemId: "<uuid>", trigger: "start"}])
-advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
+Find the next thing to work on (highest-priority, dependency-unblocked), or the next high-priority quick win:
 
-# Health snapshot across all active work
-get_context()
+```json
+{ "select": "next" }
+```
+
+```json
+{ "select": "next", "complexityMax": 3 }
+```
+
+Transition an item through its lifecycle (`advance`):
+
+```json
+{ "ops": [ { "op": "transition", "itemId": "3d7e91ab", "trigger": "start" } ] }
+```
+
+```json
+{ "ops": [ { "op": "transition", "itemId": "3d7e91ab", "trigger": "complete" } ] }
+```
+
+Health snapshot across all active work:
+
+```json
+{ "select": "context" }
 ```
 
 See [api-reference.md](api-reference.md) for full parameter documentation on every tool.
@@ -284,7 +326,7 @@ You can also trigger the dashboard manually at any time:
 /task-orchestrator:work-summary
 ```
 
-This calls `get_context()` and `get_blocked_items()` and presents a structured view of active work, blockers, and recommended next actions — useful at the start of a session or after a long implementation run.
+This reads `items_read` `context` and `blocked` and presents a structured view of active work, blockers, and recommended next actions, useful at the start of a session or after a long implementation run.
 
 ---
 
@@ -294,8 +336,8 @@ The MCP server includes FTS5 full-text search backed by SQLite's FTS5 extension 
 
 **Find items by content:**
 
-```
-query_items(operation="search", query="OAuth token")
+```json
+{ "select": "search", "query": "OAuth token", "kinds": ["item"] }
 ```
 
 Returns ranked hits with ~32-token snippets from item titles, summaries and descriptions. Multiple words are
@@ -303,24 +345,24 @@ treated as implicit AND. Pass plain terms — special characters are automatical
 
 **Search within a feature's subtree:**
 
-```
-query_items(operation="search", query="migration", scope={ancestorId="<feature-uuid>"})
+```json
+{ "select": "search", "query": "migration", "kinds": ["item"], "ancestorId": "5b21c0de" }
 ```
 
 **Search across all note bodies:**
 
-```
-query_notes(operation="search", query="rate limiting", limit=10)
+```json
+{ "select": "search", "query": "rate limiting", "kinds": ["note"], "limit": 10 }
 ```
 
 **Find what references an item (backlinks):**
 
-```
-query_dependencies(operation="backlinks", itemId="<uuid>")
+```json
+{ "select": "list", "item": "3d7e91ab", "direction": "incoming" }
 ```
 
-Returns all items that hold a dependency edge pointing at the given item — useful for impact
-analysis and tracing who depends on what.
+That is a `deps_read` call. It returns all edges that point at the given item. Useful for impact
+analysis and tracing who depends on what. For everything related to an item (edges, links, shared tags and similar text), use `items_read` `{"select": "related", "itemId": "3d7e91ab"}`.
 
 For the full FTS5 architecture, score interpretation, and `explain=true` usage, see
 [`search-and-discovery.md`](./search-and-discovery.md).
@@ -331,7 +373,7 @@ For the full FTS5 architecture, score interpretation, and `explain=true` usage, 
 
 > **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.
 
-Note schemas enforce per-phase documentation requirements. When an item's `type` or `tags` match a schema, `advance_item` gates progression until the required notes are filled.
+Note schemas enforce per-phase documentation requirements. When an item's `type` resolves to a schema, `advance` gates progression until the required notes are filled.
 
 Create `.taskorchestrator/config.yaml` in your project root:
 
@@ -353,7 +395,7 @@ work_item_schemas:
 
 > The legacy `note_schemas:` flat-list format is still accepted and fully backward-compatible. New configs should prefer `work_item_schemas:`.
 
-Items whose `type` is `task-implementation`, or that carry the `task-implementation` tag, will require an `acceptance-criteria` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
+Items whose `type` is `task-implementation` will require an `acceptance-criteria` note before an `advance` `transition` with `trigger: "start"` advances them to work, and a `done-criteria` note before one with `trigger: "complete"` closes them. Tags never select a schema.
 
 The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, and validating schemas without editing YAML directly.
 
@@ -389,11 +431,11 @@ After adding or editing this file, reconnect the MCP server:
 
 | Concept | Description |
 |---------|-------------|
-| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `type` (e.g. `feature`, `task`, `bug`), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
+| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), a required `type` (e.g. `feature`, `task`, `bug`; it must be declared in your config), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
 | `Note` | Key-value text attached to an item. Has a `role` indicating which workflow phase it belongs to. |
-| `Dependency` | Directed edge between items: `BLOCKS` or `RELATES_TO`. `IS_BLOCKED_BY` is accepted as an input alias and stored as `BLOCKS` with the ends swapped. |
+| `Dependency` | Directed edge between items: `blocks` or `relates_to`. Name the blocker as `from`; the 3.x `is_blocked_by` alias is not accepted. |
 | Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (queue/work/review→terminal — not from blocked; `resume` first), `block`/`hold` (queue/work/review→blocked), `resume` (blocked→previous), `cancel` (any non-terminal→terminal, including blocked). |
-| Note schema gating | When enabled, `advance_item` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then tags, then the `default` schema. |
+| Note schema gating | When enabled, `advance` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then the `default` schema; tags never select one. |
 
 ---
 
@@ -635,7 +677,7 @@ What the key flags do:
 - `-v "<host>/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro"` — mounts your token file read-only where `API_TOKENS_PATH` points. The **left** side is the host path (`$(pwd)` / `${PWD}` expands to an absolute path for you); the **right** side is the in-container path.
 - `-e API_ENABLED=true -e API_AUTH_MODE=bearer` — turns the REST API on in bearer mode.
 - **Docker Desktop:** the folder holding `api-tokens.yaml` must be allowed under **Settings → Resources → File sharing** (your home/project directory is shared by default).
-- **Schema config (optional):** to also load note schemas from `.taskorchestrator/config.yaml`, add `-v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro"` and `-e AGENT_CONFIG_DIR=/project` (as in Step 9). The REST API works without it (schema-free).
+- **Schema config (optional):** to also load note schemas from `.taskorchestrator/config.yaml`, add `-v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro"` and `-e AGENT_CONFIG_DIR=/project` (as in Step 9). Reads work without it; a create needs a `type` your config declares, so mount it to try the create call in step 4.
 
 If the API is enabled but the token file is missing, empty, or malformed, the server **exits on startup** — check `docker logs task-orchestrator-http`.
 
@@ -648,17 +690,21 @@ If the API is enabled but the token file is missing, empty, or malformed, the se
 curl http://localhost:3001/api/v1/health
 
 # Read items — send your PLAINTEXT token from step 1 as the bearer
-curl -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
-     http://localhost:3001/api/v1/items
-
-# Create an item (requires the write-items capability)
-curl -X POST http://localhost:3001/api/v1/items \
+curl -X POST http://localhost:3001/api/v1/ops/items_read \
   -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title": "New task from REST API", "priority": "high"}'
+  -d '{"select": "list", "limit": 5}'
+
+# Create an item (requires the write-items capability; use a type your config declares)
+curl -X POST http://localhost:3001/api/v1/ops/items_write \
+  -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ops": [{"op": "create", "title": "New task from REST API", "type": "task-implementation", "priority": "high"}]}'
 ```
 
-Expected: `/api/v1/health` → `200`; the authenticated calls **without** the header → `401`; a `read`-only token on the POST → `403`.
+Every 4.0 tool is served the same way, at `POST /api/v1/ops/{tool}` with the tool's request body (see [api-rest.md](api-rest.md) section 20a); the old `GET /api/v1/items` and `POST /api/v1/items` routes are removed.
+
+Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the header answer `401`; with the token, the read and the create answer `200`; a `read`-only token on the create answers `207` (the call answers `partial_failure` and the element's error is `forbidden`).
 
 ### Notes & troubleshooting
 
@@ -675,5 +721,6 @@ See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
-- [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
+- [workflow-guide.md](workflow-guide.md) - note schemas, phase gates, dependency patterns, and lifecycle examples; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
+- [reporting.md](reporting.md) - the `report` tool: usage, gates, contention, waste and run rollups
 - [api-rest.md](api-rest.md) — REST API reference: endpoints, DTOs, SSE, auth

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -235,7 +236,7 @@ class DependencyCommandService(
                     lifecycleFree(dep.toItemId) -> FIELD_TO to dep.toItemId
                     else -> continue
                 }
-            val reason = LIFECYCLE_FREE_ENDPOINT_REASON
+            val reason = Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
             return DomainError(
                 code = ErrorCode.INVALID_REQUEST,
                 message = "Item $id is lifecycle-free and cannot be an endpoint of a BLOCKS dependency",
@@ -300,11 +301,5 @@ class DependencyCommandService(
     companion object {
         private const val FIELD_FROM = "fromItemId"
         private const val FIELD_TO = "toItemId"
-
-        /**
-         * The `invalid_request` field reason of a BLOCKS edge with a lifecycle-free endpoint. Telemetry matches it to
-         * count lifecycle-free rejections (`call_log.lifecycle_free_rejections`), so the text is a contract.
-         */
-        const val LIFECYCLE_FREE_ENDPOINT_REASON = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
     }
 }
