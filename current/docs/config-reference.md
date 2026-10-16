@@ -95,6 +95,19 @@ work_item_schemas:
       - { name: orchestrator, phase: work, after: [implementer] }
 ```
 
+### Seat dispatch precedence
+
+For each `(phase, seat)` the resolver takes the first per-seat dispatch override in trait order (per-item `traits`
+first, then `default_traits`), with one exception: an override from a seat-only trait (no phase-level
+`dispatch.<phase>` profile in any phase) that sets `model` and neither sets nor clears `agent` is model-selecting,
+and the first such override outranks the others whatever the order. The winner replaces the rest whole, with no
+field merge, so `[delegated, complex-implementation]` and `[complex-implementation, delegated]` both resolve the
+implementer to opus. A model-only override on a seat that `delegated` gives `agent: null` (for example
+`test-author`) drops that `agent: null`. The validator warns at
+`/work_item_schemas/<type>/default_traits/<index>` when a `default_traits` list names a model-selecting trait after
+a trait that already overrides the same seat without selecting a model; the warning is kept for one release as a
+migration aid. It checks `default_traits` lists only, because the validator does not see item traits.
+
 ## Runs (`runs:`)
 
 The `runs:` block sets how long a run may go quiet and, optionally, ceilings on a run's budget. It is allowed in the
@@ -200,7 +213,8 @@ The root is the empty string. A key containing `/` or `~` is escaped as `~1` and
 (`a/b~c` becomes `a~1b~0c`). An unknown key is reported at the key itself.
 
 Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
-likely), and a required note that no declared seat owns.
+likely), a required note that no declared seat owns, and a `default_traits` list that puts a trait without a
+model-selecting seat override ahead of one that has it (see "Seat dispatch precedence").
 
 How a rejection reaches you:
 

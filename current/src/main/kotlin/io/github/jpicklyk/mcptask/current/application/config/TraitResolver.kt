@@ -31,7 +31,11 @@ import org.slf4j.LoggerFactory
  *   already has one is demoted to non-entering (WARN).
  * - **Resources**: the union of keys; on a duplicate key EXCLUSIVE beats ADVISORY, and `ttlSeconds`
  *   keeps the first-seen value.
- * - **Dispatch by role / by seat**: the first trait to declare a role (or a (phase, seat) pair) wins.
+ * - **Dispatch by role**: the first trait to declare a role wins.
+ * - **Dispatch by seat**: per (phase, seat) the first MODEL-SELECTING override in trait order wins (see
+ *   [isModelSelecting]), so `[delegated, complex-implementation]` resolves like `[complex-implementation,
+ *   delegated]`; with none, the first override in trait order wins. The winner replaces the others whole
+ *   (no field merge).
  *
  * Traits are plain names here (`List<String>`), never a work item, so callers decide where the item
  * traits come from.
@@ -101,8 +105,9 @@ class TraitResolver(
 
     /**
      * Dispatch by seat over [traits] (already in [order]), keyed by phase then seat name, filtered to
-     * [seats]. For each (phase, seat) pair the first trait to declare an override wins; that override
-     * is laid over the phase's [dispatch] profile via [SeatDispatchOverride.applyTo]. A seat with
+     * [seats]. For each (phase, seat) pair the first model-selecting override (a seat-only trait's
+     * override that sets a model and neither sets nor clears the agent) in trait order wins, else the
+     * first override in trait order; that override is laid over the phase's [dispatch] profile via [SeatDispatchOverride.applyTo]. A seat with
      * neither an override nor a phase profile is omitted.
      */
     fun dispatchBySeat(
@@ -114,11 +119,18 @@ class TraitResolver(
         val phaseDefaults = dispatch(traits)
 
         val overridesByRole = LinkedHashMap<Role, LinkedHashMap<String, SeatDispatchOverride>>()
+        val selectingByRole = LinkedHashMap<Role, LinkedHashMap<String, SeatDispatchOverride>>()
         for (traitName in traits) {
-            for ((role, seatMap) in layers.traitDispatchBySeat(traitName)) {
+            val bySeat = layers.traitDispatchBySeat(traitName)
+            val seatOnly = bySeat.isNotEmpty() && layers.traitDispatch(traitName).isEmpty()
+            for ((role, seatMap) in bySeat) {
                 val roleOverrides = overridesByRole.getOrPut(role) { LinkedHashMap() }
+                val roleSelecting = selectingByRole.getOrPut(role) { LinkedHashMap() }
                 for ((seatName, override) in seatMap) {
                     if (seatName !in roleOverrides) roleOverrides[seatName] = override
+                    if (seatOnly && isModelSelecting(override) && seatName !in roleSelecting) {
+                        roleSelecting[seatName] = override
+                    }
                 }
             }
         }
@@ -131,7 +143,7 @@ class TraitResolver(
             val roleOverrides = overridesByRole[role] ?: emptyMap()
             val profiles = LinkedHashMap<String, DispatchProfile>()
             for (seatName in seatNamesInOrder) {
-                val override = roleOverrides[seatName]
+                val override = selectingByRole[role]?.get(seatName) ?: roleOverrides[seatName]
                 when {
                     override != null -> profiles[seatName] = override.applyTo(phaseDefault)
                     phaseDefault != null -> profiles[seatName] = phaseDefault
@@ -199,6 +211,13 @@ class TraitResolver(
     }
 
     companion object {
+        /**
+         * True when [override] (declared by a seat-only trait) selects a model without touching the
+         * agent: `model` is set, `agent` is not set, and `"agent"` is not cleared.
+         */
+        fun isModelSelecting(override: SeatDispatchOverride): Boolean =
+            override.model != null && override.agent == null && "agent" !in override.cleared
+
         /**
          * The one trait order: [itemTraits] first, then [defaultTraits], deduplicated with the first
          * position kept.

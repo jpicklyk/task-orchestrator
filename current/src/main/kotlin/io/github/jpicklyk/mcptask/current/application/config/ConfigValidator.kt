@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 
 /**
  * One validation finding: [path] is an RFC 6901 JSON Pointer into the config document (the root is the empty
@@ -75,6 +76,7 @@ class ConfigValidator(
         val document = parsed.document
         val root = parsed.rawRoot
         val errors = LinkedHashMap<Pair<String, String>, ConfigViolation>()
+        var semanticWarnings: List<ConfigViolation> = emptyList()
 
         fun add(violation: ConfigViolation) {
             errors.putIfAbsent(violation.path to violation.reason, violation)
@@ -88,12 +90,13 @@ class ConfigValidator(
                 .filter { it.path !in parserPaths }
                 .forEach(::add)
             semantic(document, root, scope, serverLayer).forEach(::add)
+            semanticWarnings = traitOrderWarnings(document, root, scope, serverLayer)
         }
 
         val order = compareBy<ConfigViolation>({ it.path }, { it.reason })
         return ConfigValidationResult(
             errors = errors.values.sortedWith(order),
-            warnings = document.warningViolations.distinct().sortedWith(order),
+            warnings = (document.warningViolations + semanticWarnings).distinct().sortedWith(order),
         )
     }
 
@@ -114,6 +117,64 @@ class ConfigValidator(
                     warnings = emptyList(),
                 )
         }
+
+    /**
+     * Advisory warnings for `default_traits` lists where a trait that does not select a model for a
+     * seat precedes a seat-only trait that does. Dispatch resolution lets the model-selecting trait
+     * win regardless of order, so the old order is only reported as a migration aid. One warning per
+     * (phase, seat), at the later (model-selecting) trait's list index. Trait definitions come
+     * per-root first, then the server layer; a duplicate list entry counts at its first position.
+     */
+    private fun traitOrderWarnings(
+        document: ConfigDocument,
+        root: Map<String, Any?>,
+        scope: ConfigScope,
+        serverLayer: ConfigLayer?,
+    ): List<ConfigViolation> {
+        val serverDocument = if (scope == ConfigScope.SERVER) document else serverLayer?.document
+
+        fun sourceFor(trait: String): ConfigDocument? =
+            if (trait in document.traits) document else serverDocument?.takeIf { trait in it.traits }
+
+        val out = mutableListOf<ConfigViolation>()
+        val schemas = root["work_item_schemas"] as? Map<*, *> ?: return out
+        schemas.forEach { (schemaName, schemaValue) ->
+            val defaults = (schemaValue as? Map<*, *>)?.get("default_traits") as? List<*> ?: return@forEach
+            val entries = mutableListOf<Pair<Int, String>>()
+            defaults.forEachIndexed { index, trait ->
+                if (trait is String && entries.none { it.second == trait }) entries.add(index to trait)
+            }
+            // (phase, seat) -> first trait declaring an override there, and whether that one selects a model
+            val first = LinkedHashMap<Pair<Role, String>, Pair<String, Boolean>>()
+            val warned = HashSet<Pair<Role, String>>()
+            for ((index, trait) in entries) {
+                val source = sourceFor(trait) ?: continue
+                val bySeat = source.traitDispatchBySeat[trait].orEmpty()
+                if (bySeat.isEmpty()) continue
+                val seatOnly = source.traitDispatch[trait].isNullOrEmpty()
+                for ((role, seatMap) in bySeat) {
+                    for ((seat, override) in seatMap) {
+                        val key = role to seat
+                        val selecting = seatOnly && TraitResolver.isModelSelecting(override)
+                        val earlier = first[key]
+                        if (earlier == null) {
+                            first[key] = trait to selecting
+                        } else if (selecting && !earlier.second && warned.add(key)) {
+                            out.add(
+                                ConfigViolation(
+                                    pointer("work_item_schemas", schemaName.toString(), "default_traits", index.toString()),
+                                    "trait '$trait' selects a model for ${role.name.lowercase()} seat '$seat' but follows " +
+                                        "'${earlier.first}' in default_traits; the model-selecting trait now wins " +
+                                        "regardless of order, so this order is deprecated (migration aid)",
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
 
     private fun semantic(
         document: ConfigDocument,
