@@ -279,6 +279,15 @@ process requires:
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
   repo: `/implement` Step 6).
+- Merge rounds that conflict on `CHANGELOG.md` (the `[Unreleased]` bullets) are resolved with
+  `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
+  --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
+  from the side that made it, and when both sides changed the same bullet differently the base
+  branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
+  Exit 0 resolved, 1 duplicate heading (`DUPLICATE <kind> <name>`; fix by hand), 2 invalid input
+  (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
+  merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the
+  base; in a rebase onto the base the two swap.
 
 ---
 
