@@ -53,14 +53,14 @@ Read what the existing container was last started with (this is the source of tr
 ```bash
 # REST env + debug
 docker inspect mcp-task-orchestrator-http --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
-  | grep -E 'API_ENABLED|API_AUTH_MODE|API_ALLOW_UNAUTHENTICATED|API_TOKENS_PATH|LOG_LEVEL' || echo '(no existing container)'
+  | grep -E 'API_ENABLED|API_AUTH_MODE|API_ALLOW_UNAUTHENTICATED|MCP_ALLOW_UNAUTHENTICATED|UPGRADE_BACKUP|API_TOKENS_PATH|LOG_LEVEL' || echo '(no existing container)'
 # config mount present?
 docker inspect mcp-task-orchestrator-http --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' 2>/dev/null \
   | grep -q '/project/.taskorchestrator' && echo 'config-mount: floor' || echo 'config-mount: none'
 ```
-Derive the **REST mode** from the env: `API_ENABLED=false` → **off**; `API_ENABLED=true` + `API_AUTH_MODE=none` → **unauthenticated**; `+ API_AUTH_MODE=bearer` → **bearer**.
+Derive the **REST mode** from the env: `API_ENABLED=false` → **off**; `API_ENABLED=true` + `API_AUTH_MODE=none` → **unauthenticated**; `+ API_AUTH_MODE=bearer` → **bearer**. REST **off** over HTTP also requires `MCP_ALLOW_UNAUTHENTICATED=true`: a detected container with `API_ENABLED=false` but without it is flagged in the summary, because a 4.0 image refuses to start in that combination (`MCP_AUTH`; see [fleet deployment](../../current/docs/fleet-deployment.md)). Reuse then adds the missing flag.
 
-If no container exists, fall back (in order) to: the persisted file `${HOME}/.taskorchestrator/deploy.env` (see 4d); else the **defaults** — HTTP transport, REST **off**, **floor** config mount, loopback `127.0.0.1:3001`, debug off.
+If no container exists, fall back (in order) to: the persisted file `${HOME}/.taskorchestrator/deploy.env` (see 4d); else the **defaults** — HTTP transport, REST **off** (`-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`), **floor** config mount, loopback `127.0.0.1:3001`, debug off.
 
 Build a one-line `DETECTED` summary, e.g. `HTTP · REST=unauthenticated (local) · config-mount=none · debug=off · 127.0.0.1:3001 · image=task-orchestrator:current`.
 
@@ -102,9 +102,9 @@ For **HTTP**, ask:
 AskUserQuestion(questions: [{
   question: "REST API mode? (the /api/v1 layer used by config-sync)", header: "REST API", multiSelect: false,
   options: [
-    { label: "Off (MCP only)", description: "API_ENABLED=false — the /mcp endpoint only. Default for plain local MCP use." },
+    { label: "Off (MCP only)", description: "API_ENABLED=false + MCP_ALLOW_UNAUTHENTICATED=true — the /mcp endpoint only, with no credential check (the opt-in is required or the server will not start). Default for plain local MCP use; loopback-bound ONLY." },
     { label: "Unauthenticated (local)", description: "API_ENABLED=true + API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true. Token-free config-sync; loopback-bound ONLY." },
-    { label: "Bearer (token file)", description: "API_ENABLED=true + API_AUTH_MODE=bearer + a mounted api-tokens.yaml. For authed / shared setups." }
+    { label: "Bearer (token file)", description: "API_ENABLED=true + API_AUTH_MODE=bearer + a mounted api-tokens.yaml. For authed / shared setups; the same bearer also guards /mcp." }
   ]
 }])
 ```
@@ -170,6 +170,14 @@ docker logs --since 20s mcp-task-orchestrator-http 2>&1 | tail -8
 ```json
 "mcp-task-orchestrator": { "type": "http", "url": "http://localhost:3001/mcp" }
 ```
+In **bearer** mode the entry also carries the token as a header placeholder (never the token itself; Claude Code expands `${...}` from its environment), and the same bearer guards every mount:
+```json
+"mcp-task-orchestrator": { "type": "http", "url": "http://localhost:3001/mcp", "headers": { "Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}" } }
+```
+The optional director entry (`/task-orchestrator:init` registers it unless `--no-director`) points at the director mount, with the same `headers` object in bearer mode:
+```json
+"mcp-task-orchestrator-director": { "type": "http", "url": "http://localhost:3001/mcp/director" }
+```
 
 ### Step 5: Summary
 Report: image tag + ID; the resolved run config (transport, REST mode, config mount, debug, port); whether settings were reused or reconfigured; and — for HTTP — remind the user to run `/mcp reconnect mcp-task-orchestrator` then `/mcp` to verify. For `--build-only`, note no container was started.
@@ -184,9 +192,10 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 - **No local build needed:** the Dockerfile runs `./gradlew :current:jar` in a builder stage.
 - **Persistence:** `mcp-task-data` volume persists the DB across runs.
 - **HTTP:** detached (`-d`), `/mcp` served, container `mcp-task-orchestrator-http`, published loopback-only by default.
+- **Upgrading a 3.x volume:** a 4.0 image on a volume that holds a 3.x database upgrades it irreversibly. `UPGRADE_BACKUP` (default `true`) first copies the file to `<db name>.pre-4.0.<UTC stamp>.bak` beside it and verifies the copy; `-e UPGRADE_BACKUP=false` skips the copy. Start ONE container for that first boot (a second concurrent first boot can race the copy), and keep a backup off the volume. Details: [fleet deployment, "Upgrading from 3.x"](../../current/docs/fleet-deployment.md).
 
 ## Troubleshooting
 - **Build fails:** verify the Dockerfile exists at project root; check disk space.
-- **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. If you set REST unauthenticated on a **pre-#237 image**, the old loader rejects `API_AUTH_MODE=none` at startup — rebuild first.
+- **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. With REST **off**, a missing `MCP_ALLOW_UNAUTHENTICATED=true` fails startup as `MCP_AUTH`; a failed pre-upgrade copy (free space, a busy checkpoint, a failed verify, or a file already at the exact stamped name) fails startup as `UPGRADE_BACKUP` before any migration.
 - **DB permission errors:** `docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data`.
 - **Config not found:** use a config mount (not None) if you rely on the global fallback config; verify `deploy/global-config/.taskorchestrator/` exists.

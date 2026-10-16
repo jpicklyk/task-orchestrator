@@ -8,9 +8,11 @@ argument-hint: "[project name] [--dry-run]"
 
 Take an existing, unscoped database (many depth-0 roots, no project anchor) and migrate it in place to the project-scoping convention: one `type=project` root that owns the workspace's work trees, with its UUID written back to `.taskorchestrator/config.yaml` under a `project:` block. Global containers (retrospectives, observations) stay at depth 0; test artifacts are flagged for cleanup, never moved or deleted.
 
-This is a **destructive-by-execution** skill: the EXECUTE step re-parents real items. It defaults to a dry run and never mutates anything without an explicit confirmation. The only thing it ever deletes is its own throwaway server-probe tree.
+This is a **destructive-by-execution** skill: the EXECUTE step re-parents real items. It defaults to a dry run and never mutates anything without an explicit confirmation. It deletes nothing.
 
 For a fresh workspace with no existing unscoped work, use `/task-orchestrator:init` instead; this skill is for databases that already hold unscoped work trees.
+
+Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md). The `config` tool is orchestration-profile only.
 
 **Non-goals:** cross-DB consolidation (merging items from a second database); merging multiple existing project anchors into one; any server-side enforcement of scope. This skill adopts a single workspace's single database.
 
@@ -40,11 +42,11 @@ Stop. (If the file is missing entirely, that is fine — a fresh unscoped DB has
 
 ### 1b — Existing anchor already in the DB?
 
-```
-query_items(operation="search", type="project", depth=0)
+```to-call
+{"tool": "items_read", "select": "list", "args": {"type": "project", "depth": 0}}
 ```
 
-(list mode — `query` omitted, filtering by `type` and `depth`.) Drop any result tagged `personal-root`: a personal root is not a project anchor and must never be adopted as one.
+Drop any result tagged `personal-root`: a personal root is not a project anchor and must never be adopted as one.
 
 - **No results** → continue to 1c.
 - **One or more results** → do NOT silently create a second anchor. Offer, via `AskUserQuestion`:
@@ -53,65 +55,11 @@ query_items(operation="search", type="project", depth=0)
 
   If the user picks "attach", record the existing anchor UUID as `ANCHOR_ID` and note that EXECUTE step (a) is skipped.
 
-### 1c — Server capability probe (the depth-sweep fix)
+### 1c — Config-push capability (tolerant)
 
-Bulk re-parenting is exactly the scenario that a pre-fix server corrupts: on a pre-#219/#220 server, re-parenting a subtree does NOT recompute descendant depths (bug `99a3e642`), so this skill would silently leave the moved trees with wrong depths. Verify the fix is deployed with a disposable probe, then delete it.
+The `config` tool (orchestration profile) pushes the config in EXECUTE step (d). Do not probe it destructively here — just remember to attempt the push there and, if the tool is not served (a knowledge-profile connection) or fails with `data.results[0].error.code` `forbidden` (the credential lacks `write-config`), skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step c) is the source of truth; the server push is a convenience sync.
 
-Build a probe where a grandchild's depth MUST change when a middle node is re-parented deeper:
-
-1. Create a throwaway root and a two-level branch under it in one call:
-   ```
-   manage_items(operation="create", items=[
-     { title: "zzprobe-root",  type: "container", priority: "low" }
-   ])
-   ```
-   Capture its UUID as `P`.
-2. Create the branch (sequential parentage, small tree). `manage_items` create has no ref/parentRef
-   mechanism (only `create_work_tree` does), so a sibling's UUID does not exist until its own create
-   call returns — M and G cannot be created in the same batch since G's `parentId` needs M's real UUID:
-   ```
-   manage_items(operation="create", items=[
-     { title: "zzprobe-A",   parentId: P,  priority: "low" }     → capture as A (depth 1)
-   ])
-   ```
-   ```
-   manage_items(operation="create", items=[
-     { title: "zzprobe-M",   parentId: P,  priority: "low" }     → capture as M (depth 1, sibling of A)
-   ])
-   ```
-   Capture M's returned UUID, then create G referencing it:
-   ```
-   manage_items(operation="create", items=[
-     { title: "zzprobe-G",   parentId: "<M's real UUID>",  priority: "low" }     → capture as G (depth 2, child of M)
-   ])
-   ```
-3. Re-parent the middle node M **under A** (making it deeper):
-   ```
-   manage_items(operation="update", items=[{ itemId: M, parentId: A }])
-   ```
-   Post-fix, M becomes depth 2 and G becomes depth 3.
-4. Read the grandchild's depth and capture it:
-   ```
-   query_items(operation="get", itemId=G)
-   ```
-5. Delete the probe **immediately, before acting on the result** — this runs on every path, pass or fail:
-   ```
-   manage_items(operation="delete", itemIds=[P], recursive=true)
-   ```
-6. Now evaluate the captured depth:
-   - `depth == 3` → fix is present. Continue.
-   - `depth == 2` (stale) → **abort** (probe already deleted):
-     ```
-     ⊘ Server is missing the reparent depth-sweep fix (bug 99a3e642).
-       Bulk re-parenting on this server would corrupt subtree depths.
-       Upgrade the Task Orchestrator server (PR #219/#220 or later) and retry.
-     ```
-
-**`--dry-run` skips this probe entirely** — no execution will happen, so the capability check is unnecessary and the dry run stays genuinely mutation-free. The probe runs only on the real-execution path, after the user confirms in Step 3.
-
-### 1d — Config-push capability (tolerant)
-
-`manage_project_config` may be absent on older servers. Do not probe it destructively here — just remember to attempt the push in EXECUTE step (d) and, if the tool is unavailable, skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step c) is the source of truth; the server push is a convenience sync.
+A 4.x server recomputes descendant depths when a subtree is re-parented, so no capability probe is needed. A 3.x server before PR #219/#220 does not (bug `99a3e642`); if the server may predate 4.0, upgrade it before adopting.
 
 ---
 
@@ -119,17 +67,23 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
 
 Full depth-0 census:
 
-```
-query_items(operation="overview", excludeTerminal=false, includeChildren=true, limit=<total>)
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"excludeTerminal": false, "includeChildren": true, "limit": 200}}
 ```
 
-If the response reports `truncated: true`, re-issue with `limit` set to the reported `total` so no root is missed.
+If the response carries `page.next`, continue with that `cursor` until every root is listed so none is missed.
+
+Read which types the **server layer** declares, so process items can be told apart from project work. `config` `effective` with no `rootId` returns the server config alone:
+
+```to-call
+{"tool": "config", "op": "effective", "args": {}}
+```
 
 Classify **every depth-0 root** into exactly one bucket:
 
 | Bucket | Rule | Action |
 |--------|------|--------|
-| **KEEP-GLOBAL** | Title matches a global container — `Session Retrospectives`, `Improvement Proposals`; OR the root itself is tagged/typed `agent-observation` (these are standalone depth-0 items, each its own root — never children of a container); OR a depth-0 `type=project` item tagged `personal-root` (never MOVE it). | Stays at depth 0. |
+| **KEEP-GLOBAL** | The root's `type` is declared by the server layer (from the `effective` call above) and is not `container` or `project` — e.g. `agent-observation` items, which are standalone depth-0 roots; OR a `container` root titled `Session Retrospectives` or `Improvement Proposals`; OR a depth-0 `type=project` item tagged `personal-root` (never MOVE it). | Stays at depth 0. |
 | **MOVE** | Any work container or work tree (a root with work/queue/review children), and any standalone work item. Everything that is real project work. | Re-parented under the new anchor. |
 | **CLEANUP-CANDIDATE** | Evident test artifacts: titles containing `probe`, `smoke`, `depth-test`, `zzprobe`; or tags matching `mtest-*`. | **Flagged only** — never moved, never deleted. Recommend `/batch-complete`. |
 
@@ -172,35 +126,26 @@ Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it
 
 Perform in this order. Record pre-execution counts first (used by Step 5): the depth-0 root count, the MOVE count, and the KEEP-GLOBAL count from Step 2.
 
-**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b):
+**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project`, follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
 
-```
-manage_items(operation="create", items=[{
-  title: "<project name>",
-  type: "project",
-  summary: "Project anchor — subtree scope for <project name>",
-  priority: "low"
-}])
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "<project name>", "type": "project", "summary": "Project anchor — subtree scope for <project name>", "priority": "low"}}
 ```
 
 Capture the new UUID as `ANCHOR_ID`.
 
-**(b) Batch re-parent the MOVE roots** — one call, `items` array (never a sequential call per root):
+**(b) Batch re-parent the MOVE roots** — one `items_write` call whose `ops` array holds one `update` per root (never a sequential call per root). The example shows one element; repeat it for each MOVE root in the same call:
 
-```
-manage_items(operation="update", items=[
-  { itemId: "<move-root-1>", parentId: ANCHOR_ID },
-  { itemId: "<move-root-2>", parentId: ANCHOR_ID },
-  ...
-])
+```to-call
+{"tool": "items_write", "op": "update", "args": {"id": "<move-root-1>", "parentId": "<ANCHOR_ID>"}}
 ```
 
-This relies on the depth-sweep fix verified in Step 1c — each moved subtree's descendant depths and `root_id` are recomputed server-side.
+A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Each moved tree is also repinned against the anchor's config head (the `reparent` pin point; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so a tree whose items resolve a schema of a different lifecycle class under the anchor's config fails that element with `invalid_transition` and nothing is written for it. The call commits element by element: read the per-element results, report any failure by root, and leave that root for the user to decide.
 
 **(c) Write the `project:` block into `config.yaml`** at the main checkout root (the parent of `git rev-parse --path-format=absolute --git-common-dir`, so it is correct from a linked worktree; refuse a home directory, as `/task-orchestrator:init` does) — read-modify-write, preserving ALL existing content:
 
 - Read the current `<main>/.taskorchestrator/config.yaml` text (create the file with just the block if it does not exist).
-- Insert this top-level block (surgical insert/append — do NOT regenerate or reformat the rest of the file; leave `work_item_schemas:`, `traits:`, `actor_authentication:`, comments, and formatting byte-for-byte intact):
+- Insert this top-level block (surgical insert/append — do NOT regenerate or reformat the rest of the file; leave `work_item_schemas:`, `traits:`, `extensions:`, comments, and formatting byte-for-byte intact):
   ```yaml
   project:
     rootId: "<ANCHOR_ID>"
@@ -208,14 +153,23 @@ This relies on the depth-sweep fix verified in Step 1c — each moved subtree's 
   ```
 - If a `project:` key somehow already exists (it should not — Step 1a would have aborted), update its `rootId`/`name` in place rather than adding a duplicate key.
 
-**(d) Push the config server-side** (tolerant — skip if the tool is absent):
+**(d) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config fails `config` `get` with `data.results[0].error.code` `not_found`, which means "no head" (then omit `expectedVersion`):
 
-```
-manage_project_config(operation="push", rootId=ANCHOR_ID, configYaml="<full config.yaml text>")
+```to-call
+{"tool": "config", "op": "get", "args": {"rootId": "<ANCHOR_ID>"}}
 ```
 
-- A `warning` field about the root's type is only returned when the anchor's `type` is not `project`; since step (a) sets `type: "project"`, none is expected. Report it if present but treat it as non-fatal.
-- If `manage_project_config` is unavailable on this server, skip this step and note: "Config pushed locally only — server does not support manage_project_config; the local config.yaml is authoritative."
+```to-call
+{"tool": "config", "op": "validate", "args": {"rootId": "<ANCHOR_ID>", "configYaml": "<full config.yaml text, LF>"}}
+```
+
+```to-call
+{"tool": "config", "op": "push", "args": {"rootId": "<ANCHOR_ID>", "configYaml": "<full config.yaml text, LF>", "expectedVersion": 1}}
+```
+
+- `validate` reports a problem as `valid: false` with `errors[{path, reason}]`; show them and skip the push (the local file is saved). Relay `warnings`.
+- Read failures from `data.results[0].error` (call-level `partial_failure`): `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
+- If the `config` tool is not available or the call is `forbidden`, skip this step and note: "Config saved locally only — the server push was not possible; the local config.yaml is authoritative."
 
 ---
 
@@ -224,18 +178,18 @@ manage_project_config(operation="push", rootId=ANCHOR_ID, configYaml="<full conf
 Confirm the migration landed correctly. On ANY mismatch, report loudly and do NOT auto-rollback (say the remedy explicitly).
 
 1. **Anchored child count** — the new anchor's direct children must equal the MOVE count:
-   ```
-   query_items(operation="overview", anchorId=ANCHOR_ID)
+   ```to-call
+   {"tool": "items_read", "select": "overview", "args": {"anchorId": "<ANCHOR_ID>"}}
    ```
    The anchor's direct-child count must equal `N move`.
 2. **Global census** — remaining depth-0 roots must reconcile:
-   ```
-   query_items(operation="overview", excludeTerminal=false, limit=<total>)
+   ```to-call
+   {"tool": "items_read", "select": "overview", "args": {"excludeTerminal": false, "limit": 200}}
    ```
    Expected depth-0 roots = KEEP-GLOBAL count + 1 (the anchor) + any CLEANUP-CANDIDATE roots left in place (cleanup candidates were flagged, not moved). Confirm the moved roots are no longer at depth 0.
 3. **Depth spot-check** — pick one moved tree that had a grandchild; confirm the grandchild's depth increased by exactly 1 from its pre-move value (the anchor added one level above the old root):
-   ```
-   query_items(operation="get", itemId="<grandchild-of-a-moved-tree>")
+   ```to-call
+   {"tool": "items_read", "select": "get", "args": {"itemId": "<grandchild-of-a-moved-tree>"}}
    ```
 
 Render a before/after table:
@@ -251,7 +205,7 @@ Render a before/after table:
 | Cleanup candidates  | 1      | 1 (flagged, not moved) |
 
 ↳ Config: project.rootId written to .taskorchestrator/config.yaml
-↳ Server push: applied | skipped (tool absent)
+↳ Server push: applied | skipped (tool absent or forbidden)
 ↳ Cleanup candidates flagged for /batch-complete: <titles>
 ```
 
@@ -260,22 +214,28 @@ Render a before/after table:
 ```
 ⚠ Reconciliation mismatch — expected <X> children under the anchor, found <Y>.
   No rollback was performed. To undo: re-parent the affected roots back to depth 0
-  with manage_items(operation="update", items=[{ itemId, parentId: null }]) for each,
-  then delete the anchor. Investigate before retrying.
+  with an items_write update that clears their parent, one element per root, then
+  delete the anchor. Investigate before retrying.
+```
+
+The undo element for one root clears `parentId` (a `clear` list, since `parentId: null` is not a valid value):
+
+```to-call
+{"tool": "items_write", "op": "update", "args": {"id": "<moved-root>", "clear": ["parentId"]}}
 ```
 
 Finish by seeding the bundled process rules for the new anchor: run `/task-orchestrator:init` (a re-run is idempotent and resumes at rule seeding), or rely on the next session's config-sync.
 
-Remind the user that schema changes / new config require an MCP reconnect (`/mcp`) to take effect if they rely on per-root schema resolution immediately.
+A pushed config takes effect immediately for new and unpinned items of the root; items already pinned keep their schema until `items_write` `repin` (see `/task-orchestrator:manage-schemas`).
 
 ---
 
 ## Safety Summary
 
 - **Default dry run.** No mutation without an explicit `AskUserQuestion` "Yes".
-- **Never deletes user data.** Cleanup candidates are only *flagged*; the sole deletion is the throwaway server probe in Step 1c.
+- **Never deletes user data.** Cleanup candidates are only *flagged*; the skill deletes nothing.
 - **Never regenerates config.yaml.** The `project:` block is surgically inserted; all other content is preserved verbatim.
-- **Abort, don't corrupt.** A pre-fix server (missing the depth-sweep) aborts in preflight rather than silently corrupting subtree depths.
+- **Fail per element, not silently.** A root whose re-parent is refused (`invalid_transition` on a lifecycle-class crossing) is reported and left in place.
 - **No auto-rollback.** On verify mismatch, the skill reports the manual remedy rather than guessing at an undo.
 
 ---

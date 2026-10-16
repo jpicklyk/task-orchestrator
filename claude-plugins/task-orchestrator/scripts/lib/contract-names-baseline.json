@@ -57,62 +57,6 @@
       "owner": "c6740063"
     },
     {
-      "file": "skills/adopt-project-scope/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/init/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/companion-template.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/config-format.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/create-workflow.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/delete-workflow.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/content-production.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/incident-response.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/multi-project.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/schema-free.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/support-triage.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/workflow-patterns.md",
-      "owner": "a28fa715"
-    },
-    {
       "file": "skills/ralph/SKILL.md",
       "owner": "cae5d141"
     },

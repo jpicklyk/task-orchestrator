@@ -34,7 +34,7 @@ traits:
           was tried, customer sentiment, recommended action."
 ```
 
-**Rationale to present:** claim mode is the dispatch model — workers `claim_item` with a TTL,
-so a crashed worker's lease expires and the ticket returns to the pool. Priority carries
-urgency into `get_next_item` ordering. An unescalated ticket flows queue→work→terminal; an
+**Rationale to present:** claim mode is the dispatch model — workers `advance` with the `claim` op
+and a TTL, so a crashed worker's lease expires and the ticket returns to the pool. Priority carries
+urgency into `items_read` `next` ordering. An unescalated ticket flows queue→work→terminal; an
 escalated one grows a review phase — same schema, two shapes, via one per-item trait.
