@@ -1,0 +1,5 @@
+## PREREQUISITE — Complete before exploring or planning
+
+You MUST invoke the `task-orchestrator:pre-plan-workflow` skill BEFORE starting any codebase exploration or plan writing.
+
+Do this now. Do not begin exploring, reading code, or drafting your plan until this prerequisite completes.
