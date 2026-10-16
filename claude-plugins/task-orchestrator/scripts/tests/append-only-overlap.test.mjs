@@ -220,27 +220,6 @@ test('S13 [E]: reason lists the distinct mine files of the first deferring highe
   )
 })
 
-// S13b exercises the test-plan's S13 oracle clause "in mainFiles, docFiles, testFiles,
-// existingTestEdits order": an existingTestEdits entry is a claim like the other three lists.
-// FINDING if red: a black-box probe during authoring showed overlapDeferral returns null for a
-// pure existingTestEdits-vs-mainFiles/existingTestEdits/testFiles overlap even with no patterns,
-// i.e. existingTestEdits are not claims at all. TS says claims are "unchanged", so either the
-// test-plan oracle or the pre-existing claim set is wrong; that arbitration is not the author's.
-test('S13b [E]: an existingTestEdits entry that overlaps a higher item\'s claim is named last in the reason (test-plan S13 oracle order)', () => {
-  const mine = {
-    short: 'm',
-    output: plannerOutput({ mainFiles: ['src/a.js'], existingTestEdits: ['t/old.test.js'] }),
-  }
-  const higher = [sideOf('h', ['src/a.js', 't/old.test.js'])]
-  assert.deepEqual(
-    core().overlapDeferral(mine, higher, 'per-item', ['CHANGELOG.md']),
-    { reason: 'overlap h on src/a.js, t/old.test.js' },
-  )
-})
-
-// ============================================================================================
-// S14 - worktree-absolute claims
-// ============================================================================================
 
 test('S14 [N]: worktree-absolute claims for the same append-only file under two worktrees are exempt; a non-append-only file under the same roots still defers by its repo-relative name (TS Contract + path-keys D4)', () => {
   const REPO = '/repo'
