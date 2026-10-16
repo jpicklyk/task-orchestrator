@@ -29,4 +29,12 @@ code contradicts is blocking.
 
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
 
+**Carry-in dispositions.** Every carry-in key on the item needs exactly one disposition line across
+the planner's record (`carry-in-dispositions`, or the `## Carry-in dispositions` section of its queue
+note) and the orchestrator's `orchestrator-carry-in-dispositions` note. A carry-in key is a note key
+starting `carry-in-`, except `carry-in-dispositions` itself; take them from your dispatch prompt, else
+from a `includeBody:false` list. A line disposes a key only when it starts with the exact `<key>:`.
+The record's `N of N` line must equal its row count. A missing disposition, a key disposed twice, or a
+count mismatch is a blocking finding (B#).
+
 **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. `~/.gradle/caches`); never search from `/` or a drive root.

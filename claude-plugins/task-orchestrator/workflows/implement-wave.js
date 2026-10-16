@@ -864,6 +864,41 @@ function promptOwnedNotes(stage, item) {
   return out
 }
 
+/**
+ * Carry-in part (after the owned-notes part). A planner-v1 stage with carry-in keys gets a
+ * CARRY-INS block; an implementer-v1 stage with late carry-in keys gets a LATE CARRY-INS block;
+ * every other stage gets nothing. Plan args carry key names only, never note bodies.
+ */
+function promptCarryIns(stage, item) {
+  const keys = (item && item.carryIns) || []
+  const late = (item && item.lateCarryIns) || []
+  const quoted = (list) => list.map((k) => `"${k}"`).join(', ')
+  if (stage.output === 'planner-v1' && keys.length) {
+    const target = (stage.notes || []).includes('carry-in-dispositions')
+      ? 'the carry-in-dispositions note'
+      : 'a "## Carry-in dispositions" section of your own queue note'
+    const rows = keys.map((k) => `  ${k}: in scope (AC n) | deferred to <item-id> | rejected because <reason>`).join('\n')
+    return (
+      'CARRY-INS: this item has carry-in notes. Read every one with query_notes(operation:"list", ' +
+      `itemId:"${item.id}", keys:[${quoted(keys)}], includeBody:true) before you plan. ` +
+      `Then record exactly one disposition row per key in ${target}, choosing one alternative per row, ` +
+      'and end the record with the count line:\n' +
+      rows +
+      `\n${keys.length} of ${keys.length}`
+    )
+  }
+  if (stage.output === 'implementer-v1' && late.length) {
+    return (
+      'LATE CARRY-INS: these carry-in notes were written after planning and have no planner disposition: ' +
+      `[${late.join(', ')}]. Before writing code, read each with query_notes(operation:"list", ` +
+      `itemId:"${item.id}", keys:[${quoted(late)}], includeBody:true). ` +
+      'The orchestrator records the disposition for each in its orchestrator-carry-in-dispositions note; a key ' +
+      'marked "in scope" binds you the same way task-scope does, and a conflict with it goes under Deviations requested.'
+    )
+  }
+  return ''
+}
+
 /** Part 6: rule fetch by key. */
 function protocolKeyFor(stage) {
   if (stage.enters) return 'protocol.entry-seat'
@@ -1150,6 +1185,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptTools(plan, stage),
     promptActor(stage, item, plan),
     promptOwnedNotes(stage, item),
+    promptCarryIns(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
     promptConfigRetry(),

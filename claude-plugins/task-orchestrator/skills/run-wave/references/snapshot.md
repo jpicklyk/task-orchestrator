@@ -15,6 +15,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
           notes:[{key, role, required, seat?, skill?}], seats?, dispatch?, dispatchBySeat?, resources?}},
+ carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
  noteActors:{<itemId>: [{key, actorId}]},              // only for role=work candidates (S4 resume)
  parents:{<id>: {role, canAdvance, missing[]}},         // S11
  profile:{…parsed run-profile.json, or {} when absent},
@@ -32,6 +33,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   `workflowSizeGuideline`, `allow`, and whatever else it emits — copy it as-is, do not curate the
   fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry mode and `plan` copies
   `probe.pluginVersion`/`probe.workflowSizeGuideline` into `capabilities`/`sizeGuideline`.
+- `carryIns` — optional. One entry per candidate that has at least one note key starting `carry-in-` (from `query_notes(operation:"list", includeBody:false)`); `keys` is those keys, `dispositions` is the body of the item's `carry-in-dispositions` note, or of the `## Carry-in dispositions` section of its planner queue note, else `null`. This is the one place a note body enters the snapshot. `plan` drops `carry-in-dispositions` and duplicates from `keys`, copies the result to each item's `carryIns`, and lists in `lateCarryIns` the keys of an item with no planner stage that no disposition line covers (a line covers a key only when it starts with the exact `<key>:`).
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.

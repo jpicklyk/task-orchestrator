@@ -92,6 +92,8 @@
           },
           "orchestratorNotes": { "type": "array", "items": { "type": "string" } },
           "unownedRequired": { "type": "array", "items": { "type": "string" } },
+          "carryIns": { "type": "array", "items": { "type": "string" } },
+          "lateCarryIns": { "type": "array", "items": { "type": "string" } },
           "waitsFor": {
             "type": "array",
             "items": {
