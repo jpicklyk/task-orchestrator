@@ -1280,7 +1280,7 @@ function promptRerunAndEntry(plan, item, stage) {
         'ENTRY REPORT (required): read data.results[0]. ok -> entry {applied:true, newRole, previousRole, unblockedItems: ' +
           'unblocked[].itemId}. An error element -> entry {applied:false, errorCode: error.code, previousRole: ' +
           'error.detail.role (gate_blocked) or the role context showed, missingNotes: error.detail.missing[].key, blockers: ' +
-          'error.detail.blockers[].id, contendedResources: from error.detail.resources[]}; retried true only after an ' +
+          'error.detail.blockers[].id, contendedResources: from error.detail.resources[].name}; retried true only after an ' +
           'unavailable retry. gate_blocked with detail.role "work" means already in phase. Role "work" at context: entry ' +
           '{"applied":false,"alreadyInPhase":true}.',
       )
