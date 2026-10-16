@@ -626,6 +626,7 @@ One row per operator-facing environment variable the server reads. This table is
 | `RETENTION_EVENTS_DAYS` | `180` | [Data Retention](#data-retention) |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | [Data Retention](#data-retention) |
 | `SCHEMA_MODE` | `migrate` | [Schema management](#schema-management-locking-and-startup-integrity) |
+| `UPGRADE_BACKUP` | `true` | [Schema management](#schema-management-locking-and-startup-integrity) |
 
 ## Release Gates
 
