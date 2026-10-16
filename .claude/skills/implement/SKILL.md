@@ -829,8 +829,10 @@ cannot see them, and a shared naming contract does not prevent them, since namin
 and semantic coherence are orthogonal. Evidence: 5 blocking cross-file contradictions caught
 this way at 5-item scale (retro `6d562acb`) and canonical-config consistency issues at 7-item
 scale (retro `bd4ec109`) — trend `028c7b5d`. The consolidated reviewer fills the review-phase
-notes of the CHILD items that carry a review phase (or, when the children skip review, which is
-the `feature-task` default, a per-wave `wave-review` note that the reviewer itself owns and fills). It never fills the parent
+`review-checklist` note of each reviewed CHILD (one note per child, all under the same reviewer
+actor). When the children's schema has no review phase (the `feature-task` default), this Step 5
+consolidated pass is skipped and the feature review in Step 6 item 3 (`run-wave` `post-run.md`
+Step 7b) is the only review. It never fills the parent
 feature's `review-checklist`: the parent is reviewed once, in Step 6 item 3 (`run-wave`
 `post-run.md` Step 7b), after every child is terminal.
 

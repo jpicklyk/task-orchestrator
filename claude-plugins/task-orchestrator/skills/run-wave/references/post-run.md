@@ -364,15 +364,21 @@ earlier can therefore close the parent before any finding is disposed.
    `task-orchestrator:reviewer` with an explicit `model`: the model the parent's review dispatch
    profile names, else `opus`. Range: the merged diff of the feature's owned files, pathspec = the
    union of the children's owned files (the reviewer also runs `git diff --stat <range>` over the WHOLE
-   range, without the pathspec, and flags any off-scope change): shared mode `git -C <feature-worktree> diff <base>...HEAD
+   range, without the pathspec, and flags any off-scope change; this whole-range check applies in
+   shared mode, while in per-item mode compare each child PR's merged diff instead, since the base
+   merges in between are not the feature's changes): shared mode `git -C <feature-worktree> diff <base>...HEAD
    -- <paths>`; per-item mode the same pathspec over the base-branch range from the SHA before the
    first child merged to the merged tip, so unrelated base merges stay out. Input: each child's
    `review-checklist` (`query_notes(operation="list", itemId=<child>, keys=["review-checklist"])`
    per child); list any child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
 2. **On Fail**, the orchestrator dispatches a fix seat (a fresh `implementer-a<n>`, scoped to the
-   finding's file) against the PARENT feature, with NO `advance_item` call: it commits on the
-   feature branch with a `Seat: implementer-a<n>` trailer and a `[<parent-short>]` tag, and the
+   finding's file) against the PARENT feature, with NO `advance_item` call: its dispatch prompt must
+   name it a NON-ENTRY seat (a default implementer's `advance_item(start)` on the review-role
+   parent would complete it, `RoleTransitionHandler.kt:446`). In shared mode it commits on the
+   feature branch; in per-item mode there is no feature branch, so the fix lands as its own small PR
+   against the base branch and the re-check reads that PR's diff. Either way it carries a
+   `Seat: implementer-a<n>` trailer and a `[<parent-short>]` tag, and the
    orchestrator records the dispatch in the parent's `delegation-metadata`. Never reopen a terminal
    child to carry a fix: that seat's `advance_item(start)` fails on a terminal child, and
    completing the child again cascades the parent to terminal (every parent note is filled,
