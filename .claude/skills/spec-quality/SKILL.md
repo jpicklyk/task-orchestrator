@@ -198,16 +198,18 @@ line is an omission, not a decision.
 - **Columns:** terminal (interactive CLI), desktop app, headless `claude -p`.
 - **Cells:** exactly one of `test: <test file or S#>` (only when that test's fixture actually
   models the row's state), `live-owed: <command or steps, in the form that will be executed>`,
-  or `n/a: <reason>`. A desktop cell an agent cannot drive is `live-owed` (to the user) or
-  deferred, never `n/a` merely because an agent cannot run it.
+  or `n/a: <reason>`. A desktop cell an agent cannot drive is `live-owed` (to the user, or carrying
+  a `deferred: <item id>` suffix on its Live-owed entry), never `n/a` merely because an agent
+  cannot run it.
 - **Owed cells:** the item's `session-tracking` note (the orchestrator's, under the
   `session-tracked` trait) lists every `live-owed` cell on a `**Live-owed**:` line. Each entry
   ends `run <date>: <result>` or `deferred: <item id>`; a deferral names a tracked item, never
   prose. An entry with neither suffix is open, and the item does not leave work while one is
   open (`/implement` Step 4c).
 
-The matrix lives only in the item's spec note; a plan or dispatch contract points at it and never
-copies its cells.
+The matrix lives in the item's spec note (`task-scope`, `diagnosis` or `specification`). A plan may
+carry it or point at it (`/implement` Step 3, "Plans carry the State matrix"); a dispatch contract
+only points at it and never copies its cells.
 
 ---
 

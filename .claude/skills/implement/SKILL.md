@@ -779,7 +779,9 @@ the working branch for Direct/Delegated):
 6. **Live-owed check (proposal `8ecc28f1`)** - before the work-exit `advance_item`, read the
    item's `session-tracking` note for its `**Live-owed**:` line (spec-quality, "State matrix").
    Any entry not ending `run <date>: <result>` or `deferred: <item id>` is open and holds the
-   item in work until it is run or deferred. This check sits at work exit because
+   item in work until it is run or deferred. The orchestrator writes that line from the spec
+   note's matrix when it first fills `session-tracking`; a matrix with `live-owed` cells and no
+   `**Live-owed**:` line counts as an open entry. This check sits at work exit because
    `feature-task` items skip review by default (Step 5).
 7. After implementation completes:
    - **Subagent delegation:** The agent returns after filling work-phase notes.

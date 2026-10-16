@@ -100,7 +100,7 @@ oracles, and the public signatures tests compile against>`.
 
 | Item | Title | Decision / scope anchor | State matrix |
 |---|---|---|---|
-| `<short-uuid>` | `<title>` | `<the scope decision already made — what layer the fix lives at, what stays from an earlier wave, what an agent may not re-litigate>` | `<task-scope (the matrix lives in the item's spec note), or n/a - <reason>>` |
+| `<short-uuid>` | `<title>` | `<the scope decision already made — what layer the fix lives at, what stays from an earlier wave, what an agent may not re-litigate>` | `<the spec note key holding the matrix (task-scope, diagnosis or specification), or n/a - <reason>>` |
 
 ## Planning seat return template
 
