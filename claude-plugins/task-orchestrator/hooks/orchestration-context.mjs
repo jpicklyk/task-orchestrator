@@ -20,6 +20,8 @@ Items whose \`type\` (or legacy \`tags\`) match a schema in \`.taskorchestrator/
 
 const PRINCIPLE_AGENT_OWNED = `**Agent-owned phases** - a delegated agent enters its phase (one \`advance_item(start)\`), fills that phase's required notes, and returns; the orchestrator owns every later transition (advance, inspect \`newRole\`, dispatch the next agent). For a seat-aware item run from a run plan (\`/task-orchestrator:run-wave\`), only the entry seat calls \`advance_item(start)\`; in-phase and read-only seats never advance. Skills referenced by a note's \`skillPointer\` provide the evaluation framework for whoever fills it. **A queue->work \`advance_item\` can fail transiently** with \`errorCode: "resource_unavailable"\` (a resource-bearing trait's lease is held elsewhere) - distinct from a gate block; do not fill more notes or retry immediately, work a different item and retry later. **Never rewrite a seat-owned note:** the orchestrator never appends to or re-upserts a note whose stored actor is a seat (\`review-checklist\`, \`test-manifest\`, \`test-plan\`, \`test-independence-audit\`); re-review after fixes goes to a fresh \`task-orchestrator:reviewer\` seat, and any orchestrator confirmation goes under its own key \`orchestrator-confirmation\` (role review, optional).`;
 
+const PRINCIPLE_FEATURE_CLOSURE = `**Feature closure** - a parent with 2+ children whose schema has a review phase is reviewed after EVERY child is terminal (a review-role parent with filled notes cascades to terminal on its last child; a Fail is fixed by a fix seat run against the parent, never by reopening a terminal child, then re-checked by the reviewer): one independent \`task-orchestrator:reviewer\` over the merged range, handed the children's \`review-checklist\`s. Record each finding in the parent's \`orchestrator-confirmation\` as \`fixed <sha|PR>\`, \`follow-up <item-id>\` or \`accepted: <reason>\` (a blocking finding can only be \`fixed\`), end with \`N of N disposed\`, and complete the parent only then. Not server-checked. See run-wave \`references/post-run.md\` Step 7b.`;
+
 const MODEL_LINE = `Always pass \`model\` explicitly on every Agent dispatch - the shipped agents use \`model: inherit\`, so omitting it silently runs the phase owner on your own model (a guard denies the dispatch otherwise).`;
 
 const RETROSPECTIVE = `## Retrospective
@@ -54,6 +56,7 @@ ${SHARED_SCHEMA_WORKFLOW}
 4. **Include the item UUID in every delegation** - subagents start fresh with no ambient context. ${MODEL_LINE}
 5. **Know current state** - query MCP before deciding; \`role="work"\` filters resolve to all work-phase statuses.
 6. **Communicate concisely** - status first, action second.
+7. ${PRINCIPLE_FEATURE_CLOSURE}
 
 ## Skill Routing
 
@@ -92,6 +95,7 @@ ${SHARED_SCHEMA_WORKFLOW}
 5. **Know current state** - query MCP before deciding; \`role="work"\` filters resolve to all work-phase statuses.
 6. **Communicate concisely** - status first, action second.
 7. **Run multi-item plans through run-wave** - a plan whose materialized items meet the post-plan hand-off condition runs through \`/task-orchestrator:run-wave\`; otherwise dispatch or implement as the schema directs.
+8. ${PRINCIPLE_FEATURE_CLOSURE}
 
 ## Skill Routing
 
