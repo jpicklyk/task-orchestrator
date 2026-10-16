@@ -83,10 +83,10 @@ directory is the worktree.
 Base: `<short-sha>` (origin/main at <date>, after PR #<n>)
 PR boundary: ONE PR for the wave, opened when every item is terminal.
 Scratchpad: `<absolute scratchpad path from the session environment>`
-Lock helper (agents' ONLY gradle entry point): `<scratchpad>\gradle-locked.ps1` — copied verbatim at
-Step 2 from `.claude/skills/implement/references/gradle-locked.ps1`, never hand-written per wave. It
-refuses `:current:test`, `:current:ktlintCheck` and `--rerun-tasks` (EXIT=98) unless
-`TO_GRADLE_OWNER=orchestrator` is set in the calling process; only the orchestrator's own
+Lock helper (agents' ONLY gradle entry point): `<worktree>\.claude\skills\implement\references\gradle-locked.ps1`
+(the tracked file, referenced in place; never copied into the scratchpad and never hand-written per
+wave; the scratchpad is for logs only). It refuses `:current:test`, `:current:ktlintCheck` and
+`--rerun-tasks` (EXIT=98) unless `TO_GRADLE_OWNER=orchestrator` is set in the calling process; only the orchestrator's own
 invocations set it, inline, and no dispatch prompt ever does.
 
 ## Conflict rule
@@ -135,7 +135,7 @@ for the full rule. Inline here only what the rule cannot supply — the wave-spe
 Run ONCE, via the lock helper, before committing:
 
 ```
-& "<scratchpad>\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
+& "<feature worktree>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
 ```
 
 - Run it from the PowerShell tool with the call operator (`&`) exactly as written above — one
@@ -298,3 +298,13 @@ batched across the wave in one scratch worktree at the merged SHA, each mutation
 classes the item's `test-manifest` maps to it, one full suite only for a survivor): recorded on the
 wave parent's `red-proof-results` note, per item — `<proofs run, gaps found, equivalents, approx
 minutes>`; a reviewer of a LATER wave reads it there.
+
+Red-proof run rules (every red-proof run and any red-proof runner prompt; proposal `4ba93956`):
+1. Expected durations: the full Kotlin suite takes about 6-7 minutes on 4.0; a targeted class run
+   (`--tests`) about 1 minute.
+2. Beyond 2x the expected time, take a `jstack` of the test worker, kill only that worker (a
+   process this seat started, never another seat's or the orchestrator's), and report HUNG with the
+   top frames.
+3. The scratch red-proof worktree uses its own `--project-cache-dir`, and the runner runs
+   `gradlew --stop` for its own daemon before returning.
+4. Tests touching run loops or blocking IO carry `@Timeout`.

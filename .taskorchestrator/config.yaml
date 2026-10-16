@@ -61,7 +61,7 @@ work_item_schemas:
         seat: planner
         description: "What to build — target files, acceptance criteria, constraints."
         skill: "spec-quality"
-        guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task."
+        guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
       - key: implementation-notes
         role: work
         required: true
@@ -86,7 +86,7 @@ work_item_schemas:
         description: "Reproduction, root cause, and fix approach."
         skill: "spec-quality"
         maxLength: 6000
-        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context."
+        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
       - key: implementation-notes
         role: work
         required: true
@@ -111,7 +111,7 @@ work_item_schemas:
         role: queue
         required: true
         description: "What is changing, why, and expected behavior after the change."
-        guidance: "Describe the plugin/config change: what files are affected, what behavior changes, and how to verify. For skill changes, include the trigger phrase and expected output. For hook changes, include the event and matcher. **Plugin blast radius:** consider whether hook caching requires /mcp reconnect, whether CRLF line endings will break script execution, and whether new skill trigger phrases conflict with existing skills. No implementation-notes gate — config changes are self-documenting."
+        guidance: "Describe the plugin/config change: what files are affected, what behavior changes, and how to verify. For skill changes, include the trigger phrase and expected output. For hook changes, include the event and matcher. **Plugin blast radius:** consider whether hook caching requires /mcp reconnect, whether CRLF line endings will break script execution, and whether new skill trigger phrases conflict with existing skills. No implementation-notes gate — config changes are self-documenting. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
 
   quick-fix:
     lifecycle: auto
@@ -176,7 +176,7 @@ traits:
         required: true
         description: "SQLite migration strategy — table recreation patterns, data migration, rollback plan."
         skill: "migration-review"
-        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) DirectDatabaseSchemaManager table ordering impact. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
+        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) DirectDatabaseSchemaManager table ordering impact, (6) for any migration that copies, backfills or drops data: a Docker upgrade rehearsal on throwaway volumes named q<item>smoke-* (never a live volume) with expected before/after row counts, one injected malformed row, and the count log line the rehearsal must show. The implementer owns the rehearsal. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
 
   needs-api-compat-review:
     notes:
@@ -308,6 +308,28 @@ traits:
         description: "Session context — what was done, how it went, and anything the retrospective should know."
         guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~600-1200 characters; the 2000 maxLength is a backstop, not a goal."
         maxLength: 2000
+
+  # Proposal a3f733b6: the orchestrator adds this trait when it writes the first carry-in-* note on an item.
+  has-carry-ins:
+    notes:
+      - key: carry-in-dispositions
+        role: queue
+        seat: planner
+        required: true
+        maxLength: 3000
+        description: "One line per carry-in-* note on this item: in scope (AC n) | deferred to <item-id> | rejected because <reason>."
+        guidance: "List every note on this item whose key starts with carry-in, using the exact key, one line each: `<key>: in scope (AC n) | deferred to <item-id> | rejected because <reason>`. End with the row count as N of N. A carry-in added after you froze task-scope is added to this note by the orchestrator before dispatch. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
+
+  # Proposal 091bbb95: apply to docs, CHANGELOG and hook-text-only feature-tasks at materialization.
+  needs-docs-accuracy-review:
+    notes:
+      - key: docs-accuracy-review
+        role: review
+        seat: reviewer
+        required: true
+        maxLength: 4000
+        description: "Docs-accuracy gate: every behavioural claim in the changed docs verified against source before the item can leave review."
+        guidance: "Open the file:line behind every claim that states nullability, redaction, ownership, defaults, limits, budgets, ordering or an honest limit and confirm it; wording copied from an existing doc is unverified until its source is opened. Check the Docs and CHANGELOG lines against git diff --name-only <base>...HEAD. Scan changed files for bytes below 0x20 other than TAB and LF, non-UTF-8 bytes and CR line endings. Verdict Pass or Fail, with numbered blocking findings (B1...) and non-blocking (N1...). An uncited semantic claim is an observation; a wrong one is blocking."
 
 # Resource leasing — reference example only, NOT activated on this project's items.
 # Uncomment and adapt to declare a shared-resource registry and reference it from a trait.

@@ -195,7 +195,7 @@ working directory and then names a relative `plans/<slug>.md` points at a path t
 
 | Slot | Why it exists |
 |---|---|
-| Header | One place agents read branch, worktree path, the write root every agent write must fall under, the contract's own absolute path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them (write root: proposal `d1484a3e`). |
+| Header | One place agents read branch, worktree path, the write root every agent write must fall under, the contract's own absolute path, base SHA, PR boundary, scratchpad (logs only) and the tracked gradle lock helper path (`.claude/skills/implement/references/gradle-locked.ps1`, never copied), so no prompt repeats them (write root: proposal `d1484a3e`). |
 | Conflict rule | Makes the plan file authoritative over prompt text, and names the per-item note that outranks the plan for its own dimension. |
 | Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave. |
 | Planning seat return template | Fixes the fields each planning seat returns, so streams compose without re-reading every plan. |
@@ -953,8 +953,13 @@ After review passes:
    **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
    `perf` for performance, `test` for test-only changes, `chore` for maintenance.
 
-2. **CHANGELOG check.** Confirm the branch carries the `[Unreleased]` bullet written in Step 4c
-   (post-implementation step 4), or that the PR body will state `Changelog: none (<why>)`.
+2. **CHANGELOG check and Docs line.** Confirm the branch carries the `[Unreleased]` bullet written in
+   Step 4c (post-implementation step 4), or that the PR body will state `Changelog: none (<why>)`.
+   Both PR-body lines come from the diff, never from the plan: run
+   `git diff --name-only <base>...HEAD` and (a) list every changed doc path from that output on the
+   body's Docs line; (b) require `CHANGELOG.md` in that output unless the body states
+   `Changelog: none (<why>)`. Recompute both lines after any merge round (a base merge or
+   update-branch), before merge.
 
 3. Push the working branch:
    ```bash
@@ -973,6 +978,9 @@ After review passes:
    ## Review
    <verdict summary>
 
+   ## Docs
+   <every changed doc path from `git diff --name-only <base>...HEAD`>
+
    ## Changelog
    <the [Unreleased] bullet text, or none (<why>)>
 
@@ -982,7 +990,19 @@ After review passes:
    )"
    ```
 
-5. After PR merges:
+5. **Merge gate** (Parallel tier step 7 uses this same gate):
+   - Wait on `gh pr checks <n> --watch --fail-fast` and squash-merge only when every check is
+     green. Never merge with a check pending. If auto-merge is armed, GitHub enforces "all green"
+     only for REQUIRED checks, so this gate still applies to the rest.
+   - On a red check, read the failed job. An infra flake gets one
+     `gh run rerun <run-id> --failed`, recorded in the item's notes; a test failure is fixed on
+     the branch.
+   - Fallback merge: if `gh pr view <n> --json mergeStateStatus,autoMergeRequest` shows `CLEAN`
+     with no `autoMergeRequest`, or an armed auto-merge has not merged within 10 minutes of the
+     last green check, run `gh pr merge <n> --squash`. Never directly merge a PR that is not
+     `CLEAN` or has pending checks.
+   - Confirm `gh pr view <n> --json state` reports `MERGED` before any worktree or branch
+     cleanup. Then:
    ```bash
    git checkout main
    git pull origin main
@@ -1035,8 +1055,10 @@ For Parallel-tier features with a shared feature worktree:
    ```
 3. Advance the parent to review and fill `review-checklist` (orchestrator-authored,
    summarizing across all children's reviews).
-4. **CHANGELOG check** — as the Direct/Delegated tier's step 2: the bullet the orchestrator or
-   docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR body.
+4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
+   orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
+   body; the Docs line and the `CHANGELOG.md` requirement are built from
+   `git diff --name-only <base>...HEAD`, never from the plan, and recomputed after any merge round.
 5. Push the feature branch:
    ```bash
    git -C <feature-worktree-path> push -u origin feat/<feature-slug>
@@ -1058,6 +1080,9 @@ For Parallel-tier features with a shared feature worktree:
    ## Review
    <feature-level review verdict, references each child's review-checklist>
 
+   ## Docs
+   <every changed doc path from `git diff --name-only <base>...HEAD`>
+
    ## Changelog
    <the [Unreleased] bullet text, or none (<why>)>
 
@@ -1067,7 +1092,8 @@ For Parallel-tier features with a shared feature worktree:
    EOF
    )"
    ```
-7. After PR merges:
+7. **Merge gate** - run the Direct/Delegated tier's step 5 gate (green checks, fallback merge,
+   state `MERGED` confirmed) first. Only after the PR is `MERGED`:
    ```bash
    git checkout main
    git pull origin main
