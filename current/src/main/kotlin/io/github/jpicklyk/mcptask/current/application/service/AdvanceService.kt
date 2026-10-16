@@ -195,14 +195,15 @@ const val REVIEW_PENDING_REASON: String = "review-pending"
  * child starting auto-advancing a queued parent), and reopen cascades. The structured form lets the
  * tool and route layers build their own JSON/DTO shapes.
  *
- * @property gateBlocked true when a cascade was suppressed because the parent had unfilled required
- *   notes (or a blocking independence finding); in that case [applied] is false and
- *   [gateMissingNotes] is populated. Raised by TERMINAL cascades (all required notes, all phases,
- *   except a cancel-origin chain) and by START cascades (the parent's CURRENT-phase required notes
- *   only). REOPEN cascades never raise it.
+ * @property gateBlocked true when a cascade was suppressed by a gate; in that case [applied] is false. Either the
+ *   parent had unfilled required notes (or a blocking independence finding), in which case [gateMissingNotes] lists
+ *   them, or the review-pending gate held it, in which case [gateMissingNotes] is empty and [gateReason] names the
+ *   gate. Raised by TERMINAL cascades (all required notes, all phases, except a cancel-origin chain) and by START
+ *   cascades (the parent's CURRENT-phase required notes only). REOPEN cascades never raise it.
  * @property gateReason why a [gateBlocked] cascade was suppressed when it is not a missing-note block; today only
- *   [REVIEW_PENDING_REASON] (a TERMINAL cascade never moves a REVIEW parent; [gateMissingNotes] is empty). Null otherwise.
- * @property gateMissingNotes structured required notes missing on the parent (only when [gateBlocked]).
+ *   [REVIEW_PENDING_REASON] (a TERMINAL cascade never moves a REVIEW parent). Null otherwise.
+ * @property gateMissingNotes structured required notes missing on the parent (only when [gateBlocked] and the block
+ *   is a missing-note block; empty when [gateReason] is set).
  * @property resourceBlocked true when a START or REOPEN cascade into [Role.WORK] was suppressed
  *   because the parent's EXCLUSIVE resource leases are held by another item; [applied] is false and
  *   [contendedResources] is populated. The CHILD's own advance still succeeded.
