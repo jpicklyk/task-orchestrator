@@ -83,8 +83,8 @@ Items progress via named triggers — never update the role directly:
 | Trigger | Effect |
 |---------|--------|
 | `start` | queue→work, work→review, review→terminal |
-| `complete` | Any non-terminal → terminal |
-| `block` / `hold` | Any → blocked (saves previous role) |
+| `complete` | queue, work or review to terminal (not from blocked) |
+| `block` / `hold` | queue, work or review to blocked (saves previous role; not from blocked or terminal) |
 | `resume` | blocked → previous role |
 | `cancel` | Any → terminal (statusLabel: "cancelled") |
 | `reopen` | terminal to queue |

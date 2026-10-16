@@ -315,7 +315,7 @@ transitions).
 - **Dependencies.** A lifecycle-free item cannot be an endpoint of a `blocks` edge: the edge is rejected
   `invalid_request`. `relates_to` edges are allowed.
 - **Telemetry.** The call log's `lifecycle_free_rejections` column counts the rejections in a call's response that a
-  lifecycle-free item caused (the `invalid_transition` with `fromRole: "none"` and the BLOCKS-endpoint
+  lifecycle-free item caused (the `invalid_transition` with `fromRole: "none"` and the `blocks`-edge endpoint
   `invalid_request` above); it is NULL when there were none.
 - **Counts.** Role counts (overview `childCounts`, anchored roll-ups, health counts) count lifecycle-free items under
   no role; they are not folded into `queue`. A parent whose only children are lifecycle-free has no children for the

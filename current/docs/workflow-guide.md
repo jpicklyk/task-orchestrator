@@ -33,7 +33,7 @@ Read this before the first example. Every example in this guide is the JSON requ
 **Response envelope.** Every tool answers the same envelope, over MCP and over REST:
 
 ```json
-{ "ok": true, "data": { "results": [ { "ok": true, "id": "3d7e91ab", "version": 1 } ], "summary": { "ok": 1, "failed": 0 } }, "meta": { "reqId": "k7f3q9ab" } }
+{ "ok": true, "data": { "results": [ { "ok": true, "id": "3d7e91ab-5c2a-4f60-8b13-9e7a41c0d2f6", "version": 1 } ], "summary": { "ok": 1, "failed": 0 } }, "meta": { "reqId": "k7f3q9ab" } }
 ```
 
 A failure is `{ "ok": false, "error": { "code", "kind", "message", "detail"?, "fix"? }, "meta": { "reqId" } }`. The `kind` (`transient`, `permanent` or `shedding`) says whether a retry can help. A list answer is `data: { items, page: { total, truncated, next? } }`; follow `page.next` as `cursor` until it is absent. The envelope, paging and error catalog are in the [API Reference](./api-reference.md#response-envelope).
@@ -222,7 +222,7 @@ The lifecycle also governs tree edits (4.0):
   attach-mode `root.id`), on MCP and over REST `POST /api/v1/ops/items_write` (`409 invalid_transition`).
 - **Moving a child away, or deleting it, re-evaluates the old parent** exactly like a child completion: under `AUTO`
   the parent completes when every remaining child is terminal and its gate passes (missing required notes suppress
-  it, reported with `gateBlocked`), in the same transaction as the move or delete. Nothing happens under `MANUAL` or
+  it, reported with reason `gate_blocked`), in the same transaction as the move or delete. Nothing happens under `MANUAL` or
   `PERMANENT`, or when no child remains (deleting the last child never completes the parent). The new parent of a
   move is never cascaded. `items_write` reports these cascades as `cascade` on the update or delete result.
 - **Items are always created in `queue`;** use `advance` to move them.
@@ -733,7 +733,7 @@ Every write records *who* performed it, and in 4.0 that is the **transport princ
 Key behaviors:
 - **Nothing to send** - transitions and note upserts are attributed to the principal automatically
 - **Cascade transitions** are attributed to the principal whose write caused them and are marked `origin: cascade` in the `items_read` `history` trail
-- **Note re-upsert** replaces the attribution (last-writer-wins) but not the note's owner; another principal cannot overwrite an owned note unless its key is `shared`
+- **Note re-upsert** replaces the attribution (last-writer-wins) but not the note's owner; another principal cannot overwrite an owned note unless its schema entry is marked `shared`
 - **`items_read` `history`** includes actor/verification on transitions, for a caller who may see attribution
 - **`notes_read`** includes actor/verification on notes that have them (admins, or when attribution redaction is off)
 - **`local` is one principal** - every stdio or local-mode session is the same principal, so they share claims and note ownership; telling agents apart needs separate credentials or, inside a run, seat tokens (see [section 12](#12-runs-seats-and-decisions))
@@ -862,6 +862,7 @@ With no `itemId` the `context` select is the health view: `{ active, blocked, st
         "type": "feature-task",
         "title": "Implement reset endpoint",
         "role": "work",
+        "version": 4,
         "ancestors": [
           { "id": "5b21c0de", "title": "Auth System", "depth": 0 },
           { "id": "9f3a1c22", "title": "Password Reset Feature", "depth": 1 }
@@ -1086,7 +1087,7 @@ advance {ops: [{op: "transition", itemId, trigger: "complete"}]} -> ownership en
 
 `claimRef` (up to 64 chars) is echoed verbatim in the result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
 
-**Idempotency with select mode.** An element that committed is stored for 24 hours per (principal, tool, `idempotencyKey`) and replayed verbatim on a retry with the same key - the same `itemId` is returned, and the select is **not** re-evaluated against fresh queue state. An element that did not commit (a `claim_held` error, or `claimed: false`) is not stored, so retrying it with the same key runs it again. Use a fresh key per claim iteration, and the same one for retries of the same iteration.
+**Idempotency with select mode.** An element that committed is stored for 24 hours per (principal, tool, `idempotencyKey`) and replayed verbatim on a retry with the same key - the same `itemId` is returned, and the select is **not** re-evaluated against fresh queue state. An element that failed (a `claim_held` error) is not stored, so retrying it with the same key runs it again. A select that found nothing answers `claimed: false`, which is a successful result: it is stored and replayed for 24 hours like any other, so use a fresh key to look again. Use a fresh key per claim iteration, and the same one for retries of the same iteration.
 
 ### Heartbeat Pattern
 
@@ -1240,7 +1241,7 @@ invariant, and not fairness. Read this section before relying on it for anything
   acquire, the role change, and every cascade of one advance run in ONE transaction: if any of them
   fails (a DB fault), the whole transaction rolls back — the item never entered WORK and the lease
   was never committed. A fault while acquiring or releasing a lease fails the advance
-  (`apply_failed`) the same way.
+  (`internal` or `unavailable`) the same way.
 - **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
   not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
   identity quality - it holds regardless of how many processes share one principal (one credential, or

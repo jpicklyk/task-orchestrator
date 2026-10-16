@@ -119,8 +119,8 @@ work_item_schemas:
 |-------|------|----------|-------------|
 | `key` | string | yes | Unique identifier for this note within the schema. Used as the `key` field in `notes_write`. |
 | `role` | string | yes | Phase this note belongs to: `queue`, `work`, or `review`. |
-| `required` | boolean | yes | Whether this note must be filled before advancing past this phase. Optional notes never block transitions. |
-| `description` | string | yes | Short description of expected content. Read via `items_read` `select: "schema"` - the keys-only `schema` list of `context` does not carry it. |
+| `required` | boolean | no | Whether this note must be filled before advancing past this phase. Optional notes never block transitions. |
+| `description` | string | no | Short description of expected content. Read via `items_read` `select: "schema"` - the keys-only `schema` list of `context` does not carry it. |
 | `guidance` | string | no | Longer authoring hint. Full text via `items_read` `select: "schema"` with `fields: ["guidance"]`; `context` and `advance` return only `guidanceKey` (a reference). |
 
 ---

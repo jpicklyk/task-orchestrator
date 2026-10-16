@@ -117,8 +117,8 @@
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>linear</h3>
-      <pre>pattern="linear"
-itemIds=[A, B, C]</pre>
+      <pre>deps_write op="linear"
+ids=[A, B, C]</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-out pattern: A blocks B, C and D.">
@@ -129,8 +129,8 @@ itemIds=[A, B, C]</pre>
         <circle cx="190" cy="82" r="16" class="dot"/><text x="190" y="87" text-anchor="middle" class="b">D</text>
       </svg>
       <h3>fan-out</h3>
-      <pre>pattern="fan-out"
-fromItemId=A, toItemIds=[B, C, D]</pre>
+      <pre>deps_write op="fan_out"
+from=A, toIds=[B, C, D]</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-in pattern: A and B both block C.">
@@ -140,8 +140,8 @@ fromItemId=A, toItemIds=[B, C, D]</pre>
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>fan-in</h3>
-      <pre>pattern="fan-in"
-fromItemIds=[A, B], toItemId=C</pre>
+      <pre>deps_write op="fan_in"
+fromIds=[A, B], to=C</pre>
     </figure>
   </div>
   <div class="tscroll"><table>
