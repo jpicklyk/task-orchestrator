@@ -787,3 +787,48 @@ test('E2E (CLI, real git): reseat records HEAD as pre, then verify accepts the i
   const badRow = JSON.parse(badRes.stdout).items.find((i) => i.short === SHORT)
   assert.ok(badRow.findings.includes(`test-author commit ${sha7(c2)} precedes implementer`), JSON.stringify(badRow.findings))
 })
+
+// ── A1: exit-2 paths (item 4bd560d0 fix cycle A1) ───────────────────────────────────────────────
+
+test('A1-a (CLI): without --pre, an unresolvable item worktree HEAD exits 2 and writes no ledger row', () => {
+  const missing = join(mkdtempSync(join(tmpdir(), 'reseat-a1-')), 'no-such-worktree')
+  const { doc } = makeDoc({ worktree: missing })
+  const dir = mkdtempSync(join(tmpdir(), 'reseat-cli-'))
+  const planPath = writeJson(dir, 'plan.json', doc)
+  const resultPath = writeJson(dir, 'result.json', makeResult(doc))
+  const res = runCli(cliBase(planPath, resultPath, 'implementer-a1'))
+  assert.equal(res.status, 2, `exit ${res.status}, stdout ${res.stdout}, stderr ${res.stderr}`)
+  assert.ok(res.stderr.includes('reseat: cannot resolve pre (git rev-parse HEAD failed in '), res.stderr)
+  assert.ok(res.stderr.includes('): pass --pre <sha>'), res.stderr)
+  assert.equal(res.stdout.includes('"reseats"'), false, 'no ledger row is emitted')
+})
+
+test('A1-b (CLI): an unreadable --declarations file exits 2 naming the path', () => {
+  const { doc } = makeDoc()
+  const dir = mkdtempSync(join(tmpdir(), 'reseat-cli-'))
+  const planPath = writeJson(dir, 'plan.json', doc)
+  const resultPath = writeJson(dir, 'result.json', makeResult(doc))
+  const declPath = join(dir, 'no-such-decl.txt')
+  const res = runCli(cliBase(planPath, resultPath, 'test-author-a1', ['--declarations', declPath, '--pre', C2]))
+  assert.equal(res.status, 2, `exit ${res.status}, stdout ${res.stdout}, stderr ${res.stderr}`)
+  assert.equal(JSON.parse(res.stderr).detail, `--declarations ${declPath} is not readable`)
+})
+
+test('A1-c: declarations given for a test-author base whose item has no declarations stage throw the stage-specific message', () => {
+  const { doc } = makeDoc({ list: stageList({ withExtractor: false }) })
+  const outs = { planner: PLANNER_OUT, implementer: IMPL_OUT }
+  assert.throws(
+    () => callReseat(realCore(), doc, makeResult(doc, outs), SHORT, 'test-author-a1', { pre: C2, declarations: 'export function f(x)' }),
+    (err) => err.message === 'invalid args: --declarations is only valid for a test-author base with a declarations stage'
+  )
+})
+
+test('A1-d (CLI): an unreadable --plan exits 2 with the plan-specific message', () => {
+  const { doc } = makeDoc()
+  const dir = mkdtempSync(join(tmpdir(), 'reseat-cli-'))
+  const planPath = join(dir, 'no-such-plan.json')
+  const resultPath = writeJson(dir, 'result.json', makeResult(doc))
+  const res = runCli(cliBase(planPath, resultPath, 'implementer-a1', ['--pre', C2]))
+  assert.equal(res.status, 2, `exit ${res.status}, stdout ${res.stdout}, stderr ${res.stderr}`)
+  assert.equal(JSON.parse(res.stderr).detail, `--plan ${planPath} could not be read or parsed as a plan`)
+})
