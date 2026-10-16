@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.FileAlreadyExistsException
@@ -73,6 +75,7 @@ internal object PreUpgradeBackup {
         return try {
             runBackup(jdbcUrl, dbFile, enabled, targetVersion, busyTimeoutMs, usableSpaceBytes, now)
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             fail("${e.message}")
         }
     }
@@ -131,13 +134,14 @@ internal object PreUpgradeBackup {
             } catch (e: FileAlreadyExistsException) {
                 return fail("backup path already exists, refusing to overwrite: ${target.path}")
             } catch (e: Exception) {
-                if (created) runCatching { target.delete() }
+                e.rethrowIfCancellation()
+                if (created) runCatchingNonCancellation { target.delete() }
                 return fail("copy to ${target.path} failed: ${e.message}")
             }
 
             val problem = verify(target, stored, busyTimeoutMs)
             if (problem != null) {
-                runCatching { target.delete() }
+                runCatchingNonCancellation { target.delete() }
                 return fail("verification of ${target.path} failed: $problem")
             }
             logger.info("Pre-upgrade backup written: ${target.path} (schema version ${stored ?: "unversioned"})")
@@ -172,6 +176,7 @@ internal object PreUpgradeBackup {
                 }
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             e.message ?: e.javaClass.simpleName
         }
 
