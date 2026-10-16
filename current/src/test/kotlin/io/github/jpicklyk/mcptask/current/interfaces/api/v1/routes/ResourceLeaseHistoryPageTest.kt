@@ -217,7 +217,7 @@ class ResourceLeaseHistoryPageTest {
     // ---------------------------------------------------------------- S1 / S2 happy
 
     @Test
-    fun `S1 limit 1 over three intervals answers the newest, the full total, truncated true and a next cursor`() =
+    fun `S1 limit 1 over three intervals answers the newest, the full total, truncated true and a next cursor`(): Unit =
         withRoutes {
             seedThree()
 
@@ -232,7 +232,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S2 a cursor walk of limit 2 yields every interval once newest first and total 3 on every page`() =
+    fun `S2 a cursor walk of limit 2 yields every interval once newest first and total 3 on every page`(): Unit =
         withRoutes {
             seedThree()
 
@@ -251,7 +251,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S2 the default limit is 50 and the 51st interval is reached through next`() =
+    fun `S2 the default limit is 50 and the 51st interval is reached through next`(): Unit =
         withRoutes {
             seed((1..51).map { n -> Row(UUID(0L, n.toLong()), holder(n.toLong()), "bulk", t0.plusSeconds(n.toLong())) })
 
@@ -292,7 +292,7 @@ class ResourceLeaseHistoryPageTest {
     }
 
     @Test
-    fun `S3 key and at with limit 2 answers two of the three holders, total 3 counting only held rows of that key`() =
+    fun `S3 key and at with limit 2 answers two of the three holders, total 3 counting only held rows of that key`(): Unit =
         withRoutes {
             val at = seedHeldAt("k-lock", "other-lock")
 
@@ -310,7 +310,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S3 at without key counts the held rows of every key`() =
+    fun `S3 at without key counts the held rows of every key`(): Unit =
         withRoutes {
             val at = seedHeldAt("k-lock", "other-lock")
 
@@ -322,7 +322,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S3 key without at counts every interval of that key, open or closed`() =
+    fun `S3 key without at counts every interval of that key, open or closed`(): Unit =
         withRoutes {
             seedHeldAt("k-lock", "other-lock")
 
@@ -355,7 +355,7 @@ class ResourceLeaseHistoryPageTest {
     }
 
     @Test
-    fun `S5 equal acquiredAt breaks ties by id ascending and the walk visits each interval exactly once`() =
+    fun `S5 equal acquiredAt breaks ties by id ascending and the walk visits each interval exactly once`(): Unit =
         withRoutes {
             val expected = seedTies()
 
@@ -369,7 +369,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S5 a repeated request returns the same order`() =
+    fun `S5 a repeated request returns the same order`(): Unit =
         withRoutes {
             val expected = seedTies()
 
@@ -381,7 +381,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S5 the tie order holds under a key filter and an at filter too`() =
+    fun `S5 the tie order holds under a key filter and an at filter too`(): Unit =
         withRoutes {
             val expected = seedTies()
             val at = t0.plusSeconds(600)
@@ -396,7 +396,7 @@ class ResourceLeaseHistoryPageTest {
     // ---------------------------------------------------------------- S6 / S7 / S8 edges
 
     @Test
-    fun `S6 a cursor past the end is an ok empty page that keeps the total`() =
+    fun `S6 a cursor past the end is an ok empty page that keeps the total`(): Unit =
         withRoutes {
             seedThree()
 
@@ -411,7 +411,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S6 a cursor exactly at the total is an empty last page`() =
+    fun `S6 a cursor exactly at the total is an empty last page`(): Unit =
         withRoutes {
             seedThree()
 
@@ -423,7 +423,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S7 an empty table is an ok empty page with total 0`() =
+    fun `S7 an empty table is an ok empty page with total 0`(): Unit =
         withRoutes {
             val response = client.getAs("/api/v1/resources/leases/history")
 
@@ -436,7 +436,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S8 201 intervals with limit 200 are truncated with total 201 and the last one is on the next page`() =
+    fun `S8 201 intervals with limit 200 are truncated with total 201 and the last one is on the next page`(): Unit =
         withRoutes {
             seed((1..201).map { n -> Row(UUID(0L, n.toLong()), holder(n.toLong()), "bulk", t0.plusSeconds(n.toLong())) })
 
@@ -459,7 +459,7 @@ class ResourceLeaseHistoryPageTest {
     // ---------------------------------------------------------------- S9 / S10 failures
 
     @Test
-    fun `S9 an undecodable cursor is 400 invalid_cursor`() =
+    fun `S9 an undecodable cursor is 400 invalid_cursor`(): Unit =
         withRoutes {
             seedThree()
             val bad =
@@ -481,7 +481,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S9 probe an absent cursor is offset 0 while an empty one is invalid_cursor`() =
+    fun `S9 probe an absent cursor is offset 0 while an empty one is invalid_cursor`(): Unit =
         withRoutes {
             seedThree()
 
@@ -495,7 +495,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S10 a bad limit is answered as invalid_request on limit before a bad cursor`() =
+    fun `S10 a bad limit is answered as invalid_request on limit before a bad cursor`(): Unit =
         withRoutes {
             seedThree()
 
@@ -508,7 +508,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `S10 a bad key or at is answered as invalid_request on that field before a bad cursor`() =
+    fun `S10 a bad key or at is answered as invalid_request on that field before a bad cursor`(): Unit =
         withRoutes {
             seedThree()
 
@@ -528,7 +528,7 @@ class ResourceLeaseHistoryPageTest {
     // ---------------------------------------------------------------- probes
 
     @Test
-    fun `probe padded, URL-safe and unpadded encodings of the same cursor select the same page`() =
+    fun `probe padded, URL-safe and unpadded encodings of the same cursor select the same page`(): Unit =
         withRoutes {
             seed((1..12).map { n -> Row(UUID(0L, n.toLong()), holder(n.toLong()), "bulk", t0.plusSeconds(n.toLong())) })
             val raw = """{"offset":10}""".toByteArray(Charsets.UTF_8) // 13 bytes, so the padded forms end in '=='
@@ -552,7 +552,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `probe a cursor from one key applies as a plain offset to another key without error`() =
+    fun `probe a cursor from one key applies as a plain offset to another key without error`(): Unit =
         withRoutes {
             seed(
                 (1..3).map { n -> Row(UUID(0L, n.toLong()), holder(n.toLong()), "key-a", t0.plusSeconds(n.toLong())) } +
@@ -570,7 +570,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `probe a non-admin reader sees the same total, truncated and next`() =
+    fun `probe a non-admin reader sees the same total, truncated and next`(): Unit =
         withRoutes {
             seedThree()
 
@@ -583,7 +583,7 @@ class ResourceLeaseHistoryPageTest {
         }
 
     @Test
-    fun `probe duplicate cursor parameters still answer a conforming envelope whose ok flag agrees with the status`() =
+    fun `probe duplicate cursor parameters still answer a conforming envelope whose ok flag agrees with the status`(): Unit =
         withRoutes {
             seedThree()
 

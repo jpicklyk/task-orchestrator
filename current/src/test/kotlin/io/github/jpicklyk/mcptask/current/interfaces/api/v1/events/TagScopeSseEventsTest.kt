@@ -541,7 +541,7 @@ class TagScopeSseEventsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9a - a tag-scoped subscription is refused with 403 forbidden when no repository is wired`() =
+    fun `S9a - a tag-scoped subscription is refused with 403 forbidden when no repository is wired`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), workItemRepository = null) }

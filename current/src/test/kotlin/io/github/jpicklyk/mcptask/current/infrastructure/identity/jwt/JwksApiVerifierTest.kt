@@ -111,7 +111,7 @@ class JwksApiVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `valid RSA-signed JWT returns Principal`() =
+    fun `valid RSA-signed JWT returns Principal`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val principal = verifier.verify(signRsa())
@@ -121,7 +121,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `valid EC-signed JWT returns Principal`() =
+    fun `valid EC-signed JWT returns Principal`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, ecMockCache())
             val principal = verifier.verify(signEc())
@@ -130,7 +130,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with custom scope claims is parsed correctly`() =
+    fun `JWT with custom scope claims is parsed correctly`(): Unit =
         runTest {
             val rootId = UUID.randomUUID().toString()
             val claims =
@@ -156,7 +156,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT without to_capabilities claim defaults to READ-only`() =
+    fun `JWT without to_capabilities claim defaults to READ-only`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val principal = verifier.verify(signRsa())
@@ -165,7 +165,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT without to_scope claim defaults to unrestricted scope`() =
+    fun `JWT without to_scope claim defaults to unrestricted scope`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val principal = verifier.verify(signRsa())
@@ -179,7 +179,7 @@ class JwksApiVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `expired JWT returns null`() =
+    fun `expired JWT returns null`(): Unit =
         runTest {
             val pastExpiry = Instant.now().minusSeconds(3600)
             val claims = buildClaims(expiry = pastExpiry)
@@ -189,7 +189,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with exp just inside 60s clock skew is accepted`() =
+    fun `JWT with exp just inside 60s clock skew is accepted`(): Unit =
         runTest {
             // Expired 30 seconds ago — within 60s skew window
             val expiry = Instant.now().minusSeconds(30)
@@ -200,7 +200,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with exp outside 60s clock skew is rejected`() =
+    fun `JWT with exp outside 60s clock skew is rejected`(): Unit =
         runTest {
             // Expired 90 seconds ago — outside the skew window
             val expiry = Instant.now().minusSeconds(90)
@@ -211,7 +211,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with wrong issuer returns null`() =
+    fun `JWT with wrong issuer returns null`(): Unit =
         runTest {
             val claims = buildClaims(issuer = "https://wrong-idp.example")
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
@@ -220,7 +220,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with wrong audience returns null`() =
+    fun `JWT with wrong audience returns null`(): Unit =
         runTest {
             val claims = buildClaims(audience = "wrong-audience")
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
@@ -229,7 +229,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `algorithm not in allowlist returns null`() =
+    fun `algorithm not in allowlist returns null`(): Unit =
         runTest {
             // Config only allows RS256 and ES256; EC is ES256 and is allowed,
             // but if we restrict to RS256 only the EC JWT should fail.
@@ -240,7 +240,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `invalid JWT string returns null`() =
+    fun `invalid JWT string returns null`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val result = verifier.verify("not-a-jwt")
@@ -248,7 +248,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `tampered JWT signature returns null`() =
+    fun `tampered JWT signature returns null`(): Unit =
         runTest {
             val jwt = signRsa()
             // Tamper with the signature (last part after second dot)
@@ -260,7 +260,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with nbf in the future by more than 60s returns null`() =
+    fun `JWT with nbf in the future by more than 60s returns null`(): Unit =
         runTest {
             val futureNbf = Instant.now().plusSeconds(120) // 2 minutes in the future
             val claims = buildClaims(notBefore = futureNbf)
@@ -270,7 +270,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWT with nbf within 60s skew window is accepted`() =
+    fun `JWT with nbf within 60s skew window is accepted`(): Unit =
         runTest {
             val nearFutureNbf = Instant.now().plusSeconds(30) // within 60s skew
             val claims = buildClaims(notBefore = nearFutureNbf)
@@ -280,7 +280,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `JWKS fetch failure returns null gracefully`() =
+    fun `JWKS fetch failure returns null gracefully`(): Unit =
         runTest {
             val failingCache = mockk<JwksKeySetProvider>()
             coEvery { failingCache.getKeySet() } throws Exception("JWKS endpoint unavailable")
@@ -291,7 +291,7 @@ class JwksApiVerifierTest {
         }
 
     @Test
-    fun `fixed clock is used for expiry validation`() =
+    fun `fixed clock is used for expiry validation`(): Unit =
         runTest {
             // Pin the clock to a fixed point in time 120 seconds in the past.
             val fixedInstant = Instant.now().minusSeconds(120)

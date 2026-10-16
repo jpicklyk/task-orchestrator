@@ -239,7 +239,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S1 string to_scope is rejected with one not_object defect line`() =
+    fun `S1 string to_scope is rejected with one not_object defect line`(): Unit =
         runTest {
             val verdict = verifier().verifyWithExpiry(tokenWith(mapOf("to_scope" to "all")))
             assertEquals(ApiTokenVerdict.Rejected, verdict)
@@ -248,7 +248,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S2 to_scope with a malformed root id is rejected with one malformed line and no value`() =
+    fun `S2 to_scope with a malformed root id is rejected with one malformed line and no value`(): Unit =
         runTest {
             val token = tokenWith(mapOf("to_scope" to mapOf("root_ids" to listOf("uuid-SECRET-a1"))))
             val verdict = verifier().verifyWithExpiry(token)
@@ -258,7 +258,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S3 to_scope with an unknown key is rejected with one malformed line and no key name`() =
+    fun `S3 to_scope with an unknown key is rejected with one malformed line and no key name`(): Unit =
         runTest {
             val token = tokenWith(mapOf("to_scope" to mapOf("rootz-SECRET-b2" to emptyList<String>())))
             val verdict = verifier().verifyWithExpiry(token)
@@ -268,7 +268,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S4 numeric to_kind is rejected with one not_string defect line`() =
+    fun `S4 numeric to_kind is rejected with one not_string defect line`(): Unit =
         runTest {
             val verdict = verifier().verifyWithExpiry(tokenWith(mapOf("to_kind" to 42)))
             assertEquals(ApiTokenVerdict.Rejected, verdict)
@@ -276,7 +276,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S5 unknown to_kind value is rejected with one unknown_value line and no value`() =
+    fun `S5 unknown to_kind value is rejected with one unknown_value line and no value`(): Unit =
         runTest {
             val token = tokenWith(mapOf("to_kind" to "boss-SECRET-c3"))
             val verdict = verifier().verifyWithExpiry(token)
@@ -290,7 +290,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S6 string to_capabilities is ignored with one not_string_list line and no value`() =
+    fun `S6 string to_capabilities is ignored with one not_string_list line and no value`(): Unit =
         runTest {
             val token = tokenWith(mapOf("to_capabilities" to "admin-SECRET-d4"))
             val principal = verifiedPrincipal(verifier().verifyWithExpiry(token))
@@ -300,7 +300,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S7 several unknown capability elements produce exactly one line per token`() =
+    fun `S7 several unknown capability elements produce exactly one line per token`(): Unit =
         runTest {
             val token = tokenWith(mapOf("to_capabilities" to listOf("read", "x-SECRET-e5", "y-SECRET-e5")))
             val principal = verifiedPrincipal(verifier().verifyWithExpiry(token))
@@ -314,7 +314,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S8 a fault inside the pipeline is rejected with one fixed internal line and no exception text`() =
+    fun `S8 a fault inside the pipeline is rejected with one fixed internal line and no exception text`(): Unit =
         runTest {
             val token = tokenWith(emptyMap())
             val verdict = faultingVerifier("boom-SECRET-f6").verifyWithExpiry(token)
@@ -329,7 +329,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S10 a clean token logs no warning at all`() =
+    fun `S10 a clean token logs no warning at all`(): Unit =
         runTest {
             val clean =
                 tokenWith(
@@ -360,7 +360,7 @@ class JwksApiVerifierClaimDefectLogTest {
     }
 
     @Test
-    fun `S11 eleventh defect in a window is not logged and the next window reports the count`() =
+    fun `S11 eleventh defect in a window is not logged and the next window reports the count`(): Unit =
         runTest {
             val v = verifier()
             rejectNumericKind(v, 11)
@@ -380,7 +380,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S12 defect keys are limited independently`() =
+    fun `S12 defect keys are limited independently`(): Unit =
         runTest {
             val v = verifier()
             rejectNumericKind(v, 11)
@@ -392,7 +392,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `S13 the pipeline fault line is limited to ten per window and then reports the count`() =
+    fun `S13 the pipeline fault line is limited to ten per window and then reports the count`(): Unit =
         runTest {
             val v = faultingVerifier("boom-SECRET-f6")
             val token = tokenWith(emptyMap())
@@ -409,7 +409,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S14 absent null blank and padded to_kind are classified as documented`() =
+    fun `S14 absent null blank and padded to_kind are classified as documented`(): Unit =
         runTest {
             val v = verifier()
 
@@ -434,7 +434,7 @@ class JwksApiVerifierClaimDefectLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `probe concurrent defects never exceed ten lines and lose no counts`() =
+    fun `probe concurrent defects never exceed ten lines and lose no counts`(): Unit =
         runTest {
             val v = verifier()
             val token = tokenWith(mapOf("to_kind" to 42))
@@ -456,7 +456,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `probe claim value with newline braces and percent cannot alter the line shape`() =
+    fun `probe claim value with newline braces and percent cannot alter the line shape`(): Unit =
         runTest {
             val hostile = "a" + Char(10) + "{} %s reason=internal suppressed=99 claim=to_scope"
             val token = tokenWith(mapOf("to_kind" to hostile))
@@ -467,7 +467,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `probe the same defective token presented repeatedly is counted every time`() =
+    fun `probe the same defective token presented repeatedly is counted every time`(): Unit =
         runTest {
             val v = verifier()
             val token = tokenWith(mapOf("to_kind" to 42))
@@ -481,7 +481,7 @@ class JwksApiVerifierClaimDefectLogTest {
         }
 
     @Test
-    fun `probe an unsigned token with a secret-looking alg and an empty allowlist leaks nothing at info or above`() =
+    fun `probe an unsigned token with a secret-looking alg and an empty allowlist leaks nothing at info or above`(): Unit =
         runTest {
             val enc = Base64.getUrlEncoder().withoutPadding()
             val header = enc.encodeToString("""{"alg":"XSECRET-h8","kid":"$KID"}""".toByteArray())

@@ -123,7 +123,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S1 / S2 / S4: the hit shape
 
     @Test
-    fun `S1 a document hit has the document view and neither itemId nor noteKey`() =
+    fun `S1 a document hit has the document view and neither itemId nor noteKey`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of the plan")
             rig.writeDoc(host, "plan-alpha", "The zorblaxquux plan body")
@@ -148,7 +148,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S2 the field is title when the title matches else body and a titled document shows its title`() =
+    fun `S2 the field is title when the title matches else body and a titled document shows its title`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of field docs")
             rig.writeDoc(host, "both", "zorblaxquux in the body", title = "zorblaxquux in the title")
@@ -169,7 +169,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S4 plan rule and page documents are searchable with their docKind`() =
+    fun `S4 plan rule and page documents are searchable with their docKind`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of kinds")
             rig.writeDoc(host, "a-plan", "zorblaxquux plan", kind = DocumentKind.PLAN)
@@ -189,7 +189,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `snippet false drops the document snippet and explain adds the rank breakdown`() =
+    fun `snippet false drops the document snippet and explain adds the rank breakdown`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of options")
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -206,7 +206,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S3: default kinds
 
     @Test
-    fun `S3 without kinds item note and document hits come back together in one score-ordered list`() =
+    fun `S3 without kinds item note and document hits come back together in one score-ordered list`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("zorblaxquux item title")
             val noteOwner = rig.make("Owner of the note")
@@ -230,7 +230,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S3 kinds item or note alone never returns a document and kinds document alone returns only documents`() =
+    fun `S3 kinds item or note alone never returns a document and kinds document alone returns only documents`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("zorblaxquux item title")
             val host = rig.make("Host of the document")
@@ -253,7 +253,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S5: itemId / ancestorId
 
     @Test
-    fun `S5 itemId and ancestorId find a document through its root and a child id finds none`() =
+    fun `S5 itemId and ancestorId find a document through its root and a child id finds none`(): Unit =
         irApp(db.db, dir) { rig ->
             val rootA = rig.make("Root A")
             val inA = rig.make("Child of A", rootA)
@@ -281,7 +281,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S6 / S7: filter compatibility
 
     @Test
-    fun `S6 kinds with document plus role tags or traits is invalid_request on the matching pointer and returns no hits`() =
+    fun `S6 kinds with document plus role tags or traits is invalid_request on the matching pointer and returns no hits`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("zorblaxquux host", tags = "api", traits = listOf("t1"))
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -314,7 +314,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S6 empty tags and traits arrays are no filter and an item and note kind set still takes role tags and traits`() =
+    fun `S6 empty tags and traits arrays are no filter and an item and note kind set still takes role tags and traits`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("zorblaxquux host", tags = "api", traits = listOf("t1"))
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -330,7 +330,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S7 without kinds role tags and traits narrow item and note hits and leave documents out`() =
+    fun `S7 without kinds role tags and traits narrow item and note hits and leave documents out`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("zorblaxquux tagged host", tags = "api", role = Role.QUEUE, traits = listOf("t1"))
             rig.writeDoc(host, "plan-a", "zorblaxquux plan body")
@@ -356,7 +356,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S8 / S9
 
     @Test
-    fun `S8 an archived document is not found and is found again once unarchived`() =
+    fun `S8 an archived document is not found and is found again once unarchived`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of archive")
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -371,7 +371,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S9 a deleted document is not found and an overwritten one is found by its new text only`() =
+    fun `S9 a deleted document is not found and an overwritten one is found by its new text only`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of edits")
             rig.writeDoc(host, "doomed", "zorblaxquux doomed")
@@ -388,7 +388,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S10 / S11: scope
 
     @Test
-    fun `S10 under a root scope documents of the scoped root hit and other roots documents never appear`() =
+    fun `S10 under a root scope documents of the scoped root hit and other roots documents never appear`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(DOC_ROOT_A)) { rig ->
             val rootA = rig.make("Root A", id = DOC_ROOT_A)
             val rootB = rig.make("Root B", id = DOC_ROOT_B)
@@ -410,7 +410,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S10 a scope that lists an id below the root does not admit the root's documents`() =
+    fun `S10 a scope that lists an id below the root does not admit the root's documents`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(DOC_CHILD_OF_A)) { rig ->
             val rootA = rig.make("Root A", id = DOC_ROOT_A)
             rig.make("Child of A", rootA, id = DOC_CHILD_OF_A)
@@ -426,7 +426,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S11 under a tag scope only documents whose root carries the exact tag hit`() =
+    fun `S11 under a tag scope only documents whose root carries the exact tag hit`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("team")) { rig ->
             val tagged = rig.make("Root tagged", tags = "x,team")
             val lookalike = rig.make("Root lookalike", tags = "teamx")
@@ -458,7 +458,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `S11 a percent sign in a token tag scope is a literal and admits nothing`() =
+    fun `S11 a percent sign in a token tag scope is a literal and admits nothing`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("te%")) { rig ->
             val tagged = rig.make("Root tagged", tags = "team")
             rig.writeDoc(tagged, "doc-tagged", "zorblaxquux tagged")
@@ -472,7 +472,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ S12: paging
 
     @Test
-    fun `S12 cursor paging over 25 documents and 25 items visits each hit once with a stable total`() =
+    fun `S12 cursor paging over 25 documents and 25 items visits each hit once with a stable total`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of paging docs")
             repeat(25) { n ->
@@ -504,7 +504,7 @@ class ItemsReadDocumentSearchTest {
     // ------------------------------------------------------------------ probes
 
     @Test
-    fun `probe kinds is exact case sensitive and has no abbreviation`() =
+    fun `probe kinds is exact case sensitive and has no abbreviation`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of kinds probe")
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -517,7 +517,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `probe duplicate kinds never produce duplicate hits`() =
+    fun `probe duplicate kinds never produce duplicate hits`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of duplicates")
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -533,7 +533,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `probe unknown members docKind and includeArchived are unknown_parameter`() =
+    fun `probe unknown members docKind and includeArchived are unknown_parameter`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Host of unknown members")
 
@@ -545,7 +545,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `probe a NUL character in the query is treated the same for documents as for items`() =
+    fun `probe a NUL character in the query is treated the same for documents as for items`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of NUL")
             rig.writeDoc(host, "plan-a", "zorblaxquux plan")
@@ -559,7 +559,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `probe a query term that appears only in a slug finds nothing`() =
+    fun `probe a query term that appears only in a slug finds nothing`(): Unit =
         irApp(db.db, dir) { rig ->
             val host = rig.make("Host of slugs")
             rig.writeDoc(host, "slugonlyzorbish", "an ordinary body", title = "An ordinary title")
@@ -571,7 +571,7 @@ class ItemsReadDocumentSearchTest {
         }
 
     @Test
-    fun `probe a blank query with kinds document is still invalid_request on query`() =
+    fun `probe a blank query with kinds document is still invalid_request on query`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Host of blank")
 

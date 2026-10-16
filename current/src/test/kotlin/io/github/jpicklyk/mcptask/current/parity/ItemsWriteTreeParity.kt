@@ -326,11 +326,11 @@ class ItemsWriteTreeParityTest {
     }
 
     @Test
-    fun `S7 create_tree happy agrees across MCP and REST once generated ids are normalized`() =
+    fun `S7 create_tree happy agrees across MCP and REST once generated ids are normalized`(): Unit =
         runWriting(ItemsWriteTreeParity.createTreeHappy)
 
     @Test
-    fun `S7 complete_tree happy agrees across MCP and REST`() = runWriting(ItemsWriteTreeParity.completeTreeHappy)
+    fun `S7 complete_tree happy agrees across MCP and REST`(): Unit = runWriting(ItemsWriteTreeParity.completeTreeHappy)
 
     /**
      * The shared harness cannot compare a write that emits event rows (the event `host` is the MCP client name on one leg and

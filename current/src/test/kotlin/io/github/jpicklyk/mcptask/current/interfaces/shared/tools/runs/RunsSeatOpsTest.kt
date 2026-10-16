@@ -836,7 +836,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S1 open and the coordinator token
 
     @Test
-    fun `S1 open returns the coordinator token once, stores only its hash on an active coordinator row and shows it nowhere else`() =
+    fun `S1 open returns the coordinator token once, stores only its hash on an active coordinator row and shows it nowhere else`(): Unit =
         world { w ->
             val opened = w.open()
             val token = opened.coordinatorToken
@@ -865,7 +865,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S1 a refused open creates no coordinator row, and the successful open of the same call shape creates one`() =
+    fun `S1 a refused open creates no coordinator row, and the successful open of the same call shape creates one`(): Unit =
         world { w ->
             val member = """{"op":"open","rootId":"${w.root2.id}","items":[${w.ids(w.e)}]}"""
             val noRuns = w.ops("runs_write", member, by = w.readOnly)
@@ -882,7 +882,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S2 assign
 
     @Test
-    fun `S2 assign by the coordinator token returns the assignment id, a fresh seat token and attempt 1, and stores row and event`() =
+    fun `S2 assign by the coordinator token returns the assignment id, a fresh seat token and attempt 1, and stores row and event`(): Unit =
         world { w ->
             val run = w.open()
             val assigned = w.assign(run, w.m1, "builder", extra = ""","hints":{"model":"opus"}""")
@@ -929,7 +929,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S2 hints must be a string to string map`() =
+    fun `S2 hints must be a string to string map`(): Unit =
         world { w ->
             val run = w.open()
             val bad = w.assign(run, w.m1, "builder", extra = ""","hints":{"model":1}""")
@@ -940,7 +940,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S3 re-assigning a seat supersedes the old assignment, counts attempt 2, kills the old token and frees its claim at once`() =
+    fun `S3 re-assigning a seat supersedes the old assignment, counts attempt 2, kills the old token and frees its claim at once`(): Unit =
         world { w ->
             val run = w.open()
             val first = w.assignOk(run, w.m1, "builder")
@@ -963,7 +963,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S2 a replayed assign with the same idempotency key returns the stored result and writes no second seat`() =
+    fun `S2 a replayed assign with the same idempotency key returns the stored result and writes no second seat`(): Unit =
         world { w ->
             val run = w.open()
             val first = w.assign(run, w.m1, "builder", key = "assign-key-1")
@@ -984,7 +984,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S15 who may assign
 
     @Test
-    fun `S15 only the coordinator token assigns - not the opener, another runs principal, a human, nor a member seat token`() =
+    fun `S15 only the coordinator token assigns - not the opener, another runs principal, a human, nor a member seat token`(): Unit =
         world { w ->
             val run = w.open()
             val member = w.assignOk(run, w.m1, "builder")
@@ -1004,7 +1004,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S15 the scope check comes before the token check, and a coordinator token of another run authorizes nothing`() =
+    fun `S15 the scope check comes before the token check, and a coordinator token of another run authorizes nothing`(): Unit =
         world { w ->
             val run1 = w.open()
             val run2 = w.open(members = listOf(w.e), rootItem = w.root2)
@@ -1025,7 +1025,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S16 assign validation
 
     @Test
-    fun `S16 an unknown seat is not_found of kind seat, and the default pair applies only to a seat-less or schema-free item`() =
+    fun `S16 an unknown seat is not_found of kind seat, and the default pair applies only to a seat-less or schema-free item`(): Unit =
         world { w ->
             val run = w.open()
             val checks =
@@ -1051,7 +1051,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S16 the seat name coordinator is invalid_request on the seat pointer, a non-member item on the item pointer`() =
+    fun `S16 the seat name coordinator is invalid_request on the seat pointer, a non-member item on the item pointer`(): Unit =
         world { w ->
             val run = w.open()
             for (item in listOf(w.m1, w.m2, w.m3)) {
@@ -1070,7 +1070,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S16 an unknown run is not_found of kind run`() =
+    fun `S16 an unknown run is not_found of kind run`(): Unit =
         world { w ->
             val run = w.open()
             val ghost = Opened(UUID.randomUUID().toString(), run.coordinatorToken, run.reply)
@@ -1081,7 +1081,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S16 a paused run refuses assign as run_paused until resumed, and a closed run's dead coordinator token is unauthenticated`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S16 a paused run refuses assign as run_paused until resumed, and a closed run's dead coordinator token is unauthenticated`(): Unit =
         world { w ->
             val run = w.open()
             val pause = w.director("runs_write", """{"ops":[{"op":"pause","runId":"${run.runId}"}]}""", w.human)
@@ -1107,7 +1108,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S8 end_seat
 
     @Test
-    fun `S8 end_seat by the seat's own token ends it, reports the released claim, kills the token and records seat ended`() =
+    fun `S8 end_seat by the seat's own token ends it, reports the released claim, kills the token and records seat ended`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1149,7 +1150,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S8 end_seat releases only the ending seat's claims and leaves a sibling seat of the same principal holding its own`() =
+    fun `S8 end_seat releases only the ending seat's claims and leaves a sibling seat of the same principal holding its own`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1167,7 +1168,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S8 a seat that held nothing ends with an empty released list`() =
+    fun `S8 a seat that held nothing ends with an empty released list`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1178,7 +1179,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S8 and S13 a keyed retry of end_seat after it committed meets the dead token first - unauthenticated, nothing written twice`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S8 and S13 a keyed retry of end_seat after it committed meets the dead token first - unauthenticated, nothing written twice`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1197,7 +1199,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S17 end_seat refusals and limits
 
     @Test
-    fun `S17 end_seat without a token or with the coordinator token is forbidden on the kind seat, and the seat stays active`() =
+    fun `S17 end_seat without a token or with the coordinator token is forbidden on the kind seat, and the seat stays active`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1218,7 +1220,7 @@ class RunsSeatOpsTest {
     private fun links(count: Int): String = (1..count).joinToString(",", "[", "]") { """{"kind":"url","ref":"https://example.test/$it"}""" }
 
     @Test
-    fun `S17 end_seat limits - a long summary, too many links, a bad kind or ref, a bad or missing outcome - are invalid_request`() =
+    fun `S17 end_seat limits - a long summary, too many links, a bad kind or ref, a bad or missing outcome - are invalid_request`(): Unit =
         world { w ->
             val run = w.open()
             val longRef = "r".repeat(201)
@@ -1258,7 +1260,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S17 end_seat boundaries - a 500-character summary, 10 links, a 200-character ref and every link kind - are accepted`() =
+    fun `S17 end_seat boundaries - a 500-character summary, 10 links, a 200-character ref and every link kind - are accepted`(): Unit =
         world { w ->
             val run = w.open()
             val accepted =
@@ -1279,7 +1281,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S17 probe the same link twice is stored as given and does not fail the call`() =
+    fun `S17 probe the same link twice is stored as given and does not fail the call`(): Unit =
         world { w ->
             val run = w.open()
             val seat = fresh(w, run)
@@ -1293,7 +1295,8 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S9 seats
 
     @Test
-    fun `S9 seats lists the coordinator and the active seats oldest first, ended ones only on request, and never a token or a principal`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S9 seats lists the coordinator and the active seats oldest first, ended ones only on request, and never a token or a principal`(): Unit =
         world { w ->
             val run = w.open()
             clock.advanceSeconds(1)
@@ -1380,7 +1383,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S9 seats of an unknown run is not_found, of a run outside the scope is forbidden on the root, and a read-only caller may read`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S9 seats of an unknown run is not_found, of a run outside the scope is forbidden on the root, and a read-only caller may read`(): Unit =
         world { w ->
             val run = w.open()
             val other = w.open(members = listOf(w.e), rootItem = w.root2)
@@ -1397,7 +1401,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S9 seats is not offered on the director profile`() =
+    fun `S9 seats is not offered on the director profile`(): Unit =
         world { w ->
             val run = w.open()
             val onDirector = w.director("runs_read", """{"select":"seats","runId":"${run.runId}"}""", w.orch)
@@ -1414,7 +1418,7 @@ class RunsSeatOpsTest {
     ): Map<String, Any?> = w.rows("SELECT * FROM runs WHERE id = ?", UUID.fromString(run.runId)).single()
 
     @Test
-    fun `S18 close completed with a member seat active is invalid_run_state, close cancelled ends every seat with run_closed`() =
+    fun `S18 close completed with a member seat active is invalid_run_state, close cancelled ends every seat with run_closed`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1448,7 +1452,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S18 close completed with only the coordinator row active is accepted, and the coordinator token dies with the run`() =
+    fun `S18 close completed with only the coordinator row active is accepted, and the coordinator token dies with the run`(): Unit =
         world { w ->
             val run = w.open()
             val closed = w.close(run, "completed", run.coordinatorToken)
@@ -1462,7 +1466,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S18 completed close with an ended member seat is accepted - only active seats block it`() =
+    fun `S18 completed close with an ended member seat is accepted - only active seats block it`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1473,7 +1477,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `D3 close is for the coordinator token, the director or a human - the opener without a token is refused and the run stays open`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `D3 close is for the coordinator token, the director or a human - the opener without a token is refused and the run stays open`(): Unit =
         world { w ->
             val run = w.open()
             assertForbiddenKind(w.close(run, "cancelled", null), "coordinator,director,human", "the opener without a token")
@@ -1495,7 +1500,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `D3 update is for the coordinator token only - the opener without a token and a human are refused`() =
+    fun `D3 update is for the coordinator token only - the opener without a token and a human are refused`(): Unit =
         world { w ->
             val run = w.open()
             val update = """{"op":"update","runId":"${run.runId}","hints":{"phase":"two"}}"""
@@ -1510,7 +1515,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `D3 a human credential presenting a seat token is not a human any more - pause is refused under a token and allowed without`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `D3 a human credential presenting a seat token is not a human any more - pause is refused under a token and allowed without`(): Unit =
         world { w ->
             val run = w.open(by = w.human)
             val pause = """{"op":"pause","runId":"${run.runId}"}"""
@@ -1531,7 +1537,7 @@ class RunsSeatOpsTest {
     ): Pair<Long, Long> = w.seatById(assertNotNull(assignmentId)).let { (it["usage_tokens"] as Long) to (it["usage_cost_micro"] as Long) }
 
     @Test
-    fun `S10 heartbeat usage under a seat token is stored as tokens and micro-USD and keeps the maximum per field`() =
+    fun `S10 heartbeat usage under a seat token is stored as tokens and micro-USD and keeps the maximum per field`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1553,7 +1559,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S10 usage of a heartbeat that fails is not stored`() =
+    fun `S10 usage of a heartbeat that fails is not stored`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1570,7 +1576,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S19 usage without a seat token is invalid_request on the usage pointer with the reason requires a seat token`() =
+    fun `S19 usage without a seat token is invalid_request on the usage pointer with the reason requires a seat token`(): Unit =
         world { w ->
             w.open()
             // a principal-level claim, so the heartbeat itself is fine and only the usage is at fault
@@ -1598,7 +1604,7 @@ class RunsSeatOpsTest {
     }
 
     @Test
-    fun `S19 negative tokens in usage is invalid_request on the usage tokens pointer`() =
+    fun `S19 negative tokens in usage is invalid_request on the usage tokens pointer`(): Unit =
         world { w ->
             val (reply, _) = badUsage(w, """{"tokens":-1}""")
             assertEquals("invalid_request", reply.code(), reply.toString())
@@ -1606,7 +1612,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S19 negative costUsd in usage is invalid_request on the usage costUsd pointer`() =
+    fun `S19 negative costUsd in usage is invalid_request on the usage costUsd pointer`(): Unit =
         world { w ->
             val (reply, _) = badUsage(w, """{"costUsd":-0.5}""")
             assertEquals("invalid_request", reply.code(), reply.toString())
@@ -1614,7 +1620,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S19 usage that is not an object is invalid_request on the usage pointer`() =
+    fun `S19 usage that is not an object is invalid_request on the usage pointer`(): Unit =
         world { w ->
             // The oracle fixes the three figure pointers only; a usage that is not an object is a decode fault of the element.
             val (reply, _) = badUsage(w, "\"lots\"")
@@ -1623,7 +1629,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `D9 a token-carrying write touches last_seen_at - skipped under 5 s, written from 5 s, never by a select or token-less call`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `D9 a token-carrying write touches last_seen_at - skipped under 5 s, written from 5 s, never by a select or token-less call`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1663,7 +1670,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `D9 a write under the coordinator token touches the coordinator row and the run's coordinator_seen_at`() =
+    fun `D9 a write under the coordinator token touches the coordinator row and the run's coordinator_seen_at`(): Unit =
         world { w ->
             val run = w.open()
             clock.advanceSeconds(40)
@@ -1678,7 +1685,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S4 attribution
 
     @Test
-    fun `S4 a call under a seat token stamps the run and seat on its events and its call_log row, a token-less call stamps none`() =
+    fun `S4 a call under a seat token stamps the run and seat on its events and its call_log row, a token-less call stamps none`(): Unit =
         world { w ->
             val run = w.open()
             val runUuid = UUID.fromString(run.runId)
@@ -1710,7 +1717,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S4 a write under the coordinator token is stamped with the run and the coordinator pseudo-seat`() =
+    fun `S4 a write under the coordinator token is stamped with the run and the coordinator pseudo-seat`(): Unit =
         world { w ->
             val run = w.open()
             val mark = w.rig.maxSeq()
@@ -1727,7 +1734,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S5 and S21 the holder pair
 
     @Test
-    fun `S5 two seats of one principal each hold a claim - the second seat's claim does not evict the first`() =
+    fun `S5 two seats of one principal each hold a claim - the second seat's claim does not evict the first`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1747,7 +1754,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S5 control - one token-less principal claiming a second item still supersedes its first claim`() =
+    fun `S5 control - one token-less principal claiming a second item still supersedes its first claim`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m1, null).ok())
             val mark = w.rig.maxSeq()
@@ -1757,7 +1764,8 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S21 heartbeat and release belong to the exact holder - the same principal with no token or another seat is not_claim_holder`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S21 heartbeat and release belong to the exact holder - the same principal with no token or another seat is not_claim_holder`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1779,7 +1787,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S21 a principal-level claim is not held by a seat of that principal`() =
+    fun `S21 a principal-level claim is not held by a seat of that principal`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1794,7 +1802,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S6 notes owned by (principal, seat)
 
     @Test
-    fun `S6 a note written under a seat token is owned by the principal and that seat, and only that exact pair rewrites it`() =
+    fun `S6 a note written under a seat token is owned by the principal and that seat, and only that exact pair rewrites it`(): Unit =
         world { w ->
             val run = w.open()
             val builder = w.assignOk(run, w.m1, "builder")
@@ -1821,7 +1829,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S6 a token-less note and a seat note of one principal are distinct pairs in both directions`() =
+    fun `S6 a token-less note and a seat note of one principal are distinct pairs in both directions`(): Unit =
         world { w ->
             val run = w.open()
             val builder = w.assignOk(run, w.m1, "builder")
@@ -1846,7 +1854,7 @@ class RunsSeatOpsTest {
     // `note_owned_by_other.ownerSeat` reports the OWNER seat.
 
     @Test
-    fun `W1 a shared-key write by another seat rewrites the attribution seat and keeps the owner pair`() =
+    fun `W1 a shared-key write by another seat rewrites the attribution seat and keeps the owner pair`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1875,7 +1883,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `W2 the same principal under another seat on a non-shared key is note_owned_by_other and reports the owner seat`() =
+    fun `W2 the same principal under another seat on a non-shared key is note_owned_by_other and reports the owner seat`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1893,7 +1901,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `W2 rule 3 and the refusal read the owner seat, not the attribution seat`() =
+    fun `W2 rule 3 and the refusal read the owner seat, not the attribution seat`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1918,7 +1926,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `W3 a legacy note adopted under a seat token records the caller as owner and the caller seat as owner seat`() =
+    fun `W3 a legacy note adopted under a seat token records the caller as owner and the caller seat as owner seat`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1945,7 +1953,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `W4 a token-less write by the owner principal to a note owned by the principal and a seat is refused`() =
+    fun `W4 a token-less write by the owner principal to a note owned by the principal and a seat is refused`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -1965,7 +1973,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `W3 an admin takeover writes no owner seat and the taken note keeps no seat of its previous owner`() =
+    fun `W3 an admin takeover writes no owner seat and the taken note keeps no seat of its previous owner`(): Unit =
         world { w ->
             val run = w.open(by = w.admin)
             val adminSeat = w.assignOk(run, w.m1, "builder", by = w.admin)
@@ -1983,7 +1991,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
-    fun `S20 an ADMIN principal loses the takeover capability under a seat token and keeps it without one`() =
+    fun `S20 an ADMIN principal loses the takeover capability under a seat token and keeps it without one`(): Unit =
         world { w ->
             val run = w.open(by = w.admin)
             val adminSeat = w.assignOk(run, w.m1, "builder", by = w.admin)
@@ -2011,7 +2019,8 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S11 idempotency per assignment
 
     @Test
-    fun `S11 an idempotency key is namespaced per assignment - the same key replays for the same seat and runs fresh for a sibling seat`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S11 an idempotency key is namespaced per assignment - the same key replays for the same seat and runs fresh for a sibling seat`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")

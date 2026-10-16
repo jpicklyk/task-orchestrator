@@ -208,7 +208,7 @@ class SearchFieldAndTitleTest {
         }
 
     @Test
-    fun `a NUL in the query is a validation error for both kinds instead of an FTS5 failure`() =
+    fun `a NUL in the query is a validation error for both kinds instead of an FTS5 failure`(): Unit =
         runBlocking {
             for (kind in listOf("item", "note")) {
                 val args =

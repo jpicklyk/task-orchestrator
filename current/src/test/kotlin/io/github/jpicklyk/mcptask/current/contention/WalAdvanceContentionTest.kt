@@ -12,29 +12,29 @@ import java.util.concurrent.TimeUnit
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class WalAdvanceContentionTest {
     @Test
-    fun `A1 three racers complete one item - one applies and the losers are invalid_transition`() =
+    fun `A1 three racers complete one item - one applies and the losers are invalid_transition`(): Unit =
         runScenario(REPEATS) { WalScenarios.a1CompleteRace(it, racers = 3) }
 
     @Test
-    fun `A2 two racers start one item - the loser is gate_blocked on the committed state`() =
+    fun `A2 two racers start one item - the loser is gate_blocked on the committed state`(): Unit =
         runScenario(REPEATS) {
             WalScenarios.a2StartRace(it)
         }
 
     @Test
-    fun `S1 four siblings complete together - exactly one entry carries the parent cascade`() =
+    fun `S1 four siblings complete together - exactly one entry carries the parent cascade`(): Unit =
         runScenario(REPEATS) { WalScenarios.s1SiblingCascade(it, children = 4) }
 
     @Test
-    fun `S1b four siblings under a grandparent - the winner carries both cascades`() =
+    fun `S1b four siblings under a grandparent - the winner carries both cascades`(): Unit =
         runScenario(REPEATS) { WalScenarios.s1bGrandparentCascade(it, children = 4) }
 
     @Test
-    fun `L1 two items race one exclusive lease - the loser is resource_unavailable with an exact retryAfterMs`() =
+    fun `L1 two items race one exclusive lease - the loser is resource_unavailable with an exact retryAfterMs`(): Unit =
         runScenario(REPEATS) { WalScenarios.l1LeaseRace(it) }
 
     @Test
-    fun `L2 the holder completes while a contender starts - never two holders`() =
+    fun `L2 the holder completes while a contender starts - never two holders`(): Unit =
         runScenario(REPEATS) { WalScenarios.l2HolderReleaseVersusContender(it) }
 
     private companion object {

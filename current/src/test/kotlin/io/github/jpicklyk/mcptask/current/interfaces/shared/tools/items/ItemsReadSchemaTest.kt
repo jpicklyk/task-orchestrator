@@ -63,7 +63,7 @@ class ItemsReadSchemaTest {
     // ------------------------------------------------------------------ S4
 
     @Test
-    fun `S4 schema by type returns the notes without guidance by default`() =
+    fun `S4 schema by type returns the notes without guidance by default`(): Unit =
         irApp(db.db, dir, yaml = yaml) { _ ->
             val r = select(schema(""","type":"feature-task""""))
 
@@ -78,7 +78,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S4 fields guidance adds the per-note guidance`() =
+    fun `S4 fields guidance adds the per-note guidance`(): Unit =
         irApp(db.db, dir, yaml = yaml) { _ ->
             val r = select(schema(""","type":"feature-task","fields":["guidance"]"""))
 
@@ -89,7 +89,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S4 schema by itemId resolves the item's type and a prefix works`() =
+    fun `S4 schema by itemId resolves the item's type and a prefix works`(): Unit =
         irApp(db.db, dir, yaml = yaml) { rig ->
             val typed = rig.make("Typed", type = "feature-task")
 
@@ -104,7 +104,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S4 an unknown type and an item of an unknown type are ok and schemaFree`() =
+    fun `S4 an unknown type and an item of an unknown type are ok and schemaFree`(): Unit =
         irApp(db.db, dir, yaml = yaml) { rig ->
             val mystery = rig.make("Mystery", type = "no-such-type")
 
@@ -127,7 +127,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S4 with rootId a type resolves over that root and still answers the global schema`() =
+    fun `S4 with rootId a type resolves over that root and still answers the global schema`(): Unit =
         irApp(db.db, dir, yaml = yaml) { rig ->
             val root = rig.make("Project root", id = r1)
 
@@ -140,7 +140,7 @@ class ItemsReadSchemaTest {
     // ------------------------------------------------------------------ S9 / S13 (schema)
 
     @Test
-    fun `S13 type and itemId are exclusive and one of them is required`() =
+    fun `S13 type and itemId are exclusive and one of them is required`(): Unit =
         irApp(db.db, dir, yaml = yaml) { rig ->
             val typed = rig.make("Typed", type = "feature-task")
 
@@ -156,7 +156,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S13 fields accepts only guidance and unknown members are unknown_parameter`() =
+    fun `S13 fields accepts only guidance and unknown members are unknown_parameter`(): Unit =
         irApp(db.db, dir, yaml = yaml) { _ ->
             for (bad in listOf("bogus", "summary", "createdAt")) {
                 val r = select(schema(""","type":"feature-task","fields":["$bad"]"""))
@@ -172,7 +172,7 @@ class ItemsReadSchemaTest {
         }
 
     @Test
-    fun `S9 under a root scope a foreign or missing itemId and a foreign rootId are forbidden`() =
+    fun `S9 under a root scope a foreign or missing itemId and a foreign rootId are forbidden`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1), yaml = yaml) { rig ->
             val mine = rig.make("Mine", id = r1, type = "feature-task")
             val foreign = rig.make("Foreign", id = r2, type = "feature-task")

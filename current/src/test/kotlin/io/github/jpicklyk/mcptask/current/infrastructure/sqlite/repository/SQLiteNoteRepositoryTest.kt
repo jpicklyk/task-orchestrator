@@ -50,7 +50,7 @@ class SQLiteNoteRepositoryTest {
     // --- Upsert creates new note ---
 
     @Test
-    fun `upsert creates new note`() =
+    fun `upsert creates new note`(): Unit =
         runBlocking {
             val note = Note(itemId = testItemId, key = "requirements", role = "queue", body = "Must do X")
             val result = noteRepository.upsert(note)
@@ -63,7 +63,7 @@ class SQLiteNoteRepositoryTest {
     // --- Upsert updates existing note ---
 
     @Test
-    fun `upsert updates existing note with same itemId and key`() =
+    fun `upsert updates existing note with same itemId and key`(): Unit =
         runBlocking {
             val note1 = Note(itemId = testItemId, key = "requirements", role = "queue", body = "Original")
             noteRepository.upsert(note1)
@@ -83,7 +83,7 @@ class SQLiteNoteRepositoryTest {
     // --- getById ---
 
     @Test
-    fun `getById returns note`() =
+    fun `getById returns note`(): Unit =
         runBlocking {
             val note = Note(itemId = testItemId, key = "test-key", role = "queue")
             noteRepository.upsert(note)
@@ -95,7 +95,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `getById returns NotFound for non-existent`() =
+    fun `getById returns NotFound for non-existent`(): Unit =
         runBlocking {
             val result = noteRepository.getById(UUID.randomUUID())
             assertNull(result)
@@ -104,7 +104,7 @@ class SQLiteNoteRepositoryTest {
     // --- delete ---
 
     @Test
-    fun `delete removes note`() =
+    fun `delete removes note`(): Unit =
         runBlocking {
             val note = Note(itemId = testItemId, key = "to-delete", role = "queue")
             noteRepository.upsert(note)
@@ -118,7 +118,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `delete non-existent note returns false`() =
+    fun `delete non-existent note returns false`(): Unit =
         runBlocking {
             val result = noteRepository.delete(UUID.randomUUID())
             assertNotNull(result)
@@ -128,7 +128,7 @@ class SQLiteNoteRepositoryTest {
     // --- deleteByItemId ---
 
     @Test
-    fun `deleteByItemId removes all notes for item`() =
+    fun `deleteByItemId removes all notes for item`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "note-1", role = "queue"))
             noteRepository.upsert(Note(itemId = testItemId, key = "note-2", role = "work"))
@@ -146,7 +146,7 @@ class SQLiteNoteRepositoryTest {
     // --- findByItemId ---
 
     @Test
-    fun `findByItemId returns all notes`() =
+    fun `findByItemId returns all notes`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "note-a", role = "queue", body = "A"))
             noteRepository.upsert(Note(itemId = testItemId, key = "note-b", role = "work", body = "B"))
@@ -157,7 +157,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemId with role filter`() =
+    fun `findByItemId with role filter`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "queue-note", role = "queue"))
             noteRepository.upsert(Note(itemId = testItemId, key = "work-note", role = "work"))
@@ -171,7 +171,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemId returns empty for different item`() =
+    fun `findByItemId returns empty for different item`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "note", role = "queue"))
 
@@ -183,7 +183,7 @@ class SQLiteNoteRepositoryTest {
     // --- findByItemIdAndKey ---
 
     @Test
-    fun `findByItemIdAndKey returns specific note`() =
+    fun `findByItemIdAndKey returns specific note`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "specific-key", role = "queue", body = "Found me"))
 
@@ -195,7 +195,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemIdAndKey returns null for non-existent key`() =
+    fun `findByItemIdAndKey returns null for non-existent key`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "existing-key", role = "queue"))
 
@@ -204,7 +204,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemIdAndKey returns null for wrong itemId`() =
+    fun `findByItemIdAndKey returns null for wrong itemId`(): Unit =
         runBlocking {
             noteRepository.upsert(Note(itemId = testItemId, key = "my-key", role = "queue"))
 
@@ -215,7 +215,7 @@ class SQLiteNoteRepositoryTest {
     // --- findByItemIds ---
 
     @Test
-    fun `findByItemIds returns notes grouped by item ID`() =
+    fun `findByItemIds returns notes grouped by item ID`(): Unit =
         runBlocking {
             // Create a second work item
             val item2 = WorkItem(title = "Second item")
@@ -238,7 +238,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemIds with empty set returns empty map`() =
+    fun `findByItemIds with empty set returns empty map`(): Unit =
         runBlocking {
             val result = noteRepository.findByItemIds(emptySet())
             assertNotNull(result)
@@ -246,7 +246,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `findByItemIds with no matching items returns empty map`() =
+    fun `findByItemIds with no matching items returns empty map`(): Unit =
         runBlocking {
             // testItemId has no notes yet
             val result = noteRepository.findByItemIds(setOf(UUID.randomUUID(), UUID.randomUUID()))
@@ -259,7 +259,7 @@ class SQLiteNoteRepositoryTest {
     // --- Actor attribution ---
 
     @Test
-    fun `upsert creates note with actor claim`() =
+    fun `upsert creates note with actor claim`(): Unit =
         runBlocking {
             val actor = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT, parent = "orch-1")
             val verification =
@@ -293,7 +293,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `upsert updates note replaces actor claim`() =
+    fun `upsert updates note replaces actor claim`(): Unit =
         runBlocking {
             val actor1 = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
             val actor2 = ActorClaim(id = "agent-2", kind = ActorKind.ORCHESTRATOR)
@@ -332,7 +332,7 @@ class SQLiteNoteRepositoryTest {
         }
 
     @Test
-    fun `upsert without actor preserves null actor`() =
+    fun `upsert without actor preserves null actor`(): Unit =
         runBlocking {
             val note =
                 Note(

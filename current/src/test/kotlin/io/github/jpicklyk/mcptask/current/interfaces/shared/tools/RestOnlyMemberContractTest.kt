@@ -367,7 +367,7 @@ class RestOnlyMemberContractTest {
     }
 
     @Test
-    fun `S11 the REST-only member is absent from tools list and from every select and op enum on all three profiles`() =
+    fun `S11 the REST-only member is absent from tools list and from every select and op enum on all three profiles`(): Unit =
         testMcp {
             val expectedMembers =
                 mapOf(
@@ -393,7 +393,7 @@ class RestOnlyMemberContractTest {
         }
 
     @Test
-    fun `S11 calling the REST-only member is invalid_request at its pointer on every profile while a visible member runs`() =
+    fun `S11 calling the REST-only member is invalid_request at its pointer on every profile while a visible member runs`(): Unit =
         testMcp {
             for ((path, profile) in paths) {
                 val session = client.session(path)
@@ -424,7 +424,7 @@ class RestOnlyMemberContractTest {
         }
 
     @Test
-    fun `S11 a member runs only on profiles whose set contains it`() =
+    fun `S11 a member runs only on profiles whose set contains it`(): Unit =
         testMcp {
             val matrix =
                 mapOf(
@@ -445,7 +445,7 @@ class RestOnlyMemberContractTest {
         }
 
     @Test
-    fun `S11 describe never shows the REST-only member and describing it by name is invalid_request on every profile`() =
+    fun `S11 describe never shows the REST-only member and describing it by name is invalid_request on every profile`(): Unit =
         testMcp {
             for ((path, _) in paths) {
                 val session = client.session(path)

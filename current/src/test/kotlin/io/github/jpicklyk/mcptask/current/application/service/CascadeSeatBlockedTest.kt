@@ -842,7 +842,7 @@ class CascadeSeatBlockedWireTest {
     }
 
     @Test
-    fun `S1 AC1 a token-less start of a non-member child reports exactly the seat-blocked cascade and leaves the member parent in queue`() =
+    fun `S1 AC1 a token-less start of a non-member child reports the seat-blocked cascade and leaves the member parent in queue`(): Unit =
         world { w ->
             val blocked = w.fam("blocked", Role.QUEUE, Role.QUEUE)
             val control = w.fam("control", Role.QUEUE, Role.QUEUE)
@@ -868,7 +868,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S1 AC3 a human credential and a builder token bound to the parent cascade into the member parent`() =
+    fun `S1 AC3 a human credential and a builder token bound to the parent cascade into the member parent`(): Unit =
         world { w ->
             val human = w.fam("human", Role.QUEUE, Role.QUEUE)
             val bound = w.fam("bound", Role.QUEUE, Role.QUEUE)
@@ -884,7 +884,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S7 a builder token bound to the parent cannot complete it by cascade, a sibling token or a human holding one cannot start it`() =
+    fun `S7 a token bound to the parent cannot complete it by cascade, a sibling token or a human holding one cannot start it`(): Unit =
         world { w ->
             val complete = w.fam("complete", Role.WORK, Role.WORK)
             val builderOfParent = w.assignOk(complete.run, complete.parent, "builder").token
@@ -940,7 +940,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `AC2 items_write delete of the last open child reports the member parent with seat_forbidden, coordinator and human cascade`() =
+    fun `AC2 items_write delete of the last child reports the member parent with seat_forbidden, coordinator and human cascade`(): Unit =
         world { w ->
             val blocked = w.fam("delete blocked", Role.WORK, Role.WORK)
             val done = w.rig.seed("done kid", parent = blocked.parent, role = Role.TERMINAL, tags = "plain-task")
@@ -975,7 +975,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `AC2 items_write reparent-away of the last open child reports the member parent with reason seat_forbidden`() =
+    fun `AC2 items_write reparent-away of the last open child reports the member parent with reason seat_forbidden`(): Unit =
         world { w ->
             val blocked = w.fam("move blocked", Role.WORK, Role.WORK)
             w.rig.seed("done kid", parent = blocked.parent, role = Role.TERMINAL, tags = "plain-task")
@@ -1007,7 +1007,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `AC4 items_write delete under a parent outside any run cascades for a token-less agent`() =
+    fun `AC4 items_write delete under a parent outside any run cascades for a token-less agent`(): Unit =
         world { w ->
             val root = w.rig.seed("root outside")
             val parent = w.rig.seed("seat-aware parent in no run", parent = root, role = Role.WORK, tags = "seated-task")
@@ -1021,7 +1021,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S12 complete_tree of a listed child reports the seat-blocked cascade in the child's entry`() =
+    fun `S12 complete_tree of a listed child reports the seat-blocked cascade in the child's entry`(): Unit =
         world { w ->
             val fam = w.fam("tree items", Role.WORK, Role.WORK)
 
@@ -1045,7 +1045,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S12 complete_tree over the member parent completes the leaves, cannot terminate the parent token-less, the coordinator can`() =
+    fun `S12 complete_tree over the member parent completes leaves, cannot terminate the parent token-less, the coordinator can`(): Unit =
         world { w ->
             val blocked = w.fam("tree root blocked", Role.WORK, Role.WORK)
             val blockedLeaf = w.rig.seed("second leaf", parent = blocked.parent, role = Role.WORK, tags = "plain-task")
@@ -1072,7 +1072,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `probe a keyed replay of a transition whose cascade was suppressed returns the same suppression and starts nothing`() =
+    fun `probe a keyed replay of a transition whose cascade was suppressed returns the same suppression and starts nothing`(): Unit =
         world { w ->
             val fam = w.fam("replay", Role.QUEUE, Role.QUEUE)
             val element = ""","idempotencyKey":"cascade-seat-replay""""
@@ -1090,7 +1090,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `probe an atomic batch keeps the primary when a cascade is suppressed - a suppressed cascade never fails the call`() =
+    fun `probe an atomic batch keeps the primary when a cascade is suppressed - a suppressed cascade never fails the call`(): Unit =
         world { w ->
             val fam = w.fam("atomic", Role.QUEUE, Role.QUEUE)
 
@@ -1111,7 +1111,7 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `probe the run closed between two calls - the first start is suppressed, the second child's start cascades`() =
+    fun `probe the run closed between two calls - the first start is suppressed, the second child's start cascades`(): Unit =
         world { w ->
             val fam = w.fam("closed between", Role.QUEUE, Role.QUEUE)
             val second = w.rig.seed("second child", parent = fam.parent, tags = "plain-task")
@@ -1194,29 +1194,31 @@ class CascadeSeatBlockedRestTest {
     @Test
     fun `S1 REST a token-less agent's start of a non-member child reports the seat-blocked cascade and leaves the member parent in queue`(
         @TempDir dir: Path
-    ) = drive(dir, ParityToken("cascade-rest-agent", caps)) { cascades, parent, parentRole ->
-        assertEquals(
-            listOf(
-                buildJsonObject {
-                    put("itemId", parent.id.toString())
-                    put("previousRole", "queue")
-                    put("targetRole", "work")
-                    put("applied", false)
-                    put("blocked", "seat")
-                }
-            ),
-            cascades
-        )
-        assertEquals(Role.QUEUE, parentRole)
-    }
+    ): Unit =
+        drive(dir, ParityToken("cascade-rest-agent", caps)) { cascades, parent, parentRole ->
+            assertEquals(
+                listOf(
+                    buildJsonObject {
+                        put("itemId", parent.id.toString())
+                        put("previousRole", "queue")
+                        put("targetRole", "work")
+                        put("applied", false)
+                        put("blocked", "seat")
+                    }
+                ),
+                cascades
+            )
+            assertEquals(Role.QUEUE, parentRole)
+        }
 
     @Test
     fun `S1 REST control - a human credential on the same call shape starts the member parent`(
         @TempDir dir: Path
-    ) = drive(dir, ParityToken("cascade-rest-human", caps, kind = PrincipalKind.HUMAN)) { cascades, parent, parentRole ->
-        val entry = cascades.single { it["itemId"]?.jsonPrimitive?.content == parent.id.toString() }
-        assertEquals("true", entry["applied"]?.jsonPrimitive?.content, entry.toString())
-        assertFalse("blocked" in entry, entry.toString())
-        assertEquals(Role.WORK, parentRole)
-    }
+    ): Unit =
+        drive(dir, ParityToken("cascade-rest-human", caps, kind = PrincipalKind.HUMAN)) { cascades, parent, parentRole ->
+            val entry = cascades.single { it["itemId"]?.jsonPrimitive?.content == parent.id.toString() }
+            assertEquals("true", entry["applied"]?.jsonPrimitive?.content, entry.toString())
+            assertFalse("blocked" in entry, entry.toString())
+            assertEquals(Role.WORK, parentRole)
+        }
 }

@@ -180,16 +180,17 @@ work_item_schemas:
     @Test
     fun `S12 missingBySeat is identical across the MCP and REST context selects and the advance transition for a queue item`(
         @TempDir dir: Path
-    ) = parityOn(dir, QUEUE_CONFIG, "seat-parity", Role.QUEUE, mapOf("planner" to listOf("diagnosis", "task-scope")))
+    ): Unit = parityOn(dir, QUEUE_CONFIG, "seat-parity", Role.QUEUE, mapOf("planner" to listOf("diagnosis", "task-scope")))
 
     @Test
     fun `N1 missingBySeat is identical across the three surfaces for a work item with two buckets`(
         @TempDir dir: Path
-    ) = parityOn(
-        dir,
-        WORK_CONFIG,
-        "seat-parity-work",
-        Role.WORK,
-        mapOf("implementer" to listOf("impl-notes"), "reviewer2" to listOf("extra-notes"))
-    )
+    ): Unit =
+        parityOn(
+            dir,
+            WORK_CONFIG,
+            "seat-parity-work",
+            Role.WORK,
+            mapOf("implementer" to listOf("impl-notes"), "reviewer2" to listOf("extra-notes"))
+        )
 }

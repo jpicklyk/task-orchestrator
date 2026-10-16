@@ -127,7 +127,7 @@ class RunsFrontierRestTest {
     }
 
     @Test
-    fun `S15 the plain route and the director route both serve the frontier with the same data`() =
+    fun `S15 the plain route and the director route both serve the frontier with the same data`(): Unit =
         withApp(seedRuns) {
             val plain = client.frontier("runs_read", RunsParityScenarios.ra)
             val director = client.frontier("director/runs_read", RunsParityScenarios.ra)
@@ -162,7 +162,7 @@ class RunsFrontierRestTest {
         }
 
     @Test
-    fun `S15 an unknown prefix is not_found and an ambiguous one is ambiguous_id on both routes`() =
+    fun `S15 an unknown prefix is not_found and an ambiguous one is ambiguous_id on both routes`(): Unit =
         withApp(seedRuns) {
             for (route in listOf("runs_read", "director/runs_read")) {
                 val unknown = client.frontier(route, "99999999")
@@ -179,7 +179,7 @@ class RunsFrontierRestTest {
         }
 
     @Test
-    fun `S7 a root-scoped token is forbidden the frontier of a run on another root on both routes and reads its own`() =
+    fun `S7 a root-scoped token is forbidden the frontier of a run on another root on both routes and reads its own`(): Unit =
         withApp(seedRuns) {
             for (route in listOf("runs_read", "director/runs_read")) {
                 val refused = client.frontier(route, RunsParityScenarios.rb, rootScoped)

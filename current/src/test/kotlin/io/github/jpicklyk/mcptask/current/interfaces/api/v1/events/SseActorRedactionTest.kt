@@ -232,17 +232,17 @@ class SseActorRedactionTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8a admin with redaction on sees the actor on live and replay`() = checkCell(admin = true, redact = true)
+    fun `S8a admin with redaction on sees the actor on live and replay`(): Unit = checkCell(admin = true, redact = true)
 
     @Test
-    fun `S8b admin with redaction off sees the actor on live and replay`() = checkCell(admin = true, redact = false)
+    fun `S8b admin with redaction off sees the actor on live and replay`(): Unit = checkCell(admin = true, redact = false)
 
     @Test
-    fun `S8c read-only principal with redaction on does not see the actor on live or replay but keeps rootId`() =
+    fun `S8c read-only principal with redaction on does not see the actor on live or replay but keeps rootId`(): Unit =
         checkCell(admin = false, redact = true)
 
     @Test
-    fun `S8d read-only principal with redaction off sees the actor on live and replay`() = checkCell(admin = false, redact = false)
+    fun `S8d read-only principal with redaction off sees the actor on live and replay`(): Unit = checkCell(admin = false, redact = false)
 
     @Test
     fun `S8e an actor without a parent has no parent key and an event without actor or rootId has neither key`() {

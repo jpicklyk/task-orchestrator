@@ -1656,7 +1656,7 @@ decision_classes:
     // ------------------------------------------------------------------ raise: root, scope, defaults
 
     @Test
-    fun `raise by root id stores a root-scoped open decision and a replay returns the same one`() =
+    fun `raise by root id stores a root-scoped open decision and a replay returns the same one`(): Unit =
         world { w ->
             val first = w.raise("k1", extra = ""","rootId":"${w.root.id}"""")
             assertTrue(first.ok(), "$first")
@@ -1682,7 +1682,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise by item id derives the root of the item and keys by the item`() =
+    fun `raise by item id derives the root of the item and keys by the item`(): Unit =
         world { w ->
             val reply = w.raise("k1", extra = ""","itemId":"${w.m1.id}"""")
             assertTrue(reply.ok(), "$reply")
@@ -1697,7 +1697,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise by run id derives the root of the run and keys by the run`() =
+    fun `raise by run id derives the root of the run and keys by the run`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
 
@@ -1712,7 +1712,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise with an item and a run keys by the item and stores both`() =
+    fun `raise with an item and a run keys by the item and stores both`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
 
@@ -1725,7 +1725,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise under a seat token takes the run and item of the seat and the raiser seat`() =
+    fun `raise under a seat token takes the run and item of the seat and the raiser seat`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val seat = w.assignOk(run, w.m1, "implementer")
@@ -1744,7 +1744,7 @@ decision_classes:
         }
 
     @Test
-    fun `a human credential raises as kind human and the stored raiser is the credential`() =
+    fun `a human credential raises as kind human and the stored raiser is the credential`(): Unit =
         world { w ->
             assertTrue(w.raise("k1", extra = ""","rootId":"${w.root.id}"""", by = dtHuman).ok())
 
@@ -1756,7 +1756,7 @@ decision_classes:
     // ------------------------------------------------------------------ raise: the order of the checks
 
     @Test
-    fun `raise needs an item, a run or a root`() =
+    fun `raise needs an item, a run or a root`(): Unit =
         world { w ->
             val none = w.raise("k1")
             assertInvalid(none, "/rootId", "no id at all")
@@ -1765,7 +1765,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise refuses an item outside the run's root, a root that disagrees and a missing target`() =
+    fun `raise refuses an item outside the run's root, a root that disagrees and a missing target`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val cases =
@@ -1789,7 +1789,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise on a lifecycle-free item is invalid_request on the item and a lifecycle item is accepted`() =
+    fun `raise on a lifecycle-free item is invalid_request on the item and a lifecycle item is accepted`(): Unit =
         world { w ->
             val pageId =
                 seedItem(
@@ -1810,7 +1810,7 @@ decision_classes:
         }
 
     @Test
-    fun `the checks run in the stated order - scope before lifecycle, lifecycle before class, class before payload`() =
+    fun `the checks run in the stated order - scope before lifecycle, lifecycle before class, class before payload`(): Unit =
         world { w ->
             val pageId =
                 seedItem(
@@ -1843,7 +1843,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise refuses an unknown class and the server-raised classes on the tool path`() =
+    fun `raise refuses an unknown class and the server-raised classes on the tool path`(): Unit =
         world { w ->
             for (name in listOf("nonsense", "Question", "run-budget", "attempt-cap")) {
                 assertInvalid(w.raise("c-$name", cls = name, extra = ""","rootId":"${w.root.id}""""), "/class", name)
@@ -1855,7 +1855,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise with a field of another op is an unknown parameter`() =
+    fun `raise with a field of another op is an unknown parameter`(): Unit =
         world { w ->
             val reply = w.raise("k1", extra = ""","rootId":"${w.root.id}","reason":"cancelled"""")
             assertEquals("unknown_parameter", reply.code(), "$reply")
@@ -1863,7 +1863,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise is refused without the runs capability and with a root outside the scope`() =
+    fun `raise is refused without the runs capability and with a root outside the scope`(): Unit =
         world { w ->
             val reader = ParityToken("dt-reader", setOf(ApiCapability.READ))
             val noRuns = w.raise("k1", extra = ""","rootId":"${w.root.id}"""", by = reader)
@@ -1882,7 +1882,7 @@ decision_classes:
         }
 
     @Test
-    fun `raise replayed under one idempotency key returns the stored result and the same key with another element is a mismatch`() =
+    fun `raise replayed under one idempotency key returns the stored result and the same key with another element is a mismatch`(): Unit =
         world { w ->
             val keyed = element("idem").dropLast(1) + ""","rootId":"${w.root.id}","idempotencyKey":"call-1"}"""
             val first = w.ops("runs_write", keyed, by = dtOrch)
@@ -1911,7 +1911,7 @@ decision_classes:
     private fun summaries(reply: Reply): List<JsonObject> = objectsWith(reply.data, "class", "severity", "status")
 
     @Test
-    fun `decisions lists newest first with the summary fields, and a long question is cut to 120 characters`() =
+    fun `decisions lists newest first with the summary fields, and a long question is cut to 120 characters`(): Unit =
         world { w ->
             val long = "x".repeat(300)
             val ids = mutableListOf<String>()
@@ -1957,7 +1957,7 @@ decision_classes:
         }
 
     @Test
-    fun `decisions filters by run, item, root and overdue`() =
+    fun `decisions filters by run, item, root and overdue`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val onRun = decisionId(w.raise("a", extra = ""","runId":"${run.runId}""""))
@@ -1985,7 +1985,7 @@ decision_classes:
         }
 
     @Test
-    fun `S7 decisions has no status filter - the argument is an unknown parameter, and every summary carries its own status`() =
+    fun `S7 decisions has no status filter - the argument is an unknown parameter, and every summary carries its own status`(): Unit =
         world { w ->
             val extra = ""","rootId":"${w.root.id}""""
             val open = decisionId(w.raise("s-open", cls = "chat", extra = extra))
@@ -2011,7 +2011,7 @@ decision_classes:
         }
 
     @Test
-    fun `decisions pages with a limit and a cursor and visits every decision once`() =
+    fun `decisions pages with a limit and a cursor and visits every decision once`(): Unit =
         world { w ->
             val ids =
                 (1..5).map { i ->
@@ -2036,7 +2036,7 @@ decision_classes:
         }
 
     @Test
-    fun `decisions and decision leave out and refuse a root outside the call scope`() =
+    fun `decisions and decision leave out and refuse a root outside the call scope`(): Unit =
         world { w ->
             val inRoot = decisionId(w.raise("a", extra = ""","rootId":"${w.root.id}""""))
             val outRoot = decisionId(w.raise("b", extra = ""","rootId":"${w.root2.id}""""))
@@ -2069,7 +2069,7 @@ decision_classes:
     )
 
     @Test
-    fun `decision resolves a full id or a hex prefix of 8 to 32 digits and reports an ambiguous one`() =
+    fun `decision resolves a full id or a hex prefix of 8 to 32 digits and reports an ambiguous one`(): Unit =
         world { w ->
             val one = UUID.fromString("ab000000-0000-4000-8000-000000000001")
             val two = UUID.fromString("ab000000-0000-4000-8000-000000000002")
@@ -2091,7 +2091,7 @@ decision_classes:
         }
 
     @Test
-    fun `decision shows the question, options, recommendation, links, context and who raised it, with no principal or host`() =
+    fun `decision shows the question, options, recommendation, links, context and who raised it, with no principal or host`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val seat = w.assignOk(run, w.m1, "implementer")
@@ -2120,7 +2120,7 @@ decision_classes:
         }
 
     @Test
-    fun `an answered decision shows its answer with the provenance kind, proof, seat, run and profile and hides the principal`() =
+    fun `an answered decision shows its answer with the provenance kind, proof, seat, run and profile and hides the principal`(): Unit =
         world { w ->
             val id = decisionId(w.raise("k1", cls = "signoff", extra = ""","rootId":"${w.root.id}""""))
             val answered =
@@ -2149,7 +2149,7 @@ decision_classes:
         }
 
     @Test
-    fun `an admin read of an answered decision carries the principal id`() =
+    fun `an admin read of an answered decision carries the principal id`(): Unit =
         world { w ->
             val id = decisionId(w.raise("k1", cls = "signoff", extra = ""","rootId":"${w.root.id}""""))
             assertTrue(w.director("runs_write", """{"ops":[{"op":"answer","decisionId":"$id","option":"a"}]}""", dtHuman).ok())
@@ -2176,7 +2176,7 @@ decision_classes:
     ): String = w.rows("SELECT status FROM decision_requests WHERE id = ?", UUID.fromString(id)).single()["status"] as String
 
     @Test
-    fun `ack, answer and withdraw run on the director profile and each records one event`() =
+    fun `ack, answer and withdraw run on the director profile and each records one event`(): Unit =
         world { w ->
             val acked = decisionId(w.raise("a", cls = "signoff", extra = ""","rootId":"${w.root.id}""""))
             val answered = decisionId(w.raise("b", cls = "signoff", extra = ""","rootId":"${w.root.id}""""))
@@ -2205,7 +2205,7 @@ decision_classes:
         }
 
     @Test
-    fun `a second answer through the tool is decision_closed with the answered status`() =
+    fun `a second answer through the tool is decision_closed with the answered status`(): Unit =
         world { w ->
             val id = decisionId(w.raise("a", cls = "chat", extra = ""","rootId":"${w.root.id}""""))
             assertTrue(w.writeDirector("""{"op":"answer","decisionId":"$id","option":"a"}""", dtHuman).ok())
@@ -2219,7 +2219,7 @@ decision_classes:
         }
 
     @Test
-    fun `an answer that names no option of the decision or uses text on a fixed class is invalid_request on the field`() =
+    fun `an answer that names no option of the decision or uses text on a fixed class is invalid_request on the field`(): Unit =
         world { w ->
             val id = decisionId(w.raise("a", cls = "signoff", extra = ""","rootId":"${w.root.id}""""))
 
@@ -2237,7 +2237,7 @@ decision_classes:
         }
 
     @Test
-    fun `withdraw is the raiser or the coordinator token of the decision's run, through the tool`() =
+    fun `withdraw is the raiser or the coordinator token of the decision's run, through the tool`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val byOrch = decisionId(w.raise("a", extra = ""","runId":"${run.runId}""""))
@@ -2265,7 +2265,7 @@ decision_classes:
         }
 
     @Test
-    fun `ack, answer and withdraw of an unknown decision are not_found of kind decision`() =
+    fun `ack, answer and withdraw of an unknown decision are not_found of kind decision`(): Unit =
         world { w ->
             val ghost = "99999999-9999-4999-8999-999999999999"
             for (op in listOf("ack", "answer", "withdraw")) {
@@ -2277,7 +2277,7 @@ decision_classes:
         }
 
     @Test
-    fun `a decision outside the call scope is forbidden for ack, answer and withdraw and stays open`() =
+    fun `a decision outside the call scope is forbidden for ack, answer and withdraw and stays open`(): Unit =
         world { w ->
             val id = decisionId(w.raise("a", cls = "chat", extra = ""","rootId":"${w.root.id}""""))
             val scoped = ParityToken("dt-scoped-human", base, rootIds = setOf(w.root2.id), kind = PrincipalKind.HUMAN)
@@ -2294,7 +2294,7 @@ decision_classes:
     // ------------------------------------------------------------------ items_read context and the run close snapshot
 
     @Test
-    fun `items_read context lists the decisions of the item without the withdrawn ones, and omits the key when there are none`() =
+    fun `items_read context lists the decisions of the item without the withdrawn ones, and omits the key when there are none`(): Unit =
         world { w ->
             val extra = ""","itemId":"${w.m1.id}""""
             val open = decisionId(w.raise("o", cls = "chat", extra = extra))
@@ -2324,7 +2324,7 @@ decision_classes:
         }
 
     @Test
-    fun `the run close snapshot counts the open and acknowledged decisions of the run and withdraws none`() =
+    fun `the run close snapshot counts the open and acknowledged decisions of the run and withdraws none`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val extra = ""","runId":"${run.runId}""""
@@ -2346,7 +2346,7 @@ decision_classes:
         }
 
     @Test
-    fun `the run close snapshot reports no open decisions for a run without any`() =
+    fun `the run close snapshot reports no open decisions for a run without any`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
 

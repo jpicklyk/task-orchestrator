@@ -206,7 +206,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S2 / A1 / A2
 
     @Test
-    fun `S2 a read call carries a valid reqId in meta equal to its call_log key`() =
+    fun `S2 a read call carries a valid reqId in meta equal to its call_log key`(): Unit =
         runBlocking {
             client.listTools()
             assertEquals(0, flush().size, "tools/list and initialize write no call_log row")
@@ -247,7 +247,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S2 concurrent calls get distinct reqIds and one row each`() =
+    fun `S2 concurrent calls get distinct reqIds and one row each`(): Unit =
         runBlocking {
             val seeded = jstr(rig.seed("S2 concurrent").id.toString())
             val results = (1..80).map { async { call("config", rulesList(seeded.jsonPrimitive.content)) } }.awaitAll()
@@ -266,7 +266,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S6
 
     @Test
-    fun `S6 items_read context in item mode records the item version`() =
+    fun `S6 items_read context in item mode records the item version`(): Unit =
         runBlocking {
             val item = rig.seed("S6 context")
             val version =
@@ -281,7 +281,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 a batch of three transitions with one failing records batch_size 3 and failed_count 1`() =
+    fun `S6 a batch of three transitions with one failing records batch_size 3 and failed_count 1`(): Unit =
         runBlocking {
             val first = rig.seed("S6 batch a")
             val second = rig.seed("S6 batch b")
@@ -316,7 +316,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 items_read next over three dependency-blocked queue items records result 0 and eligible 0`() =
+    fun `S6 items_read next over three dependency-blocked queue items records result 0 and eligible 0`(): Unit =
         runBlocking {
             val blocker = rig.seed("S6 blocker", role = Role.WORK)
             val items = (1..3).map { rig.seed("S6 blocked $it") }
@@ -333,7 +333,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 items_read next with one unblocked item records result 1 of eligible 1`() =
+    fun `S6 items_read next with one unblocked item records result 1 of eligible 1`(): Unit =
         runBlocking {
             rig.seed("S6 free")
             call("items_read", "select" to jstr("next"))
@@ -343,7 +343,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 an advance claim never sets result or eligible counts`() =
+    fun `S6 an advance claim never sets result or eligible counts`(): Unit =
         runBlocking {
             val item = rig.seed("S6 claimable")
             val claims =
@@ -373,7 +373,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S7
 
     @Test
-    fun `S7 a thrown exception yields internal with a reqId and exactly one row`() =
+    fun `S7 a thrown exception yields internal with a reqId and exactly one row`(): Unit =
         runBlocking {
             val result = call("fx_read", *fixtureGet(FixtureTools.GET_SECRET))
             assertEquals(true, result.isError)
@@ -387,7 +387,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S7 a gate-blocked advance records its row and its rejection event carries the same reqId`() =
+    fun `S7 a gate-blocked advance records its row and its rejection event carries the same reqId`(): Unit =
         runBlocking {
             val item = rig.seed("S7 gated", tags = EventLogRig.GATED_TAG)
             val result = call("advance", "ops" to buildJsonArray { add(transition(item.id.toString(), "start")) })
@@ -421,7 +421,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S7 a cancelled call writes no row`() =
+    fun `S7 a cancelled call writes no row`(): Unit =
         runBlocking {
             runCatching {
                 withTimeoutOrNull(2_000) { call("fx_read", *fixtureGet(FixtureTools.GET_CANCEL)) }
@@ -455,7 +455,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S13 (attempts)
 
     @Test
-    fun `S13 a BUSY retry inside a call increments attempts and a clean unit does not`() =
+    fun `S13 a BUSY retry inside a call increments attempts and a clean unit does not`(): Unit =
         runBlocking {
             val uow = db.unitOfWork()
             val telemetry = CallTelemetry(reqId = "k7f3q9ab", surface = CallLogRecord.SURFACE_MCP, sessionId = null)
@@ -485,7 +485,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S13 outside any call a BUSY retry is harmless`() =
+    fun `S13 outside any call a BUSY retry is harmless`(): Unit =
         runBlocking {
             var attempt = 0
             val result =
@@ -503,7 +503,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S17
 
     @Test
-    fun `A2 every call records one row whose outcome matches its result, errors included`() =
+    fun `A2 every call records one row whose outcome matches its result, errors included`(): Unit =
         runBlocking {
             val results =
                 listOf(

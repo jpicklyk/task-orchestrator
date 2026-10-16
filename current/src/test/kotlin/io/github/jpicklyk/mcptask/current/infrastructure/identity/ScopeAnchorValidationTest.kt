@@ -406,7 +406,7 @@ class ScopeAnchorValidationTest {
     }
 
     @Test
-    fun `S12 a JWT anchored on a non-root is 401 invalid_token on a real route, a root anchor is 200`() =
+    fun `S12 a JWT anchored on a non-root is 401 invalid_token on a real route, a root anchor is 200`(): Unit =
         testApplication {
             seedTree()
             application { installAnchorTestApp() }

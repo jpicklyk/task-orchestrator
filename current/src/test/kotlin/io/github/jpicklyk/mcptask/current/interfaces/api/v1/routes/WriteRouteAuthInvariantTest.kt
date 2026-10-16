@@ -134,7 +134,7 @@ class WriteRouteAuthInvariantTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S16 - no Authorization header still 401s on the same write routes`() =
+    fun `S16 - no Authorization header still 401s on the same write routes`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val verifier = mockk<JwksApiVerifier>()

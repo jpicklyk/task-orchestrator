@@ -172,7 +172,7 @@ class SseJwksExpiryWatchdogTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `exp-less JWT is rejected at jwks SSE connect with 401 invalid_token`() =
+    fun `exp-less JWT is rejected at jwks SSE connect with 401 invalid_token`(): Unit =
         testApplication {
             val bus = ApiEventBus()
             application {

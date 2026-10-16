@@ -56,7 +56,7 @@ class JwksKeySetProviderTest {
 
     // 1. File-based loading parses a valid JWK set
     @Test
-    fun `file-based loading parses JWK set`() =
+    fun `file-based loading parses JWK set`(): Unit =
         runTest {
             val jwksFile = writeJwksFile()
             // Temporarily override user.dir to point at the temp directory so the relative path resolves.
@@ -91,7 +91,7 @@ class JwksKeySetProviderTest {
 
     // 2. Cache returns same instance within TTL
     @Test
-    fun `cache returns same set within TTL`() =
+    fun `cache returns same set within TTL`(): Unit =
         runTest {
             val jwksFile = writeJwksFile()
             val fixedNow = Instant.parse("2024-01-01T00:00:00Z")
@@ -125,7 +125,7 @@ class JwksKeySetProviderTest {
 
     // 3. Cache expires after TTL and triggers a refetch
     @Test
-    fun `cache expires after TTL`() =
+    fun `cache expires after TTL`(): Unit =
         runTest {
             val jwksFile = writeJwksFile()
             val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
@@ -179,7 +179,7 @@ class JwksKeySetProviderTest {
 
     // 4. Concurrent coroutines all get a valid key set without exceptions
     @Test
-    fun `concurrent access returns valid key set for all callers`() =
+    fun `concurrent access returns valid key set for all callers`(): Unit =
         runTest {
             writeJwksFile()
             val fixedClock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
@@ -231,7 +231,7 @@ class JwksKeySetProviderTest {
 
     // 5. OIDC discovery fails but jwksPath succeeds — keys still loaded from file
     @Test
-    fun `OIDC discovery failure falls back to file-based keys`() =
+    fun `OIDC discovery failure falls back to file-based keys`(): Unit =
         runTest {
             writeJwksFile()
 
@@ -272,7 +272,7 @@ class JwksKeySetProviderTest {
 
     // 6. OIDC discovery fails and no other source — throws IllegalStateException
     @Test
-    fun `OIDC discovery failure with no fallback source throws`() =
+    fun `OIDC discovery failure with no fallback source throws`(): Unit =
         runTest {
             val config =
                 KeySourceConfig(
@@ -295,7 +295,7 @@ class JwksKeySetProviderTest {
 
     // 7. Missing file path throws and does not silently return empty key set
     @Test
-    fun `missing jwksPath file throws`() =
+    fun `missing jwksPath file throws`(): Unit =
         runTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
@@ -321,7 +321,7 @@ class JwksKeySetProviderTest {
 
     // 8. Resolved issuer is null when no OIDC discovery is configured
     @Test
-    fun `resolved issuer is null without OIDC discovery`() =
+    fun `resolved issuer is null without OIDC discovery`(): Unit =
         runTest {
             writeJwksFile()
 
@@ -352,7 +352,7 @@ class JwksKeySetProviderTest {
 
     // 9. staleOnError=true: when refresh fails and cache exists, returns stale set
     @Test
-    fun `stale fallback returns cached set when refresh fails and staleOnError is true`() =
+    fun `stale fallback returns cached set when refresh fails and staleOnError is true`(): Unit =
         runTest {
             writeJwksFile()
             val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
@@ -412,7 +412,7 @@ class JwksKeySetProviderTest {
 
     // 10. staleOnError=true: no prior cache → exception propagates
     @Test
-    fun `stale fallback throws when no prior cache and staleOnError is true`() =
+    fun `stale fallback throws when no prior cache and staleOnError is true`(): Unit =
         runTest {
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
@@ -443,7 +443,7 @@ class JwksKeySetProviderTest {
 
     // 11. staleOnError=false: refresh failure propagates even when cache exists
     @Test
-    fun `staleOnError false propagates exception despite existing cache`() =
+    fun `staleOnError false propagates exception despite existing cache`(): Unit =
         runTest {
             writeJwksFile()
             val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
@@ -496,7 +496,7 @@ class JwksKeySetProviderTest {
 
     // 12. JwksResult.cacheState returns non-stale after fresh fetch
     @Test
-    fun `getKeySet returns non-stale cacheState after successful fetch`() =
+    fun `getKeySet returns non-stale cacheState after successful fetch`(): Unit =
         runTest {
             writeJwksFile()
 
@@ -549,7 +549,7 @@ class JwksKeySetProviderTest {
      * is even possible, which is the design guarantee this test documents.
      */
     @Test
-    fun `JwksResult cacheState is isolated per call — stale then fresh sequence`() =
+    fun `JwksResult cacheState is isolated per call — stale then fresh sequence`(): Unit =
         runTest {
             writeJwksFile()
             val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
@@ -623,7 +623,7 @@ class JwksKeySetProviderTest {
     }
 
     @Test
-    fun `jwksUri fetch throws on redirect response`() =
+    fun `jwksUri fetch throws on redirect response`(): Unit =
         runTest {
             var requestCount = 0
             val engine =
@@ -655,7 +655,7 @@ class JwksKeySetProviderTest {
         }
 
     @Test
-    fun `jwksUri fetch throws on non-200 status`() =
+    fun `jwksUri fetch throws on non-200 status`(): Unit =
         runTest {
             val engine =
                 MockEngine { _ ->
@@ -690,7 +690,7 @@ class JwksKeySetProviderTest {
         }
 
     @Test
-    fun `jwksUri fetch throws on wrong content type`() =
+    fun `jwksUri fetch throws on wrong content type`(): Unit =
         runTest {
             val engine =
                 MockEngine { _ ->
@@ -719,7 +719,7 @@ class JwksKeySetProviderTest {
         }
 
     @Test
-    fun `jwksUri fetch succeeds with application-jwk-set+json content type`() =
+    fun `jwksUri fetch succeeds with application-jwk-set+json content type`(): Unit =
         runTest {
             val engine =
                 MockEngine { _ ->

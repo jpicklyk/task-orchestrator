@@ -543,7 +543,7 @@ class McpHostCaptureTest {
     }
 
     @Test
-    fun `S7 over streamable HTTP two sessions on one Server keep separate hosts`() =
+    fun `S7 over streamable HTTP two sessions on one Server keep separate hosts`(): Unit =
         testApplication {
             val server =
                 Server(

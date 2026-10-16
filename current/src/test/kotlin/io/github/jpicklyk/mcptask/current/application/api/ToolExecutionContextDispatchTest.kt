@@ -89,7 +89,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S5 resolveDispatchProfile resolves a WORK profile from a type's defaultTraits`() =
+    fun `S5 resolveDispatchProfile resolves a WORK profile from a type's defaultTraits`(): Unit =
         runBlocking {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
@@ -100,7 +100,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S5 resolveDispatchProfile resolves the same profile for a schema-free item via properties traits`() =
+    fun `S5 resolveDispatchProfile resolves the same profile for a schema-free item via properties traits`(): Unit =
         runBlocking {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
@@ -116,7 +116,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S6 an item-level trait's profile wins over a defaultTraits trait's profile for the same role`() =
+    fun `S6 an item-level trait's profile wins over a defaultTraits trait's profile for the same role`(): Unit =
         runBlocking {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "team-default"))
             server.traitDispatch["x"] = mapOf(Role.WORK to DispatchProfile(agent = "a"))
@@ -133,7 +133,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S7 the first defaultTraits trait with a WORK profile wins over a later one`() =
+    fun `S7 the first defaultTraits trait with a WORK profile wins over a later one`(): Unit =
         runBlocking {
             server.traitDispatch["trait-a"] = mapOf(Role.WORK to DispatchProfile(agent = "a"))
             server.traitDispatch["trait-b"] = mapOf(Role.WORK to DispatchProfile(agent = "b"))
@@ -145,7 +145,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S7 a trait with no entry for the requested role is skipped, falling through to the next trait`() =
+    fun `S7 a trait with no entry for the requested role is skipped, falling through to the next trait`(): Unit =
         runBlocking {
             // trait-a declares only REVIEW -- no WORK entry at all.
             server.traitDispatch["trait-a"] = mapOf(Role.REVIEW to DispatchProfile(agent = "a-reviewer"))
@@ -162,7 +162,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 the winning trait's whole profile is used, never merged field-by-field with a later trait`() =
+    fun `S8 the winning trait's whole profile is used, never merged field-by-field with a later trait`(): Unit =
         runBlocking {
             server.traitDispatch["t1"] = mapOf(Role.WORK to DispatchProfile(agent = "a"))
             server.traitDispatch["t2"] = mapOf(Role.WORK to DispatchProfile(effort = "high"))
@@ -180,7 +180,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S9 a per-root trait dispatch map wins outright over the global definition for that trait`() =
+    fun `S9 a per-root trait dispatch map wins outright over the global definition for that trait`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -212,7 +212,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S9 a trait absent from the per-root snapshot's traitDispatch falls through to the global definition`() =
+    fun `S9 a trait absent from the per-root snapshot's traitDispatch falls through to the global definition`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -243,7 +243,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S9 a per-root trait map lacking the requested role does not fall through to the global entry for that role`() =
+    fun `S9 a per-root trait map lacking the requested role does not fall through to the global entry for that role`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -281,7 +281,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S10 an item with no traits at all resolves null without fetching a per-root snapshot`() =
+    fun `S10 an item with no traits at all resolves null without fetching a per-root snapshot`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -298,7 +298,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S10 a trait with a dispatch entry resolves null for a role it does not declare (QUEUE)`() =
+    fun `S10 a trait with a dispatch entry resolves null for a role it does not declare (QUEUE)`(): Unit =
         runBlocking {
             server.traitDispatch["delegated"] =
                 mapOf(
@@ -313,7 +313,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `S10 an unknown trait name is skipped silently, resolution continues to the next trait`() =
+    fun `S10 an unknown trait name is skipped silently, resolution continues to the next trait`(): Unit =
         runBlocking {
             server.traitDispatch["no-such-trait"] = emptyMap()
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
@@ -330,7 +330,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `probe -- a trait present both as an item trait and in defaultTraits resolves at its item-trait position`() =
+    fun `probe -- a trait present both as an item trait and in defaultTraits resolves at its item-trait position`(): Unit =
         runBlocking {
             server.traitDispatch["d"] = mapOf(Role.WORK to DispatchProfile(agent = "d-agent"))
             server.traitDispatch["t"] = mapOf(Role.WORK to DispatchProfile(agent = "t-agent"))
@@ -351,7 +351,7 @@ class ToolExecutionContextDispatchTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `P8 resolveSchema never calls getTraitDispatch`() =
+    fun `P8 resolveSchema never calls getTraitDispatch`(): Unit =
         runBlocking {
             val baseSchema =
                 WorkItemSchema(
@@ -393,7 +393,7 @@ class ToolExecutionContextDispatchTest {
         }
 
     @Test
-    fun `P8 resolveResourceRequirements never calls getTraitDispatch`() =
+    fun `P8 resolveResourceRequirements never calls getTraitDispatch`(): Unit =
         runBlocking {
             val lookup =
                 spyk(

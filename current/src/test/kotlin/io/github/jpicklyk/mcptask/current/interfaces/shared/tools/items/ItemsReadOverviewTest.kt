@@ -58,7 +58,7 @@ class ItemsReadOverviewTest {
     // ------------------------------------------------------------------ S6
 
     @Test
-    fun `S6 global overview lists the roots with compact entries and zero-omitted child counts`() =
+    fun `S6 global overview lists the roots with compact entries and zero-omitted child counts`(): Unit =
         irApp(db.db, dir) { rig ->
             val open = rig.make("Open root")
             rig.make("k1", open)
@@ -84,7 +84,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 global excludeTerminal drops a terminal root with nothing below and reflects it in the total`() =
+    fun `S6 global excludeTerminal drops a terminal root with nothing below and reflects it in the total`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Open root")
             rig.make("Done root", role = Role.TERMINAL)
@@ -99,7 +99,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 global includeChildren adds each entry's direct children as compact entries`() =
+    fun `S6 global includeChildren adds each entry's direct children as compact entries`(): Unit =
         irApp(db.db, dir) { rig ->
             val open = rig.make("Open root")
             val k1 = rig.make("k1", open)
@@ -113,7 +113,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 global overview pages through every root exactly once`() =
+    fun `S6 global overview pages through every root exactly once`(): Unit =
         irApp(db.db, dir) { rig ->
             repeat(3) { rig.make("root-$it") }
 
@@ -129,7 +129,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 scoped overview answers the full item, its unfiltered child counts and its direct children`() =
+    fun `S6 scoped overview answers the full item, its unfiltered child counts and its direct children`(): Unit =
         irApp(db.db, dir) { rig ->
             val open = rig.make("Open root", summary = "root summary")
             rig.make("k1", open)
@@ -166,7 +166,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 scoped excludeTerminal keeps a terminal child that still has open work below`() =
+    fun `S6 scoped excludeTerminal keeps a terminal child that still has open work below`(): Unit =
         irApp(db.db, dir) { rig ->
             val box = rig.make("Box")
             rig.make("plain terminal", box, Role.TERMINAL)
@@ -180,7 +180,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S6 anchored overview lists the anchor's children with full-subtree role roll-ups`() =
+    fun `S6 anchored overview lists the anchor's children with full-subtree role roll-ups`(): Unit =
         irApp(db.db, dir) { rig ->
             val anchor = rig.make("Anchor")
             val s1 = rig.make("s1", anchor)
@@ -214,7 +214,7 @@ class ItemsReadOverviewTest {
     // ------------------------------------------------------------------ S13 (overview)
 
     @Test
-    fun `S13 includeChildren is global only`() =
+    fun `S13 includeChildren is global only`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Item")
 
@@ -227,7 +227,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S13 itemId and anchorId together are rejected without data`() =
+    fun `S13 itemId and anchorId together are rejected without data`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Item")
 
@@ -240,7 +240,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S13 target ids are validated - malformed is invalid_request, missing is not_found`() =
+    fun `S13 target ids are validated - malformed is invalid_request, missing is not_found`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Item")
 
@@ -256,7 +256,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S13 limit bounds, unknown members and a malformed cursor are rejected`() =
+    fun `S13 limit bounds, unknown members and a malformed cursor are rejected`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Item")
 
@@ -278,7 +278,7 @@ class ItemsReadOverviewTest {
     // ------------------------------------------------------------------ S9 / S11 (overview scope)
 
     @Test
-    fun `S11 under a tag scope every overview shape counts visible items only`() =
+    fun `S11 under a tag scope every overview shape counts visible items only`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             rig.make("A1", p, Role.QUEUE, "api")
@@ -315,7 +315,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S11 the scoped overview does not change when invisible items are deleted, the unscoped one does`() =
+    fun `S11 the scoped overview does not change when invisible items are deleted, the unscoped one does`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             rig.make("A1", p, Role.QUEUE, "api")
@@ -344,7 +344,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S11 excludeTerminal under a tag scope ignores open work that is invisible`() =
+    fun `S11 excludeTerminal under a tag scope ignores open work that is invisible`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val k = rig.make("K", tags = "api")
             val t = rig.make("T", k, Role.TERMINAL, "api")
@@ -364,7 +364,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S11 excludeTerminal under a tag scope keeps a terminal item whose open descendant is visible`() =
+    fun `S11 excludeTerminal under a tag scope keeps a terminal item whose open descendant is visible`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val k = rig.make("K", tags = "api")
             val t = rig.make("T", k, Role.TERMINAL, "api")
@@ -376,7 +376,7 @@ class ItemsReadOverviewTest {
         }
 
     @Test
-    fun `S9 under a root scope foreign and missing overview targets are forbidden`() =
+    fun `S9 under a root scope foreign and missing overview targets are forbidden`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(ROOT_A)) { rig ->
             val a = rig.make("A", id = ROOT_A)
             rig.make("inA", a)
@@ -408,7 +408,7 @@ class ItemsReadOverviewTest {
      * removed by design. Mid carries the stamped root_id of Top, never MID, so every target is forbidden{root, required=MID}.
      */
     @Test
-    fun `S9 a mid-tree scope anchor admits nothing - global list is empty and every anchor is forbidden`() =
+    fun `S9 a mid-tree scope anchor admits nothing - global list is empty and every anchor is forbidden`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(MID)) { rig ->
             val top = rig.make("Top")
             val mid = rig.make("Mid", top, id = MID)

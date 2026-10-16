@@ -66,7 +66,7 @@ class ConfigServiceSchemaWarningsTest {
         """.trimIndent()
 
     @Test
-    fun `S1 an all-valid schema pushes successfully with no schema warnings`() =
+    fun `S1 an all-valid schema pushes successfully with no schema warnings`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -85,7 +85,7 @@ class ConfigServiceSchemaWarningsTest {
         }
 
     @Test
-    fun `S2 an advisory finding still succeeds the push and stores the document unchanged`() =
+    fun `S2 an advisory finding still succeeds the push and stores the document unchanged`(): Unit =
         runBlocking {
             val result = service.push(rootId, unownedNoteYaml)
 
@@ -99,7 +99,7 @@ class ConfigServiceSchemaWarningsTest {
         }
 
     @Test
-    fun `S7 two unowned required notes produce two warnings in note order`() =
+    fun `S7 two unowned required notes produce two warnings in note order`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -126,7 +126,7 @@ class ConfigServiceSchemaWarningsTest {
         }
 
     @Test
-    fun `S8 an invalid role and a missing key reject the push with their paths and store nothing`() =
+    fun `S8 an invalid role and a missing key reject the push with their paths and store nothing`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -150,7 +150,7 @@ class ConfigServiceSchemaWarningsTest {
         }
 
     @Test
-    fun `S9 a blank document pushes successfully with no schema warnings`() =
+    fun `S9 a blank document pushes successfully with no schema warnings`(): Unit =
         runBlocking {
             val result = service.push(rootId, "")
 
@@ -159,7 +159,7 @@ class ConfigServiceSchemaWarningsTest {
         }
 
     @Test
-    fun `S10 re-pushing identical YAML recomputes the same warnings rather than persisting them`() =
+    fun `S10 re-pushing identical YAML recomputes the same warnings rather than persisting them`(): Unit =
         runBlocking {
             val first = service.push(rootId, unownedNoteYaml)
             val second = service.push(rootId, unownedNoteYaml)

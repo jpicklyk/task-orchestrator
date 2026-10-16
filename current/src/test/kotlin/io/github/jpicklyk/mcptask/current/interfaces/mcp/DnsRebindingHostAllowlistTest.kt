@@ -249,7 +249,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S1 loopback defaults accepted on any port and with no port`() =
+    fun `S1 loopback defaults accepted on any port and with no port`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             listOf("localhost:3001", "127.0.0.1:54321", "[::1]:3001", "localhost").forEach { host ->
@@ -259,7 +259,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S2 hostname comparison is case-insensitive and tolerates one trailing dot`() =
+    fun `S2 hostname comparison is case-insensitive and tolerates one trailing dot`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             listOf("LOCALHOST:3001", "localhost.:3001").forEach { host ->
@@ -273,7 +273,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S3 configured entries extend the loopback defaults, host-port entries match only that port`() =
+    fun `S3 configured entries extend the loopback defaults, host-port entries match only that port`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "tohost.lan, box.lan:8443")
             application { wire(appConfig = appConfig) }
@@ -298,7 +298,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S4 loopback Host with same-origin Origin reaches the REST API`() =
+    fun `S4 loopback Host with same-origin Origin reaches the REST API`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response =
@@ -312,7 +312,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S5 CORS_ALLOWED_ORIGINS is independent of the Host allowlist`() =
+    fun `S5 CORS_ALLOWED_ORIGINS is independent of the Host allowlist`(): Unit =
         testApplication {
             val appConfig = cfg("CORS_ALLOWED_ORIGINS" to "https://dash.example.com")
             application { wire(appConfig = appConfig) }
@@ -335,7 +335,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S6 rebinding shape is rejected on every mcp HTTP method with a JSON-RPC envelope and no session id`() =
+    fun `S6 rebinding shape is rejected on every mcp HTTP method with a JSON-RPC envelope and no session id`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
 
@@ -362,7 +362,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S7 rebinding shape is rejected on every api v1 surface and never reaches the item store`() =
+    fun `S7 rebinding shape is rejected on every api v1 surface and never reaches the item store`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val childrenPath = "/api/v1/items/${UUID.randomUUID()}/children"
@@ -411,7 +411,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S8 foreign Host with no Origin at all is still rejected`() =
+    fun `S8 foreign Host with no Origin at all is still rejected`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val mcp = client.postMcp(host = rebindHost)
@@ -422,7 +422,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S9 loopback Host with a foreign Origin is rejected by the pre-existing CORS check`() =
+    fun `S9 loopback Host with a foreign Origin is rejected by the pre-existing CORS check`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response =
@@ -451,7 +451,7 @@ class DnsRebindingHostAllowlistTest {
     // request 10c is built to probe).
 
     @Test
-    fun `S10a Host allowlist wins precedence over CORS -- foreign Host plus a different foreign Origin gets our body`() =
+    fun `S10a Host allowlist wins precedence over CORS -- foreign Host plus a different foreign Origin gets our body`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val precedence =
@@ -465,7 +465,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S10b an OPTIONS CORS preflight from a foreign Host still gets our host_not_allowed body`() =
+    fun `S10b an OPTIONS CORS preflight from a foreign Host still gets our host_not_allowed body`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val preflight =
@@ -480,7 +480,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S10c bearer mode, foreign Host, no Authorization header -- 403 from the Host check, not 401 from auth`() =
+    fun `S10c bearer mode, foreign Host, no Authorization header -- 403 from the Host check, not 401 from auth`(): Unit =
         testApplication {
             val (bearerCfg, bearerEntries) = bearerConfig()
             application { wire(appConfig = defaultCfg(), apiConfig = bearerCfg, tokenEntries = bearerEntries) }
@@ -498,7 +498,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S11 lookalike hosts are rejected -- exact match only, no subdomain, no range, no IPv6 canonicalisation`() =
+    fun `S11 lookalike hosts are rejected -- exact match only, no subdomain, no range, no IPv6 canonicalisation`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val lookalikes =
@@ -519,7 +519,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S12 absent Host is allowed, blank or repeated Host is rejected`() =
+    fun `S12 absent Host is allowed, blank or repeated Host is rejected`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
 
@@ -541,7 +541,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S13 MCP_ALLOWED_HOSTS equal to the wildcard disables the guard and WARNs at install`() =
+    fun `S13 MCP_ALLOWED_HOSTS equal to the wildcard disables the guard and WARNs at install`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "*")
             var warnLogs = emptyList<String>()
@@ -556,7 +556,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S14 a malformed configured entry with a scheme is dropped, never widening the allowlist, with a WARN`() =
+    fun `S14 a malformed configured entry with a scheme is dropped, never widening the allowlist, with a WARN`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "http://tohost.lan")
             var warnLogs = emptyList<String>()
@@ -600,7 +600,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `probe X-Forwarded-Host does not launder a foreign Host past the allowlist`() =
+    fun `probe X-Forwarded-Host does not launder a foreign Host past the allowlist`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response =
@@ -612,7 +612,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe percent-encoded lookalike host is rejected -- no decoding, exact string match only`() =
+    fun `probe percent-encoded lookalike host is rejected -- no decoding, exact string match only`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response = client.postMcp(host = "localhost%2eattacker.example")
@@ -620,7 +620,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe homoglyph host is rejected when the client will even send it`() =
+    fun `probe homoglyph host is rejected when the client will even send it`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             // Cyrillic 'о' (U+043E) in place of the Latin 'o' -- visually "localhost", not equal to it.
@@ -635,7 +635,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a trailing dot on the request side matches a configured entry without one`() =
+    fun `probe a trailing dot on the request side matches a configured entry without one`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "tohost.lan")
             application { wire(appConfig = appConfig) }
@@ -644,7 +644,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a bare trailing colon with zero port digits still matches a bare-host entry`() =
+    fun `probe a bare trailing colon with zero port digits still matches a bare-host entry`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response = client.postMcp(host = "localhost:")
@@ -652,7 +652,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a rejected rebinding request is rejected identically on repeat -- no caching bypass`() =
+    fun `probe a rejected rebinding request is rejected identically on repeat -- no caching bypass`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val first = client.postMcp(host = rebindHost, origin = rebindOrigin)

@@ -60,7 +60,7 @@ class AnswerProvenanceTest {
     )
 
     @Test
-    fun `S13 a context with a principal returns its provenance`() =
+    fun `S13 a context with a principal returns its provenance`(): Unit =
         runBlocking {
             val p = principal(id = "dash-1", kind = PrincipalKind.AGENT, proof = ProofStatus.VERIFIED, host = "dashboard")
             val prov = assertNotNull(context(p.toCallPrincipal(), profile = "rest").provenance())
@@ -75,7 +75,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 the MCP lifted path carries a claim but no Principal and has no provenance`() =
+    fun `S13 the MCP lifted path carries a claim but no Principal and has no provenance`(): Unit =
         runBlocking {
             val lifted =
                 CallPrincipal(
@@ -87,7 +87,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 every kind and proof status passes through unchanged`() =
+    fun `S13 every kind and proof status passes through unchanged`(): Unit =
         runBlocking {
             for (kind in PrincipalKind.entries) {
                 for (proof in ProofStatus.entries) {
@@ -101,7 +101,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 the served profile and the session id come from the context`() =
+    fun `S13 the served profile and the session id come from the context`(): Unit =
         runBlocking {
             val cp = principal().toCallPrincipal()
             val director = assertNotNull(context(cp, profile = "director", sessionId = "s-1").provenance())
@@ -117,14 +117,14 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 the host comes from the Principal and is null when the Principal has none`() =
+    fun `S13 the host comes from the Principal and is null when the Principal has none`(): Unit =
         runBlocking {
             assertEquals("pi", context(principal(host = "pi").toCallPrincipal()).provenance()?.host)
             assertNull(assertNotNull(context(principal(host = null).toCallPrincipal()).provenance()).host)
         }
 
     @Test
-    fun `S13 two contexts answer independently`() =
+    fun `S13 two contexts answer independently`(): Unit =
         runBlocking {
             val a =
                 assertNotNull(
@@ -140,7 +140,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 an installed telemetry element without run or seat leaves both null`() =
+    fun `S13 an installed telemetry element without run or seat leaves both null`(): Unit =
         runBlocking {
             val telemetry = CallTelemetry(reqId = "k7f3q9ab", surface = "rest", sessionId = null)
             val prov =
@@ -157,7 +157,7 @@ class AnswerProvenanceTest {
     private val runB = UUID.fromString("22222222-2222-4222-8222-222222222222")
 
     @Test
-    fun `S13 a recorded run and seat come from the telemetry`() =
+    fun `S13 a recorded run and seat come from the telemetry`(): Unit =
         runBlocking {
             val t = telemetry()
             t.setRun(runA, "implementer")
@@ -167,7 +167,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 a recorded run with a null seat reports the run and no seat`() =
+    fun `S13 a recorded run with a null seat reports the run and no seat`(): Unit =
         runBlocking {
             val t = telemetry()
             t.setRun(runA, null)
@@ -177,7 +177,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 the first recorded run wins over a second setRun`() =
+    fun `S13 the first recorded run wins over a second setRun`(): Unit =
         runBlocking {
             val t = telemetry()
             t.setRun(runA, "implementer")
@@ -188,7 +188,7 @@ class AnswerProvenanceTest {
         }
 
     @Test
-    fun `S13 no telemetry element leaves run and seat null`() =
+    fun `S13 no telemetry element leaves run and seat null`(): Unit =
         runBlocking {
             val prov = assertNotNull(context(principal().toCallPrincipal()).provenance())
             assertNull(prov.runId)

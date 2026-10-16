@@ -150,19 +150,19 @@ class RunRollupSnapshotTest {
     // ------------------------------------------------------------------ S10 every terminal reason stores the snapshot
 
     @Test
-    fun `S10 a completed close stores the rollup in run ended`() = closeCase("completed", RunTerminalReason.COMPLETED)
+    fun `S10 a completed close stores the rollup in run ended`(): Unit = closeCase("completed", RunTerminalReason.COMPLETED)
 
     @Test
-    fun `S10 a cancelled close stores the rollup in run ended`() = closeCase("cancelled", RunTerminalReason.CANCELLED)
+    fun `S10 a cancelled close stores the rollup in run ended`(): Unit = closeCase("cancelled", RunTerminalReason.CANCELLED)
 
     @Test
-    fun `S10 a failed close stores the rollup in run ended`() = closeCase("failed", RunTerminalReason.FAILED)
+    fun `S10 a failed close stores the rollup in run ended`(): Unit = closeCase("failed", RunTerminalReason.FAILED)
 
     @Test
-    fun `S10 an abandoned close stores the rollup in run ended`() = closeCase("abandoned", RunTerminalReason.ABANDONED)
+    fun `S10 an abandoned close stores the rollup in run ended`(): Unit = closeCase("abandoned", RunTerminalReason.ABANDONED)
 
     @Test
-    fun `S10 the budget stop of the director closes budget_exhausted and stores the rollup with the cascade applied`() =
+    fun `S10 the budget stop of the director closes budget_exhausted and stores the rollup with the cascade applied`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
             val run = w.open(extra = ",\"budget\":{\"tokens\":100}")
@@ -205,7 +205,7 @@ class RunRollupSnapshotTest {
     // ------------------------------------------------------------------ S11 closed runs answer the stored snapshot
 
     @Test
-    fun `S11 a closed run keeps answering its snapshot after later call rows and after its events are gone, an open run does not`() =
+    fun `S11 a closed run keeps answering its snapshot after later call rows and after its events are gone, an open run does not`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
             val run = w.open()

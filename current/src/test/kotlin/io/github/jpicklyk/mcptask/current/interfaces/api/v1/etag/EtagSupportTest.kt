@@ -31,7 +31,7 @@ class EtagSupportTest {
     val db = SqliteTestDatabase.perMethod()
 
     @Test
-    fun `same item read twice returns identical ETag`() =
+    fun `same item read twice returns identical ETag`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val item =
@@ -57,7 +57,7 @@ class EtagSupportTest {
         }
 
     @Test
-    fun `If-None-Match with current ETag returns 304`() =
+    fun `If-None-Match with current ETag returns 304`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val item =
@@ -83,7 +83,7 @@ class EtagSupportTest {
         }
 
     @Test
-    fun `If-None-Match with stale ETag returns 200`() =
+    fun `If-None-Match with stale ETag returns 200`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val item =

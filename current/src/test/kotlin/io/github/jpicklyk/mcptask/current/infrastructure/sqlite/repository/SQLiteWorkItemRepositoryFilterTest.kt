@@ -43,7 +43,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findByFilters with no filters returns all items`() =
+    fun `findByFilters with no filters returns all items`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Item 1"))
             repository.create(WorkItem(title = "Item 2"))
@@ -55,7 +55,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by role`() =
+    fun `findByFilters by role`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
             repository.create(WorkItem(title = "Work item", role = Role.WORK))
@@ -68,7 +68,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by priority`() =
+    fun `findByFilters by priority`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "High prio", priority = Priority.HIGH))
             repository.create(WorkItem(title = "Low prio", priority = Priority.LOW))
@@ -81,7 +81,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by parentId`() =
+    fun `findByFilters by parentId`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -96,7 +96,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by depth`() =
+    fun `findByFilters by depth`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Depth 0", depth = 0)
             repository.create(parent)
@@ -109,7 +109,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by tags - single tag`() =
+    fun `findByFilters by tags - single tag`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Tagged", tags = "bug"))
             repository.create(WorkItem(title = "Not tagged"))
@@ -121,7 +121,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by tags - multiple tags OR logic`() =
+    fun `findByFilters by tags - multiple tags OR logic`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Bug item", tags = "bug"))
             repository.create(WorkItem(title = "Feature item", tags = "feature"))
@@ -139,7 +139,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by tags - tag at start, middle, end of comma-separated string`() =
+    fun `findByFilters by tags - tag at start, middle, end of comma-separated string`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Start", tags = "bug,feature"))
             repository.create(WorkItem(title = "Middle", tags = "alpha,bug,beta"))
@@ -161,7 +161,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by tags - no false positives on tag substring`() =
+    fun `findByFilters by tags - no false positives on tag substring`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Has bugfix", tags = "bugfix"))
             repository.create(WorkItem(title = "Has bug", tags = "bug"))
@@ -174,7 +174,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by createdAfter and createdBefore`() =
+    fun `findByFilters by createdAfter and createdBefore`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -195,7 +195,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters by modifiedAfter`() =
+    fun `findByFilters by modifiedAfter`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -215,7 +215,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // (SQLite-only). Integration coverage lives in SqliteSearchIndexContractTest.
 
     @Test
-    fun `findByFilters with sortBy created asc`() =
+    fun `findByFilters with sortBy created asc`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -234,7 +234,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with sortBy modified desc`() =
+    fun `findByFilters with sortBy modified desc`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -253,7 +253,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with limit`() =
+    fun `findByFilters with limit`(): Unit =
         runBlocking {
             for (i in 1..10) {
                 repository.create(WorkItem(title = "Item $i"))
@@ -265,7 +265,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with multiple filters combined`() =
+    fun `findByFilters with multiple filters combined`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -322,7 +322,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `countChildrenByRole returns correct counts`() =
+    fun `countChildrenByRole returns correct counts`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -346,7 +346,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `countChildrenByRole with no children returns empty map`() =
+    fun `countChildrenByRole with no children returns empty map`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -361,7 +361,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findRootItems returns only root items`() =
+    fun `findRootItems returns only root items`(): Unit =
         runBlocking {
             val root1 = WorkItem(title = "Root 1", depth = 0)
             val root2 = WorkItem(title = "Root 2", depth = 0)
@@ -381,7 +381,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findRootItems with limit`() =
+    fun `findRootItems with limit`(): Unit =
         runBlocking {
             for (i in 1..5) {
                 repository.create(WorkItem(title = "Root $i", depth = 0))
@@ -393,7 +393,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findRootItems orders roots newest-createdAt-first`() =
+    fun `findRootItems orders roots newest-createdAt-first`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -410,7 +410,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findRootItems with excludeTerminal true omits terminal roots`() =
+    fun `findRootItems with excludeTerminal true omits terminal roots`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
             repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
@@ -421,7 +421,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findRootItems with excludeTerminal false preserves current behavior`() =
+    fun `findRootItems with excludeTerminal false preserves current behavior`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
             repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
@@ -432,7 +432,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `countRootItems with excludeTerminal true counts only non-terminal roots`() =
+    fun `countRootItems with excludeTerminal true counts only non-terminal roots`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Active Root 1", depth = 0, role = Role.QUEUE))
             repository.create(WorkItem(title = "Active Root 2", depth = 0, role = Role.WORK))
@@ -462,7 +462,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     }
 
     @Test
-    fun `findRootItems returns a row that fails domain validation with its diagnostics`() =
+    fun `findRootItems returns a row that fails domain validation with its diagnostics`(): Unit =
         runBlocking {
             val good1 = repository.create(WorkItem(title = "Good root 1", depth = 0))
             repository.create(WorkItem(title = "Good root 2", depth = 0))
@@ -484,7 +484,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters returns a row that fails domain validation with its diagnostics`() =
+    fun `findByFilters returns a row that fails domain validation with its diagnostics`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Good item"))
             val corrupt = repository.create(WorkItem(title = "Will be corrupted"))
@@ -512,7 +512,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findByFilters with roleChangedAfter filters correctly`() =
+    fun `findByFilters with roleChangedAfter filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -528,7 +528,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with roleChangedBefore filters correctly`() =
+    fun `findByFilters with roleChangedBefore filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -544,7 +544,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with roleChangedAfter and roleChangedBefore combined filters correctly`() =
+    fun `findByFilters with roleChangedAfter and roleChangedBefore combined filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-03-01T00:00:00Z")
@@ -571,7 +571,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findByFilters by type returns matching items`() =
+    fun `findByFilters by type returns matching items`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Feature item", type = "feature"))
             repository.create(WorkItem(title = "Bug item", type = "bug"))
@@ -584,7 +584,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findByFilters with null type returns all items`() =
+    fun `findByFilters with null type returns all items`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Feature item", type = "feature"))
             repository.create(WorkItem(title = "Bug item", type = "bug"))
@@ -596,7 +596,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `countByFilters by type counts only matching items`() =
+    fun `countByFilters by type counts only matching items`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Feature 1", type = "feature"))
             repository.create(WorkItem(title = "Feature 2", type = "feature"))
@@ -612,7 +612,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findEligible by role filters correctly`() =
+    fun `findEligible by role filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
             repository.create(WorkItem(title = "Work item", role = Role.WORK))
@@ -625,7 +625,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by parentId filters correctly`() =
+    fun `findEligible by parentId filters correctly`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -640,7 +640,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by tags any-match filters correctly`() =
+    fun `findEligible by tags any-match filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Bug item", tags = "bug", role = Role.QUEUE))
             repository.create(WorkItem(title = "Feature item", tags = "feature", role = Role.QUEUE))
@@ -655,7 +655,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by priority filters correctly`() =
+    fun `findEligible by priority filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "High", priority = Priority.HIGH, role = Role.QUEUE))
             repository.create(WorkItem(title = "Low", priority = Priority.LOW, role = Role.QUEUE))
@@ -668,7 +668,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by type filters correctly`() =
+    fun `findEligible by type filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Feature task", type = "feature", role = Role.QUEUE))
             repository.create(WorkItem(title = "Bug fix", type = "bug", role = Role.QUEUE))
@@ -681,7 +681,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by complexityMax filters correctly`() =
+    fun `findEligible by complexityMax filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Simple", complexity = 2, role = Role.QUEUE))
             repository.create(WorkItem(title = "Moderate", complexity = 5, role = Role.QUEUE))
@@ -697,7 +697,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by createdAfter filters correctly`() =
+    fun `findEligible by createdAfter filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -717,7 +717,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by createdBefore filters correctly`() =
+    fun `findEligible by createdBefore filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -737,7 +737,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by roleChangedAfter filters correctly`() =
+    fun `findEligible by roleChangedAfter filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -759,7 +759,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible by roleChangedBefore filters correctly`() =
+    fun `findEligible by roleChangedBefore filters correctly`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
@@ -781,7 +781,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible with multiple filters combined`() =
+    fun `findEligible with multiple filters combined`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -848,7 +848,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible with PRIORITY_THEN_COMPLEXITY orderBy sorts correctly`() =
+    fun `findEligible with PRIORITY_THEN_COMPLEXITY orderBy sorts correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Low-simple", priority = Priority.LOW, complexity = 1, role = Role.QUEUE))
             repository.create(WorkItem(title = "High-complex", priority = Priority.HIGH, complexity = 9, role = Role.QUEUE))
@@ -871,7 +871,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible with OLDEST_FIRST orderBy sorts by createdAt ASC`() =
+    fun `findEligible with OLDEST_FIRST orderBy sorts by createdAt ASC`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -895,7 +895,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible with NEWEST_FIRST orderBy sorts by createdAt DESC`() =
+    fun `findEligible with NEWEST_FIRST orderBy sorts by createdAt DESC`(): Unit =
         runBlocking {
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
@@ -919,7 +919,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible always excludes items with active claims`() =
+    fun `findEligible always excludes items with active claims`(): Unit =
         runBlocking {
             // Unclaimed item — should be included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
@@ -947,7 +947,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible includes items with expired claims`() =
+    fun `findEligible includes items with expired claims`(): Unit =
         runBlocking {
             // Unclaimed — included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
@@ -977,7 +977,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible returns empty list when no matches`() =
+    fun `findEligible returns empty list when no matches`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Work item", role = Role.WORK))
 
@@ -992,7 +992,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     // =====================================================================
 
     @Test
-    fun `findEligible root items unaffected by ancestor filter regardless of requestingAgentId`() =
+    fun `findEligible root items unaffected by ancestor filter regardless of requestingAgentId`(): Unit =
         runBlocking {
             // Root item (no parent) — the ancestor-claim filter never applies.
             repository.create(WorkItem(title = "Root item", role = Role.QUEUE, depth = 0))
@@ -1015,7 +1015,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible same-agent re-claim eligibility — child included when parent claimed by same agent`() =
+    fun `findEligible same-agent re-claim eligibility — child included when parent claimed by same agent`(): Unit =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -1046,7 +1046,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible cross-agent exclusion — child excluded when parent claimed by different agent`() =
+    fun `findEligible cross-agent exclusion — child excluded when parent claimed by different agent`(): Unit =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -1076,7 +1076,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible null requestingAgentId strict mode — child excluded when parent claimed by anyone`() =
+    fun `findEligible null requestingAgentId strict mode — child excluded when parent claimed by anyone`(): Unit =
         runBlocking {
             val now = Instant.now()
             val parent =
@@ -1106,7 +1106,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible multi-level ancestry — claim on grandparent excludes grandchild`() =
+    fun `findEligible multi-level ancestry — claim on grandparent excludes grandchild`(): Unit =
         runBlocking {
             val now = Instant.now()
             val grandparent =
@@ -1145,7 +1145,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible expired parent claim — child is included after TTL expiry`() =
+    fun `findEligible expired parent claim — child is included after TTL expiry`(): Unit =
         runBlocking {
             val now = Instant.now()
             // Parent is in WORK role (was being orchestrated when the holding agent crashed).
@@ -1181,7 +1181,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`() =
+    fun `findEligible mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`(): Unit =
         runBlocking {
             val now = Instant.now()
             val grandparent =
@@ -1220,7 +1220,7 @@ class SQLiteWorkItemRepositoryFilterTest {
         }
 
     @Test
-    fun `findEligible multiple candidates — only children under cross-agent claims are excluded`() =
+    fun `findEligible multiple candidates — only children under cross-agent claims are excluded`(): Unit =
         runBlocking {
             val now = Instant.now()
 

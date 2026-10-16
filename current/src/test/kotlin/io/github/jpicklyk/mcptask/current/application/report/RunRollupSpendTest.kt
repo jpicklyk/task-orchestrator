@@ -147,7 +147,7 @@ class RunRollupSpendTest {
     // ------------------------------------------------------------------ S10 the figures
 
     @Test
-    fun `S10 a breach, an extend and a second breach are counted live, and the stop stores them in the closed run's rollup`() =
+    fun `S10 a breach, an extend and a second breach are counted live, and the stop stores them in the closed run's rollup`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
             val run = w.open(extra = ",\"budget\":{\"tokens\":100}")
@@ -200,7 +200,7 @@ class RunRollupSpendTest {
         }
 
     @Test
-    fun `S10 an attempt-cap decision is not a breach, and a run that never breached carries neither member`() =
+    fun `S10 an attempt-cap decision is not a breach, and a run that never breached carries neither member`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
             val run = w.open(extra = ",\"budget\":{\"tokens\":100,\"attemptsPerSeat\":1}")
@@ -221,7 +221,7 @@ class RunRollupSpendTest {
         }
 
     @Test
-    fun `S10 probe an empty run reports no breach and no extend`() =
+    fun `S10 probe an empty run reports no breach and no extend`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
             val run = w.open(members = emptyList(), extra = ",\"budget\":{\"tokens\":100}")

@@ -79,7 +79,7 @@ class CallTelemetryTest {
     }
 
     @Test
-    fun `currentCallTelemetry and currentReqId are null outside the element and the installed instance inside it`() =
+    fun `currentCallTelemetry and currentReqId are null outside the element and the installed instance inside it`(): Unit =
         runBlocking {
             assertNull(currentCallTelemetry())
             assertNull(currentReqId())
@@ -93,7 +93,7 @@ class CallTelemetryTest {
         }
 
     @Test
-    fun `every recorder is a silent no-op when no element is installed`() =
+    fun `every recorder is a silent no-op when no element is installed`(): Unit =
         runBlocking {
             recordCallRetry()
             recordCallReplayed()
@@ -107,7 +107,7 @@ class CallTelemetryTest {
         }
 
     @Test
-    fun `the recorders write into the installed element`() =
+    fun `the recorders write into the installed element`(): Unit =
         runBlocking {
             val t = telemetry()
             val id = UUID.randomUUID()

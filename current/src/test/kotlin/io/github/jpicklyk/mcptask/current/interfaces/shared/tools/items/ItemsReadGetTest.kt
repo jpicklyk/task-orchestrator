@@ -52,7 +52,7 @@ class ItemsReadGetTest {
     // ------------------------------------------------------------------ S1
 
     @Test
-    fun `S1 get answers the lean full view - full ids, enums, tags and traits as arrays, version, nothing null or empty`() =
+    fun `S1 get answers the lean full view - full ids, enums, tags and traits as arrays, version, nothing null or empty`(): Unit =
         irApp(db.db, dir) { rig ->
             val top = rig.make("Top")
             val mid = rig.make("Mid", top)
@@ -99,7 +99,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 a bare root omits parent, root, empty summary, empty tags and empty traits`() =
+    fun `S1 a bare root omits parent, root, empty summary, empty tags and empty traits`(): Unit =
         irApp(db.db, dir) { rig ->
             val bare = rig.make("Bare")
 
@@ -113,7 +113,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 fields createdAt modifiedAt roleChangedAt add exactly those timestamps`() =
+    fun `S1 fields createdAt modifiedAt roleChangedAt add exactly those timestamps`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Timed")
 
@@ -126,7 +126,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 fields createdAt alone adds createdAt and not the other timestamps`() =
+    fun `S1 fields createdAt alone adds createdAt and not the other timestamps`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("OnlyCreated")
 
@@ -138,7 +138,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 fields ancestors adds compact ancestors root-first with 8-hex short ids`() =
+    fun `S1 fields ancestors adds compact ancestors root-first with 8-hex short ids`(): Unit =
         irApp(db.db, dir) { rig ->
             val top = rig.make("Top")
             val mid = rig.make("Mid", top, summary = "mid summary")
@@ -171,7 +171,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 ids resolve as UUID in any case, 32-hex, and 8-hex prefix, in any case`() =
+    fun `S1 ids resolve as UUID in any case, 32-hex, and 8-hex prefix, in any case`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Resolvable", id = UUID.fromString("5ae0c3d1-0000-4000-8000-0000000000aa"))
             val full = item.id.toString()
@@ -184,7 +184,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S1 replaying the same get answers the same data`() =
+    fun `S1 replaying the same get answers the same data`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Replayed", tags = "x")
 
@@ -197,7 +197,7 @@ class ItemsReadGetTest {
     // ------------------------------------------------------------------ S2
 
     @Test
-    fun `S2 ifVersion equal to the version answers only unchanged and version`() =
+    fun `S2 ifVersion equal to the version answers only unchanged and version`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Versioned")
             val v =
@@ -224,7 +224,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S2 ifVersion that differs answers the full view, for lower and higher values`() =
+    fun `S2 ifVersion that differs answers the full view, for lower and higher values`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Versioned", tags = "k")
             val v =
@@ -242,7 +242,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S2 after a write the old ifVersion answers the full view with the new version`() =
+    fun `S2 after a write the old ifVersion answers the full view with the new version`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Before")
             val old =
@@ -271,7 +271,7 @@ class ItemsReadGetTest {
     // ------------------------------------------------------------------ S13 (get)
 
     @Test
-    fun `S13 an unknown member is unknown_parameter and a member of another select too`() =
+    fun `S13 an unknown member is unknown_parameter and a member of another select too`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Strict")
             val id = item.id.toString()
@@ -289,7 +289,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S13 an unknown fields name is invalid_request on fields and lists the four allowed names`() =
+    fun `S13 an unknown fields name is invalid_request on fields and lists the four allowed names`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Strict")
 
@@ -305,7 +305,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S13 a fields name that only list accepts (summary, guidance) is rejected by get`() =
+    fun `S13 a fields name that only list accepts (summary, guidance) is rejected by get`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Strict")
 
@@ -317,7 +317,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S13 a missing, too short, too long or non-hex itemId is invalid_request on itemId`() =
+    fun `S13 a missing, too short, too long or non-hex itemId is invalid_request on itemId`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Anything")
 
@@ -335,7 +335,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S13 a well-formed id that names nothing is not_found for the caller with unrestricted scope`() =
+    fun `S13 a well-formed id that names nothing is not_found for the caller with unrestricted scope`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Present", id = UUID.fromString("11111111-aaaa-4aaa-8aaa-111111111111"))
 
@@ -349,7 +349,7 @@ class ItemsReadGetTest {
         }
 
     @Test
-    fun `S13 a string ifVersion is a type fault on ifVersion`() =
+    fun `S13 a string ifVersion is a type fault on ifVersion`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Typed")
 

@@ -50,7 +50,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash succeeds for a valid depth-0 root`() =
+    fun `stash succeeds for a valid depth-0 root`(): Unit =
         runBlocking {
             val result = service.stash(rootId, "plan-a", "# Plan A\n")
             assertIs<PlanDocumentStashResult.Success>(result)
@@ -59,7 +59,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash against an unknown root returns NotFound and stores nothing`() =
+    fun `stash against an unknown root returns NotFound and stores nothing`(): Unit =
         runBlocking {
             val unknownRoot = UUID.randomUUID()
             val result = service.stash(unknownRoot, "plan-a", "content")
@@ -70,7 +70,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash against a non-depth-0 root is rejected and stores nothing`() =
+    fun `stash against a non-depth-0 root is rejected and stores nothing`(): Unit =
         runBlocking {
             val child =
                 (
@@ -86,7 +86,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash over the 64KB cap is rejected and stores nothing`() =
+    fun `stash over the 64KB cap is rejected and stores nothing`(): Unit =
         runBlocking {
             val oversized = "x".repeat(PlanDocumentService.MAX_BODY_BYTES + 1)
             val result = service.stash(rootId, "plan-a", oversized)
@@ -98,7 +98,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash exactly at the 64KB cap succeeds`() =
+    fun `stash exactly at the 64KB cap succeeds`(): Unit =
         runBlocking {
             val exact = "x".repeat(PlanDocumentService.MAX_BODY_BYTES)
             val result = service.stash(rootId, "plan-a", exact)
@@ -106,7 +106,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `re-stashing a PENDING slug overwrites it in place`() =
+    fun `re-stashing a PENDING slug overwrites it in place`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "v1")
             val result = service.stash(rootId, "plan-a", "v2")
@@ -118,7 +118,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stashing against an ADOPTED slug is rejected with AdoptedConflict`() =
+    fun `stashing against an ADOPTED slug is rejected with AdoptedConflict`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "v1")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
@@ -133,7 +133,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `get returns the stashed document including its body`() =
+    fun `get returns the stashed document including its body`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "# Plan A\n")
             val result = service.get(rootId, "plan-a")
@@ -142,7 +142,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `list omits body and reflects stashed documents`() =
+    fun `list omits body and reflects stashed documents`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "a")
             service.stash(rootId, "plan-b", "b")
@@ -154,7 +154,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `computeContentHash matches the hash stash actually stores`() =
+    fun `computeContentHash matches the hash stash actually stores`(): Unit =
         runBlocking {
             val body = "# Plan A\n"
             val computed = service.computeContentHash(body)
@@ -164,7 +164,8 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `dual ingestion parity — REST-style stash and MCP bodyFromFile-style stash of identical bytes land identical content hashes`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `dual ingestion parity — REST-style stash and MCP bodyFromFile-style stash of identical bytes land identical content hashes`(): Unit =
         runBlocking {
             // Simulates the two ingestion paths converging on the same PlanDocumentService.stash
             // call — REST PUT passes the raw request body; MCP bodyFromFile reads a file and

@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class WalSelectorClaimContentionTest {
     @Test
-    fun `S1 eight workers on two managers select among eight children - eight distinct claims and no claim_held`() =
+    fun `S1 eight workers on two managers select among eight children - eight distinct claims and no claim_held`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 8, children = 8)
 
@@ -47,7 +47,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `S2 six workers select among ten children - six distinct claims and four children stay unclaimed`() =
+    fun `S2 six workers select among ten children - six distinct claims and four children stay unclaimed`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 6, children = 10)
 
@@ -56,7 +56,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `S3 six workers all targeting the same oldest candidate still claim six distinct children`() =
+    fun `S3 six workers all targeting the same oldest candidate still claim six distinct children`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 6, children = 6, orderBy = "oldest")
 
@@ -65,7 +65,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `S4 eight workers select among three children - three claims and five claim_held with retryAfterMs 30000`() =
+    fun `S4 eight workers select among three children - three claims and five claim_held with retryAfterMs 30000`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 8, children = 3)
 
@@ -73,7 +73,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `S5 a child already claimed by someone else is skipped and never stolen`() =
+    fun `S5 a child already claimed by someone else is skipped and never stolen`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val iter = fx.next()
             val parent = fx.d.item("S5 parent $iter", Role.WORK)
@@ -96,7 +96,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `S6 four workers select under a childless parent - every answer is ok and claimed false with no reason`() =
+    fun `S6 four workers select under a childless parent - every answer is ok and claimed false with no reason`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 4, children = 0)
 
@@ -110,7 +110,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `P1 four workers select among three children - the boundary N equals M plus one yields one claim_held`() =
+    fun `P1 four workers select among three children - the boundary N equals M plus one yields one claim_held`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 4, children = 3)
 
@@ -118,7 +118,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `P2 one actor selecting on both managers at once ends up holding exactly one child`() =
+    fun `P2 one actor selecting on both managers at once ends up holding exactly one child`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val iter = fx.next()
             val parent = fx.d.item("P2 parent $iter", Role.WORK)
@@ -139,7 +139,7 @@ class WalSelectorClaimContentionTest {
         }
 
     @Test
-    fun `P3 each worker repeating its selector call after the race still holds exactly one child`() =
+    fun `P3 each worker repeating its selector call after the race still holds exactly one child`(): Unit =
         runScenario(REPEATS, twoManagers = true) { fx ->
             val round = fx.round(workers = 4, children = 6)
             round.assertEveryWorkerClaimedADistinctChild()

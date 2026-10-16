@@ -46,7 +46,7 @@ class SQLiteWorkItemClaimFieldsTest {
     }
 
     @Test
-    fun `create persists null claim fields and getById returns nulls`() =
+    fun `create persists null claim fields and getById returns nulls`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Unclaimed persisted item")
             repository.create(item)
@@ -61,7 +61,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `create persists all claim fields and getById retrieves them`() =
+    fun `create persists all claim fields and getById retrieves them`(): Unit =
         runBlocking {
             val now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
             val expiresAt = now.plusSeconds(900)
@@ -89,7 +89,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `update never writes the claim columns - setting them on the item has no effect`() =
+    fun `update never writes the claim columns - setting them on the item has no effect`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Will not be claimed by update")
             repository.create(item)
@@ -112,7 +112,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `update never writes the claim columns - clearing them on the item leaves the claim in place`() =
+    fun `update never writes the claim columns - clearing them on the item leaves the claim in place`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Claim survives update")
             repository.create(item)
@@ -128,7 +128,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `release clears all four claim fields`() =
+    fun `release clears all four claim fields`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Release test item")
             repository.create(item)
@@ -145,7 +145,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `same-agent re-claim refreshes the TTL and preserves originalClaimedAt`() =
+    fun `same-agent re-claim refreshes the TTL and preserves originalClaimedAt`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Re-claim test item")
             repository.create(item)
@@ -164,7 +164,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `a different agent taking over an expired claim resets originalClaimedAt`() =
+    fun `a different agent taking over an expired claim resets originalClaimedAt`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Agent takeover test")
             repository.create(item)
@@ -180,7 +180,7 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `claim and release do not bump the item version`() =
+    fun `claim and release do not bump the item version`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Version stays")
             repository.create(item)

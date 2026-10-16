@@ -61,7 +61,7 @@ class SQLiteDependencyRepositoryTest {
     // --- Create ---
 
     @Test
-    fun `create dependency`() =
+    fun `create dependency`(): Unit =
         runBlocking {
             val dep = Dependency(fromItemId = itemA, toItemId = itemB)
             val result = depRepository.create(dep)
@@ -72,7 +72,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `create dependency with unblockAt`() =
+    fun `create dependency with unblockAt`(): Unit =
         runBlocking {
             val dep = Dependency(fromItemId = itemA, toItemId = itemB, unblockAt = "work")
             val result = depRepository.create(dep)
@@ -82,7 +82,7 @@ class SQLiteDependencyRepositoryTest {
     // --- findById ---
 
     @Test
-    fun `findById returns dependency`() =
+    fun `findById returns dependency`(): Unit =
         runBlocking {
             val dep = Dependency(fromItemId = itemA, toItemId = itemB)
             depRepository.create(dep)
@@ -95,7 +95,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `findById returns null for non-existent`() =
+    fun `findById returns null for non-existent`(): Unit =
         runBlocking {
             val result = depRepository.findById(UUID.randomUUID())
             assertNull(result)
@@ -104,7 +104,7 @@ class SQLiteDependencyRepositoryTest {
     // --- findByItemId ---
 
     @Test
-    fun `findByItemId returns all deps for item`() =
+    fun `findByItemId returns all deps for item`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
             depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA))
@@ -114,7 +114,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `findByItemId returns empty for item with no deps`() =
+    fun `findByItemId returns empty for item with no deps`(): Unit =
         runBlocking {
             val result = depRepository.findByItemId(itemD)
             assertTrue(result.isEmpty())
@@ -123,7 +123,7 @@ class SQLiteDependencyRepositoryTest {
     // --- findByFromItemId / findByToItemId ---
 
     @Test
-    fun `findByFromItemId returns outgoing deps`() =
+    fun `findByFromItemId returns outgoing deps`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemC))
@@ -135,7 +135,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `findByToItemId returns incoming deps`() =
+    fun `findByToItemId returns incoming deps`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemC))
             depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC))
@@ -148,7 +148,7 @@ class SQLiteDependencyRepositoryTest {
     // --- delete ---
 
     @Test
-    fun `delete removes dependency`() =
+    fun `delete removes dependency`(): Unit =
         runBlocking {
             val dep = Dependency(fromItemId = itemA, toItemId = itemB)
             depRepository.create(dep)
@@ -161,7 +161,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `delete non-existent returns false`() =
+    fun `delete non-existent returns false`(): Unit =
         runBlocking {
             val result = depRepository.delete(UUID.randomUUID())
             assertFalse(result)
@@ -170,7 +170,7 @@ class SQLiteDependencyRepositoryTest {
     // --- deleteByItemId ---
 
     @Test
-    fun `deleteByItemId removes all deps for item`() =
+    fun `deleteByItemId removes all deps for item`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
             depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA))
@@ -184,7 +184,7 @@ class SQLiteDependencyRepositoryTest {
     // --- createBatch ---
 
     @Test
-    fun `createBatch creates multiple deps`() =
+    fun `createBatch creates multiple deps`(): Unit =
         runBlocking {
             val deps =
                 listOf(
@@ -202,14 +202,14 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `createBatch with empty list returns empty`() =
+    fun `createBatch with empty list returns empty`(): Unit =
         runBlocking {
             val result = depRepository.createBatch(emptyList())
             assertTrue(result.isEmpty())
         }
 
     @Test
-    fun `createBatch rejects duplicates within batch`() =
+    fun `createBatch rejects duplicates within batch`(): Unit =
         runBlocking {
             val deps =
                 listOf(
@@ -222,7 +222,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `createBatch rejects duplicates against existing`() =
+    fun `createBatch rejects duplicates against existing`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
 
@@ -238,7 +238,7 @@ class SQLiteDependencyRepositoryTest {
     // --- Cyclic dependency detection ---
 
     @Test
-    fun `create rejects duplicate dependency`() =
+    fun `create rejects duplicate dependency`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
 
@@ -248,7 +248,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `different types between same items are allowed`() =
+    fun `different types between same items are allowed`(): Unit =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO))
@@ -260,7 +260,7 @@ class SQLiteDependencyRepositoryTest {
     // --- RELATES_TO should not participate in cycle detection ---
 
     @Test
-    fun `create succeeds when only RELATES_TO exists in reverse direction`() =
+    fun `create succeeds when only RELATES_TO exists in reverse direction`(): Unit =
         runBlocking {
             // A RELATES_TO B is informational
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO))
@@ -273,7 +273,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `RELATES_TO at end of BLOCKS chain does not cause false cycle`() =
+    fun `RELATES_TO at end of BLOCKS chain does not cause false cycle`(): Unit =
         runBlocking {
             // Build a BLOCKS chain: A -> B -> C
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
@@ -285,7 +285,7 @@ class SQLiteDependencyRepositoryTest {
         }
 
     @Test
-    fun `createBatch succeeds with RELATES_TO closing a BLOCKS chain`() =
+    fun `createBatch succeeds with RELATES_TO closing a BLOCKS chain`(): Unit =
         runBlocking {
             // Build a BLOCKS chain: A -> B -> C
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))

@@ -152,7 +152,7 @@ class RestHostCaptureTest {
     }
 
     @Test
-    fun `harness proof the client preserves sent headers and always adds a default User-Agent unless one is set`() =
+    fun `harness proof the client preserves sent headers and always adds a default User-Agent unless one is set`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -178,7 +178,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ S3 S4 S5
 
     @Test
-    fun `S3 X-Client-Host wins over the User-Agent`() =
+    fun `S3 X-Client-Host wins over the User-Agent`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -193,7 +193,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S4 without X-Client-Host the User-Agent product is the host`() =
+    fun `S4 without X-Client-Host the User-Agent product is the host`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -207,7 +207,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S4 only the first product of a long User-Agent is used`() =
+    fun `S4 only the first product of a long User-Agent is used`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -223,7 +223,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S5 with no X-Client-Host and an empty User-Agent the host is the rest fallback`() =
+    fun `S5 with no X-Client-Host and an empty User-Agent the host is the rest fallback`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -241,7 +241,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S4 the test client's own default User-Agent is an ordinary product name`() =
+    fun `S4 the test client's own default User-Agent is an ordinary product name`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -260,7 +260,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ S8
 
     @Test
-    fun `S8 a blank X-Client-Host is absent and the User-Agent product is used`() =
+    fun `S8 a blank X-Client-Host is absent and the User-Agent product is used`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -277,7 +277,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S8 a blank X-Client-Host with no User-Agent gives the rest fallback`() =
+    fun `S8 a blank X-Client-Host with no User-Agent gives the rest fallback`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -289,7 +289,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `probe absent empty and blank X-Client-Host give the same outcome`() =
+    fun `probe absent empty and blank X-Client-Host give the same outcome`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -307,7 +307,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ S9
 
     @Test
-    fun `S9 a User-Agent without a product gives the rest fallback`() =
+    fun `S9 a User-Agent without a product gives the rest fallback`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -321,7 +321,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `probe a User-Agent with surrounding whitespace is trimmed before the product is taken`() =
+    fun `probe a User-Agent with surrounding whitespace is trimmed before the product is taken`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -335,7 +335,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ normalization on the wire
 
     @Test
-    fun `X-Client-Host is lowercased bounded and matched case-insensitively by header name`() =
+    fun `X-Client-Host is lowercased bounded and matched case-insensitively by header name`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -353,7 +353,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ S10
 
     @Test
-    fun `S10 a 401 row carries the X-Client-Host the unauthenticated caller sent`() =
+    fun `S10 a 401 row carries the X-Client-Host the unauthenticated caller sent`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -369,7 +369,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S10 a 401 row follows the same fallback chain`() =
+    fun `S10 a 401 row follows the same fallback chain`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -386,7 +386,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S10 a typed 404 and an unmatched route both record the host`() =
+    fun `S10 a typed 404 and an unmatched route both record the host`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -406,7 +406,7 @@ class RestHostCaptureTest {
     // ------------------------------------------------------------------ per-call isolation and S13
 
     @Test
-    fun `calls with different hosts in sequence and concurrently never leak into each other`() =
+    fun `calls with different hosts in sequence and concurrently never leak into each other`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -445,7 +445,7 @@ class RestHostCaptureTest {
         }
 
     @Test
-    fun `S13 the same read with different hosts returns identical status and body`() =
+    fun `S13 the same read with different hosts returns identical status and body`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)

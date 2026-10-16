@@ -142,7 +142,7 @@ class ItemsReadRelatedTest {
     // ------------------------------------------------------------------ hit shapes
 
     @Test
-    fun `S18 an item hit and a document hit have their own views and a tied score lists the document first`() =
+    fun `S18 an item hit and a document hit have their own views and a tied score lists the document first`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -183,7 +183,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S18 a document without a title has no title member`() =
+    fun `S18 a document without a title has no title member`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -197,7 +197,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `explain adds the rank breakdown weights and the fusion constant only when asked`() =
+    fun `explain adds the rank breakdown weights and the fusion constant only when asked`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -225,7 +225,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `an item with nothing related is an ok empty page`() =
+    fun `an item with nothing related is an ok empty page`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -242,7 +242,7 @@ class ItemsReadRelatedTest {
     // ------------------------------------------------------------------ id forms
 
     @Test
-    fun `itemId takes a full UUID or an 8-hex prefix and the answer is the same`() =
+    fun `itemId takes a full UUID or an 8-hex prefix and the answer is the same`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -260,7 +260,7 @@ class ItemsReadRelatedTest {
     // ------------------------------------------------------------------ S14 paging
 
     @Test
-    fun `S14 the default page is ten and a cursor walks the rest with a stable total`() =
+    fun `S14 the default page is ten and a cursor walks the rest with a stable total`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p, tags = "pgtag")
@@ -282,7 +282,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S14 an explicit limit pages by that size`() =
+    fun `S14 an explicit limit pages by that size`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p, tags = "pgtag")
@@ -307,7 +307,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S14 the same call twice returns the same items in the same order`() =
+    fun `S14 the same call twice returns the same items in the same order`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p, tags = "pgtag")
@@ -322,7 +322,7 @@ class ItemsReadRelatedTest {
     // ------------------------------------------------------------------ S7 failures
 
     @Test
-    fun `S7 a missing itemId is invalid_request`() =
+    fun `S7 a missing itemId is invalid_request`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Hangar container")
 
@@ -333,7 +333,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S7 a limit outside one to fifty is invalid_request and the bounds themselves are fine`() =
+    fun `S7 a limit outside one to fifty is invalid_request and the bounds themselves are fine`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p, tags = "pgtag")
@@ -349,7 +349,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S7 a malformed cursor is invalid_cursor`() =
+    fun `S7 a malformed cursor is invalid_cursor`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -362,7 +362,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S7 an unknown id is not_found for an unrestricted caller and a shared prefix is ambiguous_id`() =
+    fun `S7 an unknown id is not_found for an unrestricted caller and a shared prefix is ambiguous_id`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             rig.make("Twin one", p, id = UUID.fromString("abcd1234-0000-4000-8000-000000000001"))
@@ -378,7 +378,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S7 unknown members and members of other selects are unknown_parameter`() =
+    fun `S7 unknown members and members of other selects are unknown_parameter`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -391,7 +391,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S7 acrossRoots must be a boolean`() =
+    fun `S7 acrossRoots must be a boolean`(): Unit =
         irApp(db.db, dir) { rig ->
             val p = rig.make("Hangar container")
             val r = rig.make("Zorvath", p)
@@ -405,7 +405,7 @@ class ItemsReadRelatedTest {
     // ------------------------------------------------------------------ S11 cross-root
 
     @Test
-    fun `S11 acrossRoots absent and false are the default bound and true lifts it`() =
+    fun `S11 acrossRoots absent and false are the default bound and true lifts it`(): Unit =
         irApp(db.db, dir) { rig ->
             val a = rig.make("Alpha yard")
             val b = rig.make("Beta yard")
@@ -448,7 +448,7 @@ class ItemsReadRelatedTest {
     }
 
     @Test
-    fun `S9 a root scoped token gets only its own root's counterparts for every signal even with acrossRoots`() =
+    fun `S9 a root scoped token gets only its own root's counterparts for every signal even with acrossRoots`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(REL_ROOT_A)) { rig ->
             val r = crossFixture(rig)
 
@@ -465,7 +465,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S9 a restricted token still gets a full page when out-of-scope hits would have ranked above`() =
+    fun `S9 a restricted token still gets a full page when out-of-scope hits would have ranked above`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(REL_ROOT_A)) { rig ->
             val a = rig.make("Alpha yard", id = REL_ROOT_A)
             val b = rig.make("Beta yard", id = REL_ROOT_B)
@@ -482,7 +482,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S8 a ref outside the token's roots is forbidden with no trace and a missing id is forbidden too`() =
+    fun `S8 a ref outside the token's roots is forbidden with no trace and a missing id is forbidden too`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(REL_ROOT_A)) { rig ->
             rig.make("Alpha yard", id = REL_ROOT_A)
             val b = rig.make("Beta yard", id = REL_ROOT_B)
@@ -502,7 +502,7 @@ class ItemsReadRelatedTest {
         }
 
     @Test
-    fun `S8 a tag scoped token is forbidden on an item without an allowed tag and sees only tagged counterparts`() =
+    fun `S8 a tag scoped token is forbidden on an item without an allowed tag and sees only tagged counterparts`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("team")) { rig ->
             val p = rig.make("Hangar container")
             val tagged = rig.make("Zorvath", p, tags = "team,sharedx")

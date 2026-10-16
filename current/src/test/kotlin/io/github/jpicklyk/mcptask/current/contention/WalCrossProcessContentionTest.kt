@@ -14,31 +14,31 @@ import java.util.concurrent.TimeUnit
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class WalCrossProcessContentionTest {
     @Test
-    fun `A1 four racers on two managers complete one item`() =
+    fun `A1 four racers on two managers complete one item`(): Unit =
         runScenario(REPEATS, twoManagers = true) {
             WalScenarios.a1CompleteRace(it, racers = 4)
         }
 
     @Test
-    fun `S1 four siblings on two managers complete together`() =
+    fun `S1 four siblings on two managers complete together`(): Unit =
         runScenario(REPEATS, twoManagers = true) { WalScenarios.s1SiblingCascade(it, children = 4) }
 
     @Test
-    fun `L1 two items on two managers race one exclusive lease`() =
+    fun `L1 two items on two managers race one exclusive lease`(): Unit =
         runScenario(REPEATS, twoManagers = true) { WalScenarios.l1LeaseRace(it) }
 
     @Test
-    fun `C1 eight agents on two managers race one claim`() =
+    fun `C1 eight agents on two managers race one claim`(): Unit =
         runScenario(REPEATS, twoManagers = true) {
             WalScenarios.c1ClaimRace(it, agents = 8)
         }
 
     @Test
-    fun `K1 eight holders on two managers race one lease key`() =
+    fun `K1 eight holders on two managers race one lease key`(): Unit =
         runScenario(REPEATS, twoManagers = true) { WalScenarios.k1LeaseAcquireRace(it, holders = 8) }
 
     @Test
-    fun `R1 a reparent on two managers races a create under and a start of a descendant`() =
+    fun `R1 a reparent on two managers races a create under and a start of a descendant`(): Unit =
         runScenario(REPEATS, twoManagers = true) { WalReparentScenarios.r1ReparentVersusAdvanceAndCreate(it) }
 
     private companion object {

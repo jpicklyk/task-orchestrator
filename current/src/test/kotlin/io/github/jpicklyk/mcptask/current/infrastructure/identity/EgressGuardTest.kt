@@ -323,7 +323,7 @@ class EgressGuardTest {
     private suspend fun thrownBy(block: suspend () -> Unit): Throwable? = runCatching { block() }.exceptionOrNull()
 
     @Test
-    fun `S23 a jwks_uri on a private literal address is refused before any request`() =
+    fun `S23 a jwks_uri on a private literal address is refused before any request`(): Unit =
         runTest {
             val requests = Requests()
             val config = KeySourceConfig(jwksUri = "https://10.0.0.5/jwks.json")
@@ -348,7 +348,7 @@ class EgressGuardTest {
         }
 
     @Test
-    fun `S23 a jwks_uri that merely resolves to a private address is refused before any request`() =
+    fun `S23 a jwks_uri that merely resolves to a private address is refused before any request`(): Unit =
         runTest {
             val requests = Requests()
             val config = KeySourceConfig(jwksUri = "https://internal.eg.example/jwks.json")
@@ -369,7 +369,7 @@ class EgressGuardTest {
         }
 
     @Test
-    fun `S23 a public jwks_uri is fetched exactly once`() =
+    fun `S23 a public jwks_uri is fetched exactly once`(): Unit =
         runTest {
             val requests = Requests()
             val config = KeySourceConfig(jwksUri = "https://keys.eg.example/jwks.json")
@@ -394,7 +394,7 @@ class EgressGuardTest {
         }
 
     @Test
-    fun `S23 an OIDC-discovered jwks_uri on a private address is guarded too`() =
+    fun `S23 an OIDC-discovered jwks_uri on a private address is guarded too`(): Unit =
         runTest {
             val requests = Requests()
             val discovery = "https://idp.eg.example/.well-known/openid-configuration"
@@ -424,7 +424,7 @@ class EgressGuardTest {
         }
 
     @Test
-    fun `S23 a loopback key source is reachable only when allow_insecure_url is set`() =
+    fun `S23 a loopback key source is reachable only when allow_insecure_url is set`(): Unit =
         runTest {
             val url = "http://127.0.0.1:9/jwks.json"
 
@@ -500,7 +500,7 @@ class EgressGuardTest {
     }
 
     @Test
-    fun `S23 a refused key source makes the API verifier fail closed`() =
+    fun `S23 a refused key source makes the API verifier fail closed`(): Unit =
         runTest {
             val requests = Requests()
             val apiConfig =

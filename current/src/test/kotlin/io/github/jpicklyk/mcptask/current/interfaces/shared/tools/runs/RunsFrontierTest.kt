@@ -225,7 +225,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S1 the mixed run
 
     @Test
-    fun `S1 a mixed run reports counts, ready, in flight and waiting exactly`() =
+    fun `S1 a mixed run reports counts, ready, in flight and waiting exactly`(): Unit =
         world { w ->
             val m = mixed(w)
             val data = w.frontier(m.run)
@@ -258,7 +258,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S2 a blocker reaches its threshold
 
     @Test
-    fun `S2 a member becomes ready when its blocker reaches terminal and its waiting entry goes`() =
+    fun `S2 a member becomes ready when its blocker reaches terminal and its waiting entry goes`(): Unit =
         world { w ->
             val m = mixed(w)
             assertEquals(setOf(short(m.c), short(m.f)), w.frontier(m.run).ids("waiting").toSet(), "control: C waits on X")
@@ -271,7 +271,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S2 the unblockAt threshold decides, and a BLOCKED blocker never satisfies any threshold`() =
+    fun `S2 the unblockAt threshold decides, and a BLOCKED blocker never satisfies any threshold`(): Unit =
         world { w ->
             val y = w.item("Y blocker", tags = "free-task")
             val g = w.item("G behind Y")
@@ -299,7 +299,8 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S3 the run view agrees
 
     @Test
-    fun `S3 frontier stalled equals the run view coordinatorStalled, and stalledSeats counts the stalled in-flight member seats only`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S3 frontier stalled equals the run view coordinatorStalled, and stalledSeats counts the stalled in-flight member seats only`(): Unit =
         world { w ->
             val b1 = w.item("B1")
             val b2 = w.item("B2")
@@ -333,7 +334,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S3 stalledSeats is on the run view of get, list and the runs_write results`() =
+    fun `S3 stalledSeats is on the run view of get, list and the runs_write results`(): Unit =
         world { w ->
             val b1 = w.item("B1")
             val run = w.open(listOf(b1), extra = stall(120))
@@ -355,7 +356,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S4 active seats
 
     @Test
-    fun `S4 a member with an active seat is in flight and not ready, and is ready once the seat ends`() =
+    fun `S4 a member with an active seat is in flight and not ready, and is ready once the seat ends`(): Unit =
         world { w ->
             val q = w.item("Q planned")
             val other = w.item("Other")
@@ -378,7 +379,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S4 probe two active seats on one item are two in-flight entries and the item is ready only after both end`() =
+    fun `S4 probe two active seats on one item are two in-flight entries and the item is ready only after both end`(): Unit =
         world { w ->
             val item = w.item("Seated", tags = "seated-task")
             val run = w.open(listOf(item), extra = stall(120))
@@ -400,7 +401,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S4 in-flight entries are in assignment order, not item id order`() =
+    fun `S4 in-flight entries are in assignment order, not item id order`(): Unit =
         world { w ->
             val first = w.item("assigned first", id = UUID.fromString("ffffffff-0000-4000-8000-000000000001"))
             val second = w.item("assigned second", id = UUID.fromString("00000001-0000-4000-8000-000000000002"))
@@ -414,7 +415,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S5 claims
 
     @Test
-    fun `S5 a live claim held outside the run keeps a member out of ready, an expired one and the coordinator one do not`() =
+    fun `S5 a live claim held outside the run keeps a member out of ready, an expired one and the coordinator one do not`(): Unit =
         world { w ->
             val outsider = w.item("claimed by an outsider")
             val coordinator = w.item("claimed under the coordinator token")
@@ -448,7 +449,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S6 blockers
 
     @Test
-    fun `S6 waiting lists only the unsatisfied blocking blockers, as short ids in sorted order`() =
+    fun `S6 waiting lists only the unsatisfied blocking blockers, as short ids in sorted order`(): Unit =
         world { w ->
             val g = w.item("G blocked many ways")
             val unsatisfiedB = w.item("blocker b", tags = "free-task", id = UUID.fromString("bbbbbbbb-0000-4000-8000-000000000001"))
@@ -482,7 +483,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S6 a single unsatisfied blocker among satisfied ones is the only one listed`() =
+    fun `S6 a single unsatisfied blocker among satisfied ones is the only one listed`(): Unit =
         world { w ->
             val g = w.item("G")
             val open = w.item("open blocker", tags = "free-task")
@@ -497,7 +498,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S7 scope
 
     @Test
-    fun `S7 a run on another root is forbidden to a root-scoped token, who still reads its own run`() =
+    fun `S7 a run on another root is forbidden to a root-scoped token, who still reads its own run`(): Unit =
         world { w ->
             val own = w.item("own member")
             val foreignMember = w.item("foreign member", parent = w.root2)
@@ -520,7 +521,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S7 a blocker outside the scope keeps its item waiting but is left out of blockers`() =
+    fun `S7 a blocker outside the scope keeps its item waiting but is left out of blockers`(): Unit =
         world { w ->
             val m = w.item("M behind an invisible blocker")
             val n = w.item("N behind both")
@@ -544,7 +545,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S7 another run members and seats never appear in the frontier`() =
+    fun `S7 another run members and seats never appear in the frontier`(): Unit =
         world { w ->
             val mine = w.item("mine")
             val theirs = w.item("theirs")
@@ -563,7 +564,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S7 a tag-scoped token sees only the members with its tag, counted and listed`() =
+    fun `S7 a tag-scoped token sees only the members with its tag, counted and listed`(): Unit =
         world { w ->
             val taggedRoot = w.rig.seed("Tagged root", tags = "plain-task")
             val ta = w.rig.seed("visible member", parent = taggedRoot, tags = "plain-task")
@@ -583,7 +584,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S8 and S9 seat liveness
 
     @Test
-    fun `S8 a seat is stalled strictly after the pinned threshold of its own run - 120 and 900 differ from the 600 default`() =
+    fun `S8 a seat is stalled strictly after the pinned threshold of its own run - 120 and 900 differ from the 600 default`(): Unit =
         world { w ->
             val i120 = w.item("in the 120 run")
             val i900 = w.item("in the 900 run")
@@ -613,7 +614,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S9 a seat never seen omits lastSeenAt and is stalled from its assignment instant`() =
+    fun `S9 a seat never seen omits lastSeenAt and is stalled from its assignment instant`(): Unit =
         world { w ->
             val item = w.item("never touched")
             val run = w.open(listOf(item), extra = stall(120))
@@ -645,7 +646,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S8a the coordinator
 
     @Test
-    fun `S8a the coordinator is stalled strictly after the run threshold, on the frontier and on get alike`() =
+    fun `S8a the coordinator is stalled strictly after the run threshold, on the frontier and on get alike`(): Unit =
         world { w ->
             val b1 = w.item("B1")
             val b2 = w.item("B2")
@@ -666,7 +667,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S8a a select under the coordinator token touches nothing`() =
+    fun `S8a a select under the coordinator token touches nothing`(): Unit =
         world { w ->
             val b1 = w.item("B1")
             val run = w.open(listOf(b1), extra = stall(120))
@@ -681,7 +682,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S10 to S12 shapes
 
     @Test
-    fun `S10 a closed run has no ready members, no seats and is not stalled, yet counts its members`() =
+    fun `S10 a closed run has no ready members, no seats and is not stalled, yet counts its members`(): Unit =
         world { w ->
             val m = mixed(w)
             assertEquals(listOf(short(m.a)), w.frontier(m.run).ids("ready"), "control: the open run has a ready member")
@@ -700,7 +701,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S10 a paused run computes its frontier normally`() =
+    fun `S10 a paused run computes its frontier normally`(): Unit =
         world { w ->
             val m = mixed(w)
             val before = w.frontier(m.run)
@@ -716,7 +717,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S11 a run with no members answers zero counts and empty arrays that are present`() =
+    fun `S11 a run with no members answers zero counts and empty arrays that are present`(): Unit =
         world { w ->
             val run = w.open(emptyList(), extra = stall(120))
             val data = w.frontier(run)
@@ -730,7 +731,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S12 the wire shape - short item ids, the full run id, only the stated keys, no null, no secrets`() =
+    fun `S12 the wire shape - short item ids, the full run id, only the stated keys, no null, no secrets`(): Unit =
         world { w ->
             val untyped = w.item("untyped", tags = null)
             val claimed = w.item("claimed by an outsider")
@@ -801,7 +802,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S12 an item with no type has no type member in its ready entry, and one with a type has it`() =
+    fun `S12 an item with no type has no type member in its ready entry, and one with a type has it`(): Unit =
         world { w ->
             val untyped = w.item("untyped", tags = null)
             val typed = w.item("typed")
@@ -815,7 +816,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ probes and S15
 
     @Test
-    fun `S12 probe the frontier is a pure read - twice identical, no row written, no event`() =
+    fun `S12 probe the frontier is a pure read - twice identical, no row written, no event`(): Unit =
         world { w ->
             val m = mixed(w)
             val seatsBefore = stable(w.seatsOfRun(m.run.runId))
@@ -832,7 +833,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S15 the orchestration and the director profile answer with the same frontier, and a bad reference is refused`() =
+    fun `S15 the orchestration and the director profile answer with the same frontier, and a bad reference is refused`(): Unit =
         world { w ->
             val m = mixed(w)
             val viaOrchestration = w.frontier(m.run)
@@ -854,7 +855,7 @@ class RunsFrontierTest {
         }
 
     @Test
-    fun `S15 a caller without the read capability is refused, a READ-only caller is served`() =
+    fun `S15 a caller without the read capability is refused, a READ-only caller is served`(): Unit =
         world { w ->
             val m = mixed(w)
             val noRead = ParityToken("seat-noread", setOf(ApiCapability.RUNS))

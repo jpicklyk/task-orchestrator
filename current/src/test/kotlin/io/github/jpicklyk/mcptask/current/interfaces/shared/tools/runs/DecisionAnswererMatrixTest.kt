@@ -157,7 +157,7 @@ class DecisionAnswererMatrixTest {
     }
 
     @Test
-    fun `the whole matrix class x kind x proof x profile x token admits exactly what the truth table says`() =
+    fun `the whole matrix class x kind x proof x profile x token admits exactly what the truth table says`(): Unit =
         runBlocking {
             val mismatches = mutableListOf<String>()
             val admittedPerClass = mutableMapOf<DecisionRequestAnswerers, Int>()
@@ -193,7 +193,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `a human credential with no proof or a rejected proof is not a human, whatever the profile`() =
+    fun `a human credential with no proof or a rejected proof is not a human, whatever the profile`(): Unit =
         runBlocking {
             for (proof in listOf(ProofStatus.NONE, ProofStatus.REJECTED)) {
                 for (profile in listOf("rest", "orchestration", null)) {
@@ -211,7 +211,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `the director profile alone does not make a human-only answerer, and a seat token strips the director`() =
+    fun `the director profile alone does not make a human-only answerer, and a seat token strips the director`(): Unit =
         runBlocking {
             val director = DecisionCallers.of(context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "director", seat = null))
             assertTrue(director.isDirector())
@@ -231,7 +231,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `the caller carries the credential kind, proof, seat and run from the context`() =
+    fun `the caller carries the credential kind, proof, seat and run from the context`(): Unit =
         runBlocking {
             val plain = DecisionCallers.of(context(PrincipalKind.HUMAN, ProofStatus.VERIFIED, "director", seat = null, id = "person-1"))
             assertEquals("api:person-1", plain.principalId)
@@ -384,7 +384,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `route - every credential kind and proof is admitted exactly as the truth table says on both mounts for every class`() =
+    fun `route - every credential kind and proof is admitted exactly as the truth table says on both mounts for every class`(): Unit =
         withApp {
             val mismatches = mutableListOf<String>()
             var admitted = 0
@@ -424,7 +424,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `route - a refused answer leaves the decision open and the same decision is then answered by an admitted principal`() =
+    fun `route - a refused answer leaves the decision open and the same decision is then answered by an admitted principal`(): Unit =
         withApp {
             val agent = bearers.single { it.id == "dm-agent-issued" }
             val human = bearers.single { it.id == "dm-human-issued" }
@@ -446,7 +446,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `route - a seat token on the director mount is not the director and a seat token over a human credential is not a human`() =
+    fun `route - a seat token on the director mount is not the director and a seat token over a human credential is not a human`(): Unit =
         withApp {
             val service = bearers.single { it.id == "dm-service-issued" }
             val human = bearers.single { it.id == "dm-human-issued" }
@@ -482,7 +482,7 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `route - ack follows the same matrix as answer`() =
+    fun `route - ack follows the same matrix as answer`(): Unit =
         withApp {
             val agent = bearers.single { it.id == "dm-agent-issued" }
             val human = bearers.single { it.id == "dm-human-issued" }

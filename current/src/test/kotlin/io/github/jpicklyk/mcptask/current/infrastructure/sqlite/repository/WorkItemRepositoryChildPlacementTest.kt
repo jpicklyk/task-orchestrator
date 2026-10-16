@@ -68,7 +68,7 @@ class WorkItemRepositoryChildPlacementTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S1 resolveChildPlacement derives depth and rootId from a parent that already has a stamped rootId`() =
+    fun `S1 resolveChildPlacement derives depth and rootId from a parent that already has a stamped rootId`(): Unit =
         runBlocking {
             val root = create(WorkItem(title = "Root S1", depth = 0))
             val rootWithSelfId = (repo().update(root.copy(rootId = root.id))!!)
@@ -91,7 +91,7 @@ class WorkItemRepositoryChildPlacementTest {
         }
 
     @Test
-    fun `S1b resolveChildPlacement falls back to the parent's own id when the parent has no stamped rootId (legacy)`() =
+    fun `S1b resolveChildPlacement falls back to the parent's own id when the parent has no stamped rootId (legacy)`(): Unit =
         runBlocking {
             // A root created directly via the repository, bypassing any route/tool that would
             // stamp rootId=self — the "legacy" shape the O1 fallback (rootId ?: id) exists for.
@@ -111,7 +111,7 @@ class WorkItemRepositoryChildPlacementTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 resolveChildPlacement on an unknown parent id returns Result Error NotFound`() =
+    fun `S8 resolveChildPlacement on an unknown parent id returns Result Error NotFound`(): Unit =
         runBlocking {
             val unknownId = UUID.randomUUID()
 
@@ -126,7 +126,7 @@ class WorkItemRepositoryChildPlacementTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `probe replay — calling resolveChildPlacement twice for an unchanged parent returns the same placement both times`() =
+    fun `probe replay — calling resolveChildPlacement twice for an unchanged parent returns the same placement both times`(): Unit =
         runBlocking {
             val root = create(WorkItem(title = "Replay Root", depth = 0))
             val rootWithSelfId = (repo().update(root.copy(rootId = root.id))!!)

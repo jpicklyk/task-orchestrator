@@ -59,7 +59,7 @@ class CallLogWriterTest {
     }
 
     @Test
-    fun `S8 without a flush loop the queue holds exactly capacity records and the rest are dropped`() =
+    fun `S8 without a flush loop the queue holds exactly capacity records and the rest are dropped`(): Unit =
         runBlocking {
             val writer =
                 CallLogWriter(sqlite.unitOfWork(), RecordingCallLogStore(), capacity = 10, batchSize = 1000, flushInterval = 1.hours)
@@ -70,7 +70,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S8 with the flush loop parked in a suspended store the overflow is dropped and warned per interval`() =
+    fun `S8 with the flush loop parked in a suspended store the overflow is dropped and warned per interval`(): Unit =
         runBlocking {
             val gate = CompletableDeferred<Unit>()
             val store = RecordingCallLogStore(gate)
@@ -112,7 +112,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S8 a suspended store never delays callers even with a large queue`() =
+    fun `S8 a suspended store never delays callers even with a large queue`(): Unit =
         runBlocking {
             val gate = CompletableDeferred<Unit>()
             val writer =
@@ -135,7 +135,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S9 a failing batch is warned and dropped, the counter moves, and the next batch is written`() =
+    fun `S9 a failing batch is warned and dropped, the counter moves, and the next batch is written`(): Unit =
         runBlocking {
             val store = RecordingCallLogStore(failFirstCalls = 1)
             val writer = CallLogWriter(sqlite.unitOfWork(), store, capacity = 100, batchSize = 100, flushInterval = 30.milliseconds)
@@ -162,7 +162,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S11 250 submits are appended in batches of at most 100 and all 250 are written`() =
+    fun `S11 250 submits are appended in batches of at most 100 and all 250 are written`(): Unit =
         runBlocking {
             val store = RecordingCallLogStore()
             val writer = CallLogWriter(sqlite.unitOfWork(), store, capacity = 10_000, batchSize = 100, flushInterval = 50.milliseconds)
@@ -183,7 +183,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S11 30 submits with nothing after them are flushed by the timer within three intervals`() =
+    fun `S11 30 submits with nothing after them are flushed by the timer within three intervals`(): Unit =
         runBlocking {
             val interval = 200.milliseconds
             val store = RecordingCallLogStore()
@@ -204,7 +204,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S15 stop drains rows that no size or timer trigger flushed`() =
+    fun `S15 stop drains rows that no size or timer trigger flushed`(): Unit =
         runBlocking {
             val writer =
                 CallLogWriter(
@@ -225,7 +225,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S15 stop is bounded by the drain timeout when the store never answers`() =
+    fun `S15 stop is bounded by the drain timeout when the store never answers`(): Unit =
         runBlocking {
             val gate = CompletableDeferred<Unit>()
             val writer =
@@ -249,7 +249,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `eight concurrent producers lose nothing under a roomy queue`() =
+    fun `eight concurrent producers lose nothing under a roomy queue`(): Unit =
         runBlocking {
             val writer =
                 CallLogWriter(
@@ -274,7 +274,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `S12 duplicate req_ids are counted as duplicates and never fail the batch`() =
+    fun `S12 duplicate req_ids are counted as duplicates and never fail the batch`(): Unit =
         runBlocking {
             val writer =
                 CallLogWriter(
@@ -295,7 +295,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `F7 a CHECK-violating row counts as failed and warns, a duplicate counts as a duplicate, the rest is written`() =
+    fun `F7 a CHECK-violating row counts as failed and warns, a duplicate counts as a duplicate, the rest is written`(): Unit =
         runBlocking {
             val writer =
                 CallLogWriter(
@@ -323,7 +323,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `flushNow on an empty queue writes nothing and does not throw`() =
+    fun `flushNow on an empty queue writes nothing and does not throw`(): Unit =
         runBlocking {
             val store = RecordingCallLogStore()
             val writer = CallLogWriter(sqlite.unitOfWork(), store)
@@ -340,7 +340,7 @@ class CallLogWriterTest {
     private fun noticedCount(message: String): Long = Regex("\\d+").find(message)?.value?.toLong() ?: 0L
 
     @Test
-    fun `F5 the notices after a burst together report every dropped row and stop emits the pending remainder`() =
+    fun `F5 the notices after a burst together report every dropped row and stop emits the pending remainder`(): Unit =
         runBlocking {
             val store = RecordingCallLogStore()
             // Not started: 25 submits into a queue of 10 drop exactly 15 with nothing draining.
@@ -365,7 +365,7 @@ class CallLogWriterTest {
         }
 
     @Test
-    fun `F5 a burst of 20 drops while the store is stuck is reported in full once the loop runs again`() =
+    fun `F5 a burst of 20 drops while the store is stuck is reported in full once the loop runs again`(): Unit =
         runBlocking {
             val gate = CompletableDeferred<Unit>()
             val store = RecordingCallLogStore(gate)
@@ -402,7 +402,7 @@ class CallLogWriterTest {
     // ------------------------------------------------------------------ F6
 
     @Test
-    fun `F6 stop with a store that never returns comes back within the drain timeout and counts the abandoned rows as dropped`() =
+    fun `F6 stop with a store that never returns comes back within the drain timeout and counts the abandoned rows as dropped`(): Unit =
         runBlocking {
             val inFlight =
                 java.util.concurrent.atomic

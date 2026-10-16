@@ -69,7 +69,7 @@ class ItemsReadRegistryTest {
     }
 
     @Test
-    fun `S15 an MCP client lists items_read and no query_items`() =
+    fun `S15 an MCP client lists items_read and no query_items`(): Unit =
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val server = Server(serverInfo = Implementation(name = "ir-server", version = "1.0.0"), options = inMemoryTestServerOptions())

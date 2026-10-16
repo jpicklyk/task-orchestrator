@@ -88,7 +88,7 @@ class ProofEvidenceRestTest {
     // ===========================================================================================
 
     @Test
-    fun `S5 admin GET notes shows attribution but never proof evidence, and actor proof is absent`() =
+    fun `S5 admin GET notes shows attribution but never proof evidence, and actor proof is absent`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val sha = "deadbeef".repeat(8)
@@ -129,7 +129,7 @@ class ProofEvidenceRestTest {
     // ===========================================================================================
 
     @Test
-    fun `S6 guard non-admin with default attribution redaction sees no actor and no verification`() =
+    fun `S6 guard non-admin with default attribution redaction sees no actor and no verification`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "11".repeat(32), claims = null)
@@ -150,7 +150,7 @@ class ProofEvidenceRestTest {
     // ===========================================================================================
 
     @Test
-    fun `GET notes with the retired include query parameter is rejected as invalid_request`() =
+    fun `GET notes with the retired include query parameter is rejected as invalid_request`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "22".repeat(32), claims = null)

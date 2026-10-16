@@ -119,7 +119,7 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ S4
 
     @Test
-    fun `S4 a REST read carries X-Req-Id and writes one row with the REST columns`() =
+    fun `S4 a REST read carries X-Req-Id and writes one row with the REST columns`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -158,7 +158,7 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ S10
 
     @Test
-    fun `S10 an unknown route records http_404`() =
+    fun `S10 an unknown route records http_404`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -176,7 +176,7 @@ class RestCallLogTest {
         }
 
     @Test
-    fun `path normalisation replaces UUID segments only and ignores the query string`() =
+    fun `path normalisation replaces UUID segments only and ignores the query string`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -209,7 +209,7 @@ class RestCallLogTest {
         }
 
     @Test
-    fun `G1 a matched multi-literal route keeps its literal as the declared template`() =
+    fun `G1 a matched multi-literal route keeps its literal as the declared template`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -224,7 +224,7 @@ class RestCallLogTest {
         }
 
     @Test
-    fun `G1 cardinality of unauthenticated junk calls is bounded by methods times served resources plus one`() =
+    fun `G1 cardinality of unauthenticated junk calls is bounded by methods times served resources plus one`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -267,7 +267,7 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ S19
 
     @Test
-    fun `S19 an unauthenticated call is a 401 that still gets X-Req-Id and an error row without a principal`() =
+    fun `S19 an unauthenticated call is a 401 that still gets X-Req-Id and an error row without a principal`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -291,7 +291,7 @@ class RestCallLogTest {
         }
 
     @Test
-    fun `S16 Q32 the error_code of a 403 and a 413 row is the envelope code`() =
+    fun `S16 Q32 the error_code of a 403 and a 413 row is the envelope code`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -317,7 +317,7 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ F1
 
     @Test
-    fun `F1 a 401 on a long junk path never stores client text and no client-derived string exceeds 64 characters`() =
+    fun `F1 a 401 on a long junk path never stores client text and no client-derived string exceeds 64 characters`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -362,7 +362,7 @@ class RestCallLogTest {
     // ------------------------------------------------------------------ S16
 
     @Test
-    fun `S16 the mcp endpoint writes one mcp row, and handshake, listing, well-known and the SSE path write none`() =
+    fun `S16 the mcp endpoint writes one mcp row, and handshake, listing, well-known and the SSE path write none`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -458,7 +458,7 @@ class RestCallLogTest {
         }
 
     @Test
-    fun `S16 reads and the public health route are REST calls but the SSE stream is not`() =
+    fun `S16 reads and the public health route are REST calls but the SSE stream is not`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)

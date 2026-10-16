@@ -109,7 +109,7 @@ class ReportRealProducerTest {
     private fun SeatWorld.clockNow(): Instant = clock.now()
 
     @Test
-    fun `S14 a gate-blocked transition shows up in gates by note key and by error code, and in the anchor rollup rejected count`() =
+    fun `S14 a gate-blocked transition shows up in gates by note key and by error code, and in the anchor rollup rejected count`(): Unit =
         world { w ->
             val gated = w.rig.seed("Gated item", parent = w.root, tags = "gated-task")
 
@@ -133,7 +133,7 @@ class ReportRealProducerTest {
         }
 
     @Test
-    fun `S14 control - a transition that passes its gate adds no rejection to gates or to the rollup`() =
+    fun `S14 control - a transition that passes its gate adds no rejection to gates or to the rollup`(): Unit =
         world { w ->
             val free = w.rig.seed("Free item", parent = w.root, tags = "plain-task")
 
@@ -146,7 +146,7 @@ class ReportRealProducerTest {
         }
 
     @Test
-    fun `S14 a refused claim shows up in contention as one rejected claim next to the granted one`() =
+    fun `S14 a refused claim shows up in contention as one rejected claim next to the granted one`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m1, null).ok(), "fixture: the orchestrator claims the item")
             val refused = w.claim(w.m1, null, by = w.other)
@@ -169,7 +169,7 @@ class ReportRealProducerTest {
         }
 
     @Test
-    fun `S14 a lease conflict shows up in contention as one rejected lease on the contended key`() =
+    fun `S14 a lease conflict shows up in contention as one rejected lease on the contended key`(): Unit =
         world { w ->
             val first = w.rig.seed("Leased one", parent = w.root, tags = "leased-task")
             val second = w.rig.seed("Leased two", parent = w.root, tags = "leased-task")

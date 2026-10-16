@@ -903,7 +903,8 @@ class SeatEnforcementTokenPathTest {
     private fun Reply.seatDetail(): JsonObject = checkNotNull(error()?.get("detail")?.jsonObject) { "no error detail: $this" }
 
     @Test
-    fun `R23 S2 S3 S5 S7 S8 real tokens - a seat acts on its own item, the coordinator on any, a human on any, the rest are refused`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `R23 S2 S3 S5 S7 S8 real tokens - a seat acts on its own item, the coordinator on any, a human on any, the rest are refused`(): Unit =
         world { w ->
             val own = w.m1
             val other = w.member("another member")
@@ -956,7 +957,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 S12 pause still enforces, end_seat kills the token but not the enforcement, close lifts it`() =
+    fun `R23 S12 pause still enforces, end_seat kills the token but not the enforcement, close lifts it`(): Unit =
         world { w ->
             val a = w.m1
             val b = w.member("second member")
@@ -979,7 +980,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 S14 every seat refusal is a call_log row with its error code, seat and host`() =
+    fun `R23 S14 every seat refusal is a call_log row with its error code, seat and host`(): Unit =
         world { w ->
             val mine = w.m1
             val other = w.member("other member")
@@ -1029,7 +1030,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 S6 S10 rule 2 with real tokens - own and unowned keys pass, another seat key is note_owned_by_other on a first write`() =
+    fun `R23 S6 S10 rule 2 with real tokens - own and unowned keys pass, another seat key is note_owned_by_other on a first write`(): Unit =
         world { w ->
             val item = w.m1
             val outside = w.d
@@ -1077,7 +1078,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 probe an atomic batch with a seat refusal rolls back the permitted element, a plain batch keeps it`() =
+    fun `R23 probe an atomic batch with a seat refusal rolls back the permitted element, a plain batch keeps it`(): Unit =
         world { w ->
             val own = w.m1
             val other = w.member("another member")
@@ -1107,7 +1108,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 probe a superseded attempt's token is dead and the new attempt's token acts`() =
+    fun `R23 probe a superseded attempt's token is dead and the new attempt's token acts`(): Unit =
         world { w ->
             val own = w.m1
             val run = w.open(members = listOf(own))
@@ -1128,7 +1129,7 @@ class SeatEnforcementTokenPathTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `R23 R1b R1c R1e with real tokens - an admitted write changes attribution and never the owner, and adopts an unowned note`() =
+    fun `R23 R1b R1c R1e with real tokens - an admitted write changes attribution and never the owner, and adopts an unowned note`(): Unit =
         world { w ->
             val item = w.m1
             val run = w.open(members = listOf(item))
@@ -1180,7 +1181,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 R1d R1f with real tokens - after the run closes, or on an item in no run, the same writes are note_owned_by_other`() =
+    fun `R23 R1d R1f with real tokens - after the run closes, or on an item in no run, the same writes are note_owned_by_other`(): Unit =
         world { w ->
             val item = w.m1
             val outside = w.d
@@ -1224,7 +1225,7 @@ class SeatEnforcementTokenPathTest {
         rows("SELECT result_json FROM idempotency_records").flatMap { stringValues(Json.parseToJsonElement(it["result_json"] as String)) }
 
     @Test
-    fun `R23 Ruling 2 a keyed open replay omits the coordinator token and says it was redacted - the store never holds a token`() =
+    fun `R23 Ruling 2 a keyed open replay omits the coordinator token and says it was redacted - the store never holds a token`(): Unit =
         world { w ->
             val element = """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"idempotencyKey":"open-key-r23"}"""
 
@@ -1249,7 +1250,7 @@ class SeatEnforcementTokenPathTest {
         }
 
     @Test
-    fun `R23 Ruling 2 a keyed assign replay omits the seat token and says it was redacted - the store never holds a token`() =
+    fun `R23 Ruling 2 a keyed assign replay omits the seat token and says it was redacted - the store never holds a token`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1))
 

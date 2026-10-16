@@ -85,7 +85,7 @@ class McpRestAuthBypassTest {
     private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     @Test
-    fun `REST API enabled gates api routes and the mcp endpoint alike`() =
+    fun `REST API enabled gates api routes and the mcp endpoint alike`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             val provider = inMemoryProvider()

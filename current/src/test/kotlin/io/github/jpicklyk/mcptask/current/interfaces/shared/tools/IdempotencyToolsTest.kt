@@ -74,7 +74,7 @@ class IdempotencyToolsTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `notes_write upsert caches response on idempotencyKey`() =
+    fun `notes_write upsert caches response on idempotencyKey`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val key = UUID.randomUUID().toString()
@@ -114,7 +114,7 @@ class IdempotencyToolsTest {
         }
 
     @Test
-    fun `notes_write without idempotencyKey skips cache`() =
+    fun `notes_write without idempotencyKey skips cache`(): Unit =
         runBlocking {
             val itemId = createTestItem()
 
@@ -134,7 +134,7 @@ class IdempotencyToolsTest {
     private fun keyed(key: String) = "idempotencyKey" to JsonPrimitive(key)
 
     @Test
-    fun `advance transition caches the element on idempotencyKey`() =
+    fun `advance transition caches the element on idempotencyKey`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val key = UUID.randomUUID().toString()
@@ -155,7 +155,7 @@ class IdempotencyToolsTest {
      * call survives the retry (a re-executed claim by the holder would be a refresh).
      */
     @Test
-    fun `advance claim with idempotencyKey returns the stored element on retry, no double-mutation`() =
+    fun `advance claim with idempotencyKey returns the stored element on retry, no double-mutation`(): Unit =
         runBlocking {
             val itemId = createTestItem("Test Claim Item")
             val key = UUID.randomUUID().toString()

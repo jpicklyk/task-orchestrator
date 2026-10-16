@@ -269,7 +269,7 @@ class IndependenceSeatPairTest {
     // ------------------------------------------------------------------ the seat is stored with the note
 
     @Test
-    fun `the note seat survives a write and a read through the real note store, and a note without one reads null`() =
+    fun `the note seat survives a write and a read through the real note store, and a note without one reads null`(): Unit =
         runBlocking {
             val provider = db.repositoryProvider()
             val item = provider.workItemRepository().create(WorkItem(title = "seat round trip item", type = "seat-pair-test"))

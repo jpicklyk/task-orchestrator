@@ -140,7 +140,7 @@ class JwksApiVerifierExpiryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verify returns null for a JWT with no exp claim`() =
+    fun `verify returns null for a JWT with no exp claim`(): Unit =
         runTest {
             val claims = buildClaims(expiry = null)
             val result = verifier().verify(signRsa(claims))
@@ -148,7 +148,7 @@ class JwksApiVerifierExpiryTest {
         }
 
     @Test
-    fun `verifyWithExpiry returns null for a JWT with no exp claim`() =
+    fun `verifyWithExpiry returns null for a JWT with no exp claim`(): Unit =
         runTest {
             val claims = buildClaims(expiry = null)
             val result = verifier().verifyWithExpiryOrNull(signRsa(claims))
@@ -160,7 +160,7 @@ class JwksApiVerifierExpiryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verify returns a principal for a JWT with a future exp`() =
+    fun `verify returns a principal for a JWT with a future exp`(): Unit =
         runTest {
             val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().plusSeconds(300))))
             assertNotNull(result, "A JWT with a future exp must still be accepted")
@@ -168,14 +168,14 @@ class JwksApiVerifierExpiryTest {
         }
 
     @Test
-    fun `verify returns null for a JWT with exp 120s in the past`() =
+    fun `verify returns null for a JWT with exp 120s in the past`(): Unit =
         runTest {
             val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().minusSeconds(120))))
             assertNull(result, "An exp 120s in the past is outside the 60s skew window and must be rejected")
         }
 
     @Test
-    fun `verify accepts a JWT with exp 30s in the past, inside the 60s skew window`() =
+    fun `verify accepts a JWT with exp 30s in the past, inside the 60s skew window`(): Unit =
         runTest {
             val result = verifier().verify(signRsa(buildClaims(expiry = Instant.now().minusSeconds(30))))
             assertNotNull(result, "An exp 30s in the past is inside the 60s skew window and must still be accepted")
@@ -186,7 +186,7 @@ class JwksApiVerifierExpiryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verify accepts a JWT whose exp equals now`() =
+    fun `verify accepts a JWT whose exp equals now`(): Unit =
         runTest {
             val now = pinnedNow()
             val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now)))
@@ -194,7 +194,7 @@ class JwksApiVerifierExpiryTest {
         }
 
     @Test
-    fun `verify accepts a JWT whose exp is 59s in the past`() =
+    fun `verify accepts a JWT whose exp is 59s in the past`(): Unit =
         runTest {
             val now = pinnedNow()
             val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now.minusSeconds(59))))
@@ -202,7 +202,7 @@ class JwksApiVerifierExpiryTest {
         }
 
     @Test
-    fun `verify rejects a JWT whose exp is 61s in the past`() =
+    fun `verify rejects a JWT whose exp is 61s in the past`(): Unit =
         runTest {
             val now = pinnedNow()
             val result = verifier(Clock.fixed(now, ZoneOffset.UTC)).verify(signRsa(buildClaims(expiry = now.minusSeconds(61))))
@@ -214,7 +214,7 @@ class JwksApiVerifierExpiryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verifyWithExpiry returns VerifiedApiToken with expiresAt truncated to whole seconds`() =
+    fun `verifyWithExpiry returns VerifiedApiToken with expiresAt truncated to whole seconds`(): Unit =
         runTest {
             val mintedExpiry = Instant.now().plusSeconds(300)
             val result = verifier().verifyWithExpiryOrNull(signRsa(buildClaims(expiry = mintedExpiry)))
@@ -232,7 +232,7 @@ class JwksApiVerifierExpiryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verify rejects a JWT with a satisfied nbf but no exp`() =
+    fun `verify rejects a JWT with a satisfied nbf but no exp`(): Unit =
         runTest {
             val claims = buildClaims(expiry = null, notBefore = Instant.now().minusSeconds(10))
             val result = verifier().verify(signRsa(claims))
@@ -281,7 +281,7 @@ class JwksApiVerifierExpiryTest {
     }
 
     @Test
-    fun `exp-less JWT is rejected on a normal REST route in jwks mode`() =
+    fun `exp-less JWT is rejected on a normal REST route in jwks mode`(): Unit =
         testApplication {
             application { installJwksRestApp(verifier()) }
 

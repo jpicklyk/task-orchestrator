@@ -131,7 +131,7 @@ class SeatTokenLiftTest {
     // ------------------------------------------------------------------ S12 unknown
 
     @Test
-    fun `S12 an unknown token is the fixed unauthenticated refusal on an ops tool and on a select tool, and writes nothing`() =
+    fun `S12 an unknown token is the fixed unauthenticated refusal on an ops tool and on a select tool, and writes nothing`(): Unit =
         world { w ->
             val run = w.open()
             val before = w.rows("SELECT * FROM run_seats").size
@@ -151,7 +151,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `S12 to S14 unknown, ended and wrong-principal tokens get the very same error object`() =
+    fun `S12 to S14 unknown, ended and wrong-principal tokens get the very same error object`(): Unit =
         world { w ->
             val run = w.open()
             val live = w.assignOk(run, w.m1, "builder")
@@ -173,7 +173,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `S13 a token whose run was closed is refused the same way`() =
+    fun `S13 a token whose run was closed is refused the same way`(): Unit =
         world { w ->
             val run = w.open()
             val seat = w.assignOk(run, w.m1, "builder")
@@ -185,7 +185,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `S14 the principal compare is exact - another credential, another case or a padded id never uses the token`() =
+    fun `S14 the principal compare is exact - another credential, another case or a padded id never uses the token`(): Unit =
         world { w ->
             val run = w.open()
             val seat = w.assignOk(run, w.m1, "builder")
@@ -202,7 +202,7 @@ class SeatTokenLiftTest {
     // ------------------------------------------------------------------ the shape of the key
 
     @Test
-    fun `D1 an absent seatToken is no seat, and a present one that is empty, blank, null or not a string is unauthenticated`() =
+    fun `D1 an absent seatToken is no seat, and a present one that is empty, blank, null or not a string is unauthenticated`(): Unit =
         world { w ->
             val run = w.open()
             assertTrue(w.call("runs_read", """{"select":"list"}""").ok(), "absent: served with no seat")
@@ -216,7 +216,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `D1 a differently spelled token is never accepted - case, alphabet, padding, whitespace, truncation, extension`() =
+    fun `D1 a differently spelled token is never accepted - case, alphabet, padding, whitespace, truncation, extension`(): Unit =
         world { w ->
             val run = w.open()
             val seat = w.assignOk(run, w.m1, "builder")
@@ -244,7 +244,8 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `D1 seatToken inside an ops element is unknown_parameter at its pointer and never runs, even beside a valid top-level token`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `D1 seatToken inside an ops element is unknown_parameter at its pointer and never runs, even beside a valid top-level token`(): Unit =
         world { w ->
             val run = w.open()
             val seat = w.assignOk(run, w.m1, "builder")
@@ -262,7 +263,7 @@ class SeatTokenLiftTest {
     // ------------------------------------------------------------------ ordering (D1)
 
     @Test
-    fun `D1 an invalid token is refused before describe, the selector, the decode or the access check is read`() =
+    fun `D1 an invalid token is refused before describe, the selector, the decode or the access check is read`(): Unit =
         world { w ->
             val run = w.open()
             val cases =
@@ -296,7 +297,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `D1 a valid token does not disturb describe, and the valid token is still checked against the principal first`() =
+    fun `D1 a valid token does not disturb describe, and the valid token is still checked against the principal first`(): Unit =
         world { w ->
             val run = w.open()
             assertTrue(
@@ -312,7 +313,7 @@ class SeatTokenLiftTest {
     // ------------------------------------------------------------------ the secret is never echoed
 
     @Test
-    fun `a seat token appears in no error body, no call_log row, no event payload and no read view`() =
+    fun `a seat token appears in no error body, no call_log row, no event payload and no read view`(): Unit =
         world { w ->
             val run = w.open()
             val seat = w.assignOk(run, w.m1, "builder")
@@ -353,7 +354,7 @@ class SeatTokenLiftTest {
     // ------------------------------------------------------------------ the REST transport
 
     @Test
-    fun `REST an unknown token is 401 unauthenticated with the fixed message on an ops route and a select route`() =
+    fun `REST an unknown token is 401 unauthenticated with the fixed message on an ops route and a select route`(): Unit =
         rest { w ->
             val run = w.open()
             val ops =
@@ -371,7 +372,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `REST the whole seat life over HTTP - open, assign, claim, usage, end - with the same principal binding`() =
+    fun `REST the whole seat life over HTTP - open, assign, claim, usage, end - with the same principal binding`(): Unit =
         rest { w ->
             val opened =
                 client.send(
@@ -437,7 +438,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `REST the director route does not offer assign or end_seat, whatever token it carries`() =
+    fun `REST the director route does not offer assign or end_seat, whatever token it carries`(): Unit =
         rest { w ->
             val run = w.open()
             val onDirector =
@@ -459,7 +460,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `REST a human credential presenting a seat token is refused a pause that the same human may make without it`() =
+    fun `REST a human credential presenting a seat token is refused a pause that the same human may make without it`(): Unit =
         rest { w ->
             val opened =
                 client.send(

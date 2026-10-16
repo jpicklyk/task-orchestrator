@@ -257,7 +257,7 @@ class CallLogPrincipalKindTest {
         CallLogWriter(composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
 
     @Test
-    fun `S3 a REST read records the credential kind for HUMAN, AGENT and SERVICE bearers`() =
+    fun `S3 a REST read records the credential kind for HUMAN, AGENT and SERVICE bearers`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -279,7 +279,7 @@ class CallLogPrincipalKindTest {
         }
 
     @Test
-    fun `S3 the shared REST test token, a SERVICE principal, records service`() =
+    fun `S3 the shared REST test token, a SERVICE principal, records service`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -369,7 +369,8 @@ class CallLogPrincipalKindTest {
     // ------------------------------------------------------------------ S6 / S7 no principal
 
     @Test
-    fun `S6 a REST request with no token or an unknown token writes principal_kind NULL, and a valid token beside it writes a kind`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S6 a REST request with no token or an unknown token writes principal_kind NULL, and a valid token beside it writes a kind`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)

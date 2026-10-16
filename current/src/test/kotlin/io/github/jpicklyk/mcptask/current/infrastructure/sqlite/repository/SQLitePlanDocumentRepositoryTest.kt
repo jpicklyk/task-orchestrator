@@ -46,7 +46,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- get: no row ---
 
     @Test
-    fun `get returns null when no document row exists`() =
+    fun `get returns null when no document row exists`(): Unit =
         runBlocking {
             val result = planDocumentRepository.get(rootItemId, "plan-a")
             assertNull(result)
@@ -55,7 +55,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- stash: fresh insert ---
 
     @Test
-    fun `stash stores a PENDING document and returns it with a computed content hash`() =
+    fun `stash stores a PENDING document and returns it with a computed content hash`(): Unit =
         runBlocking {
             val result = planDocumentRepository.stash(rootItemId, "plan-a", "# Plan A\n")
             assertNotNull(result)
@@ -75,7 +75,7 @@ class SQLitePlanDocumentRepositoryTest {
         }
 
     @Test
-    fun `content hash is stable for identical content and changes when content changes`() =
+    fun `content hash is stable for identical content and changes when content changes`(): Unit =
         runBlocking {
             val hashA = planDocumentRepository.computeContentHash("# Plan A\n")
             assertEquals(hashA, planDocumentRepository.computeContentHash("# Plan A\n"))
@@ -86,7 +86,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- stash: overwrites an existing PENDING row rather than inserting a second row ---
 
     @Test
-    fun `stash overwrites the existing PENDING row for the same slug rather than inserting a second row`() =
+    fun `stash overwrites the existing PENDING row for the same slug rather than inserting a second row`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
             val second = planDocumentRepository.stash(rootItemId, "plan-a", "v2")
@@ -102,7 +102,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- stash: rejected against an ADOPTED slug ---
 
     @Test
-    fun `stash against an ADOPTED slug is rejected and does not modify the row`() =
+    fun `stash against an ADOPTED slug is rejected and does not modify the row`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
@@ -122,7 +122,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- markAdopted ---
 
     @Test
-    fun `markAdopted transitions PENDING to ADOPTED and records the adopting item`() =
+    fun `markAdopted transitions PENDING to ADOPTED and records the adopting item`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
@@ -136,7 +136,7 @@ class SQLitePlanDocumentRepositoryTest {
         }
 
     @Test
-    fun `markAdopted on a missing slug returns NotFound`() =
+    fun `markAdopted on a missing slug returns NotFound`(): Unit =
         runBlocking {
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             val result = planDocumentRepository.markAdopted(rootItemId, "no-such-slug", adopter.id)
@@ -145,7 +145,7 @@ class SQLitePlanDocumentRepositoryTest {
         }
 
     @Test
-    fun `markAdopted on an already-ADOPTED slug returns AlreadyAdopted without changing the adopter`() =
+    fun `markAdopted on an already-ADOPTED slug returns AlreadyAdopted without changing the adopter`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
             val firstAdopter = workItemRepository.create(WorkItem(title = "First Adopter"))
@@ -162,7 +162,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- list ---
 
     @Test
-    fun `list returns metadata-only summaries ordered by slug ascending`() =
+    fun `list returns metadata-only summaries ordered by slug ascending`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "zeta", "z")
             planDocumentRepository.stash(rootItemId, "alpha", "a")
@@ -174,7 +174,7 @@ class SQLitePlanDocumentRepositoryTest {
         }
 
     @Test
-    fun `list filters by status when provided`() =
+    fun `list filters by status when provided`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             planDocumentRepository.stash(rootItemId, "plan-b", "b")
@@ -189,7 +189,7 @@ class SQLitePlanDocumentRepositoryTest {
         }
 
     @Test
-    fun `list scopes to the given root only`() =
+    fun `list scopes to the given root only`(): Unit =
         runBlocking {
             val otherRoot = workItemRepository.create(WorkItem(title = "Other Root"))
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
@@ -202,7 +202,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- FK cascade: deleting the root work item removes its plan_documents rows ---
 
     @Test
-    fun `deleting the root work item cascades to delete its plan_documents rows`() =
+    fun `deleting the root work item cascades to delete its plan_documents rows`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
 
@@ -215,7 +215,7 @@ class SQLitePlanDocumentRepositoryTest {
     // --- Provenance (D16): the adopted_by link outlives the adopting work item ---
 
     @Test
-    fun `deleting the adopting work item keeps adoptedByItemId naming the deleted adopter`() =
+    fun `deleting the adopting work item keeps adoptedByItemId naming the deleted adopter`(): Unit =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))

@@ -58,7 +58,7 @@ class ContentNegotiationOrderSpikeTest {
      * install(ContentNegotiation) { json(McpJson) } → routing { ... }
      */
     @Test
-    fun `ContentNegotiation with McpJson installed first serves REST JSON correctly`() =
+    fun `ContentNegotiation with McpJson installed first serves REST JSON correctly`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -85,7 +85,7 @@ class ContentNegotiationOrderSpikeTest {
      * serialization — null fields are omitted, non-null fields are present.
      */
     @Test
-    fun `McpJson explicitNulls=false does not break REST JSON serialization`() =
+    fun `McpJson explicitNulls=false does not break REST JSON serialization`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -110,7 +110,7 @@ class ContentNegotiationOrderSpikeTest {
      * Tests /api/v1/info with a pre-seeded principal in call attributes.
      */
     @Test
-    fun `serviceRoutes info endpoint serializes correctly under McpJson ContentNegotiation`() =
+    fun `serviceRoutes info endpoint serializes correctly under McpJson ContentNegotiation`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -156,7 +156,7 @@ class ContentNegotiationOrderSpikeTest {
      * when ContentNegotiation is configured with McpJson.
      */
     @Test
-    fun `wellKnownRoutes returns correct JSON under McpJson ContentNegotiation`() =
+    fun `wellKnownRoutes returns correct JSON under McpJson ContentNegotiation`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -179,7 +179,7 @@ class ContentNegotiationOrderSpikeTest {
      * Verifies CORS plugin installs without conflict when ContentNegotiation is already present.
      */
     @Test
-    fun `CORS and ContentNegotiation install without conflict`() =
+    fun `CORS and ContentNegotiation install without conflict`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {

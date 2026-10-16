@@ -63,7 +63,7 @@ class ItemReadRoutesTest {
     // ------------------------------------------------------------------ S8
 
     @Test
-    fun `S8 GET item answers the ops get body with ETag v-version`() =
+    fun `S8 GET item answers the ops get body with ETag v-version`(): Unit =
         irApp(db.db, dir) { rig ->
             val parent = rig.make("Parent")
             val item = rig.make("Subject", parent, tags = "alpha", summary = "s")
@@ -82,7 +82,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S8 a matching If-None-Match answers 304 without a body, a different one answers 200`() =
+    fun `S8 a matching If-None-Match answers 304 without a body, a different one answers 200`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val item = rig.make("Subject")
             val version =
@@ -104,7 +104,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S8 after an update the old ETag no longer matches and the new one does`() =
+    fun `S8 after an update the old ETag no longer matches and the new one does`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val item = rig.make("Before")
             val old =
@@ -132,7 +132,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S8 replaying the same GET answers the same ETag and body`() =
+    fun `S8 replaying the same GET answers the same ETag and body`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val item = rig.make("Replayed")
 
@@ -144,7 +144,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S8 GET item accepts an id prefix and the answer still carries the item's own ETag`() =
+    fun `S8 GET item accepts an id prefix and the answer still carries the item's own ETag`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val item = rig.make("ByPrefix", id = UUID.fromString("5ae0c3d1-0000-4000-8000-0000000000aa"))
             val version =
@@ -163,7 +163,7 @@ class ItemReadRoutesTest {
     // ------------------------------------------------------------------ S9 (REST)
 
     @Test
-    fun `S9 an out-of-scope GET is 403 even with the correct ETag and carries no ETag`() =
+    fun `S9 an out-of-scope GET is 403 even with the correct ETag and carries no ETag`(): Unit =
         irRestApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             rig.make("Mine", id = r1)
             val foreign = rig.make("Beta-secret", id = r2)
@@ -190,7 +190,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S9 a missing id is 403 under a restricted scope and 404 without an ETag when unrestricted`() =
+    fun `S9 a missing id is 403 under a restricted scope and 404 without an ETag when unrestricted`(): Unit =
         irRestApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             rig.make("Mine", id = r1)
             val missing = "99999999-9999-4999-8999-999999999999"
@@ -213,7 +213,7 @@ class ItemReadRoutesTest {
     // ------------------------------------------------------------------ S14
 
     @Test
-    fun `S14 any query parameter on GET item is unknown_parameter`() =
+    fun `S14 any query parameter on GET item is unknown_parameter`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val item = rig.make("Subject")
 
@@ -229,7 +229,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S14 children - a non-integer limit is invalid_request, other parameters are unknown_parameter, no ETag`() =
+    fun `S14 children - a non-integer limit is invalid_request, other parameters are unknown_parameter, no ETag`(): Unit =
         irRestApp(db.db, dir) { rig ->
             val parent = rig.make("Parent")
             rig.make("kid", parent)
@@ -259,7 +259,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S14 children equal the ops list of the parent, including paging`() =
+    fun `S14 children equal the ops list of the parent, including paging`(): Unit =
         irApp(db.db, dir) { rig ->
             val parent = rig.make("Parent")
             repeat(5) { rig.make("kid-$it", parent) }
@@ -284,7 +284,7 @@ class ItemReadRoutesTest {
         }
 
     @Test
-    fun `S11 children under a tag scope list visible items only`() =
+    fun `S11 children under a tag scope list visible items only`(): Unit =
         irRestApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             rig.make("A1", p, tags = "api")
@@ -303,7 +303,7 @@ class ItemReadRoutesTest {
     // ------------------------------------------------------------------ S15 (full topology)
 
     @Test
-    fun `S15 the deleted routes are 404 and the kept GETs are served in the production topology`() =
+    fun `S15 the deleted routes are 404 and the kept GETs are served in the production topology`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Subject")
             rig.make("Kid", item)
@@ -336,7 +336,7 @@ class ItemReadRoutesTest {
      * that is not a success and carries no `items` list, rather than the literal 404.
      */
     @Test
-    fun `S15 the old list and roots routes no longer serve a list`() =
+    fun `S15 the old list and roots routes no longer serve a list`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Subject")
 

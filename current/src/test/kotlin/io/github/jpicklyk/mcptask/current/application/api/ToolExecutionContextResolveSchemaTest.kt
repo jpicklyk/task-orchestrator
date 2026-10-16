@@ -91,7 +91,7 @@ class ToolExecutionContextResolveSchemaTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveSchema returns type-based schema when item has type and schema exists`() =
+    fun `resolveSchema returns type-based schema when item has type and schema exists`(): Unit =
         runBlocking {
             val expected = schemaWithReview("feature-task")
             server.schemas["feature-task"] = expected
@@ -101,7 +101,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema ignores a tag naming a schema when the type has none`() =
+    fun `resolveSchema ignores a tag naming a schema when the type has none`(): Unit =
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
 
@@ -109,7 +109,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema with no type uses only the default chain, never the tags`() =
+    fun `resolveSchema with no type uses only the default chain, never the tags`(): Unit =
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
 
@@ -117,13 +117,13 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema returns null for schema-free item with no type and no tags`() =
+    fun `resolveSchema returns null for schema-free item with no type and no tags`(): Unit =
         runBlocking {
             assertNull(context.resolveSchema(makeItem(type = null, tags = null)))
         }
 
     @Test
-    fun `resolveSchema returns the default schema when the item has no type`() =
+    fun `resolveSchema returns the default schema when the item has no type`(): Unit =
         runBlocking {
             val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
             server.schemas["default"] = defaultSchema
@@ -135,7 +135,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema falls back to the default schema when the type has none`() =
+    fun `resolveSchema falls back to the default schema when the type has none`(): Unit =
         runBlocking {
             val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
             server.schemas["default"] = defaultSchema
@@ -148,21 +148,21 @@ class ToolExecutionContextResolveSchemaTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveHasReviewPhase returns true when schema has review phase`() =
+    fun `resolveHasReviewPhase returns true when schema has review phase`(): Unit =
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
             assertTrue(context.resolveHasReviewPhase(makeItem(type = "feature-task")))
         }
 
     @Test
-    fun `resolveHasReviewPhase returns false when schema has no review phase`() =
+    fun `resolveHasReviewPhase returns false when schema has no review phase`(): Unit =
         runBlocking {
             server.schemas["simple-task"] = schemaWithoutReview("simple-task")
             assertFalse(context.resolveHasReviewPhase(makeItem(type = "simple-task")))
         }
 
     @Test
-    fun `resolveHasReviewPhase returns false when no schema matches`() =
+    fun `resolveHasReviewPhase returns false when no schema matches`(): Unit =
         runBlocking {
             assertFalse(context.resolveHasReviewPhase(makeItem(type = null, tags = null)))
         }
@@ -189,7 +189,7 @@ class ToolExecutionContextResolveSchemaTest {
     ): NoteSchemaEntry = NoteSchemaEntry(key = key, role = role, required = true, description = "Trait note: $key")
 
     @Test
-    fun `resolveSchema merges trait notes after base schema notes`() =
+    fun `resolveSchema merges trait notes after base schema notes`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-security-review"))
@@ -203,7 +203,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema base content wins over a trait key with the same name and required is ORed`() =
+    fun `resolveSchema base content wins over a trait key with the same name and required is ORed`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(
@@ -223,7 +223,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema skips unknown traits with no error`() =
+    fun `resolveSchema skips unknown traits with no error`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("nonexistent-trait"))
@@ -235,7 +235,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema merges per-item traits from properties JSON`() =
+    fun `resolveSchema merges per-item traits from properties JSON`(): Unit =
         runBlocking {
             server.schemas["feature-task"] = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
             server.traits["needs-perf-review"] = listOf(traitEntry("performance-baseline", Role.QUEUE))
@@ -248,7 +248,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema unions item and default traits item-first with deduplication`() =
+    fun `resolveSchema unions item and default traits item-first with deduplication`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("trait-a"))
@@ -262,7 +262,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema returns base schema unchanged when no traits`() =
+    fun `resolveSchema returns base schema unchanged when no traits`(): Unit =
         runBlocking {
             val baseSchema = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
             server.schemas["feature-task"] = baseSchema
@@ -271,7 +271,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveHasReviewPhase returns true when trait adds review note`() =
+    fun `resolveHasReviewPhase returns true when trait adds review note`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-review-trait"))
@@ -281,7 +281,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema first trait wins for duplicate trait note keys`() =
+    fun `resolveSchema first trait wins for duplicate trait note keys`(): Unit =
         runBlocking {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("trait-a", "trait-b"))
@@ -297,7 +297,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema preserves lifecycleMode and defaultTraits on the default fallback`() =
+    fun `resolveSchema preserves lifecycleMode and defaultTraits on the default fallback`(): Unit =
         runBlocking {
             val defaultNotes = listOf(workEntry())
             server.schemas["default"] =
@@ -321,7 +321,7 @@ class ToolExecutionContextResolveSchemaTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveSchema per-root type match overrides server type`() =
+    fun `resolveSchema per-root type match overrides server type`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRootSchema = schemaWithReview("feature-task")
@@ -332,7 +332,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema per-root type miss falls through to server type`() =
+    fun `resolveSchema per-root type miss falls through to server type`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = perRootWith(rootId, schemasDoc())
@@ -345,7 +345,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema server exact type beats a per-root default`() =
+    fun `resolveSchema server exact type beats a per-root default`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
@@ -357,7 +357,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema empty per-root default beats the server default when no layer has the type`() =
+    fun `resolveSchema empty per-root default beats the server default when no layer has the type`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.schemas["default"] = WorkItemSchema(type = "default", notes = listOf(workEntry()))
@@ -370,7 +370,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema no per-root row and no server exact match falls through to server default`() =
+    fun `resolveSchema no per-root row and no server exact match falls through to server default`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val globalDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
@@ -383,7 +383,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema with null rootId skips the per-root layer entirely`() =
+    fun `resolveSchema with null rootId skips the per-root layer entirely`(): Unit =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
             val globalSchema = schemaWithReview("feature-task")
@@ -394,7 +394,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema per-root trait notes override the server trait definition`() =
+    fun `resolveSchema per-root trait notes override the server trait definition`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.schemas["feature-task"] =
@@ -415,7 +415,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema per-root default beats the server default for an untyped item`() =
+    fun `resolveSchema per-root default beats the server default for an untyped item`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
@@ -426,7 +426,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema treats a null perRootConfigService identically to a per-root config miss`() =
+    fun `resolveSchema treats a null perRootConfigService identically to a per-root config miss`(): Unit =
         runBlocking {
             val globalSchema = schemaWithReview("feature-task")
             server.schemas["feature-task"] = globalSchema
@@ -435,7 +435,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `the default context resolver has no server config`() =
+    fun `the default context resolver has no server config`(): Unit =
         runBlocking {
             val ctx = ToolExecutionContext(mockk<RepositoryProvider>(relaxed = true))
             assertNull(ctx.resolveSchema(makeItem(type = "feature-task")))
@@ -447,7 +447,7 @@ class ToolExecutionContextResolveSchemaTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveNoteLimitsMode falls through to the server when rootId is null`() =
+    fun `resolveNoteLimitsMode falls through to the server when rootId is null`(): Unit =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
             server.noteLimitsMode = "reject"
@@ -457,7 +457,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveNoteLimitsMode falls through to the server when the per-root doc has no explicit mode`() =
+    fun `resolveNoteLimitsMode falls through to the server when the per-root doc has no explicit mode`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.noteLimitsMode = "reject"
@@ -466,7 +466,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveNoteLimitsMode uses the per-root explicit mode over the server mode`() =
+    fun `resolveNoteLimitsMode uses the per-root explicit mode over the server mode`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(noteLimitsMode = "reject")))
@@ -475,7 +475,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveStatusLabel falls through to the server when rootId is null`() =
+    fun `resolveStatusLabel falls through to the server when rootId is null`(): Unit =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
             server.statusLabels = mapOf("start" to "in-progress")
@@ -485,7 +485,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveStatusLabel falls through to the server per-trigger when the per-root map is partial`() =
+    fun `resolveStatusLabel falls through to the server per-trigger when the per-root map is partial`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.statusLabels = mapOf("complete" to "done")
@@ -500,7 +500,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveStatusLabel honors an explicit null per-root label without falling through`() =
+    fun `resolveStatusLabel honors an explicit null per-root label without falling through`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.statusLabels = mapOf("complete" to "done")
@@ -513,7 +513,7 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveStatusLabels resolves the whole trigger set from a single snapshot fetch`() =
+    fun `resolveStatusLabels resolves the whole trigger set from a single snapshot fetch`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.statusLabels = mapOf("cascade" to "done")

@@ -74,7 +74,7 @@ class ConfigServiceTest {
     private fun yamlWithEmbeddedRootId(embedded: String) = "project:\n  rootId: $embedded\n$plainYaml"
 
     @Test
-    fun `push with no project block succeeds unchanged`() =
+    fun `push with no project block succeeds unchanged`(): Unit =
         runBlocking {
             val result = service.push(rootId, plainYaml)
 
@@ -82,7 +82,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with embedded rootId matching the target succeeds`() =
+    fun `push with embedded rootId matching the target succeeds`(): Unit =
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(rootId.toString()))
 
@@ -90,7 +90,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with embedded rootId differing from the target is rejected and stores nothing`() =
+    fun `push with embedded rootId differing from the target is rejected and stores nothing`(): Unit =
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(otherRootId.toString()))
 
@@ -104,7 +104,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with a malformed non-UUID embedded rootId proceeds unchanged`() =
+    fun `push with a malformed non-UUID embedded rootId proceeds unchanged`(): Unit =
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId("not-a-uuid"))
 
@@ -112,7 +112,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with force true bypasses a mismatched embedded rootId`() =
+    fun `push with force true bypasses a mismatched embedded rootId`(): Unit =
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(otherRootId.toString()), force = true)
 
@@ -127,7 +127,7 @@ class ConfigServiceTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `push with an UNKNOWN fingerprint (brand-new content) proceeds normally`() =
+    fun `push with an UNKNOWN fingerprint (brand-new content) proceeds normally`(): Unit =
         runBlocking {
             val yamlA = "work_item_schemas:\n  a: {}\n"
             val yamlB = "work_item_schemas:\n  b: {}\n"
@@ -142,7 +142,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with the CURRENT fingerprint (idempotent re-push) proceeds normally`() =
+    fun `push with the CURRENT fingerprint (idempotent re-push) proceeds normally`(): Unit =
         runBlocking {
             val yaml = "work_item_schemas:\n  a: {}\n"
             val first = service.push(rootId, yaml)
@@ -158,7 +158,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with a SUPERSEDED (known-old) fingerprint is rejected naming the server's updatedAt`() =
+    fun `push with a SUPERSEDED (known-old) fingerprint is rejected naming the server's updatedAt`(): Unit =
         runBlocking {
             val yamlA = "work_item_schemas:\n  a: {}\n"
             val yamlB = "work_item_schemas:\n  b: {}\n"
@@ -185,7 +185,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push with force true bypasses a SUPERSEDED fingerprint and overwrites`() =
+    fun `push with force true bypasses a SUPERSEDED fingerprint and overwrites`(): Unit =
         runBlocking {
             val yamlA = "work_item_schemas:\n  a: {}\n"
             val yamlB = "work_item_schemas:\n  b: {}\n"
@@ -204,7 +204,7 @@ class ConfigServiceTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `push rejects a server-only top-level key with its path`() =
+    fun `push rejects a server-only top-level key with its path`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -223,7 +223,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push accepts a document that only uses per-root top-level keys`() =
+    fun `push accepts a document that only uses per-root top-level keys`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -247,7 +247,7 @@ class ConfigServiceTest {
         }
 
     @Test
-    fun `push accepts an empty document`() =
+    fun `push accepts an empty document`(): Unit =
         runBlocking {
             val result = service.push(rootId, "")
 

@@ -125,7 +125,7 @@ class KeySetBackoffTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S12 a failed refresh backs off 15s doubling to a 300s cap and serves stale with the real age`() =
+    fun `S12 a failed refresh backs off 15s doubling to a 300s cap and serves stale with the real age`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -166,7 +166,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S12 fifty concurrent callers during an outage cause a single refresh attempt`() =
+    fun `S12 fifty concurrent callers during an outage cause a single refresh attempt`(): Unit =
         runBlocking(Dispatchers.Default) {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -191,7 +191,7 @@ class KeySetBackoffTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S13 a successful refresh resets the retry delay to 15s`() =
+    fun `S13 a successful refresh resets the retry delay to 15s`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -238,7 +238,7 @@ class KeySetBackoffTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S14 stale keys are served up to max_stale_seconds inclusive and refused one second later`() =
+    fun `S14 stale keys are served up to max_stale_seconds inclusive and refused one second later`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -261,7 +261,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S14 a refresh that fails when the entry is already past max_stale throws and recovery is possible`() =
+    fun `S14 a refresh that fails when the entry is already past max_stale throws and recovery is possible`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -285,7 +285,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S14 the limit is the configured max_stale_seconds not a constant`() =
+    fun `S14 the limit is the configured max_stale_seconds not a constant`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -310,7 +310,7 @@ class KeySetBackoffTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S15 with stale_on_error disabled the first failed refresh throws instead of serving stale`() =
+    fun `S15 with stale_on_error disabled the first failed refresh throws instead of serving stale`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -329,7 +329,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S15 a failed first fetch with no cached entry throws even with stale_on_error enabled`() =
+    fun `S15 a failed first fetch with no cached entry throws even with stale_on_error enabled`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             up.failing = true
@@ -347,7 +347,7 @@ class KeySetBackoffTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S16 forced refreshes are limited to one per 30 seconds and update the cache`() =
+    fun `S16 forced refreshes are limited to one per 30 seconds and update the cache`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -382,7 +382,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S16 a forced refresh that fails returns null and leaves the cached keys usable`() =
+    fun `S16 a forced refresh that fails returns null and leaves the cached keys usable`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -402,7 +402,7 @@ class KeySetBackoffTest {
         }
 
     @Test
-    fun `S16 a forced refresh is subject to the backoff after a failed scheduled refresh`() =
+    fun `S16 a forced refresh is subject to the backoff after a failed scheduled refresh`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)

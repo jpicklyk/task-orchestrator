@@ -150,7 +150,7 @@ class CallTelemetryRootRunTest {
     // ------------------------------------------------------------------ recorders
 
     @Test
-    fun `the new recorders are silent no-ops when no element is installed`() =
+    fun `the new recorders are silent no-ops when no element is installed`(): Unit =
         runBlocking {
             recordCallRoot(r1)
             recordCallRoot(null)
@@ -160,7 +160,7 @@ class CallTelemetryRootRunTest {
         }
 
     @Test
-    fun `the new recorders write into the installed element and a null root is ignored`() =
+    fun `the new recorders write into the installed element and a null root is ignored`(): Unit =
         runBlocking {
             val t = telemetry()
             withContext(t) {
@@ -181,7 +181,7 @@ class CallTelemetryRootRunTest {
         }
 
     @Test
-    fun `the root recorded in a child coroutine on another dispatcher reaches the call`() =
+    fun `the root recorded in a child coroutine on another dispatcher reaches the call`(): Unit =
         runBlocking {
             val t = telemetry()
             withContext(t) { withContext(Dispatchers.IO) { recordCallRoot(r2) } }
@@ -257,7 +257,7 @@ class CallTelemetryRootRunTest {
     ) = ctx.itemCommandService.create(ItemCreateCommand(parentId = parentId, title = title, type = "test-item")).orFail()
 
     @Test
-    fun `S7 an event written inside a call carries the run and seat of that call on its events row`() =
+    fun `S7 an event written inside a call carries the run and seat of that call on its events row`(): Unit =
         runBlocking {
             val rig = newRig()
             val parent = rig.seed("S7 parent")
@@ -282,7 +282,7 @@ class CallTelemetryRootRunTest {
         }
 
     @Test
-    fun `S7 an event written in a call that never set a run has null run and seat`() =
+    fun `S7 an event written in a call that never set a run has null run and seat`(): Unit =
         runBlocking {
             val rig = newRig()
             val parent = rig.seed("S7 parent")
@@ -300,7 +300,7 @@ class CallTelemetryRootRunTest {
         }
 
     @Test
-    fun `an event reports the root of its item to the call and a second root makes it multi-root`() =
+    fun `an event reports the root of its item to the call and a second root makes it multi-root`(): Unit =
         runBlocking {
             val rig = newRig()
             val rootA = rig.seed("Root A")

@@ -153,7 +153,7 @@ class AuthenticationPluginTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `JWKS verifier called with token string`() =
+    fun `JWKS verifier called with token string`(): Unit =
         runTest {
             val verifier = mockk<JwksApiVerifier>()
             val principal = makePrincipal("jwks-caller").copy(kind = PrincipalKind.SERVICE, proofStatus = ProofStatus.VERIFIED)
@@ -165,7 +165,7 @@ class AuthenticationPluginTest {
         }
 
     @Test
-    fun `JWKS verifier returns null for bad JWT`() =
+    fun `JWKS verifier returns null for bad JWT`(): Unit =
         runTest {
             val verifier = mockk<JwksApiVerifier>()
             coEvery { verifier.verify(any()) } returns null
