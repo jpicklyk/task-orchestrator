@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
@@ -348,12 +349,16 @@ class ParitySeeder(
         return created
     }
 
-    /** Creates an item; a child's depth and root are derived from its parent so the domain invariants hold by construction. */
+    /**
+     * Creates an item in [role] (queue unless told otherwise); a child's depth and root are derived from its parent so the domain
+     * invariants hold by construction.
+     */
     suspend fun item(
         id: UUID,
         title: String,
         parent: UUID? = null,
-        tags: String? = null
+        tags: String? = null,
+        role: Role = Role.QUEUE
     ): WorkItem {
         val p = parent?.let { checkNotNull(repo.getById(it)) { "seed parent $it does not exist" } }
         return checkNotNull(
@@ -364,7 +369,8 @@ class ParitySeeder(
                     parentId = parent,
                     depth = (p?.depth ?: -1) + 1,
                     rootId = p?.let { it.rootId ?: it.id } ?: id,
-                    tags = tags
+                    tags = tags,
+                    role = role
                 )
             )
         )

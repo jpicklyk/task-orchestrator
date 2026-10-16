@@ -427,9 +427,89 @@ class TransitionPolicyTest {
 
     @Test
     fun `S9 the same cascade completes a non-blocked parent`() {
-        for (role in listOf(QUEUE, WORK, REVIEW)) {
+        // REVIEW is no longer in this loop: a terminal cascade never moves a REVIEW parent (7cb8a3df, see the S13 tests below).
+        for (role in listOf(QUEUE, WORK)) {
             val a = allowed(snap(role, children = ChildFacts(3, 3)), Trigger.Cascade.Complete(false))
             assertEquals(TERMINAL, a.target, "from $role")
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 7cb8a3df S13: a terminal cascade never moves a REVIEW parent (review-pending gate).
+    // Oracle: proposal 4b2ac588 (a parent leaves REVIEW only by an explicit advance) and task-scope D1-D4, D6, frozen in the
+    // queue phase. Fixtures: auto lifecycle (the default `auto` facts), all children terminal so the warrant passes.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `S13 a complete cascade into a REVIEW parent is rejected by the review-pending gate for both cancelOrigin values`() {
+        for (cancelOrigin in listOf(false, true)) {
+            val r = rejected(snap(REVIEW, children = ChildFacts(3, 3)), Trigger.Cascade.Complete(cancelOrigin))
+            assertEquals(GateId.REVIEW_PENDING, r.gate, "cancelOrigin=$cancelOrigin")
+            assertEquals(ErrorCode.GATE_BLOCKED, r.error.code, "cancelOrigin=$cancelOrigin")
+        }
+    }
+
+    @Test
+    fun `S13 the review-pending rejection is the same with every required note filled`() {
+        val s = snap(REVIEW, notes = allNotes, filled = setOf("q-note", "w-note", "r-note"), children = ChildFacts(2, 2))
+        assertEquals(GateId.REVIEW_PENDING, rejected(s, Trigger.Cascade.Complete(false)).gate)
+    }
+
+    @Test
+    fun `S13 the review-pending gate wins over the dependency and note gates on a REVIEW parent`() {
+        val s = snap(REVIEW, blockers = listOf(unmet), notes = allNotes, children = ChildFacts(2, 2))
+        for (cancelOrigin in listOf(false, true)) {
+            assertEquals(GateId.REVIEW_PENDING, rejected(s, Trigger.Cascade.Complete(cancelOrigin)).gate, "cancelOrigin=$cancelOrigin")
+        }
+    }
+
+    @Test
+    fun `S13 the warrant is checked before the review-pending gate so an unwarranted cascade stays silent`() {
+        assertEquals(
+            Decision.NotApplicable(NotApplicableReason.CHILDREN_ACTIVE),
+            eval(snap(REVIEW, children = ChildFacts(3, 2)), Trigger.Cascade.Complete(false))
+        )
+        assertEquals(
+            Decision.NotApplicable(NotApplicableReason.NO_CHILDREN),
+            eval(snap(REVIEW, children = ChildFacts.NONE), Trigger.Cascade.Complete(false))
+        )
+        assertEquals(
+            Decision.NotApplicable(NotApplicableReason.NO_CHILDREN),
+            eval(snap(REVIEW, children = ChildFacts(0, 0)), Trigger.Cascade.Complete(true))
+        )
+    }
+
+    @Test
+    fun `S13 a manual or permanent REVIEW parent is not applicable and a BLOCKED parent stays rejected by hold`() {
+        for (lc in listOf(LifecycleMode.MANUAL, LifecycleMode.PERMANENT)) {
+            assertEquals(
+                Decision.NotApplicable(NotApplicableReason.LIFECYCLE),
+                eval(snap(REVIEW, schema = SchemaFacts(false, lc), children = ChildFacts(2, 2)), Trigger.Cascade.Complete(false)),
+                "lifecycle $lc"
+            )
+        }
+        val blocked = rejected(snap(BLOCKED, previousRole = REVIEW, children = ChildFacts(2, 2)), Trigger.Cascade.Complete(false))
+        assertEquals(GateId.HOLD, blocked.gate)
+    }
+
+    @Test
+    fun `S13 explicit user triggers still move a REVIEW item to terminal`() {
+        val withChildren = snap(REVIEW, children = ChildFacts(3, 3))
+        assertEquals(TERMINAL, allowed(withChildren, Trigger.User.COMPLETE).target)
+        assertEquals(TERMINAL, allowed(withChildren, Trigger.User.CANCEL).target)
+        assertEquals(TERMINAL, allowed(withChildren, Trigger.User.START).target)
+    }
+
+    @Test
+    fun `S13 queue and work parents still complete by cascade for both cancelOrigin values`() {
+        for (role in listOf(QUEUE, WORK)) {
+            for (cancelOrigin in listOf(false, true)) {
+                assertEquals(
+                    TERMINAL,
+                    allowed(snap(role, children = ChildFacts(3, 3)), Trigger.Cascade.Complete(cancelOrigin)).target,
+                    "from $role cancelOrigin=$cancelOrigin"
+                )
+            }
         }
     }
 
