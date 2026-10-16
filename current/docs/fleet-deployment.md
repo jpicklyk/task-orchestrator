@@ -1034,6 +1034,8 @@ Rolling back discards everything 4.0 wrote after the upgrade. A 3.x binary canno
    docker run --rm -v <volume>:/app/data -v "$(pwd)":/backup alpine sh -c "find /app/data -mindepth 1 -delete && tar xzf /backup/<name>.tgz -C /app/data"
    ```
 
+   If you restore or copy the data into a NEW Docker volume, the data directory must be owned by uid 1001 before the first boot (the server runs as uid 1001 and cannot write a backup or the database otherwise): run `docker run --rm -v <volume>:/app/data alpine chown -R 1001:1001 /app/data`.
+
 3. Start the 3.16 image with the flags you used before the upgrade. Use the exact tag; never `latest`, which follows the newest release and would start 4.0 again.
 
    ```bash

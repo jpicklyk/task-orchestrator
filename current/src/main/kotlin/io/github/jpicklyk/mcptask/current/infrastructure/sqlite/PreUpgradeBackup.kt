@@ -76,7 +76,7 @@ internal object PreUpgradeBackup {
             runBackup(jdbcUrl, dbFile, enabled, targetVersion, busyTimeoutMs, usableSpaceBytes, now)
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            fail("${e.message}")
+            fail("${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -136,7 +136,7 @@ internal object PreUpgradeBackup {
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 if (created) runCatchingNonCancellation { target.delete() }
-                return fail("copy to ${target.path} failed: ${e.message}")
+                return fail("copy to ${target.path} failed: ${e.javaClass.simpleName}: ${e.message}")
             }
 
             val problem = verify(target, stored, busyTimeoutMs)
@@ -177,7 +177,7 @@ internal object PreUpgradeBackup {
             }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            e.message ?: e.javaClass.simpleName
+            "${e.javaClass.simpleName}: ${e.message}"
         }
 
     private fun hasUserTables(c: Connection): Boolean =
