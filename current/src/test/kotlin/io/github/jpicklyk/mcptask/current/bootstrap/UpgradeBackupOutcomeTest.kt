@@ -112,23 +112,37 @@ class UpgradeBackupOutcomeTest {
     }
 
     @Test
-    fun `S6 control Copied proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.Copied(File("x.bak")))
+    fun `S6 control Copied proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.Copied(File("x.bak")))
+    }
 
     @Test
-    fun `S6 control SkippedNotFileDb proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedNotFileDb)
+    fun `S6 control SkippedNotFileDb proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedNotFileDb)
+    }
 
     @Test
-    fun `S6 control SkippedFreshDatabase proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedFreshDatabase)
+    fun `S6 control SkippedFreshDatabase proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedFreshDatabase)
+    }
 
     @Test
-    fun `S6 control SkippedAlreadyUpgraded proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedAlreadyUpgraded)
+    fun `S6 control SkippedAlreadyUpgraded proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedAlreadyUpgraded)
+    }
 
     @Test
-    fun `S6 control SkippedDisabled proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedDisabled)
+    fun `S6 control SkippedDisabled proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedDisabled)
+    }
 
     @Test
-    fun `S6 control SkippedNoMigration proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedNoMigration)
+    fun `S6 control SkippedNoMigration proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedNoMigration)
+    }
 
     @Test
-    fun `S6 control SkippedSchemaMode proceeds to updateSchema`() = assertReachesUpdateSchema(BackupOutcome.SkippedSchemaMode)
+    fun `S6 control SkippedSchemaMode proceeds to updateSchema`() {
+        assertReachesUpdateSchema(BackupOutcome.SkippedSchemaMode)
+    }
 }
