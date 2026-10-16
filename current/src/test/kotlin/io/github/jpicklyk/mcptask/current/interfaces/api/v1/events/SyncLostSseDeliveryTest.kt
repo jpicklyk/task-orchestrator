@@ -25,12 +25,10 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.ktor.sse.ServerSentEvent
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
@@ -76,13 +74,6 @@ class SyncLostSseDeliveryTest {
 
         private val replayJson = Json { ignoreUnknownKeys = true }
 
-        /** Time given to a launched fixture-mutation/publish job to run before the SSE window opens. */
-        private const val SETTLE_DELAY_MS = 150L
-
-        /** Fixed window a connection listens for frames -- bounds every "assert nothing extra
-         * arrived" scenario so it cannot hang; mirrors [TagScopeSseEventsTest]'s `collectWithin`. */
-        private const val COLLECT_WINDOW_MS = 900L
-
         private fun decode(data: String?): ApiEvent = replayJson.decodeFromString(ApiEvent.serializer(), data.orEmpty())
 
         private fun tokenEntries(
@@ -109,18 +100,6 @@ class SyncLostSseDeliveryTest {
             val result = provider.workItemRepository().create(item)
             check(result != null) { "fixture item create failed: $result" }
             return item
-        }
-
-        /** Mirrors [TagScopeSseEventsTest]: collects every frame delivered within a fixed window,
-         * then cancels -- never discards partial results the way `take(n)` under a timeout would. */
-        private suspend fun collectWithin(incoming: Flow<ServerSentEvent>): List<ApiEvent> {
-            val collected = mutableListOf<ApiEvent>()
-            coroutineScope {
-                val job = launch { incoming.collect { sse -> collected.add(decode(sse.data)) } }
-                delay(COLLECT_WINDOW_MS)
-                job.cancel()
-            }
-            return collected
         }
     }
 
@@ -161,7 +140,7 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
@@ -203,14 +182,14 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = { header(HttpHeaders.Authorization, "Bearer $TOKEN") },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == liveId.toString() } })
                     }
                 }
             }
@@ -287,10 +266,10 @@ class SyncLostSseDeliveryTest {
                         // Handshake: a new subscriber registers BEFORE it reads its tail cursor, so rows committed in
                         // that gap are skipped and never overflow. Emit warm-up events until the client has RECEIVED
                         // one -- that proves the cursor is set and delivery is live. Only then commit the burst.
-                        while (bus.subscriberCount() == 0) delay(10)
+                        while (bus.subscriberCount() == 0) delay(10) // settle-ok: S7b warm-up handshake poll (#460), left as-is
                         while (!warmUpDelivered.isCompleted) {
                             bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
-                            delay(25)
+                            delay(25) // settle-ok: S7b warm-up emit spacing (#460), left as-is
                         }
                         // Deterministic overflow: commit all ten rows under ONE commit signal. The bus fans a signal
                         // out without suspending, so the 4-slot queue overflows however fast the client drains it.
@@ -399,7 +378,7 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId, rootId = rootA)
                     }
                     sseClient.sse(

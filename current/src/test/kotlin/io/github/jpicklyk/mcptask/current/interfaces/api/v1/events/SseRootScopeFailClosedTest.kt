@@ -26,12 +26,9 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.ktor.sse.ServerSentEvent
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -89,13 +86,6 @@ class SseRootScopeFailClosedTest {
         private val replayJson = Json { ignoreUnknownKeys = true }
         private val errorJson = Json { ignoreUnknownKeys = true }
 
-        /** Time given to a launched publish/fixture job to run before the SSE window opens. */
-        private const val SETTLE_DELAY_MS = 150L
-
-        /** Fixed window a connection listens for frames -- bounds every "assert nothing extra
-         * arrived" scenario so it cannot hang. Mirrors [TagScopeSseEventsTest]'s `collectWithin`. */
-        private const val COLLECT_WINDOW_MS = 900L
-
         private fun decode(data: String?): ApiEvent = replayJson.decodeFromString(ApiEvent.serializer(), data.orEmpty())
 
         private fun tokenEntries(
@@ -111,19 +101,6 @@ class SseRootScopeFailClosedTest {
                     proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
-        }
-
-        /** Mirrors [TagScopeSseEventsTest] / [SyncLostSseDeliveryTest]: collects every frame
-         * delivered within a fixed window, then cancels -- never discards partial results the way
-         * `take(n)` under a timeout would. */
-        private suspend fun collectWithin(incoming: Flow<ServerSentEvent>): List<ApiEvent> {
-            val collected = mutableListOf<ApiEvent>()
-            coroutineScope {
-                val job = launch { incoming.collect { sse -> collected.add(decode(sse.data)) } }
-                delay(COLLECT_WINDOW_MS)
-                job.cancel()
-            }
-            return collected
         }
     }
 
@@ -162,8 +139,6 @@ class SseRootScopeFailClosedTest {
 
             val flow = bus.subscribe("s1-root-scoped", setOf(root), lastEventId = null)
             val received = async { withTimeoutOrNull(800) { flow.take(1).toList() } }
-
-            delay(50)
             feed.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = UUID.randomUUID())
 
             val result = received.await()
@@ -183,8 +158,6 @@ class SseRootScopeFailClosedTest {
 
             val flow = bus.subscribe("s2-unrestricted", emptySet(), lastEventId = null)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
-
-            delay(50)
             feed.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = UUID.randomUUID())
 
             val events = collected.await()
@@ -253,8 +226,6 @@ class SseRootScopeFailClosedTest {
 
             val flow = bus.subscribe("s4-root-scoped", setOf(root), lastEventId = null)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
-
-            delay(50)
             // No rootsResolved argument at all -- exercises the pre-existing default (true).
             bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST))
 
@@ -276,8 +247,6 @@ class SseRootScopeFailClosedTest {
             val flow2 = bus.subscribe("s5-root2", setOf(root2), lastEventId = null)
             val received1 = async { withTimeout(5.seconds) { flow1.take(1).toList() } }
             val received2 = async { withTimeoutOrNull(800) { flow2.take(1).toList() } }
-
-            delay(50)
             val event = bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = root1)
 
             val events1 = received1.await()
@@ -315,8 +284,6 @@ class SseRootScopeFailClosedTest {
             val unrestrictedFlow = bus.subscribe("s11-unrestricted", emptySet(), lastEventId = null)
             val rootScopedResult = async { withTimeoutOrNull(800) { rootScopedFlow.take(1).toList() } }
             val unrestrictedResult = async { withTimeout(5.seconds) { unrestrictedFlow.take(1).toList() } }
-
-            delay(50)
             provider.dependencyCommandService.create(
                 listOf(Dependency(fromItemId = uncachedFromId, toItemId = uncachedToId, type = DependencyType.BLOCKS)),
                 caller = null,
@@ -382,9 +349,8 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                     }
                     sseClient.sse(
@@ -394,7 +360,7 @@ class SseRootScopeFailClosedTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == idInR2.toString() } })
                     }
                 }
             }
@@ -417,9 +383,8 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                     }
                     sseClient.sse(
@@ -429,7 +394,7 @@ class SseRootScopeFailClosedTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == idInR2.toString() } })
                     }
                 }
             }
@@ -509,9 +474,8 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
@@ -521,7 +485,7 @@ class SseRootScopeFailClosedTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == idInR1.toString() } })
                     }
                 }
             }
@@ -553,7 +517,7 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.NOTE_UPSERTED, itemId = liveId, rootId = rootA)
                     }
                     sseClient.sse(
@@ -597,9 +561,8 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
@@ -609,7 +572,7 @@ class SseRootScopeFailClosedTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == idInR1.toString() } })
                     }
                 }
             }
@@ -630,7 +593,7 @@ class SseRootScopeFailClosedTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
@@ -640,7 +603,7 @@ class SseRootScopeFailClosedTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == idInR1.toString() } })
                     }
                 }
             }
@@ -663,11 +626,8 @@ class SseRootScopeFailClosedTest {
 
             val flow = bus.subscribe("probe-interleave-root", setOf(root), lastEventId = null)
             val collected = async { withTimeout(3.seconds) { flow.take(1).toList() } }
-
-            delay(50)
             // Another root's row first -- must be silently dropped for this root-scoped subscriber.
             feed.emit(ApiEventType.ITEM_UPDATED, itemId = otherRootId, rootId = UUID.randomUUID())
-            delay(60L)
             // In-root row second -- must arrive, proving the subscriber is still live and the drop above
             // was a real filter, not a dead/broken connection.
             feed.emit(ApiEventType.ITEM_UPDATED, itemId = inRootId, rootId = root)

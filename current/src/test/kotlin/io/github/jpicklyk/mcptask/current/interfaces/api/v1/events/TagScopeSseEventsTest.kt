@@ -74,13 +74,12 @@ class TagScopeSseEventsTest {
 
         private val replayJson = Json { ignoreUnknownKeys = true }
 
-        /** Time given to a launched fixture-mutation/publish job to run before the SSE window opens. */
-        private const val SETTLE_DELAY_MS = 150L
-
-        /** Fixed window a connection listens for frames -- long enough for [SETTLE_DELAY_MS] plus a
-         * few chained steps, short enough to keep the suite fast. Bounds every test's SSE wait so
-         * none can hang: this replaces `take(n)`, which (wrapped in a timeout) would discard any
-         * partial results collected before the timeout fired. */
+        /**
+         * Fixed window a connection listens for frames, used only where nothing is expected to arrive (positive
+         * deliveries collect until a barrier event instead). Bounds every such wait so the test cannot hang: this
+         * replaces `take(n)`, which (wrapped in a timeout) would discard any partial results collected before the
+         * timeout fired.
+         */
         private const val COLLECT_WINDOW_MS = 900L
 
         private fun sha256(input: String): ByteArray {
@@ -130,7 +129,7 @@ class TagScopeSseEventsTest {
                     launch {
                         incoming.collect { sse -> collected.add(decode(sse.data)) }
                     }
-                delay(COLLECT_WINDOW_MS)
+                delay(COLLECT_WINDOW_MS) // settle-ok: nothing-arrives window, bounds every collect
                 job.cancel()
             }
             return collected
@@ -174,7 +173,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA.id)
                     }
                     sseClient.sse(
@@ -184,7 +183,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == itemA.id.toString() } })
                     }
                 }
             }
@@ -206,10 +205,9 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         // Out-of-scope write first -- must produce nothing.
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = itemB.id)
-                        delay(SETTLE_DELAY_MS)
                         // In-scope write second -- proves the connection is actually live, not just
                         // silent. A filter that dropped everything (including A) would fail this.
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA.id)
@@ -221,7 +219,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == itemA.id.toString() } })
                     }
                 }
             }
@@ -295,9 +293,8 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = outOfRoot, rootId = root2)
-                        delay(SETTLE_DELAY_MS)
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = inRoot, rootId = root1)
                     }
                     sseClient.sse(
@@ -307,7 +304,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == inRoot.toString() } })
                     }
                 }
             }
@@ -330,7 +327,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
@@ -340,7 +337,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == liveId.toString() } })
                     }
                 }
             }
@@ -367,7 +364,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val retagged = itemB.copy(tags = "alpha,beta")
                         val updateResult = provider.workItemRepository().update(retagged)
                         check(updateResult != null) { "fixture retag failed: $updateResult" }
@@ -380,7 +377,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.isNotEmpty() })
                     }
                 }
             }
@@ -401,7 +398,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val retagged = itemA.copy(tags = "beta")
                         val updateResult = provider.workItemRepository().update(retagged)
                         check(updateResult != null) { "fixture retag failed: $updateResult" }
@@ -475,10 +472,9 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         listOf(itemNull, itemEmpty, itemSuperstring).forEach {
                             bus.emit(ApiEventType.ITEM_UPDATED, itemId = it.id)
-                            delay(60L)
                         }
                     }
                     sseClient.sse(
@@ -517,7 +513,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST))
                     }
                     sseClient.sse(
@@ -527,7 +523,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", "0")
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.size >= 2 })
                     }
                 }
             }
@@ -575,7 +571,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                     }
                     sseClient.sse(
@@ -585,7 +581,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.isNotEmpty() })
                     }
                 }
             }
@@ -621,11 +617,9 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = wrongTagInRoot.id, rootId = root1)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = rightTagOutOfRoot.id, rootId = root2)
-                        delay(60L)
                         bus.emit(ApiEventType.ITEM_UPDATED, itemId = bothMatch.id, rootId = root1)
                     }
                     sseClient.sse(
@@ -635,7 +629,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == bothMatch.id.toString() } })
                     }
                 }
             }
@@ -664,7 +658,7 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val deleteResult = provider.workItemRepository().delete(itemA.id)
                         check(deleteResult != null) { "fixture delete failed: $deleteResult" }
                         bus.emit(ApiEventType.ITEM_DELETED, itemId = itemA.id)

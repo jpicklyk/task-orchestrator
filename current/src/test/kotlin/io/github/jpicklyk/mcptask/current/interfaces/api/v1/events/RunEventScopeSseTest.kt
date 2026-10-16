@@ -75,7 +75,6 @@ class RunEventScopeSseTest {
         private const val TAG_TOKEN = "run-event-scope-tag-token"
         private const val BOTH_TOKEN = "run-event-scope-both-token"
 
-        private const val SETTLE_DELAY_MS = 150L
         private const val COLLECT_WINDOW_MS = 900L
 
         private val replayJson = Json { ignoreUnknownKeys = true }
@@ -104,7 +103,7 @@ class RunEventScopeSseTest {
             val collected = mutableListOf<ApiEvent>()
             coroutineScope {
                 val job = launch { incoming.collect { sse -> collected.add(decode(sse.data)) } }
-                delay(COLLECT_WINDOW_MS)
+                delay(COLLECT_WINDOW_MS) // settle-ok: nothing-arrives window (alpha is produced before beta)
                 job.cancel()
             }
             return collected
@@ -192,16 +191,18 @@ class RunEventScopeSseTest {
         )
 
     private suspend fun ApplicationTestBuilder.stream(
+        bus: ApiEventBus,
         token: String,
         lastEventId: String?,
         duringConnection: suspend () -> Unit = {}
     ): List<ApiEvent> {
         val client = createClient { install(ClientSSE) }
         val collected = mutableListOf<ApiEvent>()
+        awaitUntil("a previous connection never released its subscriber") { bus.subscriberCount() == 0 }
         withTimeout(10.seconds) {
             coroutineScope {
                 launch {
-                    delay(SETTLE_DELAY_MS)
+                    bus.awaitSubscribers()
                     duringConnection()
                 }
                 client.sse(
@@ -233,10 +234,10 @@ class RunEventScopeSseTest {
             produce(f, f.alpha)
             produce(f, f.beta)
 
-            val open = stream(OPEN_TOKEN, FROM_START)
+            val open = stream(bus, OPEN_TOKEN, FROM_START)
             assertEquals(setOf(f.alpha.toString(), f.beta.toString()), roots(open), "unrestricted control: $open")
 
-            val scoped = stream(ROOT_TOKEN, FROM_START)
+            val scoped = stream(bus, ROOT_TOKEN, FROM_START)
             assertTrue(runEvents(scoped).any { it.event == "run.opened" }, "the in-scope run.opened is replayed: $scoped")
             assertTrue(runEvents(scoped).any { it.event == "run.updated" }, "the in-scope run.updated is replayed: $scoped")
             assertEquals(setOf(f.alpha.toString()), roots(scoped), "only the subscriber's own root: $scoped")
@@ -252,7 +253,7 @@ class RunEventScopeSseTest {
             produce(f, f.alpha)
             produce(f, f.beta)
 
-            val scoped = stream(TAG_TOKEN, FROM_START)
+            val scoped = stream(bus, TAG_TOKEN, FROM_START)
             assertTrue(runEvents(scoped).isNotEmpty(), "the run of the alpha-tagged root is replayed: $scoped")
             assertEquals(setOf(f.alpha.toString()), roots(scoped), "the beta-tagged root's run stays hidden: $scoped")
         }
@@ -266,7 +267,7 @@ class RunEventScopeSseTest {
             produce(f, f.alpha)
             produce(f, f.beta)
 
-            val scoped = stream(BOTH_TOKEN, FROM_START)
+            val scoped = stream(bus, BOTH_TOKEN, FROM_START)
             assertEquals(setOf(f.alpha.toString()), roots(scoped), "beta is in the root set but not tag-admitted: $scoped")
         }
 
@@ -280,13 +281,13 @@ class RunEventScopeSseTest {
             application { wire(bus, entries(f)) }
 
             val open =
-                stream(OPEN_TOKEN, null) {
+                stream(bus, OPEN_TOKEN, null) {
                     bus.committed(produce(f, f.alpha) + produce(f, f.beta))
                 }
             assertEquals(setOf(f.alpha.toString(), f.beta.toString()), roots(open), "unrestricted control: $open")
 
             val scoped =
-                stream(ROOT_TOKEN, null) {
+                stream(bus, ROOT_TOKEN, null) {
                     bus.committed(produce(f, f.alpha) + produce(f, f.beta))
                 }
             assertTrue(runEvents(scoped).isNotEmpty(), "the in-scope run events arrive live: $scoped")
@@ -301,7 +302,7 @@ class RunEventScopeSseTest {
             application { wire(bus, entries(f)) }
 
             val scoped =
-                stream(TAG_TOKEN, null) {
+                stream(bus, TAG_TOKEN, null) {
                     bus.committed(produce(f, f.alpha) + produce(f, f.beta))
                 }
             assertTrue(runEvents(scoped).isNotEmpty(), "the alpha-tagged root's run events arrive live: $scoped")
@@ -318,7 +319,7 @@ class RunEventScopeSseTest {
             application { wire(bus, entries(f)) }
 
             for (token in listOf(ROOT_TOKEN, TAG_TOKEN, BOTH_TOKEN)) {
-                val events = stream(token, "abc")
+                val events = stream(bus, token, "abc")
                 assertTrue(
                     events.any { it.event == ApiEventType.SYNC_LOST },
                     "$token: a restricted subscriber still sees sync.lost: $events"

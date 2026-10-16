@@ -24,7 +24,6 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -110,7 +109,6 @@ class EventSeqFloorTest {
 
             val flow = bus.subscribe("floor-resume", emptySet(), lastEventId = floor)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
-            delay(150)
             bus.emit(ApiEventType.ITEM_CREATED, itemId = live)
 
             val first = collected.await().single()
@@ -130,7 +128,6 @@ class EventSeqFloorTest {
             val flow = bus.subscribe("floor-fresh", emptySet(), lastEventId = null)
             val collected = mutableListOf<ApiEvent>()
             val job = launch { withTimeoutOrNull(1_500) { flow.collect { collected += it } } }
-            delay(200)
             bus.emit(ApiEventType.ITEM_CREATED, itemId = live)
             job.join()
 
@@ -165,7 +162,7 @@ class EventSeqFloorTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(300)
+                        bus.awaitSubscribers()
                         bus.emit(ApiEventType.ITEM_CREATED, itemId = live)
                     }
                     sseClient.sse(
