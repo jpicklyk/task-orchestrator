@@ -49,8 +49,9 @@ make passes `keys`.
 {"tool": "notes_read", "select": "get", "args": {"itemId": "<item-UUID>", "key": "<carry-in-key>"}}
 ```
 
-Dispose of every key with one row: `<key>: in scope (AC n) | deferred to <item-id> | rejected
-because <reason>`, and end the rows with the count, `N of N`. A row disposes a key only when it
+Dispose of every key with one row:
+`<key>: in scope (AC n) | deferred to <item-id> | rejected because <reason>`, and end the rows with
+the count, `N of N`. A row disposes a key only when it
 starts with that exact `<key>:` prefix. Put the record in the `carry-in-dispositions` note when the
 item's schema lists it, otherwise in a `## Carry-in dispositions` section of your task-scope note.
 If the schema lists `carry-in-dispositions` but your dispatch has no CARRY-INS block, flag that for
