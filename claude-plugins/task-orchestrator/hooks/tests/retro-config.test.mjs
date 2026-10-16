@@ -5,6 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as lib from '../retro-lib.mjs';
 
 const { parseRetrospectiveConfig, parseRetrospectiveMode, dispatchAncestorId, restRootId, buildNudge, buildDispatch } = lib;
@@ -101,15 +104,42 @@ test('dispatchAncestorId: a project-scope config contributes its rootId; user an
   assert.equal(dispatchAncestorId({ scope: 'none', rootId: null }), null);
 });
 
-test('restRootId (AC3): the REST path needs a project-scope config with a rootId', () => {
-  assert.equal(restRootId({ scope: 'project', rootId: 'R' }), 'R');
-  for (const located of [
-    { scope: 'user', rootId: 'P' },
-    { scope: 'none', rootId: null },
-    { scope: 'project', rootId: null },
-  ]) {
-    assert.ok([null, undefined].includes(restRootId(located)), JSON.stringify(located));
+// restRootId depends on the API base URL, which resolves from TASK_ORCHESTRATOR_API_URL (or a client.json
+// under TASK_ORCHESTRATOR_HOME). These tests set both themselves instead of reading the ambient shell.
+async function withApiEnv({ url, home }, fn) {
+  const saved = { url: process.env.TASK_ORCHESTRATOR_API_URL, home: process.env.TASK_ORCHESTRATOR_HOME };
+  const emptyHome = mkdtempSync(join(tmpdir(), 'retro-config-home-'));
+  try {
+    if (url === undefined) delete process.env.TASK_ORCHESTRATOR_API_URL;
+    else process.env.TASK_ORCHESTRATOR_API_URL = url;
+    process.env.TASK_ORCHESTRATOR_HOME = home ?? emptyHome;
+    return await fn();
+  } finally {
+    if (saved.url === undefined) delete process.env.TASK_ORCHESTRATOR_API_URL;
+    else process.env.TASK_ORCHESTRATOR_API_URL = saved.url;
+    if (saved.home === undefined) delete process.env.TASK_ORCHESTRATOR_HOME;
+    else process.env.TASK_ORCHESTRATOR_HOME = saved.home;
+    rmSync(emptyHome, { recursive: true, force: true });
   }
+}
+
+test('restRootId (AC3): with an API URL, a project-scope config with a rootId yields the rootId; other configs yield none', async () => {
+  await withApiEnv({ url: 'http://127.0.0.1:1' }, () => {
+    assert.equal(restRootId({ scope: 'project', rootId: 'R' }), 'R');
+    for (const located of [
+      { scope: 'user', rootId: 'P' },
+      { scope: 'none', rootId: null },
+      { scope: 'project', rootId: null },
+    ]) {
+      assert.ok([null, undefined].includes(restRootId(located)), JSON.stringify(located));
+    }
+  });
+});
+
+test('restRootId (AC3): with no API URL resolvable, even a project-scope config with a rootId yields none', async () => {
+  await withApiEnv({ url: undefined }, () => {
+    assert.ok([null, undefined].includes(restRootId({ scope: 'project', rootId: 'R' })));
+  });
 });
 
 // ---- AC1 the cross-session marker API is gone ---------------------------------------------------
