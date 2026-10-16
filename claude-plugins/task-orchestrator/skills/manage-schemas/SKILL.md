@@ -1,12 +1,14 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Also manages the actor_authentication config block: show actor_authentication config, set the verifier, remove a leftover degraded_mode_policy key. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
-argument-hint: "[optional: action + schema name, workflow description, or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate', 'show actor_authentication']"
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+argument-hint: "[optional: action + schema name or workflow description, e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
 
 Create, view, edit, delete, and validate note schemas in `.taskorchestrator/config.yaml`. Schemas define which notes agents must fill at each workflow phase before advancing items.
+
+Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md). The `config` tool is served by the orchestration profile only.
 
 ---
 
@@ -25,7 +27,7 @@ Classify from `$ARGUMENTS` and conversation context before making any tool calls
 
 If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix"), extract both. If intent cannot be determined, ask via `AskUserQuestion` with options: Create, View / Validate, Edit, Delete.
 
-> Validate is grouped with View — both are read-only operations on the config file.
+> Validate is grouped with View — both leave the config file unchanged.
 
 ---
 
@@ -42,7 +44,9 @@ The target file is the path on the SessionStart context's `Config:` line (projec
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
-> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, `resources`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills and the plugin hooks (`quick-start`, `/task-orchestrator:init`, `/adopt-project-scope`), never edited by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields. (`resources:` is the optional shared-resource registry — see `references/config-format.md` → "Resources (Trait Dimension)"; it must be preserved the same way, as must the hook-read `orchestration:`, `retrospective:`, and `actor_attribution:` blocks.)
+> **Note:** a config document has these top-level keys: `work_item_schemas`, `traits`, `resources` (the server file only), `note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project` and `extensions`. Each has one owner; see [config-reference.md](../../../../current/docs/config-reference.md#key-ownership) "Key ownership". `project:` anchors this repo to a project root item and is written by `/task-orchestrator:init` and `/adopt-project-scope`, never by this skill; `extensions:` holds the plugin's own settings under `extensions.claude-code` (see `references/config-format.md` → "Plugin settings"). Never drop or rewrite either: every write operation in Step 3 (CREATE/EDIT/DELETE) must carry `project` and `extensions` through verbatim, byte for byte. See `references/config-format.md` → Project Scoping for the `project` fields, and → "Resources (Trait Dimension)" for `resources:`.
+>
+> **Never write** `actor_authentication`, `auditing`, `schema_resolution`, or a top-level `orchestration`, `retrospective` or `actor_attribution`. They are gone from the 4.0 config: a leftover `actor_authentication` key fails server startup, a push rejects the others, and `actor_attribution` has no reader left. VALIDATE and every write flag any of them found in the file, with the fix: delete `actor_authentication`, `auditing` and `schema_resolution`; move `orchestration` and `retrospective` under `extensions.claude-code`; delete `actor_attribution`. Caller identity is not configured here: it comes from the server's `API_AUTH_MODE` (see `/task-orchestrator:configure-server`).
 
 ---
 
@@ -91,26 +95,6 @@ each with `(effort <level>)` appended when that phase's profile sets one (e.g. `
 `phase: (model <name>)` / `phase: (effort <level>)`; `—` when the trait declares no `dispatch:`.
 See `references/config-format.md` → "Dispatch (Trait Dimension)".
 
-If the config has an `actor_authentication:` section, display the actor authentication status including verifier type when present:
-
-```
-◆ Actor authentication: enabled, verifier: noop
-```
-
-Or with a JWKS verifier and its source:
-
-```
-◆ Actor authentication: enabled, verifier: jwks (uri: https://provider.example/.well-known/jwks.json)
-```
-
-Or with DID-trust mode:
-
-```
-◆ Actor authentication: enabled, verifier: jwks (DID trust: did:web:agent.example.com, did:web:lair.dev)
-```
-
-Or `◆ Actor authentication: disabled` (or omit if the section is absent). When `verifier` is absent, default to `verifier: noop`. When `did_allowlist` or `did_pattern` is set, show the DID trust variant.
-
 ### EDIT — Modify an Existing Schema
 
 Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance/skill, change lifecycle mode, add/remove default_traits, rename key), apply changes, write back.
@@ -131,7 +115,7 @@ For detailed workflow, see `references/delete-workflow.md` in this skill folder.
 
 ### VALIDATE — Check Config Integrity
 
-Run structural and semantic checks on the config file and report issues with fix suggestions.
+Run structural and semantic checks on the config file and report issues with fix suggestions. When the file has a `project.rootId`, also run the server's own check (`config` `validate`, Step 4): the server is the authority on what a push accepts, and the local checks are for files with no root.
 In addition to the checks in `references/validate-workflow.md`, flag any `skill:` value that is
 exactly one of `review`, `plan`, `run`, or `init` as a probable built-in-skill collision (warning,
 not an error) — these bare names resolve to a Claude Code built-in (e.g. `review` is the
@@ -147,15 +131,37 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 
 **For write operations (CREATE, EDIT, DELETE):**
 - Show what changed in the config file
-- **Sync to server (if the file has `project.rootId` — a project root or the personal root):** Check whether the config has a top-level `project.rootId` (see Step 2's note and `references/config-format.md` → Project Scoping). If present, check the tool list for `manage_project_config` — older servers may not expose it, in which case note this to the user and skip (the config.yaml write above is authoritative locally; the server picks it up on its normal read path once the tool becomes available). If the tool is available, call:
-  ```
-  manage_project_config(operation="push", rootId="<project.rootId>", configYaml="<full current file text>")
-  ```
-  - Success → report the returned `fingerprint`. Re-pushing identical content later returns the same fingerprint (identical modulo BOM/CRLF) (idempotent) — safe to call after every write without pre-checking.
-  - `VALIDATION_ERROR` → the server rejected the YAML (e.g. a construct its parser can't accept). The local file is already saved — tell the user the parse error from the response and to fix `.taskorchestrator/config.yaml`, then re-run VALIDATE and retry the push.
-  - `CONFLICT_ERROR` (superseded) → the pushed content is provably older than the server's (its fingerprint is in the server's history but not current). Tell the user to pull/copy the server's config back before editing (`manage_project_config(operation="get", ...)` shows it), or pass `force: true` on the push if overwriting the server's newer config is intentional.
-  - A `warning` field on a successful response → relay it to the user as-is (non-fatal — e.g. the root item's `type` isn't `"project"`).
-- Remind: **MCP reconnect required** (`/mcp`) for schema changes to take effect on the *global* config path — the server caches `.taskorchestrator/config.yaml` on first access. A successful per-root push above takes effect immediately for items scoped to that root, without needing reconnect.
+- **Sync to server (if the file has `project.rootId` — a project root or the personal root):** The local write is authoritative; the push puts it on the server for that root. Use the file text with CRLF replaced by LF as `configYaml` (at most 131072 bytes).
+
+  1. Validate first. Nothing is written; a problem comes back as `valid: false`, not as a failure.
+
+     ```to-call
+     {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, LF>"}}
+     ```
+
+     Show each `errors[{path, reason}]` and stop on any (the local file is already saved; fix it and re-run VALIDATE). Relay `warnings`. Show the diff against the root's head (`types`, `traits`, `settings`, each with `added`, `removed` and `changed` names) and `affectedInFlight` (`{count, sample}`: in-flight items whose resolved schema would change on a repin; `sample` holds the first 20 ids).
+  2. Head version. A root with no config answers `not_found`, which means "no head".
+
+     ```to-call
+     {"tool": "config", "op": "get", "args": {"rootId": "<project.rootId>"}}
+     ```
+
+  3. Push, with `expectedVersion` set to the head's `version` when a head exists (omit it otherwise).
+
+     ```to-call
+     {"tool": "config", "op": "push", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, LF>", "expectedVersion": 1}}
+     ```
+
+     - Success → report the new `version`; relay `warnings`. Re-pushing identical content appends nothing (`appended: false`), so a push after every write is safe.
+     - `config_invalid` → the server rejected the document; show `detail.errors[{path, reason}]`. Nothing was stored.
+     - `version_conflict` → the head moved since step 2. Read it again, show what differs, and ask before pushing; `force` is only for an intentional overwrite (it never skips validation or `expectedVersion`).
+     - `forbidden` → the credential lacks `write-config`.
+  4. When `affectedInFlight.count` is above 0, tell the user those items still resolve their pinned schema and offer (ask first) to move them to the new head with `items_write` `repin`, one per listed id. Only 20 ids are listed; for a larger count, list the root's in-flight items with `items_read` `list`.
+
+     ```to-call
+     {"tool": "items_write", "op": "repin", "args": {"id": "<item-uuid>"}}
+     ```
+- Without `project.rootId` there is nothing to push: only the local file is edited. A server file (the one `AGENT_CONFIG_DIR` points at) is imported once at boot, so a change to it needs a server restart (for stdio, reconnecting with `/mcp` starts a new process). A successful per-root push takes effect immediately for new and unpinned items of that root, with no reconnect.
 
 **For VIEW and VALIDATE:** The output from Step 3 is the deliverable — no additional report needed.
 
@@ -163,22 +169,26 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 
 ## Troubleshooting
 
-**`expectedNotes` is empty after creating an item with the schema tag**
-- Cause: MCP server hasn't loaded the updated config file
-- Solution: Run `/mcp` in Claude Code to reconnect the server, then retry
+**`expectedNotes` unchanged after a push**
+- Cause: the item is pinned. An item resolves the schema versions it was created under, so a later push never changes it ([config-reference.md](../../../../current/docs/config-reference.md#schema-pins), "Schema pins"). `items_read` `get` shows `schemaVersion` and `stale: true` when the pin is behind.
+- Solution: `items_write` `repin` for that item (Step 4, item 4), or create the item again.
 
 **Schema not applied — item has no schema**
-- Cause: The item's `type` field doesn't match any key in `work_item_schemas`, and its tags don't match any `note_schemas` key (legacy fallback)
-- Resolution order: `type` field → direct lookup in `work_item_schemas`; if no type or no match, first tag match in `note_schemas`; if no match, falls back to `default` schema if one exists
-- Solution: Verify the item's type and tags with `query_items(operation="get", itemId="<uuid>")`. Set `type` to a key that exists in `work_item_schemas` for reliable schema selection.
+- Cause: the item's `type` matches no key under `work_item_schemas`, and no `default` schema is declared. Tags are never consulted.
+- Resolution order (fixed): the root's exact type, the server's exact type, the root's `default`, the server's `default`. See `references/config-format.md` → Matching Rules.
+- Solution: Verify the item's type with `items_read` `get`, and set `type` to a key that exists in `work_item_schemas`.
+
+```to-call
+{"tool": "items_read", "select": "get", "args": {"itemId": "<uuid>"}}
+```
 
 **Duplicate schema key in config file**
 - Cause: YAML allows duplicate keys but only the last one is used
-- Solution: Check for duplicate entries under `work_item_schemas:` (or `note_schemas:`) and merge them
+- Solution: Check for duplicate entries under `work_item_schemas:` and merge them
 
-**Changes not taking effect after editing config**
-- Cause: The server caches schemas on first access — changes are not hot-reloaded
-- Solution: Run `/mcp` to reconnect the MCP server subprocess
+**Changes to a server file not taking effect**
+- Cause: the server imports its file once, at boot
+- Solution: restart the server (stdio: run `/mcp` to reconnect, which starts a new process)
 
 ---
 
@@ -197,43 +207,11 @@ User says: "Add a rollout-plan note to the bug-fix schema"
 1. Read config, find `bug-fix` schema
 2. Ask: which phase (queue/work/review), required?, description, guidance
 3. Append the new note entry, write config back
-4. Remind: `/mcp` reconnect needed
+4. Validate, then push (Step 4); offer `repin` for in-flight items it affects
 
 **Example 3: Validate config after manual editing**
 
 User says: "I edited the config by hand — check it"
 1. Read and parse config
-2. Run validation checks (syntax, structure, field rules, duplicates)
+2. Run validation checks (syntax, structure, field rules, duplicates), and `config` `validate` when a root exists
 3. Report issues or confirm "Config is valid — N schemas, M total notes"
-
----
-
-## Actor authentication config
-
-The `.taskorchestrator/config.yaml` file also has an `actor_authentication:` block:
-
-```yaml
-actor_authentication:
-  # enabled: read by the plugin hook, not the server
-  # verifier: { type: jwks | noop, ... }   (read by the server from the global file)
-```
-
-There is no degraded-mode policy: verification fails closed, and `actor_authentication.degraded_mode_policy` and the
-`DEGRADED_MODE_POLICY` environment variable were removed in 4.0. A leftover key (any value) or a set variable (any value)
-stops the server at startup with an error naming it, so this skill never writes the key.
-
-When the user wants to view or change the `actor_authentication` block:
-1. Read `.taskorchestrator/config.yaml`
-2. Locate the `actor_authentication:` block (create it only to add a `verifier`)
-3. For **view**: display the block (`enabled`, verifier type)
-4. For **changes**: update the requested field, preserving all other `actor_authentication` keys
-5. If the block still carries `degraded_mode_policy`, tell the user it must be deleted (the server refuses to start with it) and offer to remove the key
-6. Write back
-
-**Note:** If the `DEGRADED_MODE_POLICY` environment variable is still set on the server, startup fails naming it. To check:
-```bash
-echo $DEGRADED_MODE_POLICY
-```
-Unset it (remove the `-e DEGRADED_MODE_POLICY=...` from the container launch) before restarting.
-
-An unavailable JWKS key set is answered `503 unavailable` (never a guessed identity); `max_stale_seconds` bounds how old a cached key set may be and still be served. See `current/docs/fleet-deployment.md` for the security rationale.

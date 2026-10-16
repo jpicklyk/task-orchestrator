@@ -72,9 +72,11 @@ profiles out of context). Then present:
 3. **The rationale, per gate** — one line each on why the gate exists and what failure it
    prevents, drawn from the profile's "rationale to present". A gate whose purpose the user
    can't restate will be worked around, not filled.
-4. **Conventions that aren't config** — if the recommendation involves claim mode, actor
-   authentication, or dispatch discipline (e.g., review notes filled by a different agent),
-   say explicitly that these are usage conventions the config cannot enforce.
+4. **Conventions that aren't config** — if the recommendation involves claim mode, caller
+   identity, or dispatch discipline (e.g., review notes filled by a different agent),
+   say explicitly that these are usage conventions the config cannot enforce. Who the caller is
+   comes from the server's `API_AUTH_MODE` and its credentials, not from this file; a verified
+   second reviewer needs a credential of its own.
 
 Where the user's workflow steers toward an anti-pattern (§5 — over-gating, exclusive resources
 on containers, self-review, generic resource keys), raise the warning with its reason as part
@@ -255,9 +257,9 @@ Check if `.taskorchestrator/config.yaml` exists:
 - **Exists:** Read it, merge the new schema under `work_item_schemas:`, write back
 - **Doesn't exist:** Create `.taskorchestrator/` directory and write the file with the new schema under `work_item_schemas:`
 
-**Preserve all other top-level keys verbatim.** Only the `work_item_schemas:` (or `note_schemas:`) section may change. Every other top-level key present in the file — `project`, `actor_authentication`, `note_limits`, `traits`, and any key not recognized by this skill — must be carried through unchanged. Do not reconstruct the file from a parsed-and-regenerated schema model, since that silently drops blocks this skill doesn't know about; splice the new schema into the existing text (or reproduce every other top-level block exactly as read).
+**Preserve all other top-level keys verbatim.** Only the `work_item_schemas:` section may change. Every other top-level key present in the file — `project`, `extensions`, `note_limits`, `traits`, `resources`, `runs`, `decision_classes` and any key not recognized by this skill — must be carried through unchanged. Do not reconstruct the file from a parsed-and-regenerated schema model, since that silently drops blocks this skill doesn't know about; splice the new schema into the existing text (or reproduce every other top-level block exactly as read). Never write `actor_authentication`, `schema_resolution` or a top-level `orchestration:`/`retrospective:`/`actor_attribution:` (see the manage-schemas skill, Step 2); flag one already in the file.
 
-After writing, remind the user: **MCP reconnect required** (`/mcp`) for the schema to take effect.
+After writing, validate and push with the Step 4 flow of the manage-schemas skill (`config` `validate`, `config` `get`, `config` `push` with `expectedVersion`) when the file has a `project.rootId`. Without one, only the local file changes; a server file (`AGENT_CONFIG_DIR`) is imported at boot, so it needs a restart (stdio: `/mcp` reconnect starts a new process).
 
 ---
 
@@ -273,18 +275,22 @@ Use the template in `references/companion-template.md` within this skill folder.
 
 ## Step 6 — Smoke Test
 
-Create a temporary item to confirm the schema loads:
+Create a temporary item to confirm the schema loads. A create takes `type`; add `traits` (an array) only to test a trait the schema uses:
 
-```
-manage_items(
-  operation="create",
-  items=[{ title: "Schema smoke test", type: "<schema-name>", priority: "low" }]
-)
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "Schema smoke test", "type": "<schema-name>", "priority": "low"}}
 ```
 
-Check that `expectedNotes` appears in the response with the correct keys and roles. If `expectedNotes` is empty or missing, the server needs `/mcp` reconnect — remind the user and retry.
+A create does not return the schema decoration, so read it back for the new item:
+
+```to-call
+{"tool": "items_read", "select": "schema", "args": {"itemId": "<smoke-test-uuid>"}}
+```
+
+Check that the notes list the correct keys and roles. An empty or missing list means the push has not reached the server (the item resolved no schema); re-run the Step 4 push of the manage-schemas skill and retry. An item created before a push keeps its pinned schema, so create a new smoke-test item after each push.
 
 Delete the smoke-test item after verification:
-```
-manage_items(operation="delete", itemIds=["<smoke-test-uuid>"])
+
+```to-call
+{"tool": "items_write", "op": "delete", "args": {"id": "<smoke-test-uuid>"}}
 ```

@@ -1,20 +1,20 @@
 ---
 name: init
-description: "Sets up Task Orchestrator for a project or for the user: creates (or finds) the project anchor root, writes the project: block into .taskorchestrator/config.yaml at the main checkout root, pushes it to the server, and seeds the bundled process rules. In project mode it also writes a project-level client.json when the server is a loopback HTTP server. With --user it creates a personal root and writes the user-level config.yaml and client.json instead. Use when a user says: initialize task orchestrator, task-orchestrator init, set up task orchestrator for this project, set up a personal root, init --user, or when the SessionStart notice says to run /task-orchestrator:init. NOT Claude Code's built-in /init (that writes CLAUDE.md), NOT tutorial onboarding (quick-start), NOT migrating an already-populated unscoped database (adopt-project-scope), and NOT launching or reconfiguring the server (configure-server)."
-argument-hint: "[--user] [project name]"
+description: "Sets up Task Orchestrator for a project or for the user: registers the MCP entries, creates (or finds) the project anchor root, writes the project: block into .taskorchestrator/config.yaml at the main checkout root, validates and pushes it to the server, and seeds the bundled process rules. In project mode it also writes a project-level client.json when the server is a loopback HTTP server. With --user it creates a personal root and writes the user-level config.yaml and client.json instead. Use when a user says: initialize task orchestrator, task-orchestrator init, set up task orchestrator for this project, set up a personal root, init --user, or when the SessionStart notice says to run /task-orchestrator:init. NOT Claude Code's built-in /init (that writes CLAUDE.md), NOT tutorial onboarding (quick-start), NOT migrating an already-populated unscoped database (adopt-project-scope), and NOT launching or reconfiguring the server (configure-server)."
+argument-hint: "[--user] [--no-director] [project name]"
 ---
 
-# Init — Project and Personal Root Setup
+# Init - Project and Personal Root Setup
 
-The explicit setup step that the SessionStart notices point at (`/task-orchestrator:init` for a project, `/task-orchestrator:init --user` for a personal root). It creates or finds a root work item, records its id in a `project:` block of the right `config.yaml`, pushes that config to the server, and makes sure the bundled process rules are present for that root.
+The explicit setup step that the SessionStart notices point at (`/task-orchestrator:init` for a project, `/task-orchestrator:init --user` for a personal root). It registers the MCP entries, creates or finds a root work item, records its id in a `project:` block of the right `config.yaml`, validates and pushes that config to the server, and makes sure the bundled process rules are present for that root.
 
-**Mode:** `--user` in `$ARGUMENTS` selects the personal-root flow. Any other non-flag text is the project (or root) name. No flag means project mode.
+**Mode:** `--user` in `$ARGUMENTS` selects the personal-root flow. `--no-director` skips the director registration (Step 2). Any other non-flag text is the project (or root) name. No flag means project mode.
 
-Everything is created through MCP tools; the skill never creates roots over REST.
+Everything is created through MCP tools; the skill never creates roots over REST. Every call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md).
 
 ---
 
-## Step 0 — Resolve paths
+## Step 0 - Resolve paths
 
 Resolve the plugin root: try `${CLAUDE_PLUGIN_ROOT}` (confirm the literal string `${CLAUDE_PLUGIN_ROOT}` did not survive into the command you are about to run); otherwise use the dev-checkout path `<git toplevel>/claude-plugins/task-orchestrator`. Call it `<plugin root>`.
 
@@ -28,44 +28,81 @@ Use the drive-letter form with forward slashes on Windows (`file:///D:/...`). If
 
 Every later message names files by these resolved paths, never a hard-coded `~`.
 
-## Step 1 — Verify the server
+## Step 1 - Verify the server
 
-Call `get_context()`. If the Task Orchestrator MCP tools are absent or the call errors, stop and point the user to `/task-orchestrator:configure-server`.
+Read the health view (orchestration profile):
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"limit": 5}}
+```
+
+If the Task Orchestrator MCP tools are absent or the call errors, stop and point the user to `/task-orchestrator:configure-server`.
+
+## Step 2 - Register the MCP entries
+
+Both modes, once the server answers. Locate the orchestration entry the way `hooks/session-start.mjs` does: `.mcp.json` `mcpServers`, then `~/.claude.json` `mcpServers` and `projects[<dir>].mcpServers`; an entry counts when its key contains `task-orchestrator`. An HTTP entry carries `url` (ending `/mcp`); a stdio entry carries `command` and `args`. Note which file holds it.
+
+**The director entry.** Unless `--no-director` was given, make sure a second entry exists next to the orchestration one. Its key must contain `task-orchestrator` (the plugin's hook matchers key on it), so use `mcp-task-orchestrator-director`:
+
+- **stdio:** the orchestration entry's `command` and `args`, with `-e MCP_TOOL_PROFILE=director` inserted before the image name.
+- **HTTP:** the orchestration entry with `url` set to `<base>/mcp/director` (`<base>` is the orchestration URL without its trailing `/mcp`).
+
+Say why it exists: a single developer on one stdio server has no HTTP endpoint for the director tools, and a run-budget or attempt-cap decision is answered through a second stdio entry started with `MCP_TOOL_PROFILE=director` ([fleet deployment](../../../../current/docs/fleet-deployment.md)). That profile serves only read, run-control and decision operations, and no read that returns a note, document or transition-summary body ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). Both stdio processes share the database volume and act as the one `local` principal.
+
+**Credential mode.** The server is in credential mode when an unauthenticated `POST <base>/mcp` answers `401`, or when the orchestration entry already carries an `Authorization` header:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" -X POST <base>/mcp
+```
+
+In credential mode both entries carry the same header, written exactly as the placeholder below, because Claude Code expands it from the environment. Never write a token into the file:
+
+```json
+"headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}"}
+```
+
+One bearer authenticates `/mcp`, `/mcp/knowledge` and `/mcp/director`. Tell the user to export `TASK_ORCHESTRATOR_API_TOKEN` before starting Claude Code. A stdio server has no credential mode: its entry is local.
+
+**Where to write.** Edit `<main>/.mcp.json` only (read-modify-write, preserve everything else). When the orchestration entry lives elsewhere (user scope, `~/.claude.json`), do not edit that file: print the director entry as JSON together with the command for the user to run, for example `claude mcp add-json mcp-task-orchestrator-director '<entry json>' --scope user`. Re-running is idempotent: an existing director entry is left alone and reported.
+
+The entries take effect after the MCP servers reload (a new Claude Code session, or `/mcp`). The end report lists each entry, its file and its mode.
 
 ---
 
 ## Project mode (default)
 
-### P1 — Find the main checkout root
+### P1 - Find the main checkout root
 
 The target root is the parent of `git rev-parse --path-format=absolute --git-common-dir` (this resolves to the main checkout even from a linked worktree). Not a git repository: use the current directory. Call it `<main>`.
 
 - **Refuse a home directory.** If `<main>` equals any home (`userHome()`, `os.homedir()`, or `os.userInfo().homedir`), stop: a config directly in a home directory is never a project config. Offer `/task-orchestrator:init --user` instead.
 - **Warn on `AGENT_CONFIG_DIR`.** When it is set, its config shadows the one about to be written; say which file wins.
 
-### P2 — Already initialized?
+### P2 - Already initialized?
 
 If `<main>/.taskorchestrator/config.yaml` exists with a non-empty `project.rootId`, the project is initialized. Skip to P5 (push), then the P5b `client.json` step, then Rule seeding, so an already-initialized project still gets its `client.json`. Re-running is idempotent.
 
-### P3 — Find or create the anchor
+### P3 - Find or create the anchor
 
-```
-query_items(operation="search", type="project", depth=0)
+```to-call
+{"tool": "items_read", "select": "list", "args": {"type": "project", "depth": 0}}
 ```
 
 Drop any item tagged `personal-root` from the results.
 
 - **Matches remain** -> `AskUserQuestion`: attach to one of them, create a new anchor, or abort. Attaching uses that item's id as `rootId`.
-- **No matches** -> census the depth-0 roots with `query_items(operation="overview")`. If roots exist other than the global containers (Session Retrospectives, Improvement Proposals, `agent-observation` items, `type=project` items), the database already holds unscoped work. Offer via `AskUserQuestion`: hand off to `/task-orchestrator:adopt-project-scope` (it creates the anchor, re-parents the work and writes the config; init then resumes at Rule seeding), create a fresh anchor and leave those roots alone, or abort.
+- **No matches** -> census the depth-0 roots with `items_read` `overview`. If roots exist other than the global containers (Session Retrospectives, Improvement Proposals, `agent-observation` items, `type=project` items), the database already holds unscoped work. Offer via `AskUserQuestion`: hand off to `/task-orchestrator:adopt-project-scope` (it creates the anchor, re-parents the work and writes the config; init then resumes at Rule seeding), create a fresh anchor and leave those roots alone, or abort.
 - **Nothing but global containers** -> create a fresh anchor.
 
-Name: from `$ARGUMENTS`, else the main checkout's directory name; confirm with the user. Create it at depth 0:
+Name: from `$ARGUMENTS`, else the main checkout's directory name; confirm with the user. Create it at depth 0. A create takes `type` (see [`items_write` create](../_generated/call-shapes.md#items_write-create)); the global floor has declared `project` since 4.0:
 
-```
-manage_items(operation="create", items=[{title: "<name>", type: "project", priority: "low"}])
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "<name>", "type": "project", "priority": "low"}}
 ```
 
-### P4 — Write the `project:` block
+**`schema_violation` on `project`.** When the answer is `schema_violation` and `detail.availableTypes` does not contain `project` (a custom server file, or a floor that predates 4.0), say so and show the list. Offer, via `AskUserQuestion`, either `container` (if listed) or adding `project: {lifecycle: permanent, notes: []}` under `work_item_schemas` in the server file (it is imported at boot, so a restart is needed; for stdio a reconnect starts a new process). Never pick a type silently.
+
+### P4 - Write the `project:` block
 
 Write at `<main>/.taskorchestrator/config.yaml`:
 
@@ -77,21 +114,34 @@ project:
 
 Read-modify-write surgically: preserve all other content byte for byte; update an existing `project:` key in place rather than duplicating it. Create the file with only the block when it does not exist.
 
-### P5 — Push to the server
+### P5 - Validate, then push
 
-If a `manage_project_config` tool is available, push the full current file text:
+The `config` tool is orchestration-profile only. Use the file text with CRLF replaced by LF as `configYaml` (at most 131072 bytes).
 
+1. Head. A root with no config answers `not_found`, which here means "no head".
+
+```to-call
+{"tool": "config", "op": "get", "args": {"rootId": "<anchor-uuid>"}}
 ```
-manage_project_config(operation="push", rootId="<anchor-uuid>", configYaml="<full file text>")
+
+2. Validate (nothing is written). A problem comes back as `valid: false` with `errors[{path, reason}]`, not as a failure; show each `path: reason` and stop, since the local write is saved and the user can fix the file and re-run (or use `/task-orchestrator:manage-schemas`). Relay `warnings`.
+
+```to-call
+{"tool": "config", "op": "validate", "args": {"rootId": "<anchor-uuid>", "configYaml": "<file text, LF>"}}
 ```
 
-- Success: the returned `fingerprint` confirms it; re-pushing identical content returns the same fingerprint.
-- `VALIDATION_ERROR`: show the parse error; the local write is saved, so tell the user to fix the file and re-run (or `/manage-schemas validate`).
-- `CONFLICT_ERROR` (superseded): the server holds a newer config. Fetch it with `manage_project_config(operation="get", rootId=...)` and reconcile, or pass `force: true` only if overwriting is intended.
-- A `warning` field: relay it (non-fatal).
-- Tool absent: note it and continue; the local file is authoritative.
+3. Push. Pass `expectedVersion` (the head's `version` from step 1) when a head exists; leave it out when there is none.
 
-### P5b — Project-level `client.json`
+```to-call
+{"tool": "config", "op": "push", "args": {"rootId": "<anchor-uuid>", "configYaml": "<file text, LF>", "expectedVersion": 1}}
+```
+
+- Success: relay `warnings`. Re-pushing identical content appends nothing (`appended: false`).
+- `config_invalid`: show `detail.errors[{path, reason}]`; nothing was stored.
+- `version_conflict`: someone pushed since step 1. Read the head again (step 1), show what differs and ask before retrying; use `force` only when overwriting is intended (it never skips validation or `expectedVersion`).
+- `forbidden`: the credential lacks `write-config`; say so and stop.
+
+### P5b - Project-level `client.json`
 
 So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config (and, in a linked worktree, the one in the main checkout), then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
 
@@ -100,26 +150,26 @@ So the config-sync and other hooks can reach the REST API without an environment
    node --input-type=module -e "const m = await import('file:///<plugin root>/hooks/lib/api-client.mjs'); console.log(JSON.stringify(m.apiBaseUrl({cwd: '<main>'})))"
    ```
    A URL resolves: skip, with one line naming it.
-2. Otherwise find the registered http MCP entry and derive and health-check `<base>` exactly as U4 steps 1-3. Stdio or an unhealthy server: skip with one line.
+2. Otherwise take the orchestration entry from Step 2 (its URL ends `/mcp`; never the director entry, whose URL ends `/mcp/director`) and derive and health-check `<base>` exactly as U4 steps 2-3. Stdio or an unhealthy server: skip with one line.
 3. Check the host with `m.isLoopbackApiUrl("<base>")`. A project-level file is honoured only as a bare loopback origin: an `http`/`https` URL without credentials whose host is `localhost`, an IPv4 address in `127.0.0.0/8`, or `[::1]`, with an optional port and no path, query or fragment (a file inside a repo must not redirect the bearer token to a remote host or choose the request path); anything else is ignored silently. When the check is false, do not write the file: say a project-level file would be ignored for this URL, and that a non-loopback server, or one behind a path prefix, needs `TASK_ORCHESTRATOR_API_URL` or `/task-orchestrator:init --user` (the user-level file is unrestricted).
 4. When true, write `<main>/.taskorchestrator/client.json` as UTF-8 JSON containing only `{"apiUrl": "<base>"}`. If the file exists with a different value, show both and ask.
 5. Note how the file is found: the hooks read `client.json` beside the located config first. In a linked worktree, when the `client.json` beside the worktree's own config yields no usable loopback URL, the hooks also read `.taskorchestrator/client.json` in the main checkout, under the same loopback rule. `AGENT_CONFIG_DIR` pins both files to the directory it names. One file in the main checkout therefore serves every linked worktree. Advise adding `.taskorchestrator/client.json` to `.gitignore`: the URL is machine-specific.
 
-### P6 — Rule seeding, then advise
+### P6 - Rule seeding, then advise
 
 Run **Rule seeding** below, then advise committing `.taskorchestrator/config.yaml` (and `.taskorchestrator/rules/` if present). Never commit `client.json`.
 
-Close with one line on the orchestration mode, because a located config turns the plugin's orchestration hooks on by default. Read the effective mode from the config just written (`orchestration.mode`; an absent block means `workflow`) and say:
+Close with one line on the orchestration mode, because a located config turns the plugin's orchestration hooks on by default. The mode is `extensions.claude-code.orchestration.mode` in the config just written (an absent key means `workflow`). Say:
 
-> Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance_item`. Set `orchestration: { mode: schema }` (no tiers or model table) or `{ mode: off }` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
+> Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.orchestration.mode` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
 
-Do not write the `orchestration:` block yourself in project mode: absent already means `workflow`, and init touches this file surgically.
+Do not write the `extensions:` block yourself in project mode: absent already means `workflow`, and init touches this file surgically.
 
 ---
 
 ## `--user` mode
 
-### U1 — State the target
+### U1 - State the target
 
 Say the directory about to be written: `<userHome()>/.taskorchestrator/` (config at `userConfigPath()`, client file at `userClientPath()`).
 
@@ -127,29 +177,27 @@ When `TASK_ORCHESTRATOR_HOME` is set, warn that it replaces the home: the user-l
 
 `TASK_ORCHESTRATOR_CEILING` is an opt-in test seam that stops project-config discovery from climbing above that directory; init neither sets it nor needs it.
 
-### U2 — Find or create the personal root
+### U2 - Find or create the personal root
 
-```
-query_items(operation="search", type="project", depth=0, tags="personal-root")
-```
-
-One match: reuse it. Several: ask which. None:
-
-```
-manage_items(operation="create", items=[{title: "Personal", type: "project", tags: "personal-root", priority: "low"}])
+```to-call
+{"tool": "items_read", "select": "list", "args": {"type": "project", "depth": 0, "tags": ["personal-root"]}}
 ```
 
-(Use `$ARGUMENTS` for the title when given.)
+One match: reuse it. Several: ask which. None (use `$ARGUMENTS` for the title when given; the `schema_violation` fallback of P3 applies here too):
 
-### U3 — Write and push the user-level config
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "Personal", "type": "project", "tags": ["personal-root"], "priority": "low"}}
+```
 
-Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, then push it with `manage_project_config` exactly as in P5.
+### U3 - Write, validate and push the user-level config
 
-### U3b — Orchestration scope for the personal root
+Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, then validate and push it exactly as in P5.
 
-A user-level config counts as "config located" for every directory that has no project config of its own. The orchestration hooks therefore apply **everywhere** once this file exists: the orchestration core is injected at session start, an `Agent` dispatch without `model` is denied, and `advance_item` gains a dispatch hint, in unrelated repositories too. A project-level config only reaches its own checkout, so this is the one place the reach has to be chosen deliberately.
+### U3b - Orchestration scope for the personal root
 
-If the user-level config already has an `orchestration:` block, keep it and state its mode in one line. Otherwise ask:
+A user-level config counts as "config located" for every directory that has no project config of its own. The orchestration hooks therefore apply **everywhere** once this file exists: the orchestration core is injected at session start, an `Agent` dispatch without `model` is denied, and `advance` gains a dispatch hint, in unrelated repositories too. A project-level config only reaches its own checkout, so this is the one place the reach has to be chosen deliberately.
+
+If the user-level config already sets `extensions.claude-code.orchestration.mode`, keep it and state its mode in one line. Otherwise ask:
 
 ```
 AskUserQuestion(questions: [{
@@ -157,27 +205,29 @@ AskUserQuestion(questions: [{
   header: "Orchestration",
   multiSelect: false,
   options: [
-    { label: "Workflow everywhere (default)", description: "Leave the block out. Tier-aware orchestration core, model guard and dispatch hint are active in every unconfigured directory." },
-    { label: "Schema everywhere", description: "Write orchestration: { mode: schema }. No tiers or model table; the model guard and dispatch hint stay active." },
-    { label: "Off outside projects", description: "Write orchestration: { mode: off }. All three hooks stay silent in directories that have no project config. The personal root still anchors items and syncs config." }
+    { label: "Workflow everywhere (default)", description: "Leave the key out. Tier-aware orchestration core, model guard and dispatch hint are active in every unconfigured directory." },
+    { label: "Schema everywhere", description: "Write orchestration mode schema. No tiers or model table; the model guard and dispatch hint stay active." },
+    { label: "Off outside projects", description: "Write orchestration mode off. All three hooks stay silent in directories that have no project config. The personal root still anchors items and syncs config." }
   ]
 }])
 ```
 
-For the second and third answers, add the block to `userConfigPath()` with the same surgical rule, in block form:
+For the second and third answers, add the key to `userConfigPath()` with the same surgical rule, in block form under `extensions:` and `claude-code:` (the server stores `extensions` without reading it; a top-level `orchestration:` is rejected by a push):
 
 ```yaml
-orchestration:
-  mode: off   # or schema
+extensions:
+  claude-code:
+    orchestration:
+      mode: off   # or schema
 ```
 
-No re-push is needed: the key is read client-side by the hooks and ignored by the server. The user-level mode applies only where no project config is located. Inside a project the project's own config is found first and decides alone — its `orchestration.mode`, or `workflow` when it has no such block — so `off` here does not switch orchestration off in initialized projects.
+Write the key before the validate-and-push of U3 so one push covers it; when U3 already ran, push again with the P5 flow. The user-level mode applies only where no project config is located. Inside a project the project's own config is found first and decides alone - its `extensions.claude-code.orchestration.mode`, or `workflow` when it has no such key - so `off` here does not switch orchestration off in initialized projects.
 
-### U4 — `client.json`
+### U4 - `client.json`
 
 `client.json` lets the config-sync and other hooks find the REST API without an environment variable. It holds `apiUrl` only and never a token. The user-level file is unrestricted: unlike the project-level file (P5b) it is honoured for any host.
 
-1. Find the registered Task Orchestrator MCP entry the way `hooks/session-start.mjs` does: `.mcp.json` `mcpServers`, then `~/.claude.json` `mcpServers` and `projects[<dir>].mcpServers`. An `http` entry carries `url`.
+1. Use the orchestration entry located in Step 2 (its URL ends `/mcp`; never the director entry, whose URL ends `/mcp/director`).
 2. No http entry (stdio): skip with one line. Config-sync stays a no-op in that case; MCP rule seeding below still works.
 3. Otherwise `<base>` = scheme + host + port + path with a trailing `/mcp` removed. Check it:
    ```bash
@@ -201,30 +251,36 @@ The plugin ships these rules in `<plugin root>/bundled-rules/`: `protocol.entry-
 node "<plugin root>/hooks/config-sync.mjs" < /dev/null
 ```
 
-Project mode: run from the workspace directory. `--user` mode: prefix `AGENT_CONFIG_DIR=<userHome()>` (drive-letter form, forward slashes) so it locates the user-level config. It prints one JSON line with `additionalContext`; relay it. If it reports deferred items, say they will be retried: re-run init or wait for the next session. Always follow with verification:
+Project mode: run from the workspace directory. `--user` mode: prefix `AGENT_CONFIG_DIR=<userHome()>` (drive-letter form, forward slashes) so it locates the user-level config. It prints one JSON line with `additionalContext`; relay it. If it reports deferred items, say they will be retried: re-run init or wait for the next session. Always follow with the verification listing below.
 
+**MCP path** (no API URL): list the root's rule documents. Each item carries `slug`, `contentHash` (the rule's `rulesVersion`) and `version`:
+
+```to-call
+{"tool": "docs_read", "select": "list", "args": {"rootId": "<root-uuid>", "kind": "rule"}}
 ```
-query_rules(operation="list", rootId="<root-uuid>")
-```
 
-**MCP path** (no API URL): `query_rules(operation="list", rootId=...)`, then per manifest key apply the same policy:
+Then, per manifest key, apply the same policy as `hooks/config-sync.mjs`:
 
-- server hash equals the manifest's current hash: in sync.
-- key absent, or the server hash is one of the manifest's older hashes: stash it.
+- server `contentHash` equals the manifest's current hash: in sync.
+- key absent, or the server hash is one of the manifest's older hashes: upsert it.
 - any other hash: leave it (project-authored or a newer plugin) and say so.
 
-Stash with the LF text of `bundled-rules/<key>.md` (the server does not normalize CRLF in an inline body):
+Upsert the text of `bundled-rules/<key>.md`. The server normalizes CRLF to LF before it hashes a document body, so a file read on Windows hashes the same as its LF form. Pass `expectedVersion` 0 when the rule is absent (the call must then create) and the listed `version` when it exists. The call needs the `write-docs` capability (`write-config` does not grant it):
 
+```to-call
+{"tool": "docs_write", "op": "upsert", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "<key>", "body": "<text of bundled-rules/<key>.md>", "expectedVersion": 0}}
 ```
-manage_plan_documents(operation="stash", rootId="<root-uuid>", slug="rule/<key>", body="<LF text>")
+
+Compare the returned `contentHash` with the manifest's LAST hash for that key. Mismatch: upsert once more. Still mismatched: report the key and both hashes, and warn that config-sync will treat that body as project-authored and never repair it. `version_conflict` means someone wrote the rule since the listing: list again and re-apply the policy.
+
+Rule documents live under a root: they anchor to the project root that P3 or U2 found or created. Verify (both paths) by listing again with the same `docs_read` call, or with the `config` tool's `rules` op, which returns `{key, rulesVersion, updatedAt}` per rule:
+
+```to-call
+{"tool": "config", "op": "rules", "args": {"rootId": "<root-uuid>"}}
 ```
-
-Compare the returned `contentHash` with the manifest's LAST hash for that key. Mismatch: stash once more. Still mismatched: report the key and both hashes, and warn that config-sync will treat that body as project-authored and never repair it.
-
-Rules need a depth-0 root; both modes use one.
 
 ---
 
 ## End report
 
-State: mode; root id and name; each file written (resolved path); push result; a rule table (key, action: pushed / in sync / kept / failed); and the next step: start a new session so the setup status changes from not-set-up to configured.
+State: mode; root id and name; each MCP entry (orchestration and director: file and mode, or "not registered: --no-director"); each file written (resolved path); the validate and push result; a rule table (key, action: pushed / in sync / kept / failed); and the next step: reload the MCP servers and start a new session so the setup status changes from not-set-up to configured.

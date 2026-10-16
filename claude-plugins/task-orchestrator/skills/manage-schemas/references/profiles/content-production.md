@@ -46,7 +46,7 @@ traits:
 
 **Rationale to present:** creating a new `revision-task` under a terminal `content-piece` does
 NOT reopen it automatically — there is no lifecycle mode that does that. Explicitly
-`advance_item(trigger="reopen")` the piece before adding the refresh child; this keeps an
+`advance` it with the `reopen` trigger before adding the refresh child; this keeps an
 evergreen piece's history in one item across refresh cycles instead of fragmenting it. The
 per-item `needs-legal-review` trait shows dynamic routing: the briefing agent applies it only to
 pieces that make regulated claims.

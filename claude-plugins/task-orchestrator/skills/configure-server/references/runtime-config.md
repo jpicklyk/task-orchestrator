@@ -42,7 +42,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 |--------|----------|
 | Transport: HTTP | `-e MCP_TRANSPORT=http -e MCP_HTTP_HOST=0.0.0.0 -e MCP_HTTP_PORT=3001` |
 | Transport: STDIO | *(no HTTP env — use `docker run --rm -i`, no `-p`, no REST)* |
-| REST off | `-e API_ENABLED=false` |
+| REST off | `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true` (HTTP only; without the opt-in the server refuses to start) |
 | REST unauthenticated (recommended) | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
 | REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
 | Config mount = global floor (recommended) | `-v "<pwd>/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
@@ -51,13 +51,22 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | Log to file (opt-in) | `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (JSON on stderr always; this also writes the same JSON lines to that file, on the existing `/app/data` volume) |
 | Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |
 | Non-loopback Host | `-e MCP_ALLOWED_HOSTS=<name>[,<name>:<port>]` |
+| Tool profile (stdio only) | `-e MCP_TOOL_PROFILE=orchestration\|knowledge\|director` (default `orchestration`; an unknown value fails startup). Over HTTP the profile is the path: `/mcp`, `/mcp/knowledge`, `/mcp/director` |
+| Retention windows (whole days, `0` keeps forever) | `-e RETENTION_EVENTS_DAYS=180 -e RETENTION_AUDIT_EVENTS_DAYS=0 -e RETENTION_LEASE_HISTORY_DAYS=365 -e RETENTION_CALL_LOG_DAYS=90` (the defaults; set only to change one; read once at startup) |
+| jwks key-set staleness | `-e API_JWKS_MAX_STALE_SECONDS=<n>` (default `max(3600, API_JWKS_CACHE_TTL_SECONDS)`; positive and at least the TTL; past it the key set is unavailable and `/mcp` and `/api/v1` answer `503`) |
+| Pre-upgrade backup | `-e UPGRADE_BACKUP=false` to skip it (default `true`; see "Upgrading a 3.x volume" below) |
 
 ## REST-mode env tuples (full, copy-paste)
 
 **Off** (MCP only, no REST):
 ```
--e API_ENABLED=false
+-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true
 ```
+With the API off, `/mcp` has no credential check, so `MCP_ALLOW_UNAUTHENTICATED=true` is required to start
+an HTTP server at all (startup fails as `MCP_AUTH` without it); every caller is then the `local`
+principal. Stdio needs no opt-in. Render the loopback SECURITY caveat below and publish only
+`-p 127.0.0.1:3001:3001`. Source: [`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md),
+"`/mcp` Authentication - Read First".
 
 **Unauthenticated (recommended for single-developer local use):**
 ```
@@ -71,7 +80,9 @@ still fails startup; `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks
 -e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml \
 -v <host-path-to-api-tokens.yaml>:/run/secrets/api-tokens.yaml:ro
 ```
-See `api-rest.md` §1 for the token file format and hash generation.
+See `api-rest.md` §1 for the token file format and hash generation. In bearer (and jwks) mode the same
+credential guards `/mcp`, `/mcp/knowledge` and `/mcp/director`, so the client sends it as an
+`Authorization` header (see ".mcp.json shapes").
 
 ---
 
@@ -125,9 +136,9 @@ allowlist; `*` disables the guard with a WARN — never render `*`).
    `proxy_set_header Host $host`), add the public name, e.g. `-e MCP_ALLOWED_HOSTS=tasks.example.com`.
    Alternatively, have the proxy send `Host: localhost:3001` and skip the env var entirely.
 
-**Symptoms of a missing entry:** a 403 on `/mcp` (JSON-RPC error, code -32000, "Host header not in
-the allowed list. Configure MCP_ALLOWED_HOSTS...") or a 403 `{error:"host_not_allowed"}` on
-`/api/v1/*` / `/.well-known`. This check runs before authentication, so it fires regardless of
+**Symptoms of a missing entry:** an HTTP `403` with the `forbidden` error envelope (`scope: host`,
+message "Host header not in the allowed list. Configure MCP_ALLOWED_HOSTS to permit additional
+hosts.") on `/mcp`, `/api/v1/*` and `/.well-known` alike. This check runs before authentication, so it fires regardless of
 `API_AUTH_MODE`. It also silently breaks `config-sync` and the phase-guard hook when
 `TASK_ORCHESTRATOR_API_URL` uses a non-allowed name — both fail open/no-op rather than surfacing this
 403 directly, so a non-loopback client-side URL is a first thing to check.
@@ -197,3 +208,53 @@ invocations that pass `/`-rooted values as `-e`/`-v` arguments.
   }
 }
 ```
+
+**HTTP, bearer or jwks mode** — the same entry plus a `headers` object. Write the placeholder, never the
+token; Claude Code expands `${...}` from its environment:
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}"}
+    }
+  }
+}
+```
+
+**Director entry** (optional second entry; the key must contain `task-orchestrator`). HTTP serves the
+director profile at `/mcp/director`; add the `headers` object in bearer mode:
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator-director": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp/director"
+    }
+  }
+}
+```
+
+Over stdio the director profile is a second entry with `MCP_TOOL_PROFILE=director` before the image:
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator-director": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-v", "mcp-task-data:/app/data", "-e", "MCP_TOOL_PROFILE=director", "ghcr.io/jpicklyk/task-orchestrator:latest"]
+    }
+  }
+}
+```
+Both stdio processes share the volume and act as the one `local` principal.
+
+---
+
+## Upgrading a 3.x volume
+
+The first 4.0 boot of a 3.x volume (schema version 17 or lower) first copies the database to
+`<db name>.pre-4.0.<UTC stamp>.bak` beside it and verifies the copy (`UPGRADE_BACKUP`, default true), then
+migrates. Start exactly ONE container for that first boot: a second concurrent first boot can race the
+copy. Details and the failure modes are in
+[`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md), "Upgrading from 3.x".

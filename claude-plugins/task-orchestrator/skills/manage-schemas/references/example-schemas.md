@@ -101,7 +101,7 @@ Set `type: container` on root containers so they match this schema instead of `d
 
 ## `agent-observation` — process-global schema (global floor, not per-project)
 
-Unlike the schemas above, this one is **not** defined in a project's own `.taskorchestrator/config.yaml`. It's delivered by the shared server's **global** config (`deploy/global-config/.taskorchestrator/config.yaml`), which carries only process/self-improvement schemas — `agent-observation`, `session-retrospective`, `improvement-proposal`, and `container` — so every project sharing the server gets them for free without redeclaring them. See "Global vs Per-Project Config" in `config-format.md`. `agent-observation` items are always standalone depth-0 roots, never children of a container.
+Unlike the schemas above, this one is **not** defined in a project's own `.taskorchestrator/config.yaml`. It's delivered by the shared server's **global** config (`deploy/global-config/.taskorchestrator/config.yaml`), which carries only process/self-improvement schemas — `agent-observation`, `session-retrospective`, `improvement-proposal`, and `container` — plus `project`, the type `/task-orchestrator:init` creates anchor roots with, so every project sharing the server gets them for free without redeclaring them. See "Global vs Per-Project Config" in `config-format.md`. `agent-observation` items are always standalone depth-0 roots, never children of a container.
 
 ```yaml
   agent-observation:
@@ -216,10 +216,16 @@ traits:
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
         maxLength: 1500
-        guidance: "Attest that separation held (test files first appear in the author's SHA range; actor ids differ, or temporal-only is declared), spot-check the coverage mapping, trace one oracle to its source, confirm probes were run. Verdict: independent | independent-degraded (temporal-only) | not-independent (blocking)."
+        guidance: "Attest that separation held (test files first appear in the author's SHA range; the author's and the implementer's principals or seats differ, or temporal-only is declared), spot-check the coverage mapping, trace one oracle to its source, confirm probes were run. Verdict: independent | independent-degraded (temporal-only) | not-independent (blocking)."
 ```
 
-Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`. `needs-test-author` follows the opposite pattern on `bug-fix`: it ships in `default_traits: [delegated, session-tracked, needs-test-author]` rather than being applied per-item, since bug-fix regression tests are written test-first from the diagnosis reproduction and every bug-fix benefits from a frozen oracle. It stays opt-in (apply per-item) on `feature-task` and other schemas, where not every acceptance criterion involves a predicate worth a frozen oracle.
+Apply traits at item creation, with a `traits` array on the create:
+
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "<title>", "type": "feature-task", "traits": ["needs-migration-review"]}}
+```
+
+or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`. `needs-test-author` follows the opposite pattern on `bug-fix`: it ships in `default_traits: [delegated, session-tracked, needs-test-author]` rather than being applied per-item, since bug-fix regression tests are written test-first from the diagnosis reproduction and every bug-fix benefits from a frozen oracle. It stays opt-in (apply per-item) on `feature-task` and other schemas, where not every acceptance criterion involves a predicate worth a frozen oracle.
 
 ## Resources Example — trait `resources:` + registry
 
