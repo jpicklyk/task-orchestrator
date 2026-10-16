@@ -160,6 +160,14 @@ Alongside each recorded itemId, the marker now also stores the **role the agent 
 
 **Known limitation:** The guard only engages for subagents that enter their phase with `advance_item(trigger="start")` — the Agent-Owned-Phase Protocol below. A subagent dispatched under an orchestrator-owns-transitions dispatch contract, which never calls `advance_item` itself, has nothing recorded by the Phase-Guard Record hook, so the guard stays inert for it.
 
+### Director Guard
+
+Event: `PreToolUse` on `Skill|Read|Edit|Write|Bash|Agent` (`director-guard.mjs`, `onFailure: block`), plus `SessionStart` on `compact` (`director-context.mjs`).
+
+Invoking `/task-orchestrator:director` puts the main session in director mode: the guard sees the `Skill` call and writes a per-session marker, and `/task-orchestrator:director off` removes it. While the marker exists, the guard denies `Read`, `Edit` and `Write`, denies `Bash` unless every segment of the command starts with `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` or `docker ps` (no redirection, substitution or other chained command), and denies an `Agent` dispatch unless it passes `run_in_background: true`. Each deny reason starts with `Director altitude rule:` and names the remedies: a background `Agent`, `SendMessage` to a coordinator, or `off`. `SendMessage` and `ListAgents` are never denied, calls from subagents (`agent_id` present) are exempt, and a headless ralph iteration is never guarded. Under the marker the guard fails closed: an internal error is a deny. Without the marker it does nothing.
+
+After a compaction, `director-context.mjs` re-injects a two-sentence reminder of the rule in a director session. The server enforces the same rule for MCP: the director connection (`/mcp/director`, or `MCP_TOOL_PROFILE=director`) has no note-body read. `claude --agent director` is an optional hardened entry whose tool list already excludes file and shell tools.
+
 ### Execution modes
 
 No documented Claude Code hook-input field distinguishes an interactive session from a headless
@@ -210,6 +218,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:session-retrospective` | Analyze an implementation run, record cross-session trends, and graduate recurring patterns into improvement proposals |
 | `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition |
 | `/task-orchestrator:adopt-project-scope` | Migrate an already-populated, unscoped database in place to the project-scoping convention |
+| `/task-orchestrator:director` | Director mode: a board of open runs, frontier, decisions and rollups; answer decisions; delegate every read; `off` leaves |
 | `/task-orchestrator:configure-server` | Configure how the server runs and is reached — transport, REST API, port publishing, config mounts, config-sync |
 
 ---

@@ -232,7 +232,9 @@ test('S4: hooks-config.json lists orchestration-context.mjs exactly once in Sess
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
   const cmds = cfg.hooks.SessionStart.flatMap((g) => g.hooks.map((h) => h.command));
   assert.equal(cmds.filter((c) => c.includes('orchestration-context.mjs')).length, 1);
-  assert.equal(cfg.hooks.SessionStart.length, 1);
+  // 8aee9676: director-context.mjs adds one non-catch-all group (matcher compact); no other group may appear.
+  assert.equal(cfg.hooks.SessionStart.filter((g) => g.matcher === '').length, 1);
+  assert.deepEqual(cfg.hooks.SessionStart.filter((g) => g.matcher !== '').map((g) => g.matcher), ['compact']);
 });
 
 // ---- S5: content, both variants ----------------------------------------------------------------

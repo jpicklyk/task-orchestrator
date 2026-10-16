@@ -10,16 +10,17 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
-import type { GraphSnapshot, GraphStatus } from '../../types'
+import { envelopeOf, parseToResult } from '../shared/to-client.ts'
+import type { GraphDecision, GraphRun, GraphSnapshot, GraphStatus } from '../../types'
 import { touchedIds } from '../graph-pane/activity.ts'
 import { snapshotEvents, toastLines } from './events.ts'
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { restartLive, syncLive } from './live.ts'
 import { refresh, refreshNow, sameSnapshot, sameStatus } from './refresh.ts'
-import { actorIdsOf, clearRemote, rememberLocalActors, resultItemIds, withLocalWrite } from './remote.ts'
+import { clearRemote, resultItemIds, withLocalWrite } from './remote.ts'
 
-export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../../types'
+export type { GateInfo, GraphDecision, GraphEdge, GraphNode, GraphRun, GraphSnapshot, GraphStatus } from '../../types'
 // ── Atoms: the control and data surface for T3 (pane) and T4 (band) ──
 // Consumers cannot call helpers that take `$` (the validator follows `$` only into functions of the
 // same file), so they use the library's `update($, atom, step)` / `read($, atom)` on these:
@@ -53,8 +54,14 @@ export const graphRefreshRequest = atom({ plugin: 'task-orchestrator-mod', key: 
 /** Bump it to restart the live source (SSE/poll) and re-snapshot. */
 export const graphReconnectRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' } as const, 0)
 
-/** Items whose last change came from another session (SSE, not our echo): id -> when (ms). Written through graphIo.updateRemote only. */
+/** Items whose last change came from another session (SSE, not our echo): short id -> when (ms). Written through graphIo.updateRemote only. */
 export const graphRemote = atom({ plugin: 'task-orchestrator-mod', key: 'graphRemote' } as const, {} as Record<string, number>)
+
+/** Open decisions seen over SSE: short item id -> decision. Written through graphIo.updateDecisions only. */
+export const graphDecisions = atom({ plugin: 'task-orchestrator-mod', key: 'graphDecisions' } as const, {} as Record<string, GraphDecision>)
+
+/** The project's open and paused runs seen over SSE: run id -> status. Written through graphIo.updateRuns only. */
+export const graphRuns = atom({ plugin: 'task-orchestrator-mod', key: 'graphRuns' } as const, {} as Record<string, GraphRun>)
 
 /** Steps for `update($, atom, step)`. */
 export const addSubscriber = (n: number): number => n + 1
@@ -70,43 +77,21 @@ export { snapshot } from './snapshot.ts'
 export { invalidateLabels } from './labels.ts'
 export { remoteAdvanceListener, setRemoteAdvanceListener } from './live.ts'
 
-/** TO tools whose calls can change the graph; a successful call re-snapshots. */
-export const WRITE_TOOLS: ReadonlySet<string> = new Set([
-  'advance_item',
-  'manage_notes',
-  'create_work_tree',
-  'manage_items',
-  'manage_dependencies',
-  'complete_tree',
-  'claim_item',
-])
+/** TO tools whose calls can change the graph; a call of one re-snapshots. */
+export const WRITE_TOOLS: ReadonlySet<string> = new Set(['advance', 'items_write', 'notes_write', 'deps_write', 'runs_write', 'config'])
 
 /** The engine's spelling of those tools (`mcp__<server>__<tool>`), for the hook matcher. */
-export const WRITE_TOOL_NAME = /^mcp__.*task-orchestrator.*__(advance_item|manage_notes|create_work_tree|manage_items|manage_dependencies|complete_tree|claim_item)$/
+export const WRITE_TOOL_NAME = /^mcp__.*task-orchestrator.*__(advance|items_write|notes_write|deps_write|runs_write|config)$/
 
 /**
- * Whether a finished tool call should refresh the graph: a TO write tool, not raised by this plugin's
- * own `$` call (its reads re-enter `tool.call`), and neither denied nor errored.
+ * Whether a finished tool call should refresh the graph: a TO write tool, not raised by this plugin's own
+ * `$` call (its reads re-enter `tool.call`), and not denied. `isError` is not consulted: a 4.0 batch that
+ * partly failed is `isError: true` although some of its elements wrote.
  */
-export function shouldRefresh(tool: string, originPlugin: string, result: { deny?: unknown; isError?: unknown }): boolean {
+export function shouldRefresh(tool: string, originPlugin: string, result: { deny?: unknown }): boolean {
   const name = toToolName(tool)
 
-  return name !== null && WRITE_TOOLS.has(name) && originPlugin !== PLUGIN && result.deny === undefined && result.isError !== true
-}
-
-/** The parsed JSON text of a TO tool result; throws on an MCP error result or bad JSON. */
-export function parseToolResult(tool: string, result: { content: readonly unknown[]; isError?: boolean }): unknown {
-  let text = ''
-  for (const block of result.content) {
-    const b = block as { type?: string; text?: string }
-    if (b.type === 'text' && typeof b.text === 'string') {
-      text = b.text
-      break
-    }
-  }
-  if (result.isError) throw new Error(`${tool}: ${text || 'error result'}`)
-
-  return JSON.parse(text)
+  return name !== null && WRITE_TOOLS.has(name) && originPlugin !== PLUGIN && result.deny === undefined
 }
 
 /**
@@ -139,7 +124,7 @@ export function requestLiveSync(subscribers: number): void {
 
 function graphIo($: EngineInterface): GraphIo {
   return {
-    callTool: async (tool, args) => parseToolResult(tool, await $.mcp.call(TO_SERVER, tool, args)),
+    callTool: async (tool, args) => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args)),
     readFile: path => $.fs.read(path),
     now: () => $.clock.now(),
     after: (ms, fn) => $.clock.after(ms, fn),
@@ -161,6 +146,16 @@ function graphIo($: EngineInterface): GraphIo {
       if (step(current) === current) return
       await update($, graphRemote, step)
     },
+    updateDecisions: async step => {
+      const current = await read($, graphDecisions)
+      if (step(current) === current) return
+      await update($, graphDecisions, step)
+    },
+    updateRuns: async step => {
+      const current = await read($, graphRuns)
+      if (step(current) === current) return
+      await update($, graphRuns, step)
+    },
     updateStatus: async change => {
       // Pre-check only: the write applies `change` to the value current at write time, so a
       // concurrent setLiveSource is never overwritten by a stale precomputed status.
@@ -174,9 +169,17 @@ function graphIo($: EngineInterface): GraphIo {
   }
 }
 
-/** A successful local write clears the remote marks of every item it named or cascaded to. Advisory. */
-async function clearLocalMarks($: EngineInterface, e: unknown, text: unknown): Promise<void> {
-  const ids = [...touchedIds(e).map(t => t.id), ...resultItemIds(text)]
+/**
+ * A local write clears the remote marks of every item it named or that its result names (cascades included),
+ * only when its result has an envelope that is ok or carries `data.results` (a partial batch). No envelope, or
+ * a whole-call refusal, clears nothing. Advisory.
+ */
+async function clearLocalMarks($: EngineInterface, e: unknown, ran: unknown): Promise<void> {
+  const env = envelopeOf(ran)
+  if (env === null) return
+  const results = (env.data as { results?: unknown } | undefined)?.results
+  if (env.ok !== true && !Array.isArray(results)) return
+  const ids = [...touchedIds(e).map(t => t.id), ...resultItemIds(ran)]
   if (ids.length === 0) return
   try {
     await graphIo($).updateRemote?.(map => clearRemote(map, ids))
@@ -189,17 +192,15 @@ export function registerGraphData(on: On, options: PluginOptions = {}): void {
   toastsOn = options.graphToasts === true
   // Matched (the validator refuses a second unmatched `tool.call`): same names as WRITE_TOOLS.
   // Matcher spelled as a literal: the engine resolves matchers from source, and an imported or exported constant stays unresolved (never matches).
-  on('tool.call', { tool: /^mcp__.*task-orchestrator.*__(advance_item|manage_notes|create_work_tree|manage_items|manage_dependencies|complete_tree|claim_item)$/ }, async ($, e, next) => {
+  on('tool.call', { tool: /^mcp__.*task-orchestrator.*__(advance|items_write|notes_write|deps_write|runs_write|config)$/ }, async ($, e, next) => {
     if (next.origin.plugin === PLUGIN) return next(e)
-    // This session's actor ids, recorded before the call: an echo can arrive before it returns (remote.ts).
-    rememberLocalActors(actorIdsOf(e))
     // The local-write window: SSE events for this write (its echo) are not marked as remote (remote.ts).
     const ran = await withLocalWrite(() => next(e), () => $.clock.now())
     // Debounced and never awaited: the model's call is not slowed by the snapshot.
     if (shouldRefresh(e.tool, next.origin.plugin, ran)) {
-      if (toToolName(e.tool) === 'manage_items') invalidateLabels()
+      if (toToolName(e.tool) === 'items_write') invalidateLabels()
       void refresh(graphIo($))
-      void clearLocalMarks($, e, (ran as { text?: unknown }).text)
+      void clearLocalMarks($, e, ran)
     }
 
     return ran

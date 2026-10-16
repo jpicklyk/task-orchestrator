@@ -1,121 +1,172 @@
-// Pure retrospective logic (T5): a port of retro-lib.mjs, retro-trigger.mjs and retro-backstop.mjs
-// with no `$` and no fs, so it runs under test as plain functions. retro-lib.mjs itself cannot be
-// imported (it pulls in fs/os/path). Keep the two in step when either changes.
+// Pure retrospective logic (T5, ported to run marks): a port of retro-lib.mjs, retro-trigger.mjs and
+// retro-backstop.mjs with no `$` and no fs, so it runs under test as plain functions. retro-lib.mjs itself
+// cannot be imported (it pulls in fs/os/path). Keep the two in step when either changes.
+//
+// A retrospective is owed per closed run on the project root that is not marked `retro`. The server-side
+// mark (runs_write `mark`, first write wins) is the cross-session dedupe: only the session whose mark
+// lands dispatches, so no state here is keyed by root or kept across sessions.
 import type { RetroState } from '../../types'
+import { envelopeOf } from '../shared/to-client.ts'
 import { inlineScalar, readSection, scalar } from '../lib/yaml-lite.mjs'
 
-export const MAX_ROOT_UUIDS = 50
+/** Most recorded closes kept (retro-trigger.mjs MAX_RECORDED). */
+export const MAX_RECORDED = 50
+/** Closed runs looked back over (retro-lib.mjs LIST_WINDOW_MS). */
+export const LIST_WINDOW_MS = 24 * 60 * 60 * 1000
+const LIST_LIMIT = 20
+/** Most runs whose frontier one evaluation reads (retro-lib.mjs MAX_FRONTIER_RUNS). */
+export const MAX_FRONTIER_RUNS = 5
 
 export type RetroMode = 'nudge' | 'dispatch' | 'off'
 export interface RetroConfig {
   mode: RetroMode
   dispatchThreshold: number
-  cooldownMinutes: number
 }
 
-/** The `retrospective:` block (block or inline form); an absent or invalid key takes its default. */
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const indentOf = (line: string): number => line.length - line.trimStart().length
+const isContent = (line: string): boolean => {
+  const t = line.trim()
+
+  return t !== '' && !t.startsWith('#')
+}
+
+/** Source: retro-lib.mjs `childBlock`: the direct child `key:` of a block's lines, inline or nested; null when absent. */
+function childBlock(lines: readonly string[], key: string): { inline: string | null; lines: string[] } | null {
+  let firstLevel = Infinity
+  for (const line of lines) if (isContent(line)) firstLevel = Math.min(firstLevel, indentOf(line))
+  if (firstLevel === Infinity) return null
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp('^' + escaped + '\\s*:\\s*(?:\\{(.*)\\}.*|(?:#.*)?)$')
+  for (let i = 0; i < lines.length; i++) {
+    const line = (lines[i] as string).replace(/\r$/, '')
+    if (!isContent(line) || indentOf(line) !== firstLevel) continue
+    const m = line.trim().match(re)
+    if (!m) continue
+    if (m[1] !== undefined) return { inline: m[1], lines: [] }
+    const out: string[] = []
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j] as string
+      if (isContent(next) && indentOf(next) <= firstLevel) break
+      out.push(next)
+    }
+
+    return { inline: null, lines: out }
+  }
+
+  return null
+}
+
 /**
- * True for the exact command the session-retrospective skill runs to ack: `node` followed by one
- * path (bare, or quoted) that ends in `retro-ack.mjs`, and nothing else. Anything that merely
- * mentions the script (`git diff`, `cat`, a chained command) is not an ack.
+ * Source: retro-lib.mjs `parseRetrospectiveConfig`. Reads `extensions.claude-code.retrospective`
+ * (`mode`, `dispatchThreshold`; block or inline form at the leaf). A top-level `retrospective:` block is
+ * not read. An absent block or an invalid value takes its default; never throws.
  */
-const ACK_COMMAND = /^\s*node\s+(?:"(?:[^"]*[\\/])?retro-ack\.mjs"|'(?:[^']*[\\/])?retro-ack\.mjs'|(?:[^\s"'|;&<>]*[\\/])?retro-ack\.mjs)\s*$/
-
-export function isAckCommand(command: unknown): boolean {
-  return typeof command === 'string' && ACK_COMMAND.test(command)
-}
-
 export function parseRetrospectiveConfig(text: string | null | undefined): RetroConfig {
-  const result: RetroConfig = { mode: 'nudge', dispatchThreshold: 3, cooldownMinutes: 30 }
-  if (!text) return result
-  const section = readSection(text, 'retrospective')
-  if (!section) return result
-  const read = (key: string): string | null => (section.inline !== null ? inlineScalar(section.inline, key) : scalar(section.lines, key))
+  const result: RetroConfig = { mode: 'nudge', dispatchThreshold: 3 }
+  try {
+    if (!text) return result
+    const ext = readSection(text, 'extensions', { blockOnly: true })
+    if (!ext) return result
+    const cc = childBlock(ext.lines, 'claude-code')
+    if (!cc || cc.inline !== null) return result
+    const section = childBlock(cc.lines, 'retrospective')
+    if (!section) return result
+    const read = (key: string): string | null => (section.inline !== null ? inlineScalar(section.inline, key) : scalar(section.lines, key))
 
-  const rawMode = read('mode')
-  if (rawMode !== null) {
-    const val = rawMode.toLowerCase()
-    if (val === 'nudge' || val === 'dispatch' || val === 'off') result.mode = val
-  }
-  const rawThreshold = read('dispatchThreshold')
-  if (rawThreshold !== null) {
-    const n = Number(rawThreshold)
-    if (Number.isInteger(n) && n >= 0) result.dispatchThreshold = n
-  }
-  const rawCooldown = read('cooldownMinutes')
-  if (rawCooldown !== null) {
-    const n = Number(rawCooldown)
-    if (Number.isFinite(n) && n > 0) result.cooldownMinutes = n
+    const rawMode = read('mode')
+    if (rawMode !== null) {
+      const val = rawMode.toLowerCase()
+      if (val === 'nudge' || val === 'dispatch' || val === 'off') result.mode = val
+    }
+    const rawThreshold = read('dispatchThreshold')
+    if (rawThreshold !== null) {
+      const n = Number(rawThreshold)
+      if (Number.isInteger(n) && n >= 0) result.dispatchThreshold = n
+    }
+  } catch {
+    // defaults
   }
 
   return result
 }
 
-/** The tool's JSON payload from any plausible encoding of its result; null when it has none. */
-export function extractResponseJson(toolResponse: unknown): Record<string, unknown> | null {
-  try {
-    if (toolResponse == null) return null
-    const asObject = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : null)
-    const fromBlocks = (blocks: unknown[]): Record<string, unknown> | null => {
-      const block = blocks.find(b => b !== null && typeof b === 'object' && typeof (b as { text?: unknown }).text === 'string') as { text: string } | undefined
+/**
+ * Source: retro-trigger.mjs `successfulCloses`. The run ids of a `runs_write` call's `close` ops whose
+ * result at the same index is `ok: true` (runId from the op, else from the result). Null when no close
+ * succeeded (or the result has no envelope). A partly failed batch still counts its successful closes.
+ */
+export function successfulCloses(toolInput: unknown, result: unknown): string[] | null {
+  const env = envelopeOf(result)
+  if (env === null) return null
+  const results = isObj(env.data) && Array.isArray(env.data.results) ? env.data.results : []
+  const ops = isObj(toolInput) && Array.isArray(toolInput.ops) ? toolInput.ops : []
+  const ids: string[] = []
+  let any = false
+  ops.forEach((op, i) => {
+    if (!isObj(op) || op.op !== 'close') return
+    const r = results[i]
+    if (!isObj(r) || r.ok !== true) return
+    any = true
+    const runId = typeof op.runId === 'string' && op.runId ? op.runId : typeof r.runId === 'string' && r.runId ? r.runId : null
+    if (runId !== null) ids.push(runId)
+  })
 
-      return block ? asObject(JSON.parse(block.text)) : null
-    }
-    if (typeof toolResponse === 'string') return asObject(JSON.parse(toolResponse))
-    if (Array.isArray(toolResponse)) return fromBlocks(toolResponse)
-    const obj = toolResponse as Record<string, unknown>
-    if (asObject(obj.structuredContent)) return asObject(obj.structuredContent)
-    if (Array.isArray(obj.content)) return fromBlocks(obj.content)
-    if (typeof obj.text === 'string') return asObject(JSON.parse(obj.text))
-    if (obj.results !== undefined || obj.summary !== undefined) return obj
-
-    return null
-  } catch {
-    return null
-  }
+  return any ? ids : null
 }
 
-export function buildNudge(roots: readonly string[] | undefined): string {
-  const list = (roots ?? []).filter(Boolean)
+function runCommands(runIds: readonly string[]): string[] {
+  return runIds.map(id => `\`/session-retrospective --run ${id}\``)
+}
+
+/** Source: retro-lib.mjs `buildNudge` (same text). */
+export function buildNudge(runIds: readonly string[] | undefined): string {
+  const list = (runIds ?? []).filter(Boolean)
   const tail =
-    'to capture learnings before the session ends. Skip if the feature still has items in progress, if background tasks or subagents are still running (revisit once they finish), or if this was minor housekeeping.'
+    'Skip if the feature still has items in progress, if background tasks or subagents are still ' +
+    'running (revisit once they finish), or if this was minor housekeeping.'
   if (list.length === 0) {
-    return `Retrospective suggested — an implementation run reached terminal. Consider running \`/session-retrospective\` ${tail}`
+    return 'Retrospective suggested — an implementation run closed. ' + `Consider running \`/session-retrospective\` to capture learnings before the session ends. ${tail}`
   }
 
-  return `Retrospective suggested — an implementation run reached terminal (root(s): ${list.join(', ')}). Consider running \`/session-retrospective ${list[0]}\` ${tail}`
+  return `Retrospective suggested — a run closed (run(s): ${list.join(', ')}). ` + `Consider running ${runCommands(list).join(' and ')} to capture learnings before the session ends. ${tail}`
 }
 
-/** The directive a model acts on; used only as the fallback when the mod could not spawn the agent itself. */
-export function buildDispatch(roots: readonly string[], ancestorId: string | null): string {
-  const joined = roots.join(', ')
+/** Source: retro-lib.mjs `buildDispatch` (same text). The directive a model acts on; the fallback when the mod could not spawn the agent itself. */
+export function buildDispatch(runIds: readonly string[], ancestorId: string | null): string {
+  const list = runIds.filter(Boolean)
+  const ancestor = ancestorId || 'none configured'
+  const invoke = list.length === 0 ? '`/session-retrospective`' : runCommands(list).join(' and ')
 
   return (
-    `Retrospective dispatch (mode: dispatch). Run ${joined} reached terminal. ` +
+    `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
-    `covering the union of their roots. Dispatch exactly ONE background retrospective via the Agent tool: ` +
+    `covering the union of their runs. Dispatch exactly ONE background retrospective via the Agent tool: ` +
     `subagent_type "general-purpose", model "sonnet", run_in_background true, prompt: invoke ` +
-    `/session-retrospective ${joined}, project ancestorId ${ancestorId ?? 'none configured'}, work ONLY from durable MCP ` +
+    `${invoke}, project ancestorId ${ancestor}, work ONLY from durable MCP ` +
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
     `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +
-    `container at depth 0 OUTSIDE any project root, return only the retrospective item UUID plus a 2-3 line ` +
+    `container, return only the retrospective item UUID plus a 2-3 line ` +
     `headline. Do not dispatch more than one retrospective for this run; skip entirely if the feature still ` +
     `has active items.`
   )
 }
 
 /** The prompt of the agent the mod spawns: the agent half of buildDispatch. */
-export function buildSpawnPrompt(roots: readonly string[], ancestorId: string | null): string {
-  const joined = roots.join(', ')
+export function buildSpawnPrompt(runIds: readonly string[], ancestorId: string | null): string {
+  const list = runIds.filter(Boolean)
+  const invoke = list.length === 0 ? '/session-retrospective' : list.map(id => `/session-retrospective --run ${id}`).join(' and ')
   const scope = ancestorId ? `project ancestorId ${ancestorId}` : 'no project ancestorId (do not scope reads to a project root)'
 
   return (
-    `Invoke /session-retrospective ${joined}, ${scope}. Work ONLY from durable MCP state ` +
+    `Invoke ${invoke}, ${scope}. Work ONLY from durable MCP state ` +
     `(session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
     `conversation context). Write the retrospective into the process-global 'Session Retrospectives' ` +
-    `container at depth 0 OUTSIDE any project root. Return only the retrospective item UUID plus a 2-3 line ` +
+    `container. Return only the retrospective item UUID plus a 2-3 line ` +
     `headline. Skip entirely if the feature still has active items.`
   )
 }
@@ -124,106 +175,61 @@ export function buildSpawnPrompt(roots: readonly string[], ancestorId: string | 
 export const QUEUED_NOTICE =
   'Retrospective queued — the task-orchestrator mod dispatches it at the end of the run. Do not dispatch a retrospective yourself.'
 
-// ── call classification (retro-trigger.mjs) ─────────────────────────────────────────────
+// ── state ────────────────────────────────────────────────────────────────────────────────
 
-export type CallKind = 'PARENT_COMPLETION' | 'LONE_TERMINAL'
-export type Classified =
-  | { kind: CallKind; roots: string[]; count: number }
-  /** complete_tree completed items but named no root: counts toward substance only. */
-  | { kind: 'UNROOTED'; count: number }
-  | null
-
-/** Classifies an advance_item / complete_tree call exactly as retro-trigger.mjs does. */
-export function classifyCall(toolName: string, toolInput: Record<string, unknown> | undefined, resp: Record<string, unknown> | null): Classified {
-  if (resp === null) return null
-  const input = toolInput ?? {}
-
-  if (toolName === 'complete_tree') {
-    const completed = (resp.summary as { completed?: unknown } | undefined)?.completed
-    if (typeof completed !== 'number' || completed <= 0) return null
-    const roots = input.rootId ? [String(input.rootId)] : Array.isArray(input.itemIds) ? (input.itemIds as unknown[]).map(String) : []
-    if (roots.length === 0) return { kind: 'UNROOTED', count: completed }
-
-    return { kind: 'PARENT_COMPLETION', roots, count: completed }
-  }
-
-  if (toolName === 'advance_item') {
-    const results = (Array.isArray(resp.results) ? resp.results : []) as Record<string, unknown>[]
-    const cascade: string[] = []
-    for (const r of results) {
-      const events = (Array.isArray(r.cascadeEvents) ? r.cascadeEvents : []) as Record<string, unknown>[]
-      for (const ev of events) if (ev.targetRole === 'terminal' && ev.applied === true) cascade.push(String(ev.itemId))
-    }
-    const lone = results.filter(r => r.newRole === 'terminal' && !(Array.isArray(r.unblockedItems) && r.unblockedItems.length > 0)).map(r => String(r.itemId))
-    const direct = results.filter(r => r.newRole === 'terminal').map(r => String(r.itemId))
-
-    if (cascade.length > 0) return { kind: 'PARENT_COMPLETION', roots: [...new Set(cascade)], count: new Set([...cascade, ...direct]).size }
-    if (lone.length > 0) return { kind: 'LONE_TERMINAL', roots: lone, count: lone.length }
-  }
-
-  return null
-}
-
-// ── state reducers ───────────────────────────────────────────────────────────────────────
-
-const cap = (ids: string[]): string[] => (ids.length > MAX_ROOT_UUIDS ? ids.slice(ids.length - MAX_ROOT_UUIDS) : ids)
 const union = (a: readonly string[] | undefined, b: readonly string[]): string[] => [...new Set([...(a ?? []), ...b])]
 
-export function normalizeState(raw: unknown): RetroState {
-  return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as RetroState) : {}
-}
-
-/** Record a terminal that is not (yet) a run boundary: waits for a parent completion or the Stop backstop. */
-export function recordTerminal(state: RetroState, roots: readonly string[], count: number, now: number): RetroState {
-  return {
-    ...state,
-    sawTerminal: true,
-    lastTerminalAt: now,
-    pendingRoots: union(state.pendingRoots, roots),
-    terminalCount: (state.terminalCount ?? 0) + count,
-  }
-}
-
-export type Outcome = { state: RetroState; action: 'none' | 'nudge' | 'queue'; roots: string[] }
+const strings = (v: unknown[]): string[] => v.filter((x): x is string => typeof x === 'string')
 
 /**
- * Reduces one classified terminal call into the state and the action to take.
- * `inSubagent` is true when the call came from a subagent loop.
+ * The stored state, member by member (as retro-lib.mjs readSessionState): run-id lists keep string entries only,
+ * flags only booleans, `dispatched` only with a `runs` array, `pendingDispatch` also as null. Absent or invalid
+ * members are omitted.
  */
-export function applyCall(state: RetroState, c: NonNullable<Classified>, cfg: RetroConfig, now: number, inSubagent: boolean): Outcome {
-  if (c.kind === 'UNROOTED') {
-    return { state: { ...state, sawTerminal: true, lastTerminalAt: now, terminalCount: (state.terminalCount ?? 0) + c.count }, action: 'none', roots: [] }
+export function normalizeState(raw: unknown): RetroState {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const r = raw as Record<string, unknown>
+  const out: RetroState = {}
+  if (Array.isArray(r.closes)) out.closes = strings(r.closes)
+  if (typeof r.sawClose === 'boolean') out.sawClose = r.sawClose
+  if (Array.isArray(r.nudged)) out.nudged = strings(r.nudged)
+  if (typeof r.backstopNudged === 'boolean') out.backstopNudged = r.backstopNudged
+  // null is the stored "dispatch taken" value (RetroState allows it), kept as is.
+  if (Array.isArray(r.pendingDispatch)) out.pendingDispatch = strings(r.pendingDispatch)
+  else if (r.pendingDispatch === null) out.pendingDispatch = null
+  const d = r.dispatched
+  if (d !== null && typeof d === 'object' && !Array.isArray(d) && Array.isArray((d as { runs?: unknown }).runs)) {
+    const dd = d as { runs: unknown[]; agentId?: unknown; at?: unknown }
+    out.dispatched = {
+      ...(typeof dd.agentId === 'string' ? { agentId: dd.agentId } : {}),
+      runs: strings(dd.runs),
+      ...(typeof dd.at === 'number' && Number.isFinite(dd.at) ? { at: dd.at } : {}),
+    } as RetroState['dispatched']
   }
-  if (c.kind === 'LONE_TERMINAL') return { state: recordTerminal(state, c.roots, c.roots.length, now), action: 'none', roots: [] }
+  if (Array.isArray(r.retroAgents)) out.retroAgents = strings(r.retroAgents)
 
-  const substance = (state.terminalCount ?? 0) + c.count
-  const dispatching = cfg.mode === 'dispatch' && substance >= cfg.dispatchThreshold
-  // A subagent only ever queues a dispatch; anything else is recorded for the main loop's Stop.
-  if (inSubagent && !dispatching) return { state: recordTerminal(state, c.roots, c.count, now), action: 'none', roots: [] }
-
-  const existing = state.rootUuids ?? []
-  const newRun = !state.handledAt || now - state.handledAt > cfg.cooldownMinutes * 60_000 || c.roots.some(r => !existing.includes(r))
-  if (!newRun) return { state, action: 'none', roots: [] }
-
-  const base: RetroState = {
-    ...state,
-    handledAt: now,
-    rootUuids: cap(union(existing, c.roots)),
-    sawTerminal: false,
-    pendingRoots: [],
-    terminalCount: 0,
-  }
-  if (dispatching) return { state: { ...base, pendingDispatch: union(state.pendingDispatch, c.roots) }, action: 'queue', roots: c.roots }
-
-  return { state: base, action: 'nudge', roots: c.roots }
+  return out
 }
 
-/** retro-ack.mjs on the mod's state: the run is handled. */
-export function ackState(state: RetroState, now: number, clearPending: boolean): RetroState {
-  const next: RetroState = { ...state, handledAt: now, sawTerminal: false, pendingRoots: [], terminalCount: 0 }
-  if (clearPending) next.pendingDispatch = null
+/**
+ * The curl request for the one write retro makes: `runs_write` `mark` (key `retro`) POSTed to the REST API (the
+ * server serves `mark` over REST only). The bearer header goes to curl's stdin config (`-K -`), so the token never
+ * enters argv; a token with CR/LF is dropped. No `-f`: an error body is an envelope to read.
+ */
+export function markRequest(base: string, runId: string, token: string | undefined): { argv: string[]; input?: string } {
+  const argv = ['curl', '-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-raw', JSON.stringify({ ops: [{ op: 'mark', runId, key: 'retro' }] })]
+  const url = `${base}/api/v1/ops/runs_write`
+  if (!token || /[\r\n]/.test(token)) return { argv: [...argv, url] }
+  const quoted = `Authorization: Bearer ${token}`.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-  return next
+  return { argv: [...argv, '-K', '-', url], input: `header = "${quoted}"\n` }
+}
+
+/** Records closes this session saw but did not evaluate (a subagent, or no project rootId): the backstop reads them. */
+export function recordCloses(state: RetroState, closes: readonly string[]): RetroState {
+  const all = union(state.closes, closes)
+
+  return { ...state, sawClose: true, closes: all.length > MAX_RECORDED ? all.slice(all.length - MAX_RECORDED) : all }
 }
 
 /** True while any background task is running or pending. */
@@ -231,15 +237,65 @@ export function holdsForTasks(tasks: readonly { status: string }[]): boolean {
   return tasks.some(t => t.status === 'running' || t.status === 'pending')
 }
 
-/** The backstop decision for a Stop with nothing to dispatch: the roots to nudge for, or null. */
-export function backstopRoots(state: RetroState, cfg: RetroConfig, now: number): string[] | null {
-  if (!state.sawTerminal) return null
-  if (state.handledAt && now - state.handledAt <= cfg.cooldownMinutes * 60_000) return null
+// ── run evaluation (retro-lib.mjs evaluateRuns) ──────────────────────────────────────────
 
-  return state.pendingRoots ? [...state.pendingRoots] : []
+/** A TO call returning the envelope `data`; rejects on an error envelope (the caller binds `$.mcp.call`). */
+export type RetroCall = (tool: string, args: Record<string, unknown>) => Promise<unknown>
+
+export interface Evaluation {
+  /** Runs whose `retro` mark this evaluation wrote: dispatch them. */
+  won: string[]
+  /** Runs to nudge for (nudge mode, below the threshold, or a failed mark). */
+  nudge: string[]
+  /** The state with the nudged runs appended to `nudged` (the caller persists it). */
+  state: RetroState
 }
 
-/** The state after the backstop nudged. */
-export function afterBackstop(state: RetroState, now: number): RetroState {
-  return { ...state, handledAt: now, sawTerminal: false, pendingRoots: [], terminalCount: 0 }
+/**
+ * Source: retro-lib.mjs `evaluateRuns`, over `call`. Lists the root's closed runs not yet marked `retro`
+ * (closed in the last 24 h), skips runs already marked or nudged this session, reads the terminal count
+ * of at most MAX_FRONTIER_RUNS of them, and for each: dispatch mode and terminal >= threshold -> try to
+ * mark (first write wins); `marked: true` is won, `marked: false` (another session marked first) is silent,
+ * a failed mark is nudged (never dispatched unmarked). Everything else is nudged. A failed frontier read
+ * skips that run this time. Fail-open: a failed list returns nothing.
+ */
+export async function evaluateRuns(call: RetroCall, rootId: string, cfg: RetroConfig, state: RetroState, now: number): Promise<Evaluation> {
+  const won: string[] = []
+  const nudge: string[] = []
+  const nudged = state.nudged ?? []
+  try {
+    const list = await call('runs_read', { select: 'list', rootId, unmarked: 'retro', endedSince: new Date(now - LIST_WINDOW_MS).toISOString(), limit: LIST_LIMIT })
+    const views = isObj(list) && Array.isArray(list.items) ? list.items : []
+    const candidates: string[] = []
+    for (const view of views) {
+      if (!isObj(view) || typeof view.runId !== 'string' || view.runId === '') continue
+      if (isObj(view.marks) && Object.prototype.hasOwnProperty.call(view.marks, 'retro')) continue
+      if (nudged.includes(view.runId) || candidates.includes(view.runId)) continue
+      candidates.push(view.runId)
+      if (candidates.length >= MAX_FRONTIER_RUNS) break
+    }
+
+    const frontiers = await Promise.all(candidates.map(runId => call('runs_read', { select: 'frontier', runId }).catch(() => null)))
+    const toMark: string[] = []
+    candidates.forEach((runId, i) => {
+      const f = frontiers[i]
+      const terminal = isObj(f) && isObj(f.counts) ? f.counts.terminal : undefined
+      if (typeof terminal !== 'number') return
+      if (cfg.mode === 'dispatch' && terminal >= cfg.dispatchThreshold) toMark.push(runId)
+      else nudge.push(runId)
+    })
+
+    const marks = await Promise.all(toMark.map(runId => call('runs_write', { ops: [{ op: 'mark', runId, key: 'retro' }] }).catch(() => null)))
+    toMark.forEach((runId, i) => {
+      const data = marks[i]
+      const r = isObj(data) && Array.isArray(data.results) ? data.results[0] : null
+      if (isObj(r) && r.ok === true && r.marked === true) won.push(runId)
+      else if (isObj(r) && r.ok === true && r.marked === false) return
+      else nudge.push(runId)
+    })
+  } catch {
+    // fail-open
+  }
+
+  return { won, nudge, state: nudge.length > 0 ? { ...state, nudged: union(nudged, nudge) } : state }
 }

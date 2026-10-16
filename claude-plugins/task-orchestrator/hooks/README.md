@@ -36,7 +36,7 @@ rejects them on push, and `session-start` prints a `## Config Shape` line when i
 
 `execution-mode.suppressionReason(hookInput, env)` is the shared gate for the four injecting context hooks. It returns
 `headless` (`TASK_ORCHESTRATOR_MODE=headless-iteration`), then `subagent` (a non-empty `agent_id`), then `director` (a
-file exists at `directorMarkerPath(session_id)`; nothing writes it until director mode lands), or `null`.
+file exists at `directorMarkerPath(session_id)`, written by `director-guard.mjs` when the director skill is invoked), or `null`.
 
 The table lists one row per script registered in `hooks-config.json` and what it does at this version. "Not gated" means
 the hook has no check for that column; "non-injecting" means it adds no context.
@@ -57,6 +57,8 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
 | `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
 | `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+| `director-guard.mjs` | `{}` (no marker write, no denial) | `{}` (exempt; no marker write) | Not read | Writes the marker on a director `Skill` call (`off` removes it); under the marker denies `Read`/`Edit`/`Write`, `Bash` outside the allow-list and foreground `Agent`; fails closed |
+| `director-context.mjs` | `{}` | `{}` | Not read | Re-injects the altitude rule after compaction (SessionStart `compact`); `{}` without the marker |
 
 Every row was re-derived from the hook sources at the P10/P12/P13 merge. A change that alters a hook's gating
 updates that hook's row in the same PR.
