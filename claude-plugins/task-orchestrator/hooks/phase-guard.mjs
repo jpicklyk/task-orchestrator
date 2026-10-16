@@ -52,7 +52,7 @@
 import { unlinkSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
+import { apiBaseUrl, authHeader, fetchWithTimeout } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitEmpty as writeEmpty, emitBlock as writeBlock } from './lib/emit.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';

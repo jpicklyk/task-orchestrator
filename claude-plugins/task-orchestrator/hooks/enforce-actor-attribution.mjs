@@ -34,7 +34,7 @@
 
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
+import { apiBaseUrl, authHeader, fetchWithTimeout } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emit, contextOutput, denyOutput } from './lib/emit.mjs';
 

@@ -172,7 +172,7 @@ No REST, no port, no config-sync — say so.
 
    Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
    `client.json` supplying a URL either, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
-   `hooks/api-client.mjs` finds no URL) —
+   `hooks/lib/api-client.mjs` finds no URL) —
    always render it, never treat it as optional polish.
 
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from
@@ -222,8 +222,9 @@ per-project hot-reload benefit already covered in Step 1.
 
 The completion guard reads `GET /api/v1/items/{id}/gate`, a READ-capability endpoint — under bearer
 auth, the token rendered for `TASK_ORCHESTRATOR_API_TOKEN` needs `read` in addition to whatever
-capability its other consumers need (config-sync's documented token is `write-config` only, which
-does not imply `read`). A token scoped to `write-config` alone leaves the guard silently inert (every
+capability its other consumers need (config-sync's documented token is `read` + `write-config` +
+`write-docs`: `read` for the config get and validate and the rule listing, `write-config` for the push,
+`write-docs` for the rule upserts; plan-capture needs `write-docs`). A token scoped to `write-config` alone leaves the guard silently inert (every
 gate GET returns 403, which the guard treats as fail-open, not an error) — call this out whenever
 rendering a bearer-mode token for a workspace that also uses the guard.
 

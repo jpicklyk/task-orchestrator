@@ -35,7 +35,7 @@
 
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { apiBaseUrl } from './api-client.mjs';
+import { apiBaseUrl } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitEmpty as writeEmpty } from './lib/emit.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';

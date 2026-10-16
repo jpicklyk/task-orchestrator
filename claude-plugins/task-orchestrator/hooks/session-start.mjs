@@ -9,7 +9,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
 import { locateConfig, userConfigPath } from './config-locator.mjs';
-import { apiBaseUrl } from './api-client.mjs';
+import { apiBaseUrl } from './lib/api-client.mjs';
 import { emit } from './lib/emit.mjs';
 import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { checkServer } from './lib/server-compat.mjs';

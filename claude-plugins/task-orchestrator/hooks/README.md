@@ -14,7 +14,4 @@ every module is pure at import (no top-level I/O) and never throws.
 | `lib/server-compat.mjs` | `assessServer` / `checkServer` (major 4 with the `seats` feature) and `legacyShapeWarningOnce`. |
 | `lib/tool-names.mjs` | `TOOLS`, the 4.0 tool names (hand list until `scripts/gen-call-shapes.mjs` generates it). |
 
-`api-client.mjs` in this directory is a re-export shim of `lib/api-client.mjs`; it is removed once the remaining
-callers move to `callOp`.
-
 Run the tests by glob: `node --test "claude-plugins/task-orchestrator/hooks/tests/*.test.mjs"`.
