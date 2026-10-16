@@ -116,7 +116,7 @@ class OidcDiscoveredJwksUriHttpsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S6 - https discovery doc pointing to an https jwks_uri returns keys`() =
+    fun `S6 - https discovery doc pointing to an https jwks_uri returns keys`(): Unit =
         runTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "https://idp.test.example/jwks.json"
@@ -147,7 +147,7 @@ class OidcDiscoveredJwksUriHttpsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S13 - discovered non-loopback http jwks_uri is rejected, getKeySet throws and it is never fetched`() =
+    fun `S13 - discovered non-loopback http jwks_uri is rejected, getKeySet throws and it is never fetched`(): Unit =
         runTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "http://idp.example/j"
@@ -176,7 +176,7 @@ class OidcDiscoveredJwksUriHttpsTest {
         }
 
     @Test
-    fun `S13 - discovered loopback http jwks_uri without opt-in is still rejected`() =
+    fun `S13 - discovered loopback http jwks_uri without opt-in is still rejected`(): Unit =
         runTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "http://127.0.0.1:9/j"
@@ -213,7 +213,7 @@ class OidcDiscoveredJwksUriHttpsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S14 - discovered loopback http jwks_uri IS fetched when allowInsecureUrl is true`() =
+    fun `S14 - discovered loopback http jwks_uri IS fetched when allowInsecureUrl is true`(): Unit =
         runTest {
             val discoveryUrl = "https://idp.test.example/.well-known/openid-configuration"
             val discoveredUri = "http://127.0.0.1:9/j"

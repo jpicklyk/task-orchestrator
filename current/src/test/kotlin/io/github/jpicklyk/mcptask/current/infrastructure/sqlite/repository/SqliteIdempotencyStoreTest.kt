@@ -94,7 +94,7 @@ class SqliteIdempotencyStoreTest {
     // ---------------------------------------------------------------- port contract
 
     @Test
-    fun `find returns the upserted record unchanged`() =
+    fun `find returns the upserted record unchanged`(): Unit =
         runBlocking {
             val r = record()
             upsert(r)
@@ -102,7 +102,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `find returns null when nothing matches principal operation or key`() =
+    fun `find returns null when nothing matches principal operation or key`(): Unit =
         runBlocking {
             upsert(record())
             assertNull(find(key = "other"))
@@ -111,7 +111,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `the primary key is principal plus operation plus key - three records coexist`() =
+    fun `the primary key is principal plus operation plus key - three records coexist`(): Unit =
         runBlocking {
             upsert(record(key = "k1", fingerprint = fp("a")))
             upsert(record(key = "k1", op = "mcp.other", fingerprint = fp("b")))
@@ -122,7 +122,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `upsert on an existing key replaces the row`() =
+    fun `upsert on an existing key replaces the row`(): Unit =
         runBlocking {
             upsert(record(fingerprint = fp("a"), resultJson = """{"v":1,"ok":true,"value":"old"}""", createdAt = t0))
             val newer = record(fingerprint = fp("b"), resultJson = """{"v":1,"ok":true,"value":"new"}""", createdAt = t0.plusSeconds(90000))
@@ -132,7 +132,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `insertIfAbsent inserts once and never overwrites`() =
+    fun `insertIfAbsent inserts once and never overwrites`(): Unit =
         runBlocking {
             val first = record(resultJson = """{"v":1,"ok":true,"value":"first"}""")
             assertTrue(insertIfAbsent(first), "an absent key is inserted")
@@ -145,7 +145,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `deleteExpired deletes rows at or below the cutoff and returns how many`() =
+    fun `deleteExpired deletes rows at or below the cutoff and returns how many`(): Unit =
         runBlocking {
             upsert(record(key = "below", createdAt = t0.minusMillis(1)))
             upsert(record(key = "at", createdAt = t0))
@@ -160,7 +160,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `keys differing only by case are distinct`() =
+    fun `keys differing only by case are distinct`(): Unit =
         runBlocking {
             upsert(record(key = "Key"))
             assertNull(find(key = "key"))
@@ -168,7 +168,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `unicode keys principals and results round-trip`() =
+    fun `unicode keys principals and results round-trip`(): Unit =
         runBlocking {
             val key = "k" + 0xE9.toChar() + String(Character.toChars(0x1F600))
             val r = record(key = key, principal = "p" + 0xFF5E.toChar(), resultJson = """{"v":1,"ok":true,"value":"${0xE9.toChar()}"}""")
@@ -179,7 +179,7 @@ class SqliteIdempotencyStoreTest {
     // ---------------------------------------------------------------- persisted time form
 
     @Test
-    fun `created_at is stored as 23 character UTC text with millisecond truncation`() =
+    fun `created_at is stored as 23 character UTC text with millisecond truncation`(): Unit =
         runBlocking {
             upsert(record(createdAt = Instant.parse("2026-03-01T10:15:30.123456789Z")))
             val text = rawQuery("SELECT created_at FROM idempotency_records").single()["created_at"]
@@ -188,7 +188,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `created_at text is UTC under a non-UTC JVM default zone`() =
+    fun `created_at text is UTC under a non-UTC JVM default zone`(): Unit =
         runBlocking {
             val original = TimeZone.getDefault()
             try {
@@ -203,7 +203,7 @@ class SqliteIdempotencyStoreTest {
         }
 
     @Test
-    fun `text order equals time order so deleteExpired compares correctly across a day boundary`() =
+    fun `text order equals time order so deleteExpired compares correctly across a day boundary`(): Unit =
         runBlocking {
             upsert(record(key = "late", createdAt = Instant.parse("2026-03-01T23:59:59.999Z")))
             upsert(record(key = "next", createdAt = Instant.parse("2026-03-02T00:00:00.000Z")))

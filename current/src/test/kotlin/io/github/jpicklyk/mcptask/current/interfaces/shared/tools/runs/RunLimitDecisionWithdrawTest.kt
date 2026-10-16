@@ -116,7 +116,7 @@ class RunLimitDecisionWithdrawTest {
     }
 
     @Test
-    fun `W1 the coordinator token cannot withdraw a run-budget decision`() =
+    fun `W1 the coordinator token cannot withdraw a run-budget decision`(): Unit =
         world { w ->
             val (run, decisionId) = budgetPaused(w)
             assertEquals("run-budget", decisions(w, run).single()["class"], "control: the decision is the server-raised budget one")
@@ -128,7 +128,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
-    fun `W1 probe the opener principal alone and a stranger are forbidden too`() =
+    fun `W1 probe the opener principal alone and a stranger are forbidden too`(): Unit =
         world { w ->
             val (run, decisionId) = budgetPaused(w)
 
@@ -138,7 +138,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
-    fun `W2 the director cannot withdraw an attempt-cap decision`() =
+    fun `W2 the director cannot withdraw an attempt-cap decision`(): Unit =
         world { w ->
             val (run, decisionId) = attemptsPaused(w)
             assertEquals("attempt-cap", decisions(w, run).single()["class"], "control: the decision is the server-raised attempt one")
@@ -152,7 +152,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
-    fun `W3 after the refusal the decision is open, the run stays paused on the same decision, no event, and the answer still works`() =
+    fun `W3 after the refusal the decision is open, the run stays paused on the same decision, no event, and the answer still works`(): Unit =
         world { w ->
             val (run, decisionId) = budgetPaused(w)
             val mark = w.rig.maxSeq()
@@ -179,7 +179,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
-    fun `W3 probe an attempt-cap decision stays answerable after a refused withdraw`() =
+    fun `W3 probe an attempt-cap decision stays answerable after a refused withdraw`(): Unit =
         world { w ->
             val (run, decisionId) = attemptsPaused(w)
             assertEquals("forbidden", withdraw(w, decisionId, director).code())
@@ -192,7 +192,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
-    fun `W4 regression a decision raised by a caller is still withdrawn by its raiser`() =
+    fun `W4 regression a decision raised by a caller is still withdrawn by its raiser`(): Unit =
         world { w ->
             val run = w.open()
             val raised =

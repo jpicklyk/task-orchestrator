@@ -65,7 +65,7 @@ class ItemsReadScopeTest {
     // ------------------------------------------------------------------ S9
 
     @Test
-    fun `S9 a root scope forbids a foreign item before anything else and admits its own subtree`() =
+    fun `S9 a root scope forbids a foreign item before anything else and admits its own subtree`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             val root = rig.make("Mine-root", id = r1)
             val own = rig.make("Mine-child", root)
@@ -94,7 +94,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S9 a missing id under a restricted scope is forbidden, never not_found, for a UUID and for a prefix`() =
+    fun `S9 a missing id under a restricted scope is forbidden, never not_found, for a UUID and for a prefix`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             rig.make("Mine-root", id = r1)
 
@@ -110,7 +110,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S9 a tag scope forbids an item without a listed tag, including a child of a tagged parent`() =
+    fun `S9 a tag scope forbids an item without a listed tag, including a child of a tagged parent`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             val plainChild = rig.make("PlainChild", p)
@@ -145,7 +145,7 @@ class ItemsReadScopeTest {
             .map { it.jsonPrimitive.content }
 
     @Test
-    fun `S10 an unrestricted ambiguous prefix lists every candidate ascending`() =
+    fun `S10 an unrestricted ambiguous prefix lists every candidate ascending`(): Unit =
         irApp(db.db, dir) { rig ->
             seedPrefixes(rig)
 
@@ -164,7 +164,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S10 under a root scope an ambiguous prefix keeps only the admitted candidates`() =
+    fun `S10 under a root scope an ambiguous prefix keeps only the admitted candidates`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             seedPrefixes(rig)
 
@@ -191,7 +191,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S10 filter ids are resolved but not guarded, an unknown prefix is forbidden and an out-of-scope match is an empty page`() =
+    fun `S10 filter ids are resolved but not guarded, an unknown prefix is forbidden and an out-of-scope match is an empty page`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             seedPrefixes(rig)
 
@@ -210,7 +210,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S10 the id forms are length and character checked - 7 and 33 hex fail, 8 and 32 hex pass`() =
+    fun `S10 the id forms are length and character checked - 7 and 33 hex fail, 8 and 32 hex pass`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Sized", id = uuid("5ae0c3d1-0000-4000-8000-0000000000aa"))
             val hex = item.id.toString().replace("-", "")
@@ -230,7 +230,7 @@ class ItemsReadScopeTest {
     private fun JsonObject.ancestorTitles(): List<String> = arr("ancestors").map { it.jsonObject.str("title") }
 
     @Test
-    fun `S12 under a root scope the ancestor chain is complete from the listed depth-0 root down`() =
+    fun `S12 under a root scope the ancestor chain is complete from the listed depth-0 root down`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             // Roots only (item 754ae3dc): a listed root has no ancestor, so there is nothing above the scope to drop. The root is
             // stamped with its own id (the one-writer invariant); the chain below it is judged on the stamped root_id.
@@ -258,7 +258,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S12 a tag scope drops the ancestors without a listed tag`() =
+    fun `S12 a tag scope drops the ancestors without a listed tag`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val t1 = rig.make("T1-tagged", tags = "api")
             val t2 = rig.make("T2-untagged", t1)
@@ -283,7 +283,7 @@ class ItemsReadScopeTest {
     // ------------------------------------------------------------------ S11 (list)
 
     @Test
-    fun `S11 a tag scope lists only items with a listed tag, exactly, and counts only those`() =
+    fun `S11 a tag scope lists only items with a listed tag, exactly, and counts only those`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             rig.make("A1", p, tags = "api")
@@ -317,7 +317,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S11 a root scope lists the scoped subtree only`() =
+    fun `S11 a root scope lists the scoped subtree only`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             val a = rig.make("In-scope root", id = r1)
             rig.make("In-scope child", a)
@@ -333,7 +333,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `B1 anchor drift - a root scope listing its drifted anchor as ancestorId sees nothing of the new tree`() =
+    fun `B1 anchor drift - a root scope listing its drifted anchor as ancestorId sees nothing of the new tree`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(r1)) { rig ->
             val a = rig.make("Drift-anchor", id = r1)
             val aChild = rig.make("Drift-anchor-child", a)
@@ -369,7 +369,7 @@ class ItemsReadScopeTest {
         }
 
     @Test
-    fun `S11 the scoped list does not change when invisible items are deleted, the unscoped one does`() =
+    fun `S11 the scoped list does not change when invisible items are deleted, the unscoped one does`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val p = rig.make("P", tags = "api")
             rig.make("A1", p, tags = "api")

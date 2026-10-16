@@ -296,7 +296,7 @@ class SurfaceConformanceTest {
     }
 
     @Test
-    fun `S13 every production REST endpoint is probed or exempt and no probe names a missing route`() =
+    fun `S13 every production REST endpoint is probed or exempt and no probe names a missing route`(): Unit =
         testApplication {
             val rig = seededRig()
             var root: Route? = null
@@ -314,7 +314,7 @@ class SurfaceConformanceTest {
     // ------------------------------------------------------------------ S8-S11, S14 route probes
 
     @Test
-    fun `S8 S9 S10 S14 every probed route answers envelopes for no token, missing capability, happy, unknown query and bad Host`() =
+    fun `S8 S9 S10 S14 every probed route answers envelopes for no token, missing capability, happy, unknown query and bad Host`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }
@@ -379,7 +379,7 @@ class SurfaceConformanceTest {
     }
 
     @Test
-    fun `S10 a bad Host on mcp and well-known is the same forbidden host envelope`() =
+    fun `S10 a bad Host on mcp and well-known is the same forbidden host envelope`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }
@@ -398,7 +398,7 @@ class SurfaceConformanceTest {
         }
 
     @Test
-    fun `S11 info is an ok envelope whose data is the service info`() =
+    fun `S11 info is an ok envelope whose data is the service info`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }
@@ -416,7 +416,7 @@ class SurfaceConformanceTest {
         }
 
     @Test
-    fun `S14 config schema 200 is the raw schema and its 401 is an envelope`() =
+    fun `S14 config schema 200 is the raw schema and its 401 is an envelope`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }
@@ -431,7 +431,7 @@ class SurfaceConformanceTest {
         }
 
     @Test
-    fun `S12 events pre-flight - a mix of valid and malformed roots is 400 and a malformed one alone is 400`() =
+    fun `S12 events pre-flight - a mix of valid and malformed roots is 400 and a malformed one alone is 400`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }
@@ -498,7 +498,7 @@ class SurfaceConformanceTest {
         }
 
     @Test
-    fun `S7 the same two calls over REST ops conform for every orchestration tool`() =
+    fun `S7 the same two calls over REST ops conform for every orchestration tool`(): Unit =
         testApplication {
             val rig = seededRig()
             application { productionApp(rig) }

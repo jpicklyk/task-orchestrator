@@ -163,6 +163,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 ## Testing
 
 - Tests mirror source under `current/src/test/kotlin/`
+- Test functions need a block body or an explicit `: Unit` (JUnit 5 silently skips non-void tests); enforced by `TestFunctionReturnTypeTest`
 - JUnit 5 + MockK; real file-backed SQLite (`SqliteTestDatabase` fixture) for repository and route tests
 - **Never pipe `./gradlew` output to `tail`** — run directly and read full output
 

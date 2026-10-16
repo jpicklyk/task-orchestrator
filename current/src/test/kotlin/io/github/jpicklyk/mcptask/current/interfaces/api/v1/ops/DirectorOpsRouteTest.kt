@@ -205,7 +205,7 @@ class DirectorOpsRouteTest {
     // ------------------------------------------------------------------ part one: fixtures
 
     @Test
-    fun `S10 the director path serves a director-visible member and the same member on ops is the same envelope`() =
+    fun `S10 the director path serves a director-visible member and the same member on ops is the same envelope`(): Unit =
         withApp(fixtureRegistry) { _ ->
             val viaDirector = client.send("/api/v1/ops/director/dir_probe", """{"select":"peek","what":"w"}""")
             assertEquals(200, viaDirector.status.value, viaDirector.bodyAsText())
@@ -219,7 +219,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 a registered tool outside the director set is forbidden director and never runs, whatever its other profiles`() =
+    fun `S10 a registered tool outside the director set is forbidden director and never runs, whatever its other profiles`(): Unit =
         withApp(fixtureRegistry) { _ ->
             for (tool in listOf("dir_hidden", "dir_orch")) {
                 val response = client.send("/api/v1/ops/director/$tool", """{"select":"peek"}""")
@@ -239,7 +239,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 a hidden select inside a visible tool keeps invalid_request and does not run`() =
+    fun `S10 a hidden select inside a visible tool keeps invalid_request and does not run`(): Unit =
         withApp(fixtureRegistry) { _ ->
             val response = client.send("/api/v1/ops/director/dir_probe", """{"select":"deep"}""")
             assertEquals(400, response.status.value, response.bodyAsText())
@@ -253,7 +253,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 an unknown tool on the director path is invalid_request on field tool`() =
+    fun `S10 an unknown tool on the director path is invalid_request on field tool`(): Unit =
         withApp(fixtureRegistry) { _ ->
             val response = client.send("/api/v1/ops/director/no_such_tool", """{"select":"peek"}""")
             assertEquals(400, response.status.value, response.bodyAsText())
@@ -270,7 +270,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 the fault order of the ops route holds on the director path`() =
+    fun `S10 the fault order of the ops route holds on the director path`(): Unit =
         withApp(fixtureRegistry) { _ ->
             val path = "/api/v1/ops/director/dir_probe"
             val body = """{"select":"peek"}"""
@@ -310,7 +310,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S13 the provenance of a REST call names api colon id, kind, proof, lowercased host and the served profile`() =
+    fun `S13 the provenance of a REST call names api colon id, kind, proof, lowercased host and the served profile`(): Unit =
         withApp(fixtureRegistry) { _ ->
             val host = listOf("X-Client-Host" to "Dashboard")
             assertEquals(200, client.send("/api/v1/ops/dir_probe", """{"select":"peek"}""", token = "raw-agent", extra = host).status.value)
@@ -337,7 +337,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S13 the default token kind is SERVICE and a call without X-Client-Host still carries a host`() =
+    fun `S13 the default token kind is SERVICE and a call without X-Client-Host still carries a host`(): Unit =
         withApp(fixtureRegistry) { _ ->
             assertEquals(200, client.send("/api/v1/ops/dir_probe", """{"select":"peek"}""", token = "raw-read").status.value)
             val prov = assertNotNull(seen.single().provenance())
@@ -366,7 +366,7 @@ class DirectorOpsRouteTest {
     }
 
     @Test
-    fun `S10 every member of the director set answers on the director path with the same envelope as ops`() =
+    fun `S10 every member of the director set answers on the director path with the same envelope as ops`(): Unit =
         withApp(ToolRegistry(buildToolSpecs())) { rig ->
             val (root, child) = seedTree(rig)
             val members =
@@ -390,7 +390,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 report usage answers on the director path with the same envelope as ops`() =
+    fun `S10 report usage answers on the director path with the same envelope as ops`(): Unit =
         withApp(ToolRegistry(buildToolSpecs())) { _ ->
             // A fixed past window keeps `until` deterministic and the aggregate empty for any call-log state.
             val body = """{"select":"usage","since":"2020-01-01T00:00:00Z","until":"2020-01-02T00:00:00Z"}"""
@@ -412,7 +412,7 @@ class DirectorOpsRouteTest {
         }
 
     @Test
-    fun `S10 the other selects of items_read are invalid_request on the director path and served on ops`() =
+    fun `S10 the other selects of items_read are invalid_request on the director path and served on ops`(): Unit =
         withApp(ToolRegistry(buildToolSpecs())) { rig ->
             val (root, _) = seedTree(rig)
             val hidden =

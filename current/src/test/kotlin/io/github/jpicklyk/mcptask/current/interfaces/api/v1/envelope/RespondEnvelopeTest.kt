@@ -102,7 +102,7 @@ class RespondEnvelopeTest {
     // ---------------------------------------------------------------- respondEnvelope
 
     @Test
-    fun `S18 respondEnvelope answers an ok envelope with status 200, JSON content type and the exact wire bytes`() =
+    fun `S18 respondEnvelope answers an ok envelope with status 200, JSON content type and the exact wire bytes`(): Unit =
         testApplication {
             application { opsApp() }
 
@@ -115,7 +115,7 @@ class RespondEnvelopeTest {
         }
 
     @Test
-    fun `S18 respondEnvelope uses the envelope status for each error code and the body is the encoder's bytes`() =
+    fun `S18 respondEnvelope uses the envelope status for each error code and the body is the encoder's bytes`(): Unit =
         testApplication {
             application { opsApp() }
             val expected =
@@ -144,7 +144,7 @@ class RespondEnvelopeTest {
         }
 
     @Test
-    fun `S18 respondEnvelope answers a partial failure with 207 and both error and data results`() =
+    fun `S18 respondEnvelope answers a partial failure with 207 and both error and data results`(): Unit =
         testApplication {
             application { opsApp() }
 
@@ -166,7 +166,7 @@ class RespondEnvelopeTest {
         }
 
     @Test
-    fun `S18 probe non-ASCII and quote characters in a message survive the HTTP round trip`() =
+    fun `S18 probe non-ASCII and quote characters in a message survive the HTTP round trip`(): Unit =
         testApplication {
             application { opsApp() }
 
@@ -214,7 +214,7 @@ class RespondEnvelopeTest {
     }
 
     @Test
-    fun `S18 a throwing route under api v1 ops answers the internal envelope without the exception text`() =
+    fun `S18 a throwing route under api v1 ops answers the internal envelope without the exception text`(): Unit =
         testApplication {
             application { opsApp() }
 
@@ -225,7 +225,7 @@ class RespondEnvelopeTest {
         }
 
     @Test
-    fun `S18 Q32 every other api v1 path, including look-alikes of the ops prefix, answers the same internal envelope`() =
+    fun `S18 Q32 every other api v1 path, including look-alikes of the ops prefix, answers the same internal envelope`(): Unit =
         testApplication {
             application { opsApp() }
 

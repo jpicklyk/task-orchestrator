@@ -327,7 +327,7 @@ class ProofStatusLegacyReadTest {
     }
 
     @Test
-    fun `S9 notes_read get carries verification proofStatus and no status key for every stored status`() =
+    fun `S9 notes_read get carries verification proofStatus and no status key for every stored status`(): Unit =
         runBlocking {
             val item: WorkItem = rig.seed("owner")
             val cases =
@@ -352,7 +352,7 @@ class ProofStatusLegacyReadTest {
         }
 
     @Test
-    fun `S9 the verifier and the reason ride on the verification object beside proofStatus`() =
+    fun `S9 the verifier and the reason ride on the verification object beside proofStatus`(): Unit =
         runBlocking {
             val item: WorkItem = rig.seed("owner")
             seedNote(item.id, "k-reason", VerificationResult(VerificationStatus.REJECTED, verifier = "jwks", reason = "bad signature"))
@@ -367,7 +367,7 @@ class ProofStatusLegacyReadTest {
         }
 
     @Test
-    fun `S9 notes_read list carries the same verification shape on every summary`() =
+    fun `S9 notes_read list carries the same verification shape on every summary`(): Unit =
         runBlocking {
             val item: WorkItem = rig.seed("owner")
             seedNote(item.id, "k-a-verified", VerificationResult(VerificationStatus.VERIFIED, verifier = "jwks"))
@@ -381,7 +381,7 @@ class ProofStatusLegacyReadTest {
         }
 
     @Test
-    fun `S9 a note with no verification emits no verification object at all`() =
+    fun `S9 a note with no verification emits no verification object at all`(): Unit =
         runBlocking {
             val item: WorkItem = rig.seed("owner")
             rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "k-bare", role = "work", body = "no attribution"))

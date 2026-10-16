@@ -88,7 +88,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ Ruling A
 
     @Test
-    fun `A1 describe with a valid seat token leaves last_seen_at unchanged on every tool, an op with the same token updates it`() =
+    fun `A1 describe with a valid seat token leaves last_seen_at unchanged on every tool, an op with the same token updates it`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -115,7 +115,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
-    fun `A2 describe with the coordinator token touches neither the coordinator row nor the run's coordinator_seen_at, an op does`() =
+    fun `A2 describe with the coordinator token touches neither the coordinator row nor the run's coordinator_seen_at, an op does`(): Unit =
         world { w ->
             val run = w.open()
             clock.advanceSeconds(40)
@@ -161,7 +161,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B1 displacement over a foreign lapsed claim
 
     @Test
-    fun `B1 a claim over a foreign lapsed seat claim records one claim expired displaced with a null displacedBy and reports displaced`() =
+    fun `B1 a claim over a foreign lapsed seat claim records one claim expired displaced with a null displacedBy and reports displaced`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -193,7 +193,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
-    fun `B1 displacedBy is the new holder's assignment id under a seat token, a principal-level displaced holder has no assignmentId`() =
+    fun `B1 displacedBy is the new holder's assignment id under a seat token, a principal-level displaced holder has no assignmentId`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())
             val expiry = w.lapse(w.m3)
@@ -216,7 +216,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B2 sweep then claim: no double record
 
     @Test
-    fun `B2 an expiry sweep followed by a claim leaves exactly one claim expired for the lapsed claim`() =
+    fun `B2 an expiry sweep followed by a claim leaves exactly one claim expired for the lapsed claim`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -239,7 +239,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B3 principal visibility
 
     @Test
-    fun `B3 displaced principal is the displaced holder for a principalsVisible caller, an ADMIN outside a seat token`() =
+    fun `B3 displaced principal is the displaced holder for a principalsVisible caller, an ADMIN outside a seat token`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())
             w.lapse(w.m3)
@@ -252,7 +252,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
-    fun `B3 displaced principal is absent for a caller without admin, while displaced itself is reported`() =
+    fun `B3 displaced principal is absent for a caller without admin, while displaced itself is reported`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())
             w.lapse(w.m3)
@@ -267,7 +267,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
-    fun `B3 displaced principal is absent for an ADMIN under a seat token`() =
+    fun `B3 displaced principal is absent for an ADMIN under a seat token`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())
             w.lapse(w.m3)
@@ -285,7 +285,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B4 the caller's own lapsed claim
 
     @Test
-    fun `B4 re-claiming the caller's own lapsed principal-level claim reports no displaced and no displaced reason`() =
+    fun `B4 re-claiming the caller's own lapsed principal-level claim reports no displaced and no displaced reason`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())
             w.lapse(w.m3)
@@ -301,7 +301,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
-    fun `B4 re-claiming the same seat's own lapsed claim reports no displaced and no displaced reason`() =
+    fun `B4 re-claiming the same seat's own lapsed claim reports no displaced and no displaced reason`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
@@ -321,7 +321,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B5 unclaimed
 
     @Test
-    fun `B5 a claim over an unclaimed item reports nothing and records no claim expired`() =
+    fun `B5 a claim over an unclaimed item reports nothing and records no claim expired`(): Unit =
         world { w ->
             assertNull(w.itemRow(w.m3)["claimed_by"], "fixture: the item is unclaimed")
             val mark = w.rig.maxSeq()
@@ -339,7 +339,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B6 sweep rows
 
     @Test
-    fun `B6 a sweep-recorded claim expired has reason expired and no displacedBy key`() =
+    fun `B6 a sweep-recorded claim expired has reason expired and no displacedBy key`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")

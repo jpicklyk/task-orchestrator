@@ -83,7 +83,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         JwksApiVerifier(config = jwksAuthConfig(), keyProvider = mockProvider(), clock = Clock.fixed(now, ZoneOffset.UTC))
 
     @Test
-    fun `token is rejected as expired one nanosecond past the exp plus 60s skew boundary`() =
+    fun `token is rejected as expired one nanosecond past the exp plus 60s skew boundary`(): Unit =
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).plusNanos(1)
@@ -96,7 +96,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         }
 
     @Test
-    fun `token is rejected as expired 500 microseconds past the exp plus 60s skew boundary`() =
+    fun `token is rejected as expired 500 microseconds past the exp plus 60s skew boundary`(): Unit =
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).plusNanos(500_000)
@@ -110,7 +110,7 @@ class JwksApiVerifierExpiryPrecisionTest {
         }
 
     @Test
-    fun `token is accepted one millisecond before the exp plus 60s skew boundary (positive control)`() =
+    fun `token is accepted one millisecond before the exp plus 60s skew boundary (positive control)`(): Unit =
         runBlocking {
             val jwt = sign(claimsWithExp(exp))
             val now = exp.plusSeconds(AUTH_CLOCK_SKEW_SECONDS).minusMillis(1)

@@ -89,7 +89,7 @@ class ItemsReadNextTest {
     }
 
     @Test
-    fun `S11 priority ranking is high first, then complexity ascending with nulls last, then id ascending`() =
+    fun `S11 priority ranking is high first, then complexity ascending with nulls last, then id ascending`(): Unit =
         irApp(db.db, dir) { rig ->
             val r0 = seedRanked(rig)
             val want = r0.expected.map { short(it.id) }
@@ -104,7 +104,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S11 oldest and newest order by creation time with the id ascending as the tie-break`() =
+    fun `S11 oldest and newest order by creation time with the id ascending as the tie-break`(): Unit =
         irApp(db.db, dir) { rig ->
             val x1 = rig.vwMake("x1", priority = Priority.LOW, id = uid(0x500), at = t0)
             val x2 = rig.vwMake("x2", priority = Priority.MEDIUM, id = uid(0x400), at = t0.plusSeconds(10))
@@ -120,7 +120,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S11 pages are disjoint, their union is the whole ranking and a replayed cursor answers the same page`() =
+    fun `S11 pages are disjoint, their union is the whole ranking and a replayed cursor answers the same page`(): Unit =
         irApp(db.db, dir) { rig ->
             val want = seedRanked(rig).expected.map { short(it.id) }
             val seen = mutableListOf<String>()
@@ -146,7 +146,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S14 the default page holds one item with an exact total and a next cursor`() =
+    fun `S14 the default page holds one item with an exact total and a next cursor`(): Unit =
         irApp(db.db, dir) { rig ->
             val first = seedRanked(rig).expected.first()
 
@@ -202,7 +202,7 @@ class ItemsReadNextTest {
     }
 
     @Test
-    fun `S12 claimed and dependency-blocked items are excluded and the total counts only the eligible ones`() =
+    fun `S12 claimed and dependency-blocked items are excluded and the total counts only the eligible ones`(): Unit =
         irApp(db.db, dir) { rig ->
             val e = seedEligibility(rig)
 
@@ -220,7 +220,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S12 includeClaimed also lists claimed items, flagged, and dependency-blocked ones stay excluded`() =
+    fun `S12 includeClaimed also lists claimed items, flagged, and dependency-blocked ones stay excluded`(): Unit =
         irApp(db.db, dir) { rig ->
             val e = seedEligibility(rig)
 
@@ -251,7 +251,7 @@ class ItemsReadNextTest {
     // ------------------------------------------------------------------ S13 empty reasons
 
     @Test
-    fun `S13 an empty page whose matches are all claimed says claim_held`() =
+    fun `S13 an empty page whose matches are all claimed says claim_held`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("only-claimed", claimedBy = "agent-x")
 
@@ -264,7 +264,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S13 an empty page whose matches are all dependency-blocked says dependency_unmet`() =
+    fun `S13 an empty page whose matches are all dependency-blocked says dependency_unmet`(): Unit =
         irApp(db.db, dir) { rig ->
             val blocker = rig.vwMake("blocker", role = Role.WORK)
             val waiting = rig.vwMake("waiting")
@@ -277,7 +277,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S13 when claimed and dependency-blocked items both match, claim_held wins`() =
+    fun `S13 when claimed and dependency-blocked items both match, claim_held wins`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("claimed", claimedBy = "agent-x")
             val blocker = rig.vwMake("blocker", role = Role.WORK)
@@ -291,7 +291,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S13 nothing matched gives an empty page with no reason`() =
+    fun `S13 nothing matched gives an empty page with no reason`(): Unit =
         irApp(db.db, dir) { rig ->
             val empty = select(next())
             assertEquals(200, empty.status, empty.raw)
@@ -308,7 +308,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S13 with includeClaimed a claimed match is offered, and only dependency-blocked matches leave dependency_unmet`() =
+    fun `S13 with includeClaimed a claimed match is offered, and only dependency-blocked matches leave dependency_unmet`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("claimed", claimedBy = "agent-x")
             val blocker = rig.vwMake("blocker", role = Role.WORK)
@@ -352,7 +352,7 @@ class ItemsReadNextTest {
     }
 
     @Test
-    fun `S11 each filter narrows to exactly the matching items and filters combine with AND`() =
+    fun `S11 each filter narrows to exactly the matching items and filters combine with AND`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seedTree(rig)
             val scope = """"ancestorId":"${t.parent.id}""""
@@ -386,7 +386,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S11 parentId keeps only direct children and ancestorId the whole subtree`() =
+    fun `S11 parentId keeps only direct children and ancestorId the whole subtree`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seedTree(rig)
 
@@ -403,7 +403,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S11 fields summary and ancestors add their members and an empty list adds nothing`() =
+    fun `S11 fields summary and ancestors add their members and an empty list adds nothing`(): Unit =
         irApp(db.db, dir) { rig ->
             val parent = rig.vwMake("P", role = Role.WORK)
             val child = rig.vwMake("C", parent, summary = "child summary")
@@ -430,7 +430,7 @@ class ItemsReadNextTest {
     // ------------------------------------------------------------------ S14 validation
 
     @Test
-    fun `S14 role terminal and unknown roles are invalid_request on role and work is accepted`() =
+    fun `S14 role terminal and unknown roles are invalid_request on role and work is accepted`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("w", role = Role.WORK)
 
@@ -444,7 +444,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S14 limit outside 1 to 200 is invalid_request on limit and both bounds are accepted`() =
+    fun `S14 limit outside 1 to 200 is invalid_request on limit and both bounds are accepted`(): Unit =
         irApp(db.db, dir) { rig ->
             repeat(3) { rig.vwMake("q$it") }
 
@@ -459,7 +459,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S14 a malformed cursor, enum, timestamp and type-mismatched tags are rejected on their own member`() =
+    fun `S14 a malformed cursor, enum, timestamp and type-mismatched tags are rejected on their own member`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("q")
 
@@ -483,7 +483,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `D-g the dropped 3x parameters and members of other selects are unknown_parameter`() =
+    fun `D-g the dropped 3x parameters and members of other selects are unknown_parameter`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("q")
 
@@ -502,7 +502,7 @@ class ItemsReadNextTest {
     // ------------------------------------------------------------------ S16 scope
 
     @Test
-    fun `S16 a tag scope offers and counts only items carrying a listed tag exactly, with no ancestor walk`() =
+    fun `S16 a tag scope offers and counts only items carrying a listed tag exactly, with no ancestor walk`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val v1 = rig.vwMake("v1", tags = "api")
             val v2 = rig.vwMake("v2", tags = "backend,api")
@@ -543,7 +543,7 @@ class ItemsReadNextTest {
     }
 
     @Test
-    fun `S16 the empty-page reason is computed over the visible items only`() =
+    fun `S16 the empty-page reason is computed over the visible items only`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             rig.vwMake("hidden-claimed", claimedBy = "agent-hidden")
             val hiddenBlocker = rig.vwMake("hidden-blocker", role = Role.WORK)
@@ -561,7 +561,7 @@ class ItemsReadNextTest {
         }
 
     @Test
-    fun `S16 a visible item with a hidden unmet blocker stays excluded and its reason is dependency_unmet`() =
+    fun `S16 a visible item with a hidden unmet blocker stays excluded and its reason is dependency_unmet`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val hiddenBlocker = rig.vwMake("hidden-blocker", role = Role.WORK)
             val waiting = rig.vwMake("waiting", tags = "api")

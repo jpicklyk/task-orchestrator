@@ -131,7 +131,7 @@ class RunsBudgetAfterDispatchTest {
     // ------------------------------------------------------------------ S11 reported usage
 
     @Test
-    fun `S11 a token budget set by update after dispatch pauses the run on the seat's next heartbeat and blocks the other seat's start`() =
+    fun `S11 a token budget set by update after dispatch pauses the run on the seat's next heartbeat and blocks the other seat's start`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))
             val a = seatUp(w, run, w.m1)
@@ -164,7 +164,7 @@ class RunsBudgetAfterDispatchTest {
     // ------------------------------------------------------------------ S12 observed usage
 
     @Test
-    fun `S12 a token budget set by update after dispatch is enforced against tokens the writer already observed`() =
+    fun `S12 a token budget set by update after dispatch is enforced against tokens the writer already observed`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1))
             val seat = seatUp(w, run, w.m1)

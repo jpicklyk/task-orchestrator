@@ -101,7 +101,7 @@ class EventRoutesTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `missing auth header returns 401`() =
+    fun `missing auth header returns 401`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application {
@@ -114,7 +114,7 @@ class EventRoutesTest {
         }
 
     @Test
-    fun `invalid bearer token returns 401`() =
+    fun `invalid bearer token returns 401`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
@@ -131,7 +131,7 @@ class EventRoutesTest {
         }
 
     @Test
-    fun `token without read capability returns 403`() =
+    fun `token without read capability returns 403`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(NO_CAP_TOKEN, capabilities = setOf(ApiCapability.WRITE_ITEMS))
@@ -148,7 +148,7 @@ class EventRoutesTest {
         }
 
     @Test
-    fun `already-expired token returns 401 at connection time`() =
+    fun `already-expired token returns 401 at connection time`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val expiredAt = Instant.now().minusSeconds(60) // already expired
@@ -170,7 +170,7 @@ class EventRoutesTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `query-token mode disabled by default - returns 401 when only token param provided`() =
+    fun `query-token mode disabled by default - returns 401 when only token param provided`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)

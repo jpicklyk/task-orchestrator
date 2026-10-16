@@ -360,16 +360,16 @@ class ItemsWriteParityTest {
     }
 
     @Test
-    fun `S6 create happy agrees across MCP and REST once generated ids are normalized`() = runWriting(ItemsWriteParity.createHappy)
+    fun `S6 create happy agrees across MCP and REST once generated ids are normalized`(): Unit = runWriting(ItemsWriteParity.createHappy)
 
     @Test
-    fun `S6 update happy agrees across MCP and REST`() = runWriting(ItemsWriteParity.updateHappy)
+    fun `S6 update happy agrees across MCP and REST`(): Unit = runWriting(ItemsWriteParity.updateHappy)
 
     @Test
-    fun `S6 delete happy agrees across MCP and REST`() = runWriting(ItemsWriteParity.deleteHappy)
+    fun `S6 delete happy agrees across MCP and REST`(): Unit = runWriting(ItemsWriteParity.deleteHappy)
 
     @Test
-    fun `S6 repin happy agrees across MCP and REST`() = runWriting(ItemsWriteParity.repinHappy)
+    fun `S6 repin happy agrees across MCP and REST`(): Unit = runWriting(ItemsWriteParity.repinHappy)
 
     /**
      * The shared harness cannot compare a write that emits event rows: the event `host` is the MCP client name on one leg and the

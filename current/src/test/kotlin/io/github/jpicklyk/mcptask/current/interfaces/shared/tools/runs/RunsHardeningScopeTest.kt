@@ -153,7 +153,7 @@ class RunsHardeningScopeTest {
     // ------------------------------------------------------------------ S1 an out-of-scope decision reads as nonexistent
 
     @Test
-    fun `S1 a root-scoped caller naming a pending decision of another root gets the answer of a nonexistent decision`() =
+    fun `S1 a root-scoped caller naming a pending decision of another root gets the answer of a nonexistent decision`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -180,7 +180,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
-    fun `S1 probe the upper-case spelling of the same out-of-scope UUID is also a nonexistent decision, and the refusal changes nothing`() =
+    fun `S1 probe the upper-case spelling of the same out-of-scope UUID is also a nonexistent decision, and the refusal changes nothing`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -196,7 +196,7 @@ class RunsHardeningScopeTest {
     // ------------------------------------------------------------------ S2 everything else about the check stays as it was
 
     @Test
-    fun `S2 an unrestricted caller and a restricted one naming an in-scope decision of another item still read belongs to another item`() =
+    fun `S2 an unrestricted caller and a restricted one naming an in-scope decision of another item still read belongs to another item`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -219,7 +219,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
-    fun `S2 a hex prefix of an out-of-scope decision stays forbidden for a root-scoped caller but not for an unrestricted one`() =
+    fun `S2 a hex prefix of an out-of-scope decision stays forbidden for a root-scoped caller but not for an unrestricted one`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -235,7 +235,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
-    fun `S2 the request-rule order is unchanged for a restricted caller naming an out-of-scope decision`() =
+    fun `S2 the request-rule order is unchanged for a restricted caller naming an out-of-scope decision`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -322,7 +322,7 @@ class RunsHardeningScopeTest {
     }
 
     @Test
-    fun `S4 a tag-scoped caller counts only the members it may see in get and in list, an unrestricted and a root-scoped one count all`() =
+    fun `S4 a tag-scoped caller counts only the members it may see in get and in list, an unrestricted and a root-scoped one count all`(): Unit =
         world { w ->
             val s = scopedRun(w)
 
@@ -340,7 +340,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
-    fun `S4 probe a tag-scoped caller whose tag matches the root but no member counts zero where unrestricted counts all`() =
+    fun `S4 probe a tag-scoped caller whose tag matches the root but no member counts zero where unrestricted counts all`(): Unit =
         world { w ->
             val root = w.rig.seed("Tagged root", tags = "plain-task")
             val x = w.rig.seed("X other tag", parent = root, tags = "seated-task")
@@ -353,7 +353,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
-    fun `S5 the frontier in-flight list is scoped the same way - the tag-scoped caller sees A only, the others see A and C`() =
+    fun `S5 the frontier in-flight list is scoped the same way - the tag-scoped caller sees A only, the others see A and C`(): Unit =
         world { w ->
             val s = scopedRun(w)
 

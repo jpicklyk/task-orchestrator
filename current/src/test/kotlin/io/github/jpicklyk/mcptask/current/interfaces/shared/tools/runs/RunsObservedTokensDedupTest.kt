@@ -147,7 +147,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S1 a duplicate request id inside one batch
 
     @Test
-    fun `S1 a duplicate request id in one batch is counted once in observed tokens`() =
+    fun `S1 a duplicate request id in one batch is counted once in observed tokens`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -165,7 +165,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S2 a duplicate in a later batch
 
     @Test
-    fun `S2 a request id already stored by an earlier flush adds nothing when it is replayed in a later flush`() =
+    fun `S2 a request id already stored by an earlier flush adds nothing when it is replayed in a later flush`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -185,7 +185,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S3 a refused row
 
     @Test
-    fun `S3 a row the database refuses adds nothing to observed tokens and the good row of the batch does`() =
+    fun `S3 a row the database refuses adds nothing to observed tokens and the good row of the batch does`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -203,7 +203,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S4 one UPDATE per run with a stored estimate
 
     @Test
-    fun `S4 a duplicate-only run gets no UPDATE in the batch while a run with a fresh row gets exactly one`() =
+    fun `S4 a duplicate-only run gets no UPDATE in the batch while a run with a fresh row gets exactly one`(): Unit =
         world { w ->
             val r2 = w.open(members = listOf(w.m1))
             val r3 = w.open(members = listOf(w.m2))
@@ -227,7 +227,7 @@ class RunsObservedTokensDedupTest {
         }
 
     @Test
-    fun `S4 probe resubmitting an identical flushed batch changes nothing and updates no run`() =
+    fun `S4 probe resubmitting an identical flushed batch changes nothing and updates no run`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val b = w.open(members = listOf(w.m2))
@@ -252,7 +252,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S5 the counter equals the stored estimates
 
     @Test
-    fun `S5 after a mixed batch every run's observed tokens equal the sum of its stored estimates`() =
+    fun `S5 after a mixed batch every run's observed tokens equal the sum of its stored estimates`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val b = w.open(members = listOf(w.m2))
@@ -281,7 +281,7 @@ class RunsObservedTokensDedupTest {
         }
 
     @Test
-    fun `S5 probe a replay whose first copy carried no run or no estimate adds nothing to the run of the second copy`() =
+    fun `S5 probe a replay whose first copy carried no run or no estimate adds nothing to the run of the second copy`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -298,7 +298,7 @@ class RunsObservedTokensDedupTest {
         }
 
     @Test
-    fun `S5 probe a refused copy does not consume its request id, so a valid copy later in the batch is stored and counted`() =
+    fun `S5 probe a refused copy does not consume its request id, so a valid copy later in the batch is stored and counted`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -315,7 +315,7 @@ class RunsObservedTokensDedupTest {
     // ------------------------------------------------------------------ S6 the enforced figure
 
     @Test
-    fun `S6 a replayed request id does not push the run over its token budget, a distinct row that does is still enforced`() =
+    fun `S6 a replayed request id does not push the run over its token budget, a distinct row that does is still enforced`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1), extra = ""","budget":{"tokens":50}""")
             val seat = seatUp(w, run, w.m1)

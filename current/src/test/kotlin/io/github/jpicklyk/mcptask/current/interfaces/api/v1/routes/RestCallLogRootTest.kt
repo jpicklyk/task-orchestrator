@@ -150,7 +150,7 @@ class RestCallLogRootTest {
     private fun fieldsOf(row: Map<String, Any?>): List<String>? = shapeOf(row)?.get("fields")?.jsonArray?.map { it.jsonPrimitive.content }
 
     @Test
-    fun `S11 a REST write under one root records that root and no multiRoot`() =
+    fun `S11 a REST write under one root records that root and no multiRoot`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -167,7 +167,7 @@ class RestCallLogRootTest {
         }
 
     @Test
-    fun `S11 a REST batch over two roots records no root and multiRoot true`() =
+    fun `S11 a REST batch over two roots records no root and multiRoot true`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -183,7 +183,7 @@ class RestCallLogRootTest {
         }
 
     @Test
-    fun `S11 a REST batch over two items of one root records that root and no multiRoot`() =
+    fun `S11 a REST batch over two items of one root records that root and no multiRoot`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -199,7 +199,7 @@ class RestCallLogRootTest {
         }
 
     @Test
-    fun `AC7 a REST item read records the root of the item it read`() =
+    fun `AC7 a REST item read records the root of the item it read`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -216,7 +216,7 @@ class RestCallLogRootTest {
         }
 
     @Test
-    fun `AC7 a REST ops items_read get records the root and the sorted distinct accepted fields`() =
+    fun `AC7 a REST ops items_read get records the root and the sorted distinct accepted fields`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)
@@ -240,7 +240,7 @@ class RestCallLogRootTest {
         }
 
     @Test
-    fun `AC7 a REST ops items_read with an unknown fields name is refused and records no fields key`() =
+    fun `AC7 a REST ops items_read with an unknown fields name is refused and records no fields key`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = newWriter(rig.composition)

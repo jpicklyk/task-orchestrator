@@ -116,7 +116,7 @@ class ItemsReadBlockedTest {
     }
 
     @Test
-    fun `S15 lists role-blocked and unsatisfied-dependency items in role then id order and never terminal or satisfied ones`() =
+    fun `S15 lists role-blocked and unsatisfied-dependency items in role then id order and never terminal or satisfied ones`(): Unit =
         irApp(db.db, dir) { rig ->
             val s = seedShape(rig)
 
@@ -139,7 +139,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 an entry lists every blocker with its role, threshold and satisfied flag`() =
+    fun `S15 an entry lists every blocker with its role, threshold and satisfied flag`(): Unit =
         irApp(db.db, dir) { rig ->
             val s = seedShape(rig)
 
@@ -179,7 +179,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 a blocker exactly at its threshold satisfies the edge and one role short does not`() =
+    fun `S15 a blocker exactly at its threshold satisfies the edge and one role short does not`(): Unit =
         irApp(db.db, dir) { rig ->
             // (blocker role, unblockAt, listed)
             val cases =
@@ -212,7 +212,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 a database with no blocked item answers an empty page`() =
+    fun `S15 a database with no blocked item answers an empty page`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("done", role = Role.TERMINAL)
             rig.vwMake("free")
@@ -226,7 +226,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 parentId keeps the direct children and ancestorId the subtree, by UUID or hex prefix`() =
+    fun `S15 parentId keeps the direct children and ancestorId the subtree, by UUID or hex prefix`(): Unit =
         irApp(db.db, dir) { rig ->
             val blocker = rig.fixed("Blocker", 0x900)
             val parent = rig.fixed("P", 0x10, Role.WORK)
@@ -254,7 +254,7 @@ class ItemsReadBlockedTest {
     // ------------------------------------------------------------------ paging and validation
 
     @Test
-    fun `S15 the default page is 50 with an exact total, limit 200 returns all and pages are disjoint`() =
+    fun `S15 the default page is 50 with an exact total, limit 200 returns all and pages are disjoint`(): Unit =
         irApp(db.db, dir) { rig ->
             val blocker = rig.fixed("Blocker", 0x9000)
             repeat(55) { rig.vwBlocks(blocker, rig.fixed("w-$it", 0x100 + it)) }
@@ -282,7 +282,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 limit outside 1 to 200, a garbage cursor and unknown members are rejected on their own pointer`() =
+    fun `S15 limit outside 1 to 200, a garbage cursor and unknown members are rejected on their own pointer`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.vwMake("x")
 
@@ -307,7 +307,7 @@ class ItemsReadBlockedTest {
         }
 
     @Test
-    fun `S15 fields summary and ancestors add their members and an unknown name is rejected`() =
+    fun `S15 fields summary and ancestors add their members and an unknown name is rejected`(): Unit =
         irApp(db.db, dir) { rig ->
             val blocker = rig.fixed("Blocker", 0x900)
             val parent = rig.fixed("P", 0x10, Role.WORK)
@@ -339,7 +339,7 @@ class ItemsReadBlockedTest {
     // ------------------------------------------------------------------ S16 scope
 
     @Test
-    fun `S16 a tag scope lists and counts only visible blocked items and omits hidden blockers while the item stays blocked`() =
+    fun `S16 a tag scope lists and counts only visible blocked items and omits hidden blockers while the item stays blocked`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val hiddenQ = rig.fixed("Hidden-blocker-queue", 0x900)
             val hiddenDone = rig.fixed("Hidden-blocker-done", 0x901, Role.TERMINAL)
@@ -414,7 +414,7 @@ class ItemsReadBlockedTest {
     }
 
     @Test
-    fun `S16 a parent filter naming a hidden item is not an error and lists only the visible children`() =
+    fun `S16 a parent filter naming a hidden item is not an error and lists only the visible children`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val blocker = rig.fixed("Blocker", 0x900, tags = "api")
             val hiddenParent = rig.fixed("Hidden-parent", 0x10, Role.WORK)

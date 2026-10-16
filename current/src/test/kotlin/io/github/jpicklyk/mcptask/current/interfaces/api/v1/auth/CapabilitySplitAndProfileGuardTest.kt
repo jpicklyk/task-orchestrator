@@ -441,7 +441,7 @@ class CapabilitySplitAndProfileGuardTest {
         )
 
     @Test
-    fun `S11 a director-profile credential may call the director path and is forbidden director on every other ops path`() =
+    fun `S11 a director-profile credential may call the director path and is forbidden director on every other ops path`(): Unit =
         withApp(profileAuth()) { rig ->
             val root = rig.seed("director root")
 
@@ -461,7 +461,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S11 a director-profile credential is forbidden director on the item resource route`() =
+    fun `S11 a director-profile credential is forbidden director on the item resource route`(): Unit =
         withApp(profileAuth()) { rig ->
             val root = rig.seed("director root")
 
@@ -474,7 +474,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S11 probe admin with the director profile is still forbidden and nothing is written`() =
+    fun `S11 probe admin with the director profile is still forbidden and nothing is written`(): Unit =
         withApp(profileAuth()) { rig ->
             val before =
                 rig.raw
@@ -517,7 +517,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S11 probe encoded and dot-segment spellings never turn the director path into another path`() =
+    fun `S11 probe encoded and dot-segment spellings never turn the director path into another path`(): Unit =
         withApp(profileAuth()) { rig ->
             val root = rig.seed("director root")
             val body = """{"select":"get","itemId":"${root.id}"}"""
@@ -542,7 +542,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S11 an unauthenticated call to the director path is 401 and a plain read credential is served`() =
+    fun `S11 an unauthenticated call to the director path is 401 and a plain read credential is served`(): Unit =
         withApp(profileAuth()) { _ ->
             assertEquals(401, client.send("/api/v1/ops/director/items_read", """{"select":"overview"}""", token = null).status.value)
             assertEquals(200, client.send("/api/v1/ops/director/items_read", """{"select":"overview"}""", "raw-pg-plain").status.value)
@@ -637,7 +637,7 @@ class CapabilitySplitAndProfileGuardTest {
     }
 
     @Test
-    fun `S12 a verified JWT stores the note as api colon sub, external, verified, whatever to_kind it carries`() =
+    fun `S12 a verified JWT stores the note as api colon sub, external, verified, whatever to_kind it carries`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val verifier = JwksApiVerifier(jwksConfig(), provider(stale = false))
@@ -651,7 +651,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S12 a JWT checked against a stale key set is still stored as verified`() =
+    fun `S12 a JWT checked against a stale key set is still stored as verified`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val verifier = JwksApiVerifier(jwksConfig(), provider(stale = true))
@@ -665,7 +665,7 @@ class CapabilitySplitAndProfileGuardTest {
         }
 
     @Test
-    fun `S12 the unauthenticated mode stores the note as local, external, unchecked`() =
+    fun `S12 the unauthenticated mode stores the note as local, external, unchecked`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             application { ownApp(rig, ApiAuthConfig.Unauthenticated) }
@@ -679,7 +679,7 @@ class CapabilitySplitAndProfileGuardTest {
     // ------------------------------------------------------------------ S6 route level
 
     @Test
-    fun `S6 a JWT with an unknown to_kind is 401 invalid_token at the REST plugin and a valid one is served`() =
+    fun `S6 a JWT with an unknown to_kind is 401 invalid_token at the REST plugin and a valid one is served`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val verifier = JwksApiVerifier(jwksConfig(), provider(stale = false))

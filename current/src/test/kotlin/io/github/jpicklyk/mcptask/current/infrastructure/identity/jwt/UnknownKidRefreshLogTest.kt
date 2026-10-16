@@ -152,7 +152,7 @@ class UnknownKidRefreshLogTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S9 a failed forced refresh logs one warning that does not carry the kid`() =
+    fun `S9 a failed forced refresh logs one warning that does not carry the kid`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -178,7 +178,7 @@ class UnknownKidRefreshLogTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `probe repeated forced refreshes inside the rate limit add no warnings`() =
+    fun `probe repeated forced refreshes inside the rate limit add no warnings`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -197,7 +197,7 @@ class UnknownKidRefreshLogTest {
         }
 
     @Test
-    fun `probe a second failed forced refresh after the rate limit warns again without the kid`() =
+    fun `probe a second failed forced refresh after the rate limit warns again without the kid`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)
@@ -218,7 +218,7 @@ class UnknownKidRefreshLogTest {
         }
 
     @Test
-    fun `probe a successful forced refresh logs no warning`() =
+    fun `probe a successful forced refresh logs no warning`(): Unit =
         runTest {
             val up = Upstream(jwksBody())
             val clock = TestClock(T0)

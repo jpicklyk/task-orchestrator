@@ -70,7 +70,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `health endpoint returns 200 without any auth header`() =
+    fun `health endpoint returns 200 without any auth header`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -97,7 +97,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `health endpoint returns 200 even with auth header present`() =
+    fun `health endpoint returns 200 even with auth header present`(): Unit =
         testApplication {
             val token = "my-secret-token"
             val apiConfig = makeBearerConfig(token)
@@ -128,7 +128,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `well-known endpoint returns 200 without auth`() =
+    fun `well-known endpoint returns 200 without auth`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -159,7 +159,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `info endpoint returns 401 without auth header`() =
+    fun `info endpoint returns 401 without auth header`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -182,7 +182,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info endpoint returns 200 with valid bearer token`() =
+    fun `info endpoint returns 200 with valid bearer token`(): Unit =
         testApplication {
             val plainToken = "valid-bearer-token-abc123"
             val apiConfig = makeBearerConfig(plainToken)
@@ -217,7 +217,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info endpoint returns 401 with invalid bearer token`() =
+    fun `info endpoint returns 401 with invalid bearer token`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("correct-token")
             application {
@@ -243,7 +243,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info response includes caller capabilities`() =
+    fun `info response includes caller capabilities`(): Unit =
         testApplication {
             val plainToken = "admin-token"
             val principal =
@@ -288,7 +288,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `REST routes not mounted when API is disabled`() =
+    fun `REST routes not mounted when API is disabled`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) { json(McpJson) }
@@ -307,7 +307,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `info response payload has expected structure`() =
+    fun `info response payload has expected structure`(): Unit =
         testApplication {
             val plainToken = "structure-test-token"
             val apiConfig = makeBearerConfig(plainToken, tokenId = "structure-principal")
@@ -350,7 +350,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `well-known response has all required fields`() =
+    fun `well-known response has all required fields`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("any-token")
             application {

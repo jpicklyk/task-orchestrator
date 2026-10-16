@@ -203,7 +203,7 @@ class ItemsReadHistoryTest {
     // ------------------------------------------------------------------ S5 / S11
 
     @Test
-    fun `S5 history of an item lists its transitions newest first and every field equals what the advances were given`() =
+    fun `S5 history of an item lists its transitions newest first and every field equals what the advances were given`(): Unit =
         irApp(db.db, dir, yaml = P11_LABELS_YAML) { rig ->
             val item = rig.make("Subject")
             rig.applied(item, "start", summary = "Begin q28b", actor = subagent, verification = verified, refs = listOf("c1", "c2"))
@@ -266,7 +266,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S11 one applied advance records exactly one history row`() =
+    fun `S11 one applied advance records exactly one history row`(): Unit =
         irApp(db.db, dir, yaml = P11_LABELS_YAML) { rig ->
             val item = rig.make("Once")
             val before = rig.rows().size
@@ -281,7 +281,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S5 an item with no transitions is an ok empty page`() =
+    fun `S5 an item with no transitions is an ok empty page`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Quiet")
 
@@ -294,7 +294,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S5 limit and cursor walk an item's history newest first without gaps or repeats`() =
+    fun `S5 limit and cursor walk an item's history newest first without gaps or repeats`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Walked")
             val rows = (0 until 5).map { rig.addRow(item, t0.plusSeconds(it.toLong())) }
@@ -319,7 +319,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S5 the default page is 50, limit 200 is the maximum and a 250-row history pages through exactly once`() =
+    fun `S5 the default page is 50, limit 200 is the maximum and a 250-row history pages through exactly once`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Long")
             val records =
@@ -360,7 +360,7 @@ class ItemsReadHistoryTest {
     // ------------------------------------------------------------------ S6
 
     @Test
-    fun `S6 global history has no default time window, orders newest first and counts every visible row`() =
+    fun `S6 global history has no default time window, orders newest first and counts every visible row`(): Unit =
         irApp(db.db, dir) { rig ->
             val a = rig.make("A")
             val b = rig.make("B")
@@ -375,7 +375,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 since and until are inclusive bounds and since equal to until matches the rows at that instant`() =
+    fun `S6 since and until are inclusive bounds and since equal to until matches the rows at that instant`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Windowed")
             val rows = (0 until 4).map { rig.addRow(item, t0.plusSeconds(it.toLong())) }
@@ -395,7 +395,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 an inverted range is invalid_request on since, a bad timestamp is invalid_request on its own member`() =
+    fun `S6 an inverted range is invalid_request on since, a bad timestamp is invalid_request on its own member`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.addRow(rig.make("Any"), t0)
 
@@ -414,7 +414,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 limit outside 1 to 200 is invalid_request on limit, a malformed cursor is invalid_cursor and unknown members are refused`() =
+    fun `S6 limit outside 1 to 200 is invalid_request on limit, a malformed cursor is invalid_cursor and unknown members are refused`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.addRow(rig.make("Any"), t0)
 
@@ -439,7 +439,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 a malformed or blank itemId is invalid_request on itemId`() =
+    fun `S6 a malformed or blank itemId is invalid_request on itemId`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.addRow(rig.make("Any"), t0)
 
@@ -452,7 +452,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 same-instant rows keep newest-seq-first order`() =
+    fun `S6 same-instant rows keep newest-seq-first order`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Tied")
             val first = rig.addRow(item, t0)
@@ -465,7 +465,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 a well-formed id that names nothing is not_found for an unrestricted caller and an 8-hex prefix resolves or is ambiguous`() =
+    fun `S6 a well-formed id that names nothing is not_found for an unrestricted caller and an 8-hex prefix resolves or is ambiguous`(): Unit =
         irApp(db.db, dir) { rig ->
             val a = rig.make("A", id = uuid("abcd1234-0000-4000-8000-000000000001"))
             rig.make("B", id = uuid("abcd1234-1111-4111-8111-111111111111"))
@@ -488,7 +488,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
-    fun `S6 a non-ASCII summary is rendered intact`() =
+    fun `S6 a non-ASCII summary is rendered intact`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Unicode")
             val summary = "résumé ☃ 日本語"
@@ -537,7 +537,7 @@ class ItemsReadHistoryTest {
     }
 
     @Test
-    fun `S7 a tag-scoped token never sees an untagged or deleted item's rows and an unrestricted caller still does`() =
+    fun `S7 a tag-scoped token never sees an untagged or deleted item's rows and an unrestricted caller still does`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val tagged = rig.make("Tagged", tags = "api")
             val untagged = rig.make("Untagged")
@@ -572,7 +572,7 @@ class ItemsReadHistoryTest {
     // ------------------------------------------------------------------ S8
 
     @Test
-    fun `S8 attribution is shown to an admin and withheld from a non-admin, and the proof hash and claims are shown to nobody`() =
+    fun `S8 attribution is shown to an admin and withheld from a non-admin, and the proof hash and claims are shown to nobody`(): Unit =
         irApp(db.db, dir, yaml = P11_LABELS_YAML) { rig ->
             val item = rig.make("Attributed")
             rig.applied(item, "start", actor = subagent, verification = verified)
@@ -598,7 +598,7 @@ class ItemsReadHistoryTest {
     // ------------------------------------------------------------------ S9
 
     @Test
-    fun `S9 a backfilled row below the seq floor renders with backfilled true, no origin and its null members omitted`() =
+    fun `S9 a backfilled row below the seq floor renders with backfilled true, no origin and its null members omitted`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Backfilled")
             val rowId = UUID.randomUUID()
@@ -676,7 +676,7 @@ class ItemsReadHistoryTest {
     // ------------------------------------------------------------------ S10
 
     @Test
-    fun `S10 the two 3x REST transition routes answer 404 for an admin and for a reader`() =
+    fun `S10 the two 3x REST transition routes answer 404 for an admin and for a reader`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Routed")
             rig.addRow(item, t0)
@@ -715,7 +715,7 @@ class ItemsReadHistoryTest {
     }
 
     @Test
-    fun `S10 an MCP history call and POST ops items_read return the same body apart from the request id`() =
+    fun `S10 an MCP history call and POST ops items_read return the same body apart from the request id`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Parity")
             rig.addRow(item, t0, data = transitionData(summary = "first"), principalId = "actor-p", principalKind = "subagent")
@@ -747,7 +747,7 @@ class ItemsReadHistoryTest {
     }
 
     @Test
-    fun `S10 the knowledge profile does not offer history`() =
+    fun `S10 the knowledge profile does not offer history`(): Unit =
         irApp(db.db, dir) { rig ->
             val item = rig.make("Knowledge probe")
             val spec = checkNotNull(registry[ItemsReadTool.NAME])

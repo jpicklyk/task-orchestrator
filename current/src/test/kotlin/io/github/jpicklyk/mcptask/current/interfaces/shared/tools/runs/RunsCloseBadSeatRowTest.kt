@@ -97,7 +97,7 @@ class RunsCloseBadSeatRowTest {
     ): Reply = w.select("get", ""","runId":"${run.runId}"""").also { assertTrue(it.ok(), it.toString()) }
 
     @Test
-    fun `S7 a close succeeds when an ended member seat has no item, records run ended without a rollup and keeps the row`() =
+    fun `S7 a close succeeds when an ended member seat has no item, records run ended without a rollup and keeps the row`(): Unit =
         world { w ->
             val bad = w.open(members = listOf(w.m1))
             val healthy = w.open(members = listOf(w.m2))

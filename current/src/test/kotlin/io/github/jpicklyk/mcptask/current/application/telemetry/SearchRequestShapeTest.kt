@@ -309,7 +309,7 @@ class SearchRequestShapeTest {
     // -- REST ---------------------------------------------------------------------------------------------------------------
 
     @Test
-    fun `S13 a REST item and note search record the shape and never the query text`() =
+    fun `S13 a REST item and note search record the shape and never the query text`(): Unit =
         testApplication {
             val rig = newRig()
             application { restApp(rig) }
@@ -333,7 +333,7 @@ class SearchRequestShapeTest {
     // -- both surfaces -------------------------------------------------------------------------------------------------------
 
     @Test
-    fun `S13 the same query hashes the same on MCP and REST`() =
+    fun `S13 the same query hashes the same on MCP and REST`(): Unit =
         testApplication {
             val rig = newRig()
             application { restApp(rig) }

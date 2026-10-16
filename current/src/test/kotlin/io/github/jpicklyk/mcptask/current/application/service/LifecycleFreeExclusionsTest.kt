@@ -125,7 +125,7 @@ class LifecycleFreeExclusionsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S11 scoped overview childCounts skips a lifecycle-free child and still lists it`() =
+    fun `S11 scoped overview childCounts skips a lifecycle-free child and still lists it`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             rig.svc("Queued child", parent)
@@ -143,7 +143,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S11 a parent whose only children are lifecycle-free reports no child counts`() =
+    fun `S11 a parent whose only children are lifecycle-free reports no child counts`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             rig.svc("Page one", parent, "page")
@@ -157,7 +157,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S11 global overview entry counts skip a lifecycle-free child`() =
+    fun `S11 global overview entry counts skip a lifecycle-free child`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val root = rig.svc("Open root")
             rig.svc("Queued child", root)
@@ -169,7 +169,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S11 anchored roll-ups skip lifecycle-free rows at every depth, equal to the same tree without them`() =
+    fun `S11 anchored roll-ups skip lifecycle-free rows at every depth, equal to the same tree without them`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val anchor = rig.svc("Anchor")
             val plain = rig.svc("Plain", anchor)
@@ -201,7 +201,7 @@ class LifecycleFreeExclusionsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S12 an auto parent terminates when its only role-bearing child completes, whatever lifecycle-free sibling it has`() =
+    fun `S12 an auto parent terminates when its only role-bearing child completes, whatever lifecycle-free sibling it has`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val worker = rig.svc("Worker", parent)
@@ -217,7 +217,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S12 control - an open role-bearing sibling still holds the parent open`() =
+    fun `S12 control - an open role-bearing sibling still holds the parent open`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val worker = rig.svc("Worker", parent)
@@ -233,7 +233,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S12 starting the first role-bearing child starts a queue parent that also has a lifecycle-free child`() =
+    fun `S12 starting the first role-bearing child starts a queue parent that also has a lifecycle-free child`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val worker = rig.svc("Worker", parent)
@@ -251,7 +251,7 @@ class LifecycleFreeExclusionsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S13 next never returns a lifecycle-free item even when it outranks every other item`() =
+    fun `S13 next never returns a lifecycle-free item even when it outranks every other item`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             rig.svc("Low queue", parent, priority = Priority.LOW)
@@ -267,7 +267,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S13 blocked never lists a lifecycle-free item, although an equal queue item with the same edge is listed`() =
+    fun `S13 blocked never lists a lifecycle-free item, although an equal queue item with the same edge is listed`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val gate = rig.svc("Open gate", parent)
@@ -285,7 +285,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S13 claim by selector skips a lifecycle-free item and claims the queue item`() =
+    fun `S13 claim by selector skips a lifecycle-free item and claims the queue item`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val page = rig.svc("High page", parent, "page", Priority.HIGH)
@@ -304,7 +304,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S13 claim by selector over a parent with only lifecycle-free children claims nothing`() =
+    fun `S13 claim by selector over a parent with only lifecycle-free children claims nothing`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val parent = rig.svc("Parent")
             val page = rig.svc("Only page", parent, "page")
@@ -323,7 +323,7 @@ class LifecycleFreeExclusionsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S14 global excludeTerminal keeps a lifecycle-free root listed and still drops a terminal root`() =
+    fun `S14 global excludeTerminal keeps a lifecycle-free root listed and still drops a terminal root`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             rig.svc("Page root", null, "page")
             rig.svc("Open root")
@@ -339,7 +339,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S14 scoped excludeTerminal keeps lifecycle-free children and hides a terminal child that only has a page below`() =
+    fun `S14 scoped excludeTerminal keeps lifecycle-free children and hides a terminal child that only has a page below`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val box = rig.svc("Box")
             rig.svc("Page child", box, "page")
@@ -368,7 +368,7 @@ class LifecycleFreeExclusionsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S15 complete_tree over a root with a lifecycle-free descendant gives it no outcome and completes the rest`() =
+    fun `S15 complete_tree over a root with a lifecycle-free descendant gives it no outcome and completes the rest`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val root = rig.svc("Root")
             val a = rig.svc("A", root)
@@ -395,7 +395,7 @@ class LifecycleFreeExclusionsTest {
         }
 
     @Test
-    fun `S15 an explicitly targeted lifecycle-free item still fails with invalid_transition`() =
+    fun `S15 an explicitly targeted lifecycle-free item still fails with invalid_transition`(): Unit =
         irApp(db.db, dir, yaml = EXCLUSIONS_YAML) { rig ->
             val page = rig.svc("Page", null, "page")
             val plain = rig.svc("Plain")

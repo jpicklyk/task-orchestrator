@@ -98,7 +98,7 @@ class JwksApiVerifierLifetimeCapTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 exp at exactly maxTokenLifetimeSeconds from now with a fresh iat verifies`() =
+    fun `S1 exp at exactly maxTokenLifetimeSeconds from now with a fresh iat verifies`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(m), issuedAt = NOW))
@@ -109,7 +109,7 @@ class JwksApiVerifierLifetimeCapTest {
         }
 
     @Test
-    fun `S2 exp at maxTokenLifetimeSeconds plus 60s skew still verifies (inclusive boundary)`() =
+    fun `S2 exp at maxTokenLifetimeSeconds plus 60s skew still verifies (inclusive boundary)`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(m + 60), issuedAt = NOW))
@@ -124,7 +124,7 @@ class JwksApiVerifierLifetimeCapTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S6 exp one second past the skew boundary is rejected`() =
+    fun `S6 exp one second past the skew boundary is rejected`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(m + 61), issuedAt = NOW))
@@ -139,7 +139,7 @@ class JwksApiVerifierLifetimeCapTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S7 exp-minus-iat span exceeding the cap is rejected even when the remaining window is small`() =
+    fun `S7 exp-minus-iat span exceeding the cap is rejected even when the remaining window is small`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(120), issuedAt = NOW.minusSeconds(m)))
@@ -154,7 +154,7 @@ class JwksApiVerifierLifetimeCapTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8a iat 61 seconds in the future is rejected`() =
+    fun `S8a iat 61 seconds in the future is rejected`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(300), issuedAt = NOW.plusSeconds(61)))
@@ -165,7 +165,7 @@ class JwksApiVerifierLifetimeCapTest {
         }
 
     @Test
-    fun `S8b iat exactly 60 seconds in the future (skew boundary) verifies`() =
+    fun `S8b iat exactly 60 seconds in the future (skew boundary) verifies`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(300), issuedAt = NOW.plusSeconds(60)))
@@ -180,7 +180,7 @@ class JwksApiVerifierLifetimeCapTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verifyWithExpiry rejects a token exceeding the lifetime cap the same way verify does`() =
+    fun `verifyWithExpiry rejects a token exceeding the lifetime cap the same way verify does`(): Unit =
         runTest {
             val m = 600L
             val proof = sign(claims(expiry = NOW.plusSeconds(m + 61), issuedAt = NOW))
@@ -191,7 +191,7 @@ class JwksApiVerifierLifetimeCapTest {
         }
 
     @Test
-    fun `Probe a year-9999 exp is rejected even under the default 86400s cap`() =
+    fun `Probe a year-9999 exp is rejected even under the default 86400s cap`(): Unit =
         runTest {
             val defaultVerifier =
                 JwksApiVerifier(

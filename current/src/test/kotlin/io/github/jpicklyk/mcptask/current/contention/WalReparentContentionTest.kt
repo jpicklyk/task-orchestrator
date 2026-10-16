@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class WalReparentContentionTest {
     @Test
-    fun `R1 a reparent races a create under and a start of a descendant - the subtree is never seen half-restamped`() =
+    fun `R1 a reparent races a create under and a start of a descendant - the subtree is never seen half-restamped`(): Unit =
         runScenario(REPEATS) { WalReparentScenarios.r1ReparentVersusAdvanceAndCreate(it) }
 
     @Test

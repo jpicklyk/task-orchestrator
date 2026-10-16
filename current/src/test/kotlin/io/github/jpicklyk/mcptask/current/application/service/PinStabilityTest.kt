@@ -718,134 +718,144 @@ class PinStabilityTest {
     @Test
     fun `S10 get, scoped overview and schema carry schemaVersion and stale, compact views never do`(
         @TempDir dir: Path
-    ) = irApp(db.db, dir, yaml = SERVER_YAML) { rig ->
-        val server = assertNotNull(rig.serverHead())
-        val root = rig.createItem("R")
-        rig.push(root, ROOT_V1)
-        val head1 = assertNotNull(rig.rootHead(root))
-        val x = rig.createItem("X", root, "root-only")
-        val fp1 = rig.raw.configStore().computeFingerprint(ROOT_V1)
+    ): Unit =
+        irApp(db.db, dir, yaml = SERVER_YAML) { rig ->
+            val server = assertNotNull(rig.serverHead())
+            val root = rig.createItem("R")
+            rig.push(root, ROOT_V1)
+            val head1 = assertNotNull(rig.rootHead(root))
+            val x = rig.createItem("X", root, "root-only")
+            val fp1 = rig.raw.configStore().computeFingerprint(ROOT_V1)
 
-        val fresh = select("""{"select":"get","itemId":"${x.id}"}""")
-        assertEquals(200, fresh.status, fresh.raw)
-        val sv = assertNotNull(fresh.data.field("schemaVersion"), "a pinned item renders its pin: ${fresh.raw}")
-        assertEquals(server.version, sv.versionOf("server"))
-        assertEquals(head1.version, sv.versionOf("root"))
-        assertEquals("root-only", sv.getValue("key").jsonPrimitive.content)
-        assertEquals("root", sv.getValue("layer").jsonPrimitive.content)
-        assertFalse("stale" in fresh.data, "the pin names the heads, so the item is not stale: ${fresh.raw}")
+            val fresh = select("""{"select":"get","itemId":"${x.id}"}""")
+            assertEquals(200, fresh.status, fresh.raw)
+            val sv = assertNotNull(fresh.data.field("schemaVersion"), "a pinned item renders its pin: ${fresh.raw}")
+            assertEquals(server.version, sv.versionOf("server"))
+            assertEquals(head1.version, sv.versionOf("root"))
+            assertEquals("root-only", sv.getValue("key").jsonPrimitive.content)
+            assertEquals("root", sv.getValue("layer").jsonPrimitive.content)
+            assertFalse("stale" in fresh.data, "the pin names the heads, so the item is not stale: ${fresh.raw}")
 
-        val schemaFresh = select("""{"select":"schema","itemId":"${x.id}"}""")
-        assertEquals(listOf("rspec"), schemaFresh.data.noteKeys(), schemaFresh.raw)
-        assertEquals(
-            fp1,
-            schemaFresh.data
-                .getValue("configFingerprint")
-                .jsonPrimitive.content
-        )
-        assertEquals(head1.version, schemaFresh.data.field("schemaVersion")!!.versionOf("root"))
-        assertFalse("stale" in schemaFresh.data, schemaFresh.raw)
+            val schemaFresh = select("""{"select":"schema","itemId":"${x.id}"}""")
+            assertEquals(listOf("rspec"), schemaFresh.data.noteKeys(), schemaFresh.raw)
+            assertEquals(
+                fp1,
+                schemaFresh.data
+                    .getValue("configFingerprint")
+                    .jsonPrimitive.content
+            )
+            assertEquals(head1.version, schemaFresh.data.field("schemaVersion")!!.versionOf("root"))
+            assertFalse("stale" in schemaFresh.data, schemaFresh.raw)
 
-        // Push revision two: the pinned item is now stale but keeps resolving revision one.
-        rig.push(root, ROOT_V2)
-        val fp2 = rig.raw.configStore().computeFingerprint(ROOT_V2)
-        val y = rig.createItem("Y", root, "root-only")
-        val stale = select("""{"select":"get","itemId":"${x.id}"}""")
-        assertEquals(
-            true,
-            stale.data["stale"]
-                ?.jsonPrimitive
-                ?.content
-                ?.toBoolean(),
-            stale.raw
-        )
-        assertEquals(head1.version, stale.data.field("schemaVersion")!!.versionOf("root"), "the pin still names revision one")
-        val schemaStale = select("""{"select":"schema","itemId":"${x.id}"}""")
-        assertEquals(listOf("rspec"), schemaStale.data.noteKeys(), "the pinned schema is still revision one's")
-        assertEquals(
-            fp1,
-            schemaStale.data
-                .getValue("configFingerprint")
-                .jsonPrimitive.content,
-            "the fingerprint is the pinned layer's"
-        )
-        assertEquals("true", schemaStale.data["stale"]?.jsonPrimitive?.content)
+            // Push revision two: the pinned item is now stale but keeps resolving revision one.
+            rig.push(root, ROOT_V2)
+            val fp2 = rig.raw.configStore().computeFingerprint(ROOT_V2)
+            val y = rig.createItem("Y", root, "root-only")
+            val stale = select("""{"select":"get","itemId":"${x.id}"}""")
+            assertEquals(
+                true,
+                stale.data["stale"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toBoolean(),
+                stale.raw
+            )
+            assertEquals(head1.version, stale.data.field("schemaVersion")!!.versionOf("root"), "the pin still names revision one")
+            val schemaStale = select("""{"select":"schema","itemId":"${x.id}"}""")
+            assertEquals(listOf("rspec"), schemaStale.data.noteKeys(), "the pinned schema is still revision one's")
+            assertEquals(
+                fp1,
+                schemaStale.data
+                    .getValue("configFingerprint")
+                    .jsonPrimitive.content,
+                "the fingerprint is the pinned layer's"
+            )
+            assertEquals("true", schemaStale.data["stale"]?.jsonPrimitive?.content)
 
-        val control = select("""{"select":"get","itemId":"${y.id}"}""")
-        assertFalse("stale" in control.data, "control: an item pinned after the push is not stale: ${control.raw}")
-        val schemaY = select("""{"select":"schema","itemId":"${y.id}"}""")
-        assertEquals(listOf("rspec", "extra"), schemaY.data.noteKeys())
-        assertEquals(
-            fp2,
-            schemaY.data
-                .getValue("configFingerprint")
-                .jsonPrimitive.content
-        )
+            val control = select("""{"select":"get","itemId":"${y.id}"}""")
+            assertFalse("stale" in control.data, "control: an item pinned after the push is not stale: ${control.raw}")
+            val schemaY = select("""{"select":"schema","itemId":"${y.id}"}""")
+            assertEquals(listOf("rspec", "extra"), schemaY.data.noteKeys())
+            assertEquals(
+                fp2,
+                schemaY.data
+                    .getValue("configFingerprint")
+                    .jsonPrimitive.content
+            )
 
-        // The scoped overview renders its subject's pin: the root was pinned before it had a per-root head, so it has no root
-        // member at all (a null is omitted) and is stale against the head that now exists.
-        val overview = select("""{"select":"overview","itemId":"${root.id}"}""")
-        val subject = assertNotNull(overview.data.field("item"), overview.raw)
-        val rootSv = assertNotNull(subject.field("schemaVersion"), "the scoped overview item carries the pin: ${overview.raw}")
-        assertEquals(server.version, rootSv.versionOf("server"))
-        assertFalse("root" in rootSv, "a null root pin is omitted: $rootSv")
-        assertEquals("test-item", rootSv.getValue("key").jsonPrimitive.content)
-        assertEquals("server", rootSv.getValue("layer").jsonPrimitive.content)
-        assertEquals("true", subject["stale"]?.jsonPrimitive?.content, "null (pinned) vs a root head that now exists is stale")
-        // The overview's children are compact views: neither pin member appears.
-        for (entry in overview.items) {
-            assertFalse("schemaVersion" in entry || "stale" in entry, "compact entries never carry a pin: $entry")
+            // The scoped overview renders its subject's pin: the root was pinned before it had a per-root head, so it has no root
+            // member at all (a null is omitted) and is stale against the head that now exists.
+            val overview = select("""{"select":"overview","itemId":"${root.id}"}""")
+            val subject = assertNotNull(overview.data.field("item"), overview.raw)
+            val rootSv = assertNotNull(subject.field("schemaVersion"), "the scoped overview item carries the pin: ${overview.raw}")
+            assertEquals(server.version, rootSv.versionOf("server"))
+            assertFalse("root" in rootSv, "a null root pin is omitted: $rootSv")
+            assertEquals("test-item", rootSv.getValue("key").jsonPrimitive.content)
+            assertEquals("server", rootSv.getValue("layer").jsonPrimitive.content)
+            assertEquals("true", subject["stale"]?.jsonPrimitive?.content, "null (pinned) vs a root head that now exists is stale")
+            // The overview's children are compact views: neither pin member appears.
+            for (entry in overview.items) {
+                assertFalse("schemaVersion" in entry || "stale" in entry, "compact entries never carry a pin: $entry")
+            }
+            assertTrue(overview.items.isNotEmpty(), "vacuity control: the overview has children to check")
+
+            val list = select("""{"select":"list"}""")
+            assertTrue(list.items.size >= 3, "vacuity control: the list returns the three items")
+            for (entry in list.items) {
+                assertFalse("schemaVersion" in entry || "stale" in entry, "list entries never carry a pin: $entry")
+            }
+
+            // An item that was never pinned renders neither member.
+            val raw = rig.raw.workItemRepository().create(WorkItem(title = "raw", type = "test-item"))
+            val rawView = select("""{"select":"get","itemId":"${raw.id}"}""")
+            assertFalse("schemaVersion" in rawView.data || "stale" in rawView.data, "an unpinned row renders no pin: ${rawView.raw}")
+            val rawSchema = select("""{"select":"schema","itemId":"${raw.id}"}""")
+            assertFalse("schemaVersion" in rawSchema.data || "stale" in rawSchema.data, rawSchema.raw)
         }
-        assertTrue(overview.items.isNotEmpty(), "vacuity control: the overview has children to check")
-
-        val list = select("""{"select":"list"}""")
-        assertTrue(list.items.size >= 3, "vacuity control: the list returns the three items")
-        for (entry in list.items) {
-            assertFalse("schemaVersion" in entry || "stale" in entry, "list entries never carry a pin: $entry")
-        }
-
-        // An item that was never pinned renders neither member.
-        val raw = rig.raw.workItemRepository().create(WorkItem(title = "raw", type = "test-item"))
-        val rawView = select("""{"select":"get","itemId":"${raw.id}"}""")
-        assertFalse("schemaVersion" in rawView.data || "stale" in rawView.data, "an unpinned row renders no pin: ${rawView.raw}")
-        val rawSchema = select("""{"select":"schema","itemId":"${raw.id}"}""")
-        assertFalse("schemaVersion" in rawSchema.data || "stale" in rawSchema.data, rawSchema.raw)
-    }
 
     @Test
     fun `S12 after a root config reset the pinned item still resolves its pinned document and is stale, and a new item has no root pin`(
         @TempDir dir: Path
-    ) = irApp(db.db, dir, yaml = SERVER_YAML) { rig ->
-        val d = P11Driver(rig)
-        val server = assertNotNull(rig.serverHead())
-        val root = rig.createItem("R")
-        rig.push(root, ROOT_V1)
-        val head1 = assertNotNull(rig.rootHead(root))
-        val x = rig.createItem("X", root, "root-only")
+    ): Unit =
+        irApp(db.db, dir, yaml = SERVER_YAML) { rig ->
+            val d = P11Driver(rig)
+            val server = assertNotNull(rig.serverHead())
+            val root = rig.createItem("R")
+            rig.push(root, ROOT_V1)
+            val head1 = assertNotNull(rig.rootHead(root))
+            val x = rig.createItem("X", root, "root-only")
 
-        assertEquals(
-            true,
-            checkNotNull(rig.ctx.configService).reset(root.id).getOrNull(),
-            "the reset is accepted"
-        )
+            assertEquals(
+                true,
+                checkNotNull(rig.ctx.configService).reset(root.id).getOrNull(),
+                "the reset is accepted"
+            )
 
-        val view = select("""{"select":"get","itemId":"${x.id}"}""")
-        assertEquals("true", view.data["stale"]?.jsonPrimitive?.content, "a reset head counts as no head, so the pin is stale: ${view.raw}")
-        assertEquals(head1.version, view.data.field("schemaVersion")!!.versionOf("root"), "the pin still names the version it was taken at")
-        val schema = select("""{"select":"schema","itemId":"${x.id}"}""")
-        assertEquals(listOf("rspec"), schema.data.noteKeys(), "the pinned document is still served after the reset: ${schema.raw}")
-        val blocked = d.advance(x, "start")
-        assertEquals("gate_blocked", blocked.errorCode(), "the pinned document's gate still applies after the reset: $blocked")
-        assertEquals(listOf("rspec"), blocked.missingKeys(), "$blocked")
-        d.note(x, "rspec", "queue")
-        assertEquals(true, d.advance(x, "start").flag("ok"), "control: with the note filled the same call starts")
+            val view = select("""{"select":"get","itemId":"${x.id}"}""")
+            assertEquals(
+                "true",
+                view.data["stale"]?.jsonPrimitive?.content,
+                "a reset head counts as no head, so the pin is stale: ${view.raw}"
+            )
+            assertEquals(
+                head1.version,
+                view.data.field("schemaVersion")!!.versionOf("root"),
+                "the pin still names the version it was taken at"
+            )
+            val schema = select("""{"select":"schema","itemId":"${x.id}"}""")
+            assertEquals(listOf("rspec"), schema.data.noteKeys(), "the pinned document is still served after the reset: ${schema.raw}")
+            val blocked = d.advance(x, "start")
+            assertEquals("gate_blocked", blocked.errorCode(), "the pinned document's gate still applies after the reset: $blocked")
+            assertEquals(listOf("rspec"), blocked.missingKeys(), "$blocked")
+            d.note(x, "rspec", "queue")
+            assertEquals(true, d.advance(x, "start").flag("ok"), "control: with the note filled the same call starts")
 
-        val fresh = rig.createItem("Fresh", root, "feature-task")
-        assertPin("S12 after reset", rig.pinOf(fresh), server.versionId, null, "feature-task", PinLayer.SERVER, LifecycleMode.MANUAL)
-        val freshView = select("""{"select":"get","itemId":"${fresh.id}"}""")
-        assertFalse("stale" in freshView.data, "control: null pinned, null head is not stale: ${freshView.raw}")
-        assertFalse("root" in freshView.data.field("schemaVersion")!!, freshView.raw)
-    }
+            val fresh = rig.createItem("Fresh", root, "feature-task")
+            assertPin("S12 after reset", rig.pinOf(fresh), server.versionId, null, "feature-task", PinLayer.SERVER, LifecycleMode.MANUAL)
+            val freshView = select("""{"select":"get","itemId":"${fresh.id}"}""")
+            assertFalse("stale" in freshView.data, "control: null pinned, null head is not stale: ${freshView.raw}")
+            assertFalse("root" in freshView.data.field("schemaVersion")!!, freshView.raw)
+        }
 
     // ---------------------------------------------------------------------------------------------
     // Probes

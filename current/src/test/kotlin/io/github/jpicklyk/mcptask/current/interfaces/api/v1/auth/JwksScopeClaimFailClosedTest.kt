@@ -159,7 +159,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 to_scope with mixed-case tags and two root_ids resolves verbatim`() =
+    fun `S1 to_scope with mixed-case tags and two root_ids resolves verbatim`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val u2 = UUID.randomUUID().toString()
@@ -186,7 +186,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 absent or empty to_scope forms are all unrestricted`() =
+    fun `S3 absent or empty to_scope forms are all unrestricted`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
 
@@ -226,7 +226,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S4 unknown top-level claim does not affect a valid to_scope`() =
+    fun `S4 unknown top-level claim does not affect a valid to_scope`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims =
@@ -248,7 +248,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S5 malformed root_ids values are rejected`() =
+    fun `S5 malformed root_ids values are rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
@@ -277,7 +277,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S6 malformed tags_include values are rejected`() =
+    fun `S6 malformed tags_include values are rejected`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val malformedTagsInclude: List<Pair<String, Any>> =
@@ -302,7 +302,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S7 malformed to_scope shape is rejected`() =
+    fun `S7 malformed to_scope shape is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val u2 = UUID.randomUUID().toString()
@@ -329,7 +329,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8 malformed to_scope logs a WARN naming the claim path, never the JWT`() =
+    fun `S8 malformed to_scope logs a WARN naming the claim path, never the JWT`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val u1 = UUID.randomUUID().toString()
@@ -399,7 +399,7 @@ class JwksScopeClaimFailClosedTest {
     }
 
     @Test
-    fun `S9 malformed to_scope 401s on a real REST route with invalid_token`() =
+    fun `S9 malformed to_scope 401s on a real REST route with invalid_token`(): Unit =
         testApplication {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             application { installJwksScopeTestApp(verifier) }
@@ -425,7 +425,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S16 malformed to_capabilities widens to READ-only with a WARN naming the claim`() =
+    fun `S16 malformed to_capabilities widens to READ-only with a WARN naming the claim`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val malformedCapabilities: List<Pair<String, Any>> =
@@ -453,7 +453,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S17 duplicate root_ids collapse to a single entry (JWKS)`() =
+    fun `S17 duplicate root_ids collapse to a single entry (JWKS)`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(u1, u1))))
@@ -468,7 +468,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S18 uppercase UUID text is accepted as the same root id (JWKS)`() =
+    fun `S18 uppercase UUID text is accepted as the same root id (JWKS)`(): Unit =
         runTest {
             val u1 = UUID.randomUUID()
             val upper = u1.toString().uppercase()
@@ -484,7 +484,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `Probe -- stringified-set root_ids scalar is rejected`() =
+    fun `Probe -- stringified-set root_ids scalar is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to "{$u1}")))
@@ -496,7 +496,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- root_ids element with leading whitespace is rejected`() =
+    fun `Probe -- root_ids element with leading whitespace is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(" $u1"))))
@@ -508,7 +508,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- wrong-case key name ROOT_IDS is an unknown key, not root_ids`() =
+    fun `Probe -- wrong-case key name ROOT_IDS is an unknown key, not root_ids`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("ROOT_IDS" to listOf(u1))))
@@ -520,7 +520,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- nested list root_ids is rejected`() =
+    fun `Probe -- nested list root_ids is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(listOf(u1)))))
@@ -529,7 +529,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- tags_include as a map instead of a list is rejected`() =
+    fun `Probe -- tags_include as a map instead of a list is rejected`(): Unit =
         runTest {
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("tags_include" to mapOf("a" to "b"))))
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())

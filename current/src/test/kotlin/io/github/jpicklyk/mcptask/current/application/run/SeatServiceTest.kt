@@ -222,7 +222,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ the token
 
     @Test
-    fun `S1 the coordinator row is run-scoped and active, its token is 32 base64url bytes stored only as a SHA-256`() =
+    fun `S1 the coordinator row is run-scoped and active, its token is 32 base64url bytes stored only as a SHA-256`(): Unit =
         runBlocking {
             val f = fixture()
 
@@ -274,7 +274,7 @@ work_item_schemas:
     }
 
     @Test
-    fun `tokens are unique and always 43 base64url characters`() =
+    fun `tokens are unique and always 43 base64url characters`(): Unit =
         runBlocking {
             val f = fixture()
             val tokens = mutableSetOf<String>()
@@ -295,7 +295,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S2 assign
 
     @Test
-    fun `S2 assign stores the triple's row with attempt 1, hints and the assigning principal, and records one seat assigned`() =
+    fun `S2 assign stores the triple's row with attempt 1, hints and the assigning principal, and records one seat assigned`(): Unit =
         runBlocking {
             val f = fixture()
             f.seats.openCoordinator(f.run, ORCH).ok()
@@ -342,7 +342,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S2 a different seat or item of the same run is its own triple with attempt 1, and each token resolves to its own row`() =
+    fun `S2 a different seat or item of the same run is its own triple with attempt 1, and each token resolves to its own row`(): Unit =
         runBlocking {
             val f = fixture()
             val builder = f.assign(f.seated, "builder").ok()
@@ -359,7 +359,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S3 supersede
 
     @Test
-    fun `S3 re-assigning a triple ends the old row superseded, counts attempt 2 and kills the old token`() =
+    fun `S3 re-assigning a triple ends the old row superseded, counts attempt 2 and kills the old token`(): Unit =
         runBlocking {
             val f = fixture()
             val first = f.assign(f.seated, "builder").ok()
@@ -379,7 +379,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S3 the attempt counts every row of the triple, ended ones included, and other seats of the item do not count`() =
+    fun `S3 the attempt counts every row of the triple, ended ones included, and other seats of the item do not count`(): Unit =
         runBlocking {
             val f = fixture()
             assertEquals(
@@ -435,7 +435,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S3 a re-assign releases the old holder's claims in the same unit with reason superseded, so attempt 2 can claim at once`() =
+    fun `S3 a re-assign releases the old holder's claims in the same unit with reason superseded, so attempt 2 can claim at once`(): Unit =
         runBlocking {
             val f = fixture()
             val first = f.assign(f.seated, "builder").ok()
@@ -466,7 +466,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S3 a re-assign of one triple releases nothing held by a sibling seat of the same principal`() =
+    fun `S3 a re-assign of one triple releases nothing held by a sibling seat of the same principal`(): Unit =
         runBlocking {
             val f = fixture()
             val builder = f.assign(f.seated, "builder").ok()
@@ -493,7 +493,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S12 .. S14 resolve
 
     @Test
-    fun `S12 to S14 resolve returns the row only for a live token presented by the principal that holds it`() =
+    fun `S12 to S14 resolve returns the row only for a live token presented by the principal that holds it`(): Unit =
         runBlocking {
             val f = fixture()
             val issued = f.assign(f.seated, "builder").ok()
@@ -517,7 +517,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S13 an ended seat's token no longer resolves, whichever way the seat ended`() =
+    fun `S13 an ended seat's token no longer resolves, whichever way the seat ended`(): Unit =
         runBlocking {
             val f = fixture()
             val ended = f.assign(f.seated, "builder").ok()
@@ -534,7 +534,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S8 end
 
     @Test
-    fun `S8 end stores the outcome, summary and links, releases the ending holder's claims only, and records one seat ended`() =
+    fun `S8 end stores the outcome, summary and links, releases the ending holder's claims only, and records one seat ended`(): Unit =
         runBlocking {
             val f = fixture()
             val builder = f.assign(f.seated, "builder").ok()
@@ -593,7 +593,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S8 each reportable outcome is stored with its wire word`() =
+    fun `S8 each reportable outcome is stored with its wire word`(): Unit =
         runBlocking {
             val f = fixture()
             val pairs = listOf(RunSeatOutcome.DONE to "done", RunSeatOutcome.FAILED to "failed", RunSeatOutcome.ABANDONED to "abandoned")
@@ -607,7 +607,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S8 end leaves the leases of the item alone and reports no released claim when the seat held none`() =
+    fun `S8 end leaves the leases of the item alone and reports no released claim when the seat held none`(): Unit =
         runBlocking {
             val f = fixture()
             val issued = f.assign(f.seated, "builder").ok()
@@ -633,7 +633,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S10 usage and liveness
 
     @Test
-    fun `S10 usage keeps the maximum per field independently, as tokens and micro-USD`() =
+    fun `S10 usage keeps the maximum per field independently, as tokens and micro-USD`(): Unit =
         runBlocking {
             val f = fixture()
             val id =
@@ -657,7 +657,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S10 usage beyond the int range is stored exactly, and usage of one seat never touches another seat's row`() =
+    fun `S10 usage beyond the int range is stored exactly, and usage of one seat never touches another seat's row`(): Unit =
         runBlocking {
             val f = fixture()
             val a = f.assign(f.seated, "builder").ok()
@@ -670,7 +670,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S10 the liveness touch is written at once, skipped under 5 seconds old, and written from 5 seconds on`() =
+    fun `S10 the liveness touch is written at once, skipped under 5 seconds old, and written from 5 seconds on`(): Unit =
         runBlocking {
             val f = fixture()
             val issued = f.assign(f.seated, "builder").ok()
@@ -700,7 +700,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ list
 
     @Test
-    fun `list is oldest first, active only by default, the ended ones with the flag, and one item's seats with the filter`() =
+    fun `list is oldest first, active only by default, the ended ones with the flag, and one item's seats with the filter`(): Unit =
         runBlocking {
             val f = fixture()
             val coordinator = f.seats.openCoordinator(f.run, ORCH).ok()
@@ -732,7 +732,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S16 assign validation
 
     @Test
-    fun `S16 the seat must be one of the item's schema seats, or implementer or planner when the schema has none`() =
+    fun `S16 the seat must be one of the item's schema seats, or implementer or planner when the schema has none`(): Unit =
         runBlocking {
             val f = fixture()
             // the seated schema: its two seats are accepted, the default pair is not
@@ -755,7 +755,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S16 the seat name coordinator is invalid_request on the seat pointer, and never a not_found`() =
+    fun `S16 the seat name coordinator is invalid_request on the seat pointer, and never a not_found`(): Unit =
         runBlocking {
             val f = fixture()
             for (item in listOf(f.seated, f.plain, f.free)) {
@@ -775,7 +775,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S16 an item that is not a member of the run is invalid_request on the item pointer - also an item of the same root`() =
+    fun `S16 an item that is not a member of the run is invalid_request on the item pointer - also an item of the same root`(): Unit =
         runBlocking {
             val f = fixture()
             val error = f.assign(f.outsider, "builder").err()
@@ -794,7 +794,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S16 a closed run refuses an assignment as run_closed and writes no row`() =
+    fun `S16 a closed run refuses an assignment as run_closed and writes no row`(): Unit =
         runBlocking {
             val closed = fixture(RunStatus.CLOSED)
             assertEquals(ErrorCode.RUN_CLOSED, closed.assign(closed.seated, "builder").err().code)
@@ -802,7 +802,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S16 a paused run refuses an assignment as run_paused and writes no row`() =
+    fun `S16 a paused run refuses an assignment as run_paused and writes no row`(): Unit =
         runBlocking {
             val paused = fixture(RunStatus.PAUSED)
             assertEquals(ErrorCode.RUN_PAUSED, paused.assign(paused.seated, "builder").err().code)
@@ -820,7 +820,7 @@ work_item_schemas:
     }
 
     @Test
-    fun `seat ended is streamed with its run id, item id and root, and the root scope applies`() =
+    fun `seat ended is streamed with its run id, item id and root, and the root scope applies`(): Unit =
         runBlocking {
             val f = fixture()
             val issued = f.assign(f.seated, "builder").ok()
@@ -854,7 +854,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S18 the close cascade port
 
     @Test
-    fun `S18 the port counts the active member seats, hands out their holder pairs and ends every seat of the run with run_closed`() =
+    fun `S18 the port counts the active member seats, hands out their holder pairs and ends every seat of the run with run_closed`(): Unit =
         runBlocking {
             val f = fixture()
             val coordinator = f.seats.openCoordinator(f.run, ORCH).ok()
@@ -891,7 +891,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S18 ending the seats of one run leaves the seats of another run alone`() =
+    fun `S18 ending the seats of one run leaves the seats of another run alone`(): Unit =
         runBlocking {
             val f = fixture()
             val mine = f.assign(f.seated, "builder").ok()

@@ -109,13 +109,13 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest {
         }
 
     @Test
-    fun `T3 chunk boundary one below the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE - 1)
+    fun `T3 chunk boundary one below the chunk size`(): Unit = releaseExactly(SQL_IN_CHUNK_SIZE - 1)
 
     @Test
-    fun `T3 chunk boundary exactly the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE)
+    fun `T3 chunk boundary exactly the chunk size`(): Unit = releaseExactly(SQL_IN_CHUNK_SIZE)
 
     @Test
-    fun `T3 chunk boundary one above the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE + 1)
+    fun `T3 chunk boundary one above the chunk size`(): Unit = releaseExactly(SQL_IN_CHUNK_SIZE + 1)
 
     @Test
     fun `T3 empty set is a no-op returning zero`(): Unit =

@@ -128,7 +128,7 @@ class ApiStatusPagesTest {
     // ----------------------------------------------
 
     @Test
-    fun `S8 an uncaught exception under api v1 returns the exact internal envelope error and no exception text`() =
+    fun `S8 an uncaught exception under api v1 returns the exact internal envelope error and no exception text`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -154,7 +154,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S8 probe an exception with a null message and one with a cause both return the same internal error`() =
+    fun `S8 probe an exception with a null message and one with a cause both return the same internal error`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -170,7 +170,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S8 probe after a handled failure the same application still serves a normal request`() =
+    fun `S8 probe after a handled failure the same application still serves a normal request`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -218,7 +218,7 @@ class ApiStatusPagesTest {
     // ----------------------------------------------
 
     @Test
-    fun `S9 BadRequestException maps to 400 invalid_request`() =
+    fun `S9 BadRequestException maps to 400 invalid_request`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -228,7 +228,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 domain ValidationException maps to 400 invalid_request with its own text`() =
+    fun `S9 domain ValidationException maps to 400 invalid_request with its own text`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -240,7 +240,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 NotFoundException has no producer and no special case so it is internal`() =
+    fun `S9 NotFoundException has no producer and no special case so it is internal`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -250,7 +250,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 probe UnsupportedMediaTypeException maps to 400 invalid_request on Content-Type`() =
+    fun `S9 probe UnsupportedMediaTypeException maps to 400 invalid_request on Content-Type`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -268,7 +268,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 probe PayloadTooLargeException maps to 413 payload_too_large`() =
+    fun `S9 probe PayloadTooLargeException maps to 413 payload_too_large`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -280,7 +280,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 probe a malformed JSON body on a receive route maps to 400 invalid_request, not 500`() =
+    fun `S9 probe a malformed JSON body on a receive route maps to 400 invalid_request, not 500`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -294,7 +294,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S9 probe a well-formed body on the same receive route is untouched`() =
+    fun `S9 probe a well-formed body on the same receive route is untouched`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -339,7 +339,7 @@ class ApiStatusPagesTest {
         }.getOrDefault(false)
 
     @Test
-    fun `S10 a throwing route outside api v1 keeps Ktor's default 500 and gets no internal envelope error`() =
+    fun `S10 a throwing route outside api v1 keeps Ktor's default 500 and gets no internal envelope error`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -350,7 +350,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S10 probe a path that merely starts with the api v1 characters is not an api v1 path`() =
+    fun `S10 probe a path that merely starts with the api v1 characters is not an api v1 path`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -361,7 +361,7 @@ class ApiStatusPagesTest {
         }
 
     @Test
-    fun `S10 control the same two throwing routes under api v1 do get the internal error`() =
+    fun `S10 control the same two throwing routes under api v1 do get the internal error`(): Unit =
         testApplication {
             application { statusPagesApp() }
 
@@ -375,7 +375,7 @@ class ApiStatusPagesTest {
     // ----------------------------------------------
 
     @Test
-    fun `S11 a CancellationException in an api v1 route is not turned into the internal envelope error`() =
+    fun `S11 a CancellationException in an api v1 route is not turned into the internal envelope error`(): Unit =
         testApplication {
             application { statusPagesApp() }
 

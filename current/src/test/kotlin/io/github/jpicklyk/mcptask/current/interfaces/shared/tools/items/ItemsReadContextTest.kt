@@ -218,7 +218,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ S1, S2, S3
 
     @Test
-    fun `S1 an unfilled required note blocks the gate and names its guidance and skill`() =
+    fun `S1 an unfilled required note blocks the gate and names its guidance and skill`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Gated", type = "ctx-type")
             rig.vwNote(item, "note-a", "queue")
@@ -245,7 +245,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S2 a whitespace-only or CRLF-only body is still missing and a one-character body is filled`() =
+    fun `S2 a whitespace-only or CRLF-only body is still missing and a one-character body is filled`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             for (blank in listOf("   ", "\r\n", "\r\n \t \r\n")) {
                 val item = rig.vwMake("Blank-${blank.length}", type = "ctx-type")
@@ -273,7 +273,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S3 every required note filled and no dependency opens the gate with the next step and the queue row`() =
+    fun `S3 every required note filled and no dependency opens the gate with the next step and the queue row`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Ready", type = "ctx-type")
             rig.vwNote(item, "note-a", "queue")
@@ -294,7 +294,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S3 a type with no notes is open at once and a hex prefix resolves the same item`() =
+    fun `S3 a type with no notes is open at once and a hex prefix resolves the same item`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Plain")
 
@@ -309,7 +309,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ S4 dependency gate
 
     @Test
-    fun `S4 an unmet BLOCKS dependency closes the gate and lists the blocker with its role and threshold`() =
+    fun `S4 an unmet BLOCKS dependency closes the gate and lists the blocker with its role and threshold`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val blocker = rig.vwMake("Blocker")
             val item = rig.vwMake("Waiting")
@@ -330,7 +330,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S4 the unblock threshold decides satisfaction, a BLOCKED blocker never satisfies and RELATES_TO is ignored`() =
+    fun `S4 the unblock threshold decides satisfaction, a BLOCKED blocker never satisfies and RELATES_TO is ignored`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             // (blocker role, unblockAt wire, expected canAdvance)
             val cases =
@@ -377,7 +377,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ S5, S6 transitions
 
     @Test
-    fun `S5 a terminal item cannot advance, reports no blocker or next step and offers only reopen`() =
+    fun `S5 a terminal item cannot advance, reports no blocker or next step and offers only reopen`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val blocker = rig.vwMake("Pending blocker")
             val item = rig.vwMake("Done", role = Role.TERMINAL, type = "ctx-type")
@@ -397,7 +397,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S6 a blocked item offers resume resolved to its previous role`() =
+    fun `S6 a blocked item offers resume resolved to its previous role`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             for (previous in listOf(Role.WORK, Role.REVIEW, Role.QUEUE)) {
                 val item = rig.vwMake("Held-$previous", role = Role.BLOCKED, previousRole = previous)
@@ -423,7 +423,7 @@ class ItemsReadContextTest {
             "      - key: spec\n        role: queue\n        required: true\n"
 
     @Test
-    fun `S8 a per-root config read fault after a warm read answers unavailable and no gate`() =
+    fun `S8 a per-root config read fault after a warm read answers unavailable and no gate`(): Unit =
         irApp(db.db, dir, yaml = P11_BASE_YAML) { rig ->
             val d = P11Driver(rig)
             val fx = d.configFaultFixture()
@@ -437,7 +437,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S8 a per-root config read fault before any warm read also answers unavailable`() =
+    fun `S8 a per-root config read fault before any warm read also answers unavailable`(): Unit =
         irApp(db.db, dir, yaml = P11_BASE_YAML) { rig ->
             val d = P11Driver(rig)
             val root = d.item("cold root", Role.WORK)
@@ -455,7 +455,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ item-mode errors and strictness
 
     @Test
-    fun `S1 an unknown full id is not_found and a malformed id is invalid_request on itemId`() =
+    fun `S1 an unknown full id is not_found and a malformed id is invalid_request on itemId`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             rig.vwMake("Anything")
 
@@ -469,7 +469,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S1 fields ancestors adds the visible ancestors root-first to the item and an unknown fields name is rejected`() =
+    fun `S1 fields ancestors adds the visible ancestors root-first to the item and an unknown fields name is rejected`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val top = rig.vwMake("Top")
             val mid = rig.vwMake("Mid", top)
@@ -497,7 +497,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `D-g the dropped 3x parameters are unknown_parameter`() =
+    fun `D-g the dropped 3x parameters are unknown_parameter`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Strict")
             val dropped =
@@ -551,7 +551,7 @@ class ItemsReadContextTest {
     private fun stalledIds(data: JsonObject): Set<String> = data.arr("stalled").map { it.jsonObject.str("id") }.toSet()
 
     @Test
-    fun `S9 one limit and cursor page the active items in role then role-changed order with exact totals and per-page stalled`() =
+    fun `S9 one limit and cursor page the active items in role then role-changed order with exact totals and per-page stalled`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val s = seedStall(rig)
             val expectedOrder = listOf(s.w1, s.w2, s.w3, s.r1, s.r2).map { short(it.id) }
@@ -588,7 +588,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S9 a stalled entry names the item, its role and the missing keys`() =
+    fun `S9 a stalled entry names the item, its role and the missing keys`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val s = seedStall(rig)
 
@@ -607,7 +607,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S9 the default page is 50 and the limit bounds are 1 and 200`() =
+    fun `S9 the default page is 50 and the limit bounds are 1 and 200`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             repeat(55) { rig.vwMake("busy-$it", role = Role.WORK) }
 
@@ -651,7 +651,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S9 ancestorId scopes the health lists to the subtree including its root`() =
+    fun `S9 ancestorId scopes the health lists to the subtree including its root`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val tree = rig.vwMake("Tree", role = Role.WORK)
             val inside = rig.vwMake("Inside", tree, role = Role.WORK)
@@ -675,7 +675,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S9 an empty database answers empty lists, an empty stalled list and zero claim counts`() =
+    fun `S9 an empty database answers empty lists, an empty stalled list and zero claim counts`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { _ ->
             val r = select(health())
 
@@ -714,7 +714,7 @@ class ItemsReadContextTest {
     }
 
     @Test
-    fun `S10 the health blocked list is the blocked select's set, with a blockType per entry and no blockers detail`() =
+    fun `S10 the health blocked list is the blocked select's set, with a blockType per entry and no blockers detail`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val b = seedBlockedSet(rig, tags = null)
 
@@ -737,7 +737,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S10 the two definitions agree under a tag scope too`() =
+    fun `S10 the two definitions agree under a tag scope too`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             seedBlockedSet(rig, tags = "api")
             seedBlockedSet(rig, tags = null)
@@ -759,7 +759,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ S16 scope
 
     @Test
-    fun `S16 a tag scope lists and counts only visible items in health mode and hides claim counts of invisible items`() =
+    fun `S16 a tag scope lists and counts only visible items in health mode and hides claim counts of invisible items`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             val vis = rig.vwMake("Vis-claimed", role = Role.WORK, tags = "api", claimedBy = "agent-visible")
             val visPlain = rig.vwMake("Vis-plain", role = Role.WORK, tags = "api,backend")
@@ -820,7 +820,7 @@ class ItemsReadContextTest {
     }
 
     @Test
-    fun `S16 an item outside the scope is forbidden, never not_found, for a UUID, a prefix and a missing id`() =
+    fun `S16 an item outside the scope is forbidden, never not_found, for a UUID, a prefix and a missing id`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             val visible = rig.vwMake("Visible", tags = "api")
             val secret = rig.vwMake("Secret-title")
@@ -839,7 +839,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S16 a prefix shared by an admitted and a hidden item resolves to the admitted one and is ambiguous unrestricted`() =
+    fun `S16 a prefix shared by an admitted and a hidden item resolves to the admitted one and is ambiguous unrestricted`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             val inside = rig.vwMake("Inside-twin", tags = "api", id = UUID.fromString("abcd1234-0000-4000-8000-000000000001"))
             rig.vwMake("Outside-twin", id = UUID.fromString("abcd1234-7777-4777-8777-777777777777"))
@@ -854,7 +854,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S16 a blocker outside the scope is omitted from blockers while the item stays blocked`() =
+    fun `S16 a blocker outside the scope is omitted from blockers while the item stays blocked`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             val hiddenBlocker = rig.vwMake("Hidden-blocker")
             val visibleBlocker = rig.vwMake("Visible-blocker", tags = "api")
@@ -875,7 +875,7 @@ class ItemsReadContextTest {
         }
 
     @Test
-    fun `S16 when the only blocker is hidden the item still cannot advance and no blocker is named`() =
+    fun `S16 when the only blocker is hidden the item still cannot advance and no blocker is named`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = CTX_YAML) { rig ->
             val hiddenBlocker = rig.vwMake("Hidden-blocker")
             val item = rig.vwMake("Waiting", tags = "api")
@@ -912,7 +912,7 @@ class ItemsReadContextTest {
     }
 
     @Test
-    fun `S17 a knowledge-profile call of a hidden select is refused while get still answers`() =
+    fun `S17 a knowledge-profile call of a hidden select is refused while get still answers`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Knowledge probe")
             val spec = checkNotNull(registry[ItemsReadTool.NAME])
@@ -950,7 +950,7 @@ class ItemsReadContextTest {
     // ------------------------------------------------------------------ S18 the removed gate route
 
     @Test
-    fun `S18 GET items id gate answers 404 and the ops context select answers the gate state`() =
+    fun `S18 GET items id gate answers 404 and the ops context select answers the gate state`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Gate probe", type = "ctx-type")
 

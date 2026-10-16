@@ -93,7 +93,7 @@ class McpStreamableHttpTransportTest {
     private val acceptBoth = "application/json, text/event-stream"
 
     @Test
-    fun `mcpStreamableHttp module wires without SSE conflict and serves initialize`() =
+    fun `mcpStreamableHttp module wires without SSE conflict and serves initialize`(): Unit =
         testApplication {
             val server = serverWithAllTools()
             application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
@@ -119,7 +119,7 @@ class McpStreamableHttpTransportTest {
         }
 
     @Test
-    fun `rejects cross-origin requests with 403 to guard against DNS rebinding`() =
+    fun `rejects cross-origin requests with 403 to guard against DNS rebinding`(): Unit =
         testApplication {
             val server = serverWithAllTools()
             application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
@@ -144,7 +144,7 @@ class McpStreamableHttpTransportTest {
         }
 
     @Test
-    fun `tools list and a tool call work over the HTTP transport`() =
+    fun `tools list and a tool call work over the HTTP transport`(): Unit =
         testApplication {
             val server = serverWithAllTools()
             application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }

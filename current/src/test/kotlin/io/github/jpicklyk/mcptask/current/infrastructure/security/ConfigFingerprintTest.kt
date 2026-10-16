@@ -83,7 +83,7 @@ class ConfigFingerprintTest {
     }
 
     @Test
-    fun `SqliteConfigStore computeFingerprint matches every shared fixture vector`() =
+    fun `SqliteConfigStore computeFingerprint matches every shared fixture vector`(): Unit =
         runBlocking {
             val database = sqliteDb.database
             val databaseManager = sqliteDb.databaseManager
@@ -120,7 +120,7 @@ class ConfigFingerprintTest {
         }
 
     @Test
-    fun `S12 upserting CRLF plus BOM body classifies the LF variant as current and stores the original bytes unchanged`() =
+    fun `S12 upserting CRLF plus BOM body classifies the LF variant as current and stores the original bytes unchanged`(): Unit =
         runBlocking {
             val crlfBomBody = "a: 1\r\nb: 2\r\n"
             val lfVariant = "a: 1\nb: 2\n"

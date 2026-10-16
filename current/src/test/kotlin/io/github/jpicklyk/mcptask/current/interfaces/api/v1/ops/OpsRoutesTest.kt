@@ -195,7 +195,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S1 happy
 
     @Test
-    fun `S1 an admin select returns the ok envelope with status 200 and X-Req-Id equal to meta reqId`() =
+    fun `S1 an admin select returns the ok envelope with status 200 and X-Req-Id equal to meta reqId`(): Unit =
         withApp { _ ->
             val response = client.ops("fx_read", """{"select":"get","id":"${FixtureTools.GET_OK}"}""", ADMIN_TOKEN)
             assertEquals(200, response.status.value)
@@ -208,7 +208,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S1 ops run and the orchestration-only tools are served (the superset profile)`() =
+    fun `S1 ops run and the orchestration-only tools are served (the superset profile)`(): Unit =
         withApp { rig ->
             val peek = client.ops("fx_peek", """{"select":"peek","what":"x"}""", TEST_TOKEN)
             assertEquals(200, peek.status.value)
@@ -240,7 +240,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S3 call_log
 
     @Test
-    fun `S3 the call log records the registry tool name, operation, batch counts and the bearer principal`() =
+    fun `S3 the call log records the registry tool name, operation, batch counts and the bearer principal`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
             val writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
@@ -312,7 +312,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S6 write op without the capability
 
     @Test
-    fun `S6 a read-only token on a write op gets a 207 with a forbidden element, nothing runs and nothing is stored`() =
+    fun `S6 a read-only token on a write op gets a 207 with a forbidden element, nothing runs and nothing is stored`(): Unit =
         withApp { rig ->
             val response = client.ops("fx_write", ops(create("A")), TEST_TOKEN)
             assertEquals(207, response.status.value)
@@ -337,7 +337,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S6 atomic with a forbidden element is a 403 forbidden whose error index is 0`() =
+    fun `S6 atomic with a forbidden element is a 403 forbidden whose error index is 0`(): Unit =
         withApp { rig ->
             val response = client.ops("fx_write", """{"ops":[${create("A")}],"atomic":true}""", TEST_TOKEN)
             assertEquals(403, response.status.value)
@@ -386,7 +386,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S8 forbidden wins over invalid
 
     @Test
-    fun `S8 a forbidden op with invalid fields is forbidden, not invalid_request or unknown_parameter`() =
+    fun `S8 a forbidden op with invalid fields is forbidden, not invalid_request or unknown_parameter`(): Unit =
         withApp { rig ->
             val typeFault = client.ops("fx_write", ops("""{"op":"create","title":7}"""), TEST_TOKEN).envelope()
             assertForbidden(typeFault.elementError(0), "capability", "write-items")
@@ -438,7 +438,7 @@ class OpsRoutesTest {
     private val itemsOnly get() = tokenConfig("items-only-token", "items-only", setOf(ApiCapability.READ, ApiCapability.WRITE_ITEMS))
 
     @Test
-    fun `S9 an allowed element then a forbidden one gives ok plus forbidden and only the first effect is stored`() =
+    fun `S9 an allowed element then a forbidden one gives ok plus forbidden and only the first effect is stored`(): Unit =
         withApp(itemsOnly) { rig ->
             rig.seedXY()
             val response = client.ops(ParityFixtureTools.EDIT, ops(renameEl(x, "X renamed"), retagEl(y, "hijacked")), "items-only-token")
@@ -462,7 +462,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S9 a forbidden element first keeps its position and the allowed one after it still runs`() =
+    fun `S9 a forbidden element first keeps its position and the allowed one after it still runs`(): Unit =
         withApp(itemsOnly) { rig ->
             rig.seedXY()
             val body =
@@ -475,7 +475,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S9 a forbidden element with an idempotency key stores no record while the allowed keyed element does`() =
+    fun `S9 a forbidden element with an idempotency key stores no record while the allowed keyed element does`(): Unit =
         withApp(itemsOnly) { rig ->
             rig.seedXY()
             val body =
@@ -493,7 +493,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S10 body actor refused (R14)
 
     @Test
-    fun `S10 a body actor on an ops call is unknown_parameter and the handler never runs, on REST and on MCP`() =
+    fun `S10 a body actor on an ops call is unknown_parameter and the handler never runs, on REST and on MCP`(): Unit =
         withApp { rig ->
             val body = """{"actor":{"id":"orchestrator","kind":"orchestrator"},"ops":[${create("A")}]}"""
             val response = client.ops("fx_write", body)
@@ -517,7 +517,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S10 a body actor on a select, a spoofed user kind and a non-object actor are all unknown_parameter`() =
+    fun `S10 a body actor on a select, a spoofed user kind and a non-object actor are all unknown_parameter`(): Unit =
         withApp { _ ->
             val spoof = client.ops("fx_read", """{"actor":{"id":"spoof","kind":"user"},"select":"get","id":"${FixtureTools.GET_OK}"}""")
             assertEquals(400, spoof.status.value, spoof.bodyAsText())
@@ -528,7 +528,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S11 per-token idempotency
 
     @Test
-    fun `S11 the same idempotency key and payload from two tokens is not replayed across tokens, but is within one`() =
+    fun `S11 the same idempotency key and payload from two tokens is not replayed across tokens, but is within one`(): Unit =
         withApp { rig ->
             val body = ops(create("R", ""","idempotencyKey":"key-1""""))
 
@@ -548,7 +548,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S15 400 / 413
 
     @Test
-    fun `S15 an unknown tool is invalid_request on field tool and names the visible tools`() =
+    fun `S15 an unknown tool is invalid_request on field tool and names the visible tools`(): Unit =
         withApp { _ ->
             val response = client.ops("nope", """{"select":"get"}""")
             assertEquals(400, response.status.value)
@@ -562,7 +562,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 probe tool name casing and percent-encoding`() =
+    fun `S15 probe tool name casing and percent-encoding`(): Unit =
         withApp { _ ->
             val upper = client.ops("Fx_Read", """{"select":"get","id":"${FixtureTools.GET_OK}"}""")
             assertEquals(400, upper.status.value, "tool names are case-sensitive")
@@ -575,7 +575,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 Content-Type must be absent or application json with parameters`() =
+    fun `S15 Content-Type must be absent or application json with parameters`(): Unit =
         withApp { _ ->
             val body = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
             for (bad in listOf(
@@ -599,7 +599,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 an Idempotency-Key header is invalid_request on that header, in any case`() =
+    fun `S15 an Idempotency-Key header is invalid_request on that header, in any case`(): Unit =
         withApp { _ ->
             val body = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
             for (name in listOf("Idempotency-Key", "idempotency-key")) {
@@ -614,7 +614,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 a body that is not a JSON object is invalid_request on field dollar`() =
+    fun `S15 a body that is not a JSON object is invalid_request on field dollar`(): Unit =
         withApp { _ ->
             for (bad in listOf("[1]", "{", "", "\"text\"", "null", "7")) {
                 val response = client.ops("fx_read", bad)
@@ -630,7 +630,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 a body of exactly 1 MiB is accepted and more is 413 payload_too_large with the declared length`() =
+    fun `S15 a body of exactly 1 MiB is accepted and more is 413 payload_too_large with the declared length`(): Unit =
         withApp { _ ->
             val core = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
 
@@ -651,7 +651,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 a chunked body over the limit is 413 payload_too_large with actual max plus one`() =
+    fun `S15 a chunked body over the limit is 413 payload_too_large with actual max plus one`(): Unit =
         withApp { _ ->
             val core = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
             val bytes = (core + " ".repeat(maxBody + 1000 - core.length)).toByteArray(Charsets.UTF_8)
@@ -675,7 +675,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `S15 the checks run in the frozen order`() =
+    fun `S15 the checks run in the frozen order`(): Unit =
         withApp { _ ->
             val ok = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
             // principal before Content-Type: with a token the same request is 400, without one 401
@@ -703,7 +703,7 @@ class OpsRoutesTest {
     // ------------------------------------------------------------------ S16 authentication
 
     @Test
-    fun `S16 no token and a wrong token are 401 and nothing runs`() =
+    fun `S16 no token and a wrong token are 401 and nothing runs`(): Unit =
         withApp { _ ->
             val body = """{"select":"get","id":"${FixtureTools.GET_OK}"}"""
             assertEquals(401, client.ops("fx_read", body, token = null).status.value)
@@ -714,7 +714,7 @@ class OpsRoutesTest {
         }
 
     @Test
-    fun `the reqId equals the X-Req-Id header on an error response too`() =
+    fun `the reqId equals the X-Req-Id header on an error response too`(): Unit =
         withApp { _ ->
             val response = client.ops("fx_read", """{"select":"get","id":"${FixtureTools.GET_MISSING}"}""")
             assertEquals(404, response.status.value)

@@ -250,7 +250,7 @@ decision_classes:
     // -------------------------------------------------------------------------------------------------------- S1 and S2
 
     @Test
-    fun `S1 block on a work item with no reason stores manual, reads as manual and records it on the event`() =
+    fun `S1 block on a work item with no reason stores manual, reads as manual and records it on the event`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -280,7 +280,7 @@ decision_classes:
         }
 
     @Test
-    fun `S2 hold takes the same reasons as block and each stored reason is reported on the blocked entry`() =
+    fun `S2 hold takes the same reasons as block and each stored reason is reported on the blocked entry`(): Unit =
         world { w ->
             val held = w.m2
             val blocked = w.m3
@@ -300,7 +300,7 @@ decision_classes:
         }
 
     @Test
-    fun `S2 hold with no reason is manual, the same as block with no reason`() =
+    fun `S2 hold with no reason is manual, the same as block with no reason`(): Unit =
         world { w ->
             w.startOk(w.m2)
             assertTrue(w.step(w.m2, "hold").ok())
@@ -312,7 +312,7 @@ decision_classes:
     // -------------------------------------------------------------------------------------------------------- S3 and S4
 
     @Test
-    fun `S3 an awaiting_decision block by decision prefix stores the full id and reads it everywhere`() =
+    fun `S3 an awaiting_decision block by decision prefix stores the full id and reads it everywhere`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -338,7 +338,7 @@ decision_classes:
         }
 
     @Test
-    fun `S3 the health view of context reports the reason and decision of a blocked item and no resumable`() =
+    fun `S3 the health view of context reports the reason and decision of a blocked item and no resumable`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -360,7 +360,7 @@ decision_classes:
         }
 
     @Test
-    fun `S4 an answer records only, the item stays blocked and becomes resumable, and resume clears both columns`() =
+    fun `S4 an answer records only, the item stays blocked and becomes resumable, and resume clears both columns`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -390,7 +390,7 @@ decision_classes:
         }
 
     @Test
-    fun `S4 a withdrawn decision also makes the entry resumable and does not resume the item`() =
+    fun `S4 a withdrawn decision also makes the entry resumable and does not resume the item`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -408,7 +408,7 @@ decision_classes:
     // ---------------------------------------------------------------------------------------------------------------- S5
 
     @Test
-    fun `S5 raise with block on a work item raises one decision and blocks the item in the same call`() =
+    fun `S5 raise with block on a work item raises one decision and blocks the item in the same call`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -430,7 +430,7 @@ decision_classes:
         }
 
     @Test
-    fun `S5 a raise without block, or with block false, leaves the item alone and reports no blocked member`() =
+    fun `S5 a raise without block, or with block false, leaves the item alone and reports no blocked member`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -449,7 +449,7 @@ decision_classes:
     // -------------------------------------------------------------------------------------------------------------- S6
 
     @Test
-    fun `S6 overview counts blocked children by reason on every entry, scoped, global and anchored`() =
+    fun `S6 overview counts blocked children by reason on every entry, scoped, global and anchored`(): Unit =
         world { w ->
             val parent = w.rig.seed("Blocky root")
             val c1 = w.rig.seed("manual child", parent = parent, tags = "plain-task")
@@ -497,7 +497,7 @@ decision_classes:
     // -------------------------------------------------------------------------------------------------------------- S7
 
     @Test
-    fun `S7 the frontier waiting list reports the typed reason and the decision id of a blocked member`() =
+    fun `S7 the frontier waiting list reports the typed reason and the decision id of a blocked member`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m2, w.m3), by = bkOrch)
             val id = w.decisionOn(w.m2, "k1")
@@ -520,7 +520,7 @@ decision_classes:
     // ---------------------------------------------------------------------------------------------------------- S8 to S12
 
     @Test
-    fun `S8 reason or decisionId with a trigger other than block or hold is invalid_request on the field and changes nothing`() =
+    fun `S8 reason or decisionId with a trigger other than block or hold is invalid_request on the field and changes nothing`(): Unit =
         world { w ->
             val item = w.m2
             val id = w.decisionOn(item, "k1")
@@ -539,7 +539,7 @@ decision_classes:
         }
 
     @Test
-    fun `S8 resume with a reason or a decisionId is refused and the item keeps its block`() =
+    fun `S8 resume with a reason or a decisionId is refused and the item keeps its block`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -556,7 +556,7 @@ decision_classes:
         }
 
     @Test
-    fun `S9 a decisionId with no reason or with reason manual is invalid_request on decisionId`() =
+    fun `S9 a decisionId with no reason or with reason manual is invalid_request on decisionId`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -586,7 +586,7 @@ decision_classes:
         }
 
     @Test
-    fun `S9 the request rules run before the transition policy`() =
+    fun `S9 the request rules run before the transition policy`(): Unit =
         world { w ->
             val item = w.m2
             val id = w.decisionOn(item, "k1")
@@ -604,7 +604,7 @@ decision_classes:
         }
 
     @Test
-    fun `S10 awaiting_decision with no decisionId is invalid_request on decisionId`() =
+    fun `S10 awaiting_decision with no decisionId is invalid_request on decisionId`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -615,7 +615,7 @@ decision_classes:
         }
 
     @Test
-    fun `S11 a decision about another item, a run or a root is refused as invalid_request on decisionId`() =
+    fun `S11 a decision about another item, a run or a root is refused as invalid_request on decisionId`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -637,7 +637,7 @@ decision_classes:
         }
 
     @Test
-    fun `S12 an answered or a withdrawn decision cannot be waited on`() =
+    fun `S12 an answered or a withdrawn decision cannot be waited on`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -659,7 +659,7 @@ decision_classes:
         }
 
     @Test
-    fun `S12 a decision that does not exist is invalid_request on decisionId`() =
+    fun `S12 a decision that does not exist is invalid_request on decisionId`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -678,7 +678,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S13
 
     @Test
-    fun `S13 raise with block on a blocked or terminal item is refused and raises nothing`() =
+    fun `S13 raise with block on a blocked or terminal item is refused and raises nothing`(): Unit =
         world { w ->
             val blocked = w.m2
             val finished = w.m3
@@ -707,7 +707,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S14
 
     @Test
-    fun `S14 raise with block and no item is invalid_request on block`() =
+    fun `S14 raise with block and no item is invalid_request on block`(): Unit =
         world { w ->
             val reply = w.raise("k1", field("rootId", w.root.id.toString()) + ",\"block\":true")
 
@@ -719,7 +719,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S15
 
     @Test
-    fun `S15 a legacy blocked row with NULL reads as manual everywhere and stays NULL`() =
+    fun `S15 a legacy blocked row with NULL reads as manual everywhere and stays NULL`(): Unit =
         world { w ->
             val item = w.m2
             w.makeLegacyBlocked(item)
@@ -753,7 +753,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S16
 
     @Test
-    fun `S16 cancelling an awaiting_decision item clears both columns`() =
+    fun `S16 cancelling an awaiting_decision item clears both columns`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -770,7 +770,7 @@ decision_classes:
         }
 
     @Test
-    fun `S16 a cascade never moves a blocked parent, so it keeps its reason and decision`() =
+    fun `S16 a cascade never moves a blocked parent, so it keeps its reason and decision`(): Unit =
         world { w ->
             // Control: in this fixture, completing the only child of a working parent completes the parent.
             val liveParent = w.rig.seed("live cascade parent", parent = w.root, role = Role.WORK, tags = "plain-task")
@@ -800,7 +800,7 @@ decision_classes:
         }
 
     @Test
-    fun `S16 completing a tree with cancel takes a blocked item to terminal and clears both columns`() =
+    fun `S16 completing a tree with cancel takes a blocked item to terminal and clears both columns`(): Unit =
         world { w ->
             val parent = w.rig.seed("tree parent", parent = w.root, role = Role.WORK, tags = "plain-task")
             val child = w.rig.seed("tree child", parent = parent, role = Role.WORK, tags = "plain-task")
@@ -824,7 +824,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S17
 
     @Test
-    fun `S17 a replayed raise with block does not block twice, and after an answer it returns the answer and blocks nothing`() =
+    fun `S17 a replayed raise with block does not block twice, and after an answer it returns the answer and blocks nothing`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -858,7 +858,7 @@ decision_classes:
     // ------------------------------------------------------------------------------------------------------------- S18
 
     @Test
-    fun `S18 an acknowledged decision is accepted and still pending`() =
+    fun `S18 an acknowledged decision is accepted and still pending`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -876,7 +876,7 @@ decision_classes:
     // ---------------------------------------------------------------------------------------------------------- probes
 
     @Test
-    fun `probe the reason words are case and separator exact`() =
+    fun `probe the reason words are case and separator exact`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -890,7 +890,7 @@ decision_classes:
         }
 
     @Test
-    fun `probe a malformed, short or foreign decisionId is refused and the item is unchanged`() =
+    fun `probe a malformed, short or foreign decisionId is refused and the item is unchanged`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)
@@ -906,7 +906,7 @@ decision_classes:
         }
 
     @Test
-    fun `probe another root's decision by prefix under a restricted scope is forbidden`() =
+    fun `probe another root's decision by prefix under a restricted scope is forbidden`(): Unit =
         world { w ->
             w.startOk(w.m2)
             val foreign = w.decisionOn(w.e, "foreign")
@@ -925,7 +925,7 @@ decision_classes:
         }
 
     @Test
-    fun `probe a replayed block with the same idempotency key writes one transition`() =
+    fun `probe a replayed block with the same idempotency key writes one transition`(): Unit =
         world { w ->
             val item = w.m2
             w.startOk(item)

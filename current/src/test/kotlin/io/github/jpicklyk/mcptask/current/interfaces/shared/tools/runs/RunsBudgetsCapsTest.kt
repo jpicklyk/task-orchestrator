@@ -197,7 +197,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S1 usage is summed per assignment, max per field
 
     @Test
-    fun `S1 reported usage is the sum over every assignment of each one's highest report, ended and superseded ones included`() =
+    fun `S1 reported usage is the sum over every assignment of each one's highest report, ended and superseded ones included`(): Unit =
         world { w ->
             val run = w.open()
             val a = seatUp(w, run, w.m1)
@@ -230,7 +230,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S2 the writer adds observed tokens and never checks
 
     @Test
-    fun `S2 the call-log writer adds response_tokens_est per run into observed tokens and does not touch the run`() =
+    fun `S2 the call-log writer adds response_tokens_est per run into observed tokens and does not touch the run`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":5}""")
             val versionBefore = view(w, run).find("version")
@@ -255,7 +255,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S2 probe rows for a closed run are added and rows for an unknown run are ignored without failing the batch`() =
+    fun `S2 probe rows for a closed run are added and rows for an unknown run are ignored without failing the batch`(): Unit =
         world { w ->
             val closed = w.open(members = listOf(w.e), rootItem = w.root2)
             assertTrue(w.close(closed, "cancelled", closed.coordinatorToken).ok())
@@ -272,7 +272,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S2 the writer alone never pauses a run whose observed usage is far over the limit, and the next token-carrying write does`() =
+    fun `S2 the writer alone never pauses a run whose observed usage is far over the limit, and the next token-carrying write does`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -288,7 +288,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S3 a heartbeat breach pauses
 
     @Test
-    fun `S3 a heartbeat over the token budget succeeds, pauses the run for budget and raises the run-budget decision in the same unit`() =
+    fun `S3 a heartbeat over the token budget succeeds, pauses the run for budget and raises the run-budget decision in the same unit`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -320,7 +320,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S4 an observed-only breach pauses on the next write
 
     @Test
-    fun `S4 observed tokens over the limit with nothing reported pause the run on the next token-carrying write, not before`() =
+    fun `S4 observed tokens over the limit with nothing reported pause the run on the next token-carrying write, not before`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -342,7 +342,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S4 probe observed tokens exactly at the limit do not pause, one more does`() =
+    fun `S4 probe observed tokens exactly at the limit do not pause, one more does`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -362,7 +362,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S5 extend resumes, S6 stop closes
 
     @Test
-    fun `S5 the director's extend raises the budget, resumes the run and lets seats assign again`() =
+    fun `S5 the director's extend raises the budget, resumes the run and lets seats assign again`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -385,7 +385,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S6 the director's stop closes the run budget_exhausted with the full cascade`() =
+    fun `S6 the director's stop closes the run budget_exhausted with the full cascade`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -412,7 +412,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S7 / S8 attempt cap
 
     @Test
-    fun `S7 the assign past attemptsPerSeat is refused run_paused and pauses the run on an attempt-cap decision`() =
+    fun `S7 the assign past attemptsPerSeat is refused run_paused and pauses the run on an attempt-cap decision`(): Unit =
         world { w ->
             val run = open(w, """{"attemptsPerSeat":2}""")
             assertEquals(1, w.assignOk(run, w.m1, "builder").attempt)
@@ -440,7 +440,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S8 allow_one gives that seat one more attempt and resumes, then the next assign is refused with a new decision`() =
+    fun `S8 allow_one gives that seat one more attempt and resumes, then the next assign is refused with a new decision`(): Unit =
         world { w ->
             val run = open(w, """{"attemptsPerSeat":2}""")
             w.assignOk(run, w.m1, "builder")
@@ -463,7 +463,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S8 skip_item removes the item from the run and resumes it`() =
+    fun `S8 skip_item removes the item from the run and resumes it`(): Unit =
         world { w ->
             val run = open(w, """{"attemptsPerSeat":1}""")
             w.assignOk(run, w.m1, "builder")
@@ -483,7 +483,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S9 active-seat cap
 
     @Test
-    fun `S9 an assign beyond maxActiveSeats is run_at_capacity with no pause, decision or row, and works after a seat ends`() =
+    fun `S9 an assign beyond maxActiveSeats is run_at_capacity with no pause, decision or row, and works after a seat ends`(): Unit =
         world { w ->
             val run = open(w, """{"maxActiveSeats":2}""")
             val a = seatUp(w, run, w.m1)
@@ -507,7 +507,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S9 probe superseding an active seat at capacity is allowed`() =
+    fun `S9 probe superseding an active seat at capacity is allowed`(): Unit =
         world { w ->
             val run = open(w, """{"maxActiveSeats":1}""")
             w.assignOk(run, w.m1, "builder")
@@ -517,7 +517,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S9 probe the attempt cap wins over the capacity when one assign breaks both`() =
+    fun `S9 probe the attempt cap wins over the capacity when one assign breaks both`(): Unit =
         world { w ->
             val run = open(w, """{"attemptsPerSeat":1,"maxActiveSeats":1}""")
             val first = w.assignOk(run, w.m1, "builder")
@@ -533,7 +533,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S10 while paused
 
     @Test
-    fun `S10 while paused for a limit assign, a seat-token start and update are run_paused and a manual resume is invalid_run_state`() =
+    fun `S10 while paused for a limit assign, a seat-token start and update are run_paused and a manual resume is invalid_run_state`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val a = seatUp(w, run, w.m1)
@@ -565,7 +565,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S11 answer permissions and amount validation
 
     @Test
-    fun `S11 an answer under a seat token is forbidden principal_kind, and an extend needs a positive amount`() =
+    fun `S11 an answer under a seat token is forbidden principal_kind, and an extend needs a positive amount`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -589,7 +589,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    fun `S11 probe answering the same decision twice is decision_closed`() =
+    fun `S11 probe answering the same decision twice is decision_closed`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -605,7 +605,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S12 ceilings (open may only lower)
 
     @Test
-    fun `S12 open above a configured ceiling is invalid_request on the budget field, and extend may go past the ceiling`() =
+    fun `S12 open above a configured ceiling is invalid_request on the budget field, and extend may go past the ceiling`(): Unit =
         world(config = SEAT_WORLD_CONFIG + "\nruns:\n  budgets:\n    tokens: 150\n") { w ->
             val over =
                 w.ops("runs_write", """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"budget":{"tokens":151}}""")
@@ -622,7 +622,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S13 boundary
 
     @Test
-    fun `S13 usage equal to the limit does not breach and one more does`() =
+    fun `S13 usage equal to the limit does not breach and one more does`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -640,7 +640,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S14 while paused
 
     @Test
-    fun `S14 while paused the seat's other writes continue and repeat breaches return the same decision and one run paused event`() =
+    fun `S14 while paused the seat's other writes continue and repeat breaches return the same decision and one run paused event`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
             val seat = seatUp(w, run, w.m1)
@@ -669,7 +669,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S15 cost
 
     @Test
-    fun `S15 a cost breach alone pauses the run on the cost dimension, and a second breach after an extend is budget n 2`() =
+    fun `S15 a cost breach alone pauses the run on the cost dimension, and a second breach after an extend is budget n 2`(): Unit =
         world { w ->
             val run = open(w, """{"costUsd":1.0}""")
             val seat = seatUp(w, run, w.m1)

@@ -52,7 +52,7 @@ class JwksKeySetProviderCacheTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `fresh fetch populates cache and returns FRESH state`() =
+    fun `fresh fetch populates cache and returns FRESH state`(): Unit =
         runTest {
             writeJwksFile()
             val prevUserDir = System.getProperty("user.dir")
@@ -85,7 +85,7 @@ class JwksKeySetProviderCacheTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `cache hit within TTL returns same JWKSet instance without re-fetching`() =
+    fun `cache hit within TTL returns same JWKSet instance without re-fetching`(): Unit =
         runTest {
             writeJwksFile()
             val fixedClock = Clock.fixed(Instant.parse("2024-06-01T00:00:00Z"), ZoneOffset.UTC)
@@ -121,7 +121,7 @@ class JwksKeySetProviderCacheTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `expired cache triggers re-fetch and returns new JWKSet instance`() =
+    fun `expired cache triggers re-fetch and returns new JWKSet instance`(): Unit =
         runTest {
             writeJwksFile()
             val baseInstant = Instant.parse("2024-06-01T00:00:00Z")
@@ -168,7 +168,7 @@ class JwksKeySetProviderCacheTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `stale-on-error serves cached keys when refresh fails`() =
+    fun `stale-on-error serves cached keys when refresh fails`(): Unit =
         runTest {
             // Set up a mock HTTP server: first request succeeds, subsequent requests fail.
             val fetchCount = AtomicInteger(0)
@@ -245,7 +245,7 @@ class JwksKeySetProviderCacheTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `stale-on-error disabled rethrows exception when refresh fails`() =
+    fun `stale-on-error disabled rethrows exception when refresh fails`(): Unit =
         runTest {
             // First request succeeds; subsequent fail.
             val fetchCount = AtomicInteger(0)

@@ -64,13 +64,13 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S6 getNoteLimitsMode is null when no config row exists`() =
+    fun `S6 getNoteLimitsMode is null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getNoteLimitsMode(rootItemId))
         }
 
     @Test
-    fun `S6 getNoteLimitsMode is warn when note_limits is present as an empty map`() =
+    fun `S6 getNoteLimitsMode is warn when note_limits is present as an empty map`(): Unit =
         runBlocking {
             repository.upsert(rootItemId, "note_limits: {}\n")
             assertEquals("warn", service.getNoteLimitsMode(rootItemId))
@@ -81,13 +81,13 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S6 layer returns null when no config row exists`() =
+    fun `S6 layer returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.layer(rootItemId))
         }
 
     @Test
-    fun `S6 layer returns PER_ROOT source with the row fingerprint and the parsed schemas`() =
+    fun `S6 layer returns PER_ROOT source with the row fingerprint and the parsed schemas`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -119,7 +119,7 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S11 layer fails closed for a head without canonical JSON`() =
+    fun `S11 layer fails closed for a head without canonical JSON`(): Unit =
         runBlocking {
             // The ConfigTestSupport shim stores NULL canonical_json for YAML that does not parse.
             repository.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
@@ -127,7 +127,7 @@ class PerRootConfigLayerTest {
         }
 
     @Test
-    fun `S11 layer throws PerRootConfigUnavailableException on a cold read error`() =
+    fun `S11 layer throws PerRootConfigUnavailableException on a cold read error`(): Unit =
         runBlocking {
             val wrapper = FailableProjectConfigRepository(repository)
             wrapper.failFingerprint = true
@@ -138,7 +138,7 @@ class PerRootConfigLayerTest {
         }
 
     @Test
-    fun `S11 layer serves the last-known-good layer when a warm cache hits a read error`() =
+    fun `S11 layer serves the last-known-good layer when a warm cache hits a read error`(): Unit =
         runBlocking {
             val wrapper = FailableProjectConfigRepository(repository)
             val warmService = PerRootConfigService(wrapper)

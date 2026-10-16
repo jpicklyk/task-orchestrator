@@ -156,15 +156,15 @@ class RunRollupSnapshotFailSoftTest {
     }
 
     @Test
-    fun `S12 an IllegalStateException from the rollup computation does not block the close and a later read is live`() =
+    fun `S12 an IllegalStateException from the rollup computation does not block the close and a later read is live`(): Unit =
         absorbed("IllegalStateException") { IllegalStateException("injected: bad seat row") }
 
     @Test
-    fun `S12 an IllegalArgumentException from the rollup computation does not block the close`() =
+    fun `S12 an IllegalArgumentException from the rollup computation does not block the close`(): Unit =
         absorbed("IllegalArgumentException") { IllegalArgumentException("injected: bad argument") }
 
     @Test
-    fun `S12 a SerializationException from the rollup computation does not block the close`() =
+    fun `S12 a SerializationException from the rollup computation does not block the close`(): Unit =
         absorbed("SerializationException") { SerializationException("injected: bad snapshot") }
 
     // ------------------------------------------------------------------ the failures that still roll the close back
@@ -193,14 +193,14 @@ class RunRollupSnapshotFailSoftTest {
     }
 
     @Test
-    fun `S12 a SQLException from the rollup computation rolls the close back`() =
+    fun `S12 a SQLException from the rollup computation rolls the close back`(): Unit =
         propagates("SQLException") { SQLException("injected: persistence fault") }
 
     @Test
-    fun `S12 a cancellation from the rollup computation rolls the close back instead of being absorbed`() =
+    fun `S12 a cancellation from the rollup computation rolls the close back instead of being absorbed`(): Unit =
         propagates("CancellationException") { CancellationException("injected: cancelled") }
 
     @Test
-    fun `S12 a failure of any other kind rolls the close back`() =
+    fun `S12 a failure of any other kind rolls the close back`(): Unit =
         propagates("RuntimeException") { RuntimeException("injected: unexpected") }
 }

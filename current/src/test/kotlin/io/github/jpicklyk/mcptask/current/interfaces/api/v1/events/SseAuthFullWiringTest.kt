@@ -244,7 +244,7 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S4 - allowQueryToken false rejects a query-token-only request with 401`() =
+    fun `S4 - allowQueryToken false rejects a query-token-only request with 401`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -264,7 +264,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S5 - allowQueryToken true with an unknown garbage token returns 401`() =
+    fun `S5 - allowQueryToken true with an unknown garbage token returns 401`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -281,7 +281,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S6 - a query token must not leak authentication onto a non-SSE route`() =
+    fun `S6 - a query token must not leak authentication onto a non-SSE route`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -302,7 +302,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S7 - no credential - items 401, health 200, mcp initialize is not gated by the REST bearer check`() =
+    fun `S7 - no credential - items 401, health 200, mcp initialize is not gated by the REST bearer check`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -336,7 +336,7 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S8 - a query token lacking READ or ADMIN returns 403`() =
+    fun `S8 - a query token lacking READ or ADMIN returns 403`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -382,7 +382,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S10 - empty, absent, and whitespace token values all 401 when the flag is on`() =
+    fun `S10 - empty, absent, and whitespace token values all 401 when the flag is on`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -417,7 +417,7 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `probe - eventsfoo and events2 do not inherit the events publicPaths exemption`() =
+    fun `probe - eventsfoo and events2 do not inherit the events publicPaths exemption`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -442,7 +442,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - trailing slash on the events path is not silently exempted`() =
+    fun `probe - trailing slash on the events path is not silently exempted`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -491,7 +491,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - percent-encoded events path still enforces auth - no path-decoding bypass`() =
+    fun `probe - percent-encoded events path still enforces auth - no path-decoding bypass`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {
@@ -541,7 +541,7 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - health with a query string stays public`() =
+    fun `probe - health with a query string stays public`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
             application {

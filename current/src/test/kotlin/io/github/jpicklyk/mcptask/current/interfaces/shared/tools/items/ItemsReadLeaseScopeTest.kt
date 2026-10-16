@@ -37,7 +37,7 @@ class ItemsReadLeaseScopeTest {
     lateinit var dir: Path
 
     @Test
-    fun `a lease held by an out-of-scope item does not disclose its holder to a restricted caller`() =
+    fun `a lease held by an out-of-scope item does not disclose its holder to a restricted caller`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api"), yaml = LEASE_YAML) { rig ->
             val hiddenHolder = rig.make("Hidden-holder", role = Role.WORK, traits = listOf("needs-slot"))
             val target = rig.make("Visible-target", tags = "api", traits = listOf("needs-slot"))

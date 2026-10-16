@@ -35,7 +35,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- CRUD ---
 
     @Test
-    fun `create and getById returns the item`() =
+    fun `create and getById returns the item`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Test task")
             val createResult = repository.create(item)
@@ -48,7 +48,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `create preserves all fields`() =
+    fun `create preserves all fields`(): Unit =
         runBlocking {
             val item =
                 WorkItem(
@@ -83,7 +83,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `update modifies item`() =
+    fun `update modifies item`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Original title")
             repository.create(item)
@@ -99,7 +99,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `delete removes item`() =
+    fun `delete removes item`(): Unit =
         runBlocking {
             val item = WorkItem(title = "To be deleted")
             repository.create(item)
@@ -113,7 +113,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `delete non-existent item returns false`() =
+    fun `delete non-existent item returns false`(): Unit =
         runBlocking {
             val result = repository.delete(UUID.randomUUID())
             assertNotNull(result)
@@ -123,7 +123,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- Parent-child hierarchy ---
 
     @Test
-    fun `create with parentId`() =
+    fun `create with parentId`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -139,7 +139,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `findByParent returns children`() =
+    fun `findByParent returns children`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -158,7 +158,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `findByParent returns empty for no children`() =
+    fun `findByParent returns empty for no children`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -171,7 +171,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- findByRole ---
 
     @Test
-    fun `findByRole filters correctly`() =
+    fun `findByRole filters correctly`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Queue item 1", role = Role.QUEUE))
             repository.create(WorkItem(title = "Queue item 2", role = Role.QUEUE))
@@ -184,7 +184,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `findByRole returns empty for no matches`() =
+    fun `findByRole returns empty for no matches`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
 
@@ -196,7 +196,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- findByDepth ---
 
     @Test
-    fun `findByDepth filters correctly`() =
+    fun `findByDepth filters correctly`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Root", depth = 0)
             repository.create(parent)
@@ -216,7 +216,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- findProjectRoots ---
 
     @Test
-    fun `findProjectRoots returns only depth-0 project-typed items`() =
+    fun `findProjectRoots returns only depth-0 project-typed items`(): Unit =
         runBlocking {
             val projectA = WorkItem(title = "Project A", depth = 0, type = "project")
             val projectB = WorkItem(title = "Project B", depth = 0, type = "project")
@@ -233,7 +233,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `findProjectRoots returns empty when no project anchors exist`() =
+    fun `findProjectRoots returns empty when no project anchors exist`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Plain root", depth = 0))
 
@@ -245,7 +245,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- search ---
 
     @Test
-    fun `search by title`() =
+    fun `search by title`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Authentication module"))
             repository.create(WorkItem(title = "Database layer"))
@@ -257,7 +257,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `search by summary`() =
+    fun `search by summary`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Task A", summary = "Fix login bug"))
             repository.create(WorkItem(title = "Task B", summary = "Add feature"))
@@ -269,7 +269,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `search returns empty for no matches`() =
+    fun `search returns empty for no matches`(): Unit =
         runBlocking {
             repository.create(WorkItem(title = "Something"))
 
@@ -281,7 +281,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- count ---
 
     @Test
-    fun `count returns correct count`() =
+    fun `count returns correct count`(): Unit =
         runBlocking {
             assertEquals(0L, repository.count())
 
@@ -297,7 +297,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- findChildren ---
 
     @Test
-    fun `findChildren returns correct children`() =
+    fun `findChildren returns correct children`(): Unit =
         runBlocking {
             val parent = WorkItem(title = "Parent", depth = 0)
             repository.create(parent)
@@ -317,7 +317,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- Optimistic locking ---
 
     @Test
-    fun `update with wrong version fails with ConflictError`() =
+    fun `update with wrong version fails with ConflictError`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Original")
             repository.create(item)
@@ -339,7 +339,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- getById not found ---
 
     @Test
-    fun `getById with non-existent UUID returns NotFound`() =
+    fun `getById with non-existent UUID returns NotFound`(): Unit =
         runBlocking {
             val result = repository.getById(UUID.randomUUID())
             assertNull(result)
@@ -348,7 +348,7 @@ class SQLiteWorkItemRepositoryTest {
     // --- type and properties persistence ---
 
     @Test
-    fun `create and retrieve item with type and properties`() =
+    fun `create and retrieve item with type and properties`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Typed item", type = "feature", properties = """{"foo":"bar"}""")
             repository.create(item)
@@ -360,7 +360,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `type and properties default to null when not provided`() =
+    fun `type and properties default to null when not provided`(): Unit =
         runBlocking {
             val item = WorkItem(title = "No type item")
             repository.create(item)
@@ -372,7 +372,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `update preserves type and properties`() =
+    fun `update preserves type and properties`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Original", type = "bug", properties = """{"severity":"high"}""")
             repository.create(item)
@@ -387,7 +387,7 @@ class SQLiteWorkItemRepositoryTest {
         }
 
     @Test
-    fun `update can change type and properties`() =
+    fun `update can change type and properties`(): Unit =
         runBlocking {
             val item = WorkItem(title = "Original", type = "task", properties = null)
             repository.create(item)

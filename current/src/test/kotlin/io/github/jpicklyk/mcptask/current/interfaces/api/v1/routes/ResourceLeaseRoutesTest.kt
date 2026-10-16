@@ -131,7 +131,7 @@ class ResourceLeaseRoutesTest {
     // ------------------------------------------------------------------ S6 GET /resources/leases
 
     @Test
-    fun `S6 GET leases is a page of lease items ordered by resource key with identity fields only for an admin`() =
+    fun `S6 GET leases is a page of lease items ordered by resource key with identity fields only for an admin`(): Unit =
         withRoutes {
             val zeta = lease("zeta-lock", actor = "agent-zeta")
             val alpha = lease("alpha-lock", actor = "agent-alpha")
@@ -175,7 +175,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S6 GET leases with nothing leased is an ok empty page`() =
+    fun `S6 GET leases with nothing leased is an ok empty page`(): Unit =
         withRoutes {
             val response = client.getAs("/api/v1/resources/leases", TEST_TOKEN)
 
@@ -193,7 +193,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S6 GET leases and history without a token keep the legacy 401`() =
+    fun `S6 GET leases and history without a token keep the legacy 401`(): Unit =
         withRoutes {
             assertEquals(401, client.getAs("/api/v1/resources/leases", null).status.value)
             assertEquals(401, client.getAs("/api/v1/resources/leases/history", null).status.value)
@@ -208,7 +208,7 @@ class ResourceLeaseRoutesTest {
     // ------------------------------------------------------------------ S6 history
 
     @Test
-    fun `S6 history is newest first, limit bounds the page and total is the full count with truncated and next`() =
+    fun `S6 history is newest first, limit bounds the page and total is the full count with truncated and next`(): Unit =
         withRoutes {
             val older = lease("older-lock", actor = "agent-old")
             clock.advanceSeconds(60)
@@ -243,7 +243,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S6 history default limit is 50`() =
+    fun `S6 history default limit is 50`(): Unit =
         withRoutes {
             repeat(51) { lease("bulk-%02d".format(it)) }
 
@@ -255,7 +255,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S6 history at filters to the holders at that instant and key filters to one resource`() =
+    fun `S6 history at filters to the holders at that instant and key filters to one resource`(): Unit =
         withRoutes {
             val a = lease("staging-db", ttl = 300) // held from start
             clock.advanceSeconds(100)
@@ -285,7 +285,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S6 history shows actor fields to an admin only`() =
+    fun `S6 history shows actor fields to an admin only`(): Unit =
         withRoutes {
             lease("seen-lock", actor = "agent-77")
 
@@ -308,7 +308,7 @@ class ResourceLeaseRoutesTest {
     // ------------------------------------------------------------------ S20 query parameters
 
     @Test
-    fun `S20 a bad history limit is invalid_request on the limit field and the bounds 1 and 200 are accepted`() =
+    fun `S20 a bad history limit is invalid_request on the limit field and the bounds 1 and 200 are accepted`(): Unit =
         withRoutes {
             lease("limit-lock")
             for (bad in listOf("0", "201", "-1", "x", "1.5")) {
@@ -324,7 +324,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S20 a bad history key or at is invalid_request on that field`() =
+    fun `S20 a bad history key or at is invalid_request on that field`(): Unit =
         withRoutes {
             val badKeys = listOf("Invalid_Key!", "a".repeat(129), "-leading-dash", "Staging-DB", "has space")
             for (key in badKeys) {
@@ -344,7 +344,7 @@ class ResourceLeaseRoutesTest {
     // ------------------------------------------------------------------ S7 / S16 DELETE
 
     @Test
-    fun `S7 DELETE releases the lease, answers resourceKey and releasedCount and records a forced lease released row`() =
+    fun `S7 DELETE releases the lease, answers resourceKey and releasedCount and records a forced lease released row`(): Unit =
         withRoutes {
             val holder = lease("force-me")
             lease("keep-me")
@@ -395,7 +395,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S7 a repeated DELETE or an unknown key is not_found of kind lease`() =
+    fun `S7 a repeated DELETE or an unknown key is not_found of kind lease`(): Unit =
         withRoutes {
             lease("once-only")
             val first = client.delete("/api/v1/resources/leases/once-only") { header("Authorization", "Bearer $ADMIN_TOKEN") }
@@ -412,7 +412,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S16 DELETE with a read-only token is forbidden on the admin capability and releases nothing`() =
+    fun `S16 DELETE with a read-only token is forbidden on the admin capability and releases nothing`(): Unit =
         withRoutes {
             lease("guarded")
 
@@ -427,7 +427,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S16 DELETE with a malformed key is invalid_request on the key field and releases nothing`() =
+    fun `S16 DELETE with a malformed key is invalid_request on the key field and releases nothing`(): Unit =
         withRoutes {
             lease("valid-key")
             for (key in listOf("Invalid_Key!", "a".repeat(129))) {
@@ -441,7 +441,7 @@ class ResourceLeaseRoutesTest {
         }
 
     @Test
-    fun `S16 the history and list routes are readable with the read capability alone`() =
+    fun `S16 the history and list routes are readable with the read capability alone`(): Unit =
         withRoutes {
             lease("readable")
             val listed = client.getAs("/api/v1/resources/leases", TEST_TOKEN)

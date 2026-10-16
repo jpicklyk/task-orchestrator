@@ -115,7 +115,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         )
 
     @Test
-    fun `item under a root with pushed config resolves the per-root schema`() =
+    fun `item under a root with pushed config resolves the per-root schema`(): Unit =
         runBlocking {
             val item = makeItem(rootId = rootWithConfig)
 
@@ -127,7 +127,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         }
 
     @Test
-    fun `sibling item under a root with no pushed config resolves the global schema unchanged`() =
+    fun `sibling item under a root with no pushed config resolves the global schema unchanged`(): Unit =
         runBlocking {
             val item = makeItem(rootId = rootWithoutConfig)
 
@@ -137,7 +137,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         }
 
     @Test
-    fun `item with null rootId resolves the global schema unchanged`() =
+    fun `item with null rootId resolves the global schema unchanged`(): Unit =
         runBlocking {
             val item = makeItem(rootId = null)
 

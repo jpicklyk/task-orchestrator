@@ -94,36 +94,38 @@ class ApiStatusPagesWiringTest {
     @Test
     fun `N2 an uncaught exception in a route under api v1 returns the exact 500 internal body through installRestApiRoutes`(
         @TempDir tempDir: Path
-    ) = testApplication {
-        val composition = buildComposition(tempDir)
-        application { productionRestAppWithThrowingRoutes(composition) }
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            application { productionRestAppWithThrowingRoutes(composition) }
 
-        val response =
-            client.get("/api/v1/p16-wiring-boom") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/p16-wiring-boom") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
 
-        val body = response.bodyAsText()
-        assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
-        val json = Json.parseToJsonElement(body).jsonObject
-        assertEquals(setOf("ok", "error", "meta"), json.keys, "body: $body")
-        val error = json["error"]!!.jsonObject
-        assertEquals("internal", error["code"]?.jsonPrimitive?.content)
-        assertEquals("Internal server error", error["message"]?.jsonPrimitive?.content)
-        assertFalse(body.contains("SELECT") || body.contains("hunter2"), "the exception text must never reach the client: $body")
-    }
+            val body = response.bodyAsText()
+            assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
+            val json = Json.parseToJsonElement(body).jsonObject
+            assertEquals(setOf("ok", "error", "meta"), json.keys, "body: $body")
+            val error = json["error"]!!.jsonObject
+            assertEquals("internal", error["code"]?.jsonPrimitive?.content)
+            assertEquals("Internal server error", error["message"]?.jsonPrimitive?.content)
+            assertFalse(body.contains("SELECT") || body.contains("hunter2"), "the exception text must never reach the client: $body")
+        }
 
     @Test
     fun `N2 probe a path outside api v1 keeps Ktor's default 500 with no envelope body`(
         @TempDir tempDir: Path
-    ) = testApplication {
-        val composition = buildComposition(tempDir)
-        application { productionRestAppWithThrowingRoutes(composition) }
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            application { productionRestAppWithThrowingRoutes(composition) }
 
-        val response = client.get("/p16-outside-boom") { header("Authorization", "Bearer $TEST_TOKEN") }
+            val response = client.get("/p16-outside-boom") { header("Authorization", "Bearer $TEST_TOKEN") }
 
-        val body = response.bodyAsText()
-        assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
-        assertTrue(!body.contains("\"code\":\"internal\""), "no envelope outside /api/v1: $body")
-    }
+            val body = response.bodyAsText()
+            assertEquals(HttpStatusCode.InternalServerError, response.status, "body: $body")
+            assertTrue(!body.contains("\"code\":\"internal\""), "no envelope outside /api/v1: $body")
+        }
 }

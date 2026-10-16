@@ -214,7 +214,7 @@ class JwksApiVerifierRejectionLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S1 unparseable token is rejected with one crypto line`() =
+    fun `S1 unparseable token is rejected with one crypto line`(): Unit =
         runTest {
             val verdict = verifier().verifyWithExpiry("not-a-jwt")
             assertEquals(ApiTokenVerdict.Rejected, verdict)
@@ -222,7 +222,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S2 tampered signature is rejected with one crypto line`() =
+    fun `S2 tampered signature is rejected with one crypto line`(): Unit =
         runTest {
             // Signed by a different key under the same kid: the signature cannot verify against the published key.
             val token = signRsa(key = impostorKey)
@@ -232,7 +232,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S3 expired token is rejected with one claims line`() =
+    fun `S3 expired token is rejected with one claims line`(): Unit =
         runTest {
             val token = signRsa(claims(expiry = base.minusSeconds(600)))
             val verdict = verifier().verifyWithExpiry(token)
@@ -241,7 +241,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S4 algorithm outside the allowlist is rejected with one policy line`() =
+    fun `S4 algorithm outside the allowlist is rejected with one policy line`(): Unit =
         runTest {
             // The EC key IS in the key set, so only the RS256-only allowlist can refuse this ES256 token.
             val verdict = verifier(algorithms = listOf("RS256")).verifyWithExpiry(signEc())
@@ -250,7 +250,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S5 validly signed token with a string to_scope is rejected with one claims line`() =
+    fun `S5 validly signed token with a string to_scope is rejected with one claims line`(): Unit =
         runTest {
             val token = signRsa(claims(extra = mapOf("to_scope" to "x")))
             val verdict = verifier().verifyWithExpiry(token)
@@ -259,7 +259,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S6 validly signed token with a non-string to_kind is rejected with one claims line`() =
+    fun `S6 validly signed token with a non-string to_kind is rejected with one claims line`(): Unit =
         runTest {
             val token = signRsa(claims(extra = mapOf("to_kind" to 42)))
             val verdict = verifier().verifyWithExpiry(token)
@@ -268,7 +268,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S7 verify wrapper logs exactly one line and returns null`() =
+    fun `S7 verify wrapper logs exactly one line and returns null`(): Unit =
         runTest {
             val principal = verifier().verify("not-a-jwt")
             assertNull(principal)
@@ -280,7 +280,7 @@ class JwksApiVerifierRejectionLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `S8 verified token produces no rejection line at any level`() =
+    fun `S8 verified token produces no rejection line at any level`(): Unit =
         runTest {
             val v = verifier()
             val verdict = v.verifyWithExpiry(signRsa())
@@ -292,7 +292,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S9 unavailable key set produces no rejection line`() =
+    fun `S9 unavailable key set produces no rejection line`(): Unit =
         runTest {
             val unavailable = JwksApiVerifier(jwksAuthConfig(), unavailableProvider(), clock)
             val verdict = unavailable.verifyWithExpiry(signRsa())
@@ -305,7 +305,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S10 rejection line never carries the token or any claim value`() =
+    fun `S10 rejection line never carries the token or any claim value`(): Unit =
         runTest {
             val token =
                 signRsa(
@@ -347,7 +347,7 @@ class JwksApiVerifierRejectionLogTest {
     }
 
     @Test
-    fun `S11 eleventh rejection in a window is not logged`() =
+    fun `S11 eleventh rejection in a window is not logged`(): Unit =
         runTest {
             rejectCrypto(verifier(), 11)
             assertEquals(List(10) { expected("crypto", 0) }, rejectionMessages())
@@ -355,7 +355,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S12 next window first line reports the suppressed count then resets`() =
+    fun `S12 next window first line reports the suppressed count then resets`(): Unit =
         runTest {
             val v = verifier()
             rejectCrypto(v, 11)
@@ -366,7 +366,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S13 window is still open one millisecond before the 60 second mark`() =
+    fun `S13 window is still open one millisecond before the 60 second mark`(): Unit =
         runTest {
             val v = verifier()
             rejectCrypto(v, 11)
@@ -376,7 +376,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S14 reason codes are limited independently`() =
+    fun `S14 reason codes are limited independently`(): Unit =
         runTest {
             val v = verifier()
             rejectCrypto(v, 11)
@@ -385,7 +385,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `S15 suppressed count accumulates across the whole window`() =
+    fun `S15 suppressed count accumulates across the whole window`(): Unit =
         runTest {
             val v = verifier()
             rejectCrypto(v, 15)
@@ -399,7 +399,7 @@ class JwksApiVerifierRejectionLogTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `probe concurrent rejections never exceed ten lines and lose no counts`() =
+    fun `probe concurrent rejections never exceed ten lines and lose no counts`(): Unit =
         runTest {
             val v = verifier()
             withContext(Dispatchers.Default) {
@@ -412,7 +412,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `probe empty and whitespace tokens are crypto rejections with the standard shape`() =
+    fun `probe empty and whitespace tokens are crypto rejections with the standard shape`(): Unit =
         runTest {
             val v = verifier()
             assertEquals(ApiTokenVerdict.Rejected, v.verifyWithExpiry(""))
@@ -421,7 +421,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `probe token text with braces percent and newline cannot alter the line shape`() =
+    fun `probe token text with braces percent and newline cannot alter the line shape`(): Unit =
         runTest {
             val v = verifier()
             val hostile = "{}" + Char(10) + "%s {} reason=policy suppressed=99"
@@ -430,7 +430,7 @@ class JwksApiVerifierRejectionLogTest {
         }
 
     @Test
-    fun `probe the same token presented repeatedly is counted every time`() =
+    fun `probe the same token presented repeatedly is counted every time`(): Unit =
         runTest {
             val v = verifier()
             val token = "not-a-jwt"

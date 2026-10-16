@@ -284,11 +284,11 @@ class PreviewMissingNotesConsistencyTest {
     }
 
     @Test
-    fun `H3 get_context stays self-consistent when the first note read hides a note that later reads show`() =
+    fun `H3 get_context stays self-consistent when the first note read hides a note that later reads show`(): Unit =
         raceGate(true, "mcp/hide-first")
 
     @Test
-    fun `H3 get_context stays self-consistent when the first note read shows a note that later reads hide`() =
+    fun `H3 get_context stays self-consistent when the first note read shows a note that later reads hide`(): Unit =
         raceGate(false, "mcp/show-first")
 
     private fun raceGateRest(
@@ -307,10 +307,10 @@ class PreviewMissingNotesConsistencyTest {
     }
 
     @Test
-    fun `H3 REST ops context stays self-consistent when the first note read hides a note that later reads show`() =
+    fun `H3 REST ops context stays self-consistent when the first note read hides a note that later reads show`(): Unit =
         raceGateRest(true, "rest/hide-first")
 
     @Test
-    fun `H3 REST ops context stays self-consistent when the first note read shows a note that later reads hide`() =
+    fun `H3 REST ops context stays self-consistent when the first note read shows a note that later reads hide`(): Unit =
         raceGateRest(false, "rest/show-first")
 }

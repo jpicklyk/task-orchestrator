@@ -182,7 +182,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 a valid RS256 token is Verified under both presets with kid alg and fresh cache state`() =
+    fun `S1 a valid RS256 token is Verified under both presets with kid alg and fresh cache state`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val v = verifier(policy, staticProvider(rsaKey)).verify(signRsa()).asVerified()
@@ -198,7 +198,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S2 an algorithm outside the allowlist is Rejected as policy even though its key is in the set`() =
+    fun `S2 an algorithm outside the allowlist is Rejected as policy even though its key is in the set`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 // The key set holds BOTH keys, so without the allowlist this ES256 token would verify.
@@ -208,7 +208,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S2 an empty allowlist admits any algorithm`() =
+    fun `S2 an empty allowlist admits any algorithm`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val open = policy.copy(algorithms = emptyList())
@@ -222,7 +222,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 a corrupted signature on an exp-less token is Rejected as crypto not claims`() =
+    fun `S3 a corrupted signature on an exp-less token is Rejected as crypto not claims`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val token = corruptSignature(signRsa(claims(expiry = null)))
@@ -232,7 +232,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S4 a validly signed token without exp is Rejected as claims with the missing exp reason`() =
+    fun `S4 a validly signed token without exp is Rejected as claims with the missing exp reason`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val r = verifier(policy, staticProvider(rsaKey)).verify(signRsa(claims(expiry = null))).asRejected()
@@ -246,7 +246,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S6 requireSub rejects a token without sub as claims while the actor preset accepts it`() =
+    fun `S6 requireSub rejects a token without sub as claims while the actor preset accepts it`(): Unit =
         runTest {
             val noSub = signRsa(claims(subject = null))
 
@@ -262,7 +262,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S7 an unknown kid refreshes once and verifies against the refreshed set`() =
+    fun `S7 an unknown kid refreshes once and verifies against the refreshed set`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val p = staticProvider(rsaKey)
@@ -277,7 +277,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S7 an unknown kid whose refresh yields nothing is Rejected as crypto after one refresh`() =
+    fun `S7 an unknown kid whose refresh yields nothing is Rejected as crypto after one refresh`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val p = staticProvider(rsaKey)
@@ -291,7 +291,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S7 a known kid never triggers a refresh`() =
+    fun `S7 a known kid never triggers a refresh`(): Unit =
         runTest {
             eachStaticPolicy { _, policy ->
                 val p = staticProvider(rsaKey)
@@ -305,7 +305,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8 KeySetUnavailableException from the provider is Unavailable not Rejected`() =
+    fun `S8 KeySetUnavailableException from the provider is Unavailable not Rejected`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val p = staticProvider(rsaKey)
@@ -315,7 +315,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S8 any other fetch failure is also Unavailable`() =
+    fun `S8 any other fetch failure is also Unavailable`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val p = staticProvider(rsaKey)
@@ -326,7 +326,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S8 cancellation from the provider propagates instead of being mapped to a verdict`() =
+    fun `S8 cancellation from the provider propagates instead of being mapped to a verdict`(): Unit =
         runTest {
             val p = staticProvider(rsaKey)
             coEvery { p.getKeySet() } throws CancellationException("cancelled by caller")
@@ -344,7 +344,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S9 a stale key set still verifies and the cache state is reported`() =
+    fun `S9 a stale key set still verifies and the cache state is reported`(): Unit =
         runTest {
             val stale = CacheState(fromStaleCache = true, ageSeconds = 42)
             eachStaticPolicy { name, policy ->
@@ -358,7 +358,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S11 verifyWithExpiry returns the exp instant and verify returns null for every non-Verified verdict`() =
+    fun `S11 verifyWithExpiry returns the exp instant and verify returns null for every non-Verified verdict`(): Unit =
         runTest {
             val expEpoch = NOW.plusSeconds(300).epochSecond
             val token = signRsa(claims(expiry = Instant.ofEpochSecond(expEpoch)))
@@ -379,7 +379,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `S11 a stale key set still resolves a principal for the API mapper`() =
+    fun `S11 a stale key set still resolves a principal for the API mapper`(): Unit =
         runTest {
             val stale = CacheState(fromStaleCache = true, ageSeconds = 600)
             val principal = JwksApiVerifier(apiConfig(), staticProvider(rsaKey, cache = stale), CLOCK).verify(signRsa())
@@ -391,7 +391,7 @@ class JwtVerifierTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `Probe unparseable and alg-none tokens are Rejected as crypto`() =
+    fun `Probe unparseable and alg-none tokens are Rejected as crypto`(): Unit =
         runTest {
             val encoder =
                 java.util.Base64
@@ -409,7 +409,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `Probe a non-numeric exp claim is Rejected as claims`() =
+    fun `Probe a non-numeric exp claim is Rejected as claims`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val malformed =
@@ -426,7 +426,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `Probe wrong issuer and wrong audience are Rejected as claims under both presets`() =
+    fun `Probe wrong issuer and wrong audience are Rejected as claims under both presets`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val v = verifier(policy, staticProvider(rsaKey))
@@ -436,7 +436,7 @@ class JwtVerifierTest {
         }
 
     @Test
-    fun `Probe an expired token is Rejected as claims`() =
+    fun `Probe an expired token is Rejected as claims`(): Unit =
         runTest {
             eachStaticPolicy { name, policy ->
                 val expired = signRsa(claims(expiry = NOW.minusSeconds(3600)))

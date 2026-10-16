@@ -208,7 +208,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S4 / S5 / S6 happy writes
 
     @Test
-    fun `S4 write of a new slug creates version 1 with the sha256 of the body and records document created`() =
+    fun `S4 write of a new slug creates version 1 with the sha256 of the body and records document created`(): Unit =
         runBlocking {
             val doc = write("plan-a", "# Plan A\n", title = "Plan A title", actorId = "actor-1").value()
 
@@ -243,7 +243,7 @@ class DocumentServiceTest {
     }
 
     @Test
-    fun `S5 write with expectedVersion equal to the current version appends version 2 and records document updated`() =
+    fun `S5 write with expectedVersion equal to the current version appends version 2 and records document updated`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
 
@@ -272,7 +272,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S6 write with a null expectedVersion overwrites unconditionally and the same body twice still advances the version`() =
+    fun `S6 write with a null expectedVersion overwrites unconditionally and the same body twice still advances the version`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "same\n")
             val v2 = write("plan-a", "same\n").value()
@@ -286,7 +286,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S6 expectedVersion 0 on an absent slug creates version 1`() =
+    fun `S6 expectedVersion 0 on an absent slug creates version 1`(): Unit =
         runBlocking {
             val doc = write("plan-a", "x\n", expectedVersion = 0).value()
             assertEquals(1, doc.version)
@@ -305,7 +305,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S12 version conflicts
 
     @Test
-    fun `S12 a stale expectedVersion is version_conflict naming the document and changes nothing`() =
+    fun `S12 a stale expectedVersion is version_conflict naming the document and changes nothing`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             write("plan-a", "second\n", expectedVersion = 1).value()
@@ -321,7 +321,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S12 an expectedVersion above the current version is also version_conflict`() =
+    fun `S12 an expectedVersion above the current version is also version_conflict`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             val err = write("plan-a", "ahead\n", expectedVersion = 5).error()
@@ -333,7 +333,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S12 expectedVersion 0 on a present document is version_conflict`() =
+    fun `S12 expectedVersion 0 on a present document is version_conflict`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             val err = write("plan-a", "again\n", expectedVersion = 0).error()
@@ -345,7 +345,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S12 probe - a negative expectedVersion on an absent slug is rejected and creates nothing`() =
+    fun `S12 probe - a negative expectedVersion on an absent slug is rejected and creates nothing`(): Unit =
         runBlocking {
             assertIs<Outcome.Err>(write("plan-a", "x\n", expectedVersion = -1))
             assertNull(service.get(rootId, DocumentKind.PLAN, "plan-a"))
@@ -357,7 +357,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S13 size caps
 
     @Test
-    fun `S13 plan cap is 65536 bytes - at the cap succeeds and one byte over is payload_too_large`() =
+    fun `S13 plan cap is 65536 bytes - at the cap succeeds and one byte over is payload_too_large`(): Unit =
         runBlocking {
             assertEquals(PlanDocumentService.MAX_BODY_BYTES, DocumentService.maxBodyBytes(DocumentKind.PLAN))
             assertEquals(65536, DocumentService.maxBodyBytes(DocumentKind.PLAN))
@@ -371,7 +371,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S13 the cap counts UTF-8 bytes not characters`() =
+    fun `S13 the cap counts UTF-8 bytes not characters`(): Unit =
         runBlocking {
             // 65534 + 1 chars is under 65536 chars but 65534 + 3 = 65537 bytes; 65533 + 3 = 65536 bytes is exactly the cap.
             created("exact", "x".repeat(65533) + "€")
@@ -396,7 +396,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S13 an oversize overwrite leaves the existing document untouched`() =
+    fun `S13 an oversize overwrite leaves the existing document untouched`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "keep me\n")
             val err = write("plan-a", "x".repeat(65537)).error()
@@ -407,7 +407,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S14 state guards
 
     @Test
-    fun `S14 a write to an archived document is invalid_request naming slug and archived`() =
+    fun `S14 a write to an archived document is invalid_request naming slug and archived`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             service.archive(rootId, DocumentKind.PLAN, "plan-a").value()
@@ -426,7 +426,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S14 a write to an adopted document is duplicate naming the existing document and changes nothing`() =
+    fun `S14 a write to an adopted document is duplicate naming the existing document and changes nothing`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             val adopter = newItem("Adopter")
@@ -442,7 +442,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S14 deleting an adopted document is invalid_request and keeps the document its versions and the link`() =
+    fun `S14 deleting an adopted document is invalid_request and keeps the document its versions and the link`(): Unit =
         runBlocking {
             val v1 = created("plan-a", "first\n")
             val adopter = newItem("Adopter")
@@ -458,7 +458,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S14 adopting a rule document is invalid_request and creates no link`() =
+    fun `S14 adopting a rule document is invalid_request and creates no link`(): Unit =
         runBlocking {
             created("rule-a", "rule\n", DocumentKind.RULE)
             val adopter = newItem("Adopter")
@@ -473,7 +473,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S7 adoption
 
     @Test
-    fun `S7 adopt inserts one adopted_by link records document adopted and the facade reports ADOPTED`() =
+    fun `S7 adopt inserts one adopted_by link records document adopted and the facade reports ADOPTED`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             val adopter = newItem("Adopter")
@@ -502,7 +502,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S14 probe - a replayed adopt is duplicate and the first adopter and link stay`() =
+    fun `S14 probe - a replayed adopt is duplicate and the first adopter and link stay`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             val first = newItem("First adopter")
@@ -520,7 +520,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S7 adopting a slug that does not exist is not_found`() =
+    fun `S7 adopting a slug that does not exist is not_found`(): Unit =
         runBlocking {
             val adopter = newItem("Adopter")
             val err = service.adopt(rootId, "no-such-plan", adopter).error()
@@ -529,7 +529,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `D16 deleting the adopting item keeps the adoption as provenance and the document stays protected`() =
+    fun `D16 deleting the adopting item keeps the adoption as provenance and the document stays protected`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             val adopter = newItem("Adopter")
@@ -549,7 +549,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S8 archive
 
     @Test
-    fun `S8 archive sets archivedAt hides the document from the default list and unarchive restores it`() =
+    fun `S8 archive sets archivedAt hides the document from the default list and unarchive restores it`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             created("plan-b", "other\n")
@@ -585,7 +585,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S8 archive and unarchive of a missing document are not_found`() =
+    fun `S8 archive and unarchive of a missing document are not_found`(): Unit =
         runBlocking {
             assertEquals(ErrorCode.NOT_FOUND, service.archive(rootId, DocumentKind.PLAN, "nope").error().code)
             assertEquals(ErrorCode.NOT_FOUND, service.unarchive(rootId, DocumentKind.PLAN, "nope").error().code)
@@ -593,7 +593,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S8 archive with a stale expectedVersion is version_conflict and archives nothing`() =
+    fun `S8 archive with a stale expectedVersion is version_conflict and archives nothing`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             write("plan-a", "second\n").value()
@@ -609,7 +609,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S9 delete
 
     @Test
-    fun `S9 delete removes the document its versions and every link touching it but leaves unrelated links`() =
+    fun `S9 delete removes the document its versions and every link touching it but leaves unrelated links`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             write("plan-a", "second\n").value()
@@ -641,7 +641,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S9 delete of a missing document is not_found`() =
+    fun `S9 delete of a missing document is not_found`(): Unit =
         runBlocking {
             assertEquals(ErrorCode.NOT_FOUND, service.delete(rootId, DocumentKind.PLAN, "nope").error().code)
             assertEquals(emptyList(), eventTypes())
@@ -650,7 +650,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S15 root validation
 
     @Test
-    fun `S15 a write against an unknown root is not_found ROOT and stores nothing`() =
+    fun `S15 a write against an unknown root is not_found ROOT and stores nothing`(): Unit =
         runBlocking {
             val unknown = UUID.randomUUID()
             val err = service.write(unknown, DocumentKind.PLAN, "plan-a", "x\n").error()
@@ -661,7 +661,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S15 a write against a non-root item is invalid_request and stores nothing`() =
+    fun `S15 a write against a non-root item is invalid_request and stores nothing`(): Unit =
         runBlocking {
             val child = newItem("Child", parent = rootId, depth = 1)
             val err = service.write(child, DocumentKind.PLAN, "plan-a", "x\n").error()
@@ -673,7 +673,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S19 CRLF
 
     @Test
-    fun `S19 a CRLF body is stored with LF and hashed over the LF bytes on create and on overwrite`() =
+    fun `S19 a CRLF body is stored with LF and hashed over the LF bytes on create and on overwrite`(): Unit =
         runBlocking {
             assertEquals("a\nb\n", DocumentService.normalize("a\r\nb\r\n"))
 
@@ -690,7 +690,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S19 a CRLF body and its LF twin produce the same hash`() =
+    fun `S19 a CRLF body and its LF twin produce the same hash`(): Unit =
         runBlocking {
             val crlf = created("crlf", "x\r\ny\r\n")
             val lf = created("lf", "x\ny\n")
@@ -698,7 +698,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S19 probe - a lone carriage return is kept and a whitespace-only body is stored verbatim`() =
+    fun `S19 probe - a lone carriage return is kept and a whitespace-only body is stored verbatim`(): Unit =
         runBlocking {
             val lone = created("lone-cr", "a\rb\n")
             assertEquals("a\rb\n", lone.body)
@@ -712,7 +712,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S20 identity and scoping
 
     @Test
-    fun `S20 a plan and a rule may share a slug and stay independent documents`() =
+    fun `S20 a plan and a rule may share a slug and stay independent documents`(): Unit =
         runBlocking {
             val plan = created("shared", "plan body\n", DocumentKind.PLAN)
             val rule = created("shared", "rule body\n", DocumentKind.RULE)
@@ -727,7 +727,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S20 the same slug under two roots is two documents`() =
+    fun `S20 the same slug under two roots is two documents`(): Unit =
         runBlocking {
             val otherRoot = newItem("Other root")
             val here = created("plan-a", "here\n")
@@ -739,7 +739,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S20 deleting the root item cascades to its documents versions and links`() =
+    fun `S20 deleting the root item cascades to its documents versions and links`(): Unit =
         runBlocking {
             val doc = created("plan-a", "first\n")
             write("plan-a", "second\n").value()
@@ -759,7 +759,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- history, list
 
     @Test
-    fun `history lists every version and getVersion returns that version's bytes`() =
+    fun `history lists every version and getVersion returns that version's bytes`(): Unit =
         runBlocking {
             val doc = created("plan-a", "one\n")
             write("plan-a", "two\n").value()
@@ -779,7 +779,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `list returns summaries for the root only`() =
+    fun `list returns summaries for the root only`(): Unit =
         runBlocking {
             val a = created("plan-a", "a\n")
             created("plan-b", "b\n")
@@ -795,7 +795,7 @@ class DocumentServiceTest {
     // ---------------------------------------------------------------- S21 FTS stays in step with writes
 
     @Test
-    fun `S21 the document FTS indexes follow create overwrite and delete`() =
+    fun `S21 the document FTS indexes follow create overwrite and delete`(): Unit =
         runBlocking {
             created("plan-a", "the quagga crossed\n")
             for (fts in listOf("documents_fts_text", "documents_fts_trigram")) {
@@ -841,7 +841,7 @@ class DocumentServiceTest {
     }
 
     @Test
-    fun `S2 the facade stores a rule slash slug as a rule document and a RULE slash slug as a plan`() =
+    fun `S2 the facade stores a rule slash slug as a rule document and a RULE slash slug as a plan`(): Unit =
         runBlocking {
             val facade = PlanDocumentService(provider, db.unitOfWork())
 
@@ -858,7 +858,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S10 re-stashing through the facade advances the document version and records created then updated`() =
+    fun `S10 re-stashing through the facade advances the document version and records created then updated`(): Unit =
         runBlocking {
             val facade = PlanDocumentService(provider, db.unitOfWork())
             facade.stash(rootId, "plan-a", "v1\n")
@@ -873,7 +873,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S10 facade adoption and stash conflict follow the document model`() =
+    fun `S10 facade adoption and stash conflict follow the document model`(): Unit =
         runBlocking {
             val facade = PlanDocumentService(provider, db.unitOfWork())
             facade.stash(rootId, "plan-a", "v1\n")

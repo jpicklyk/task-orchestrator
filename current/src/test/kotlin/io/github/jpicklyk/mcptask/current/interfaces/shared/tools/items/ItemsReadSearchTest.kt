@@ -87,7 +87,7 @@ class ItemsReadSearchTest {
     // ------------------------------------------------------------------ S5
 
     @Test
-    fun `S5 the default search fuses item and note hits and totals them`() =
+    fun `S5 the default search fuses item and note hits and totals them`(): Unit =
         irApp(db.db, dir) { rig ->
             val c = seed(rig)
 
@@ -120,7 +120,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 kinds note limits hits to notes and kinds item to items`() =
+    fun `S5 kinds note limits hits to notes and kinds item to items`(): Unit =
         irApp(db.db, dir) { rig ->
             val c = seed(rig)
 
@@ -137,7 +137,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 substring mode finds a fragment of a term and text mode finds the whole term`() =
+    fun `S5 substring mode finds a fragment of a term and text mode finds the whole term`(): Unit =
         irApp(db.db, dir) { rig ->
             val c = seed(rig)
 
@@ -151,7 +151,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 snippet is on by default and absent with snippet false, explain is opt-in`() =
+    fun `S5 snippet is on by default and absent with snippet false, explain is opt-in`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -172,7 +172,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 itemId ancestorId role tags and traits filters narrow the hits`() =
+    fun `S5 itemId ancestorId role tags and traits filters narrow the hits`(): Unit =
         irApp(db.db, dir) { rig ->
             val c = seed(rig)
 
@@ -199,7 +199,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 paging walks every hit exactly once`() =
+    fun `S5 paging walks every hit exactly once`(): Unit =
         irApp(db.db, dir) { rig ->
             repeat(12) { rig.make("pagetoken entry $it") }
             val seen = mutableListOf<String>()
@@ -222,7 +222,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 more than 100 matches marks the page capped and totals a lower bound, fewer does not`() =
+    fun `S5 more than 100 matches marks the page capped and totals a lower bound, fewer does not`(): Unit =
         irApp(db.db, dir) { rig ->
             repeat(130) { rig.make("capword entry $it") }
             repeat(12) { rig.make("fewword entry $it") }
@@ -244,7 +244,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S5 a query with search syntax characters is matched literally and never fails`() =
+    fun `S5 a query with search syntax characters is matched literally and never fails`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -259,7 +259,7 @@ class ItemsReadSearchTest {
     // ------------------------------------------------------------------ S11 (search)
 
     @Test
-    fun `S11 under a tag scope search returns, counts and shows only visible items and their notes`() =
+    fun `S11 under a tag scope search returns, counts and shows only visible items and their notes`(): Unit =
         irApp(db.db, dir, tagsInclude = setOf("api")) { rig ->
             val visible = rig.make("scopetoken visible", tags = "api")
             rig.note(visible, "v1", "scopetoken visible note")
@@ -283,7 +283,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S11 under a root scope search covers the scoped subtree only`() =
+    fun `S11 under a root scope search covers the scoped subtree only`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(ROOT_A)) { rig ->
             val rootA = rig.make("rootword A", id = ROOT_A)
             val inA = rig.make("rootword inside A", rootA)
@@ -306,7 +306,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S11 an itemId or ancestorId filter that names an out-of-scope item is an ok empty page`() =
+    fun `S11 an itemId or ancestorId filter that names an out-of-scope item is an ok empty page`(): Unit =
         irApp(db.db, dir, scopeRootIds = setOf(ROOT_A)) { rig ->
             rig.make("filterword A", id = ROOT_A)
             val rootB = rig.make("filterword B", id = ROOT_B)
@@ -327,7 +327,7 @@ class ItemsReadSearchTest {
     // ------------------------------------------------------------------ S13 (search)
 
     @Test
-    fun `S13 a blank or missing query is invalid_request on query`() =
+    fun `S13 a blank or missing query is invalid_request on query`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("Anything")
 
@@ -340,7 +340,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S13 limit above 100 or below 1 is invalid_request on limit and 100 is accepted`() =
+    fun `S13 limit above 100 or below 1 is invalid_request on limit and 100 is accepted`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("limitword")
 
@@ -353,7 +353,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S13 empty or unknown kinds and an unknown matchMode are invalid_request`() =
+    fun `S13 empty or unknown kinds and an unknown matchMode are invalid_request`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("kindword")
 
@@ -371,7 +371,7 @@ class ItemsReadSearchTest {
         }
 
     @Test
-    fun `S13 unknown members and members of other selects are unknown_parameter, a malformed cursor is invalid_cursor`() =
+    fun `S13 unknown members and members of other selects are unknown_parameter, a malformed cursor is invalid_cursor`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.make("strictword")
 

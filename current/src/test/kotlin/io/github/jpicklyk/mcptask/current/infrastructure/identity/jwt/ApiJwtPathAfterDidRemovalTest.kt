@@ -126,7 +126,7 @@ class ApiJwtPathAfterDidRemovalTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 EdDSA token with matching kid is verified and principal id is sub`() =
+    fun `S1 EdDSA token with matching kid is verified and principal id is sub`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(config(algorithms = listOf("EdDSA")), providerWith(listOf(edKey.toPublicJWK())))
             val token = verified(verifier.verifyWithExpiry(signEd(claims(subject = "ed-caller"))))
@@ -138,7 +138,7 @@ class ApiJwtPathAfterDidRemovalTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S2 the same RS256 token carrying a jti is verified twice`() =
+    fun `S2 the same RS256 token carrying a jti is verified twice`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(config(), providerWith(listOf(rsaKey.toPublicJWK())))
             val jwt = signRsa(claims(jti = "replayed-jti-1"))
@@ -149,7 +149,7 @@ class ApiJwtPathAfterDidRemovalTest {
         }
 
     @Test
-    fun `S2b a token with no jti claim at all is verified (absent jti is not an error)`() =
+    fun `S2b a token with no jti claim at all is verified (absent jti is not an error)`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(config(), providerWith(listOf(rsaKey.toPublicJWK())))
             val token = verified(verifier.verifyWithExpiry(signRsa(claims(jti = null))))
@@ -161,7 +161,7 @@ class ApiJwtPathAfterDidRemovalTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 did web issuer with a different did web sub is verified as kind service`() =
+    fun `S3 did web issuer with a different did web sub is verified as kind service`(): Unit =
         runTest {
             val didIssuer = "did:web:idp.example"
             val verifier = JwksApiVerifier(config(issuer = didIssuer), providerWith(listOf(rsaKey.toPublicJWK())))
@@ -171,7 +171,7 @@ class ApiJwtPathAfterDidRemovalTest {
         }
 
     @Test
-    fun `S4 sub equal to a did issuer defaults to kind agent`() =
+    fun `S4 sub equal to a did issuer defaults to kind agent`(): Unit =
         runTest {
             val didIssuer = "did:web:agent.example"
             val verifier = JwksApiVerifier(config(issuer = didIssuer), providerWith(listOf(rsaKey.toPublicJWK())))
@@ -192,7 +192,7 @@ class ApiJwtPathAfterDidRemovalTest {
     private val relabelledOldKey: RSAKey = RSAKey.Builder(rsaKey.toPublicJWK()).keyID("old-kid").build()
 
     @Test
-    fun `S5 unknown kid with a declined refresh is rejected after exactly one refresh for that kid`() =
+    fun `S5 unknown kid with a declined refresh is rejected after exactly one refresh for that kid`(): Unit =
         runTest {
             val provider = providerWith(listOf(relabelledOldKey))
             coEvery { provider.refreshForUnknownKid(any()) } returns null
@@ -206,7 +206,7 @@ class ApiJwtPathAfterDidRemovalTest {
         }
 
     @Test
-    fun `S5b a refresh that throws still yields Rejected, never Unavailable`() =
+    fun `S5b a refresh that throws still yields Rejected, never Unavailable`(): Unit =
         runTest {
             val provider = providerWith(listOf(relabelledOldKey))
             coEvery { provider.refreshForUnknownKid(any()) } throws RuntimeException("simulated refresh failure")
@@ -218,7 +218,7 @@ class ApiJwtPathAfterDidRemovalTest {
         }
 
     @Test
-    fun `S6 unknown kid whose refresh returns a set holding the kid is verified`() =
+    fun `S6 unknown kid whose refresh returns a set holding the kid is verified`(): Unit =
         runTest {
             val provider = providerWith(listOf(relabelledOldKey))
             val rotatedIn = RSAKey.Builder(rsaKey.toPublicJWK()).keyID("new-kid").build()

@@ -276,7 +276,7 @@ class RestCallLogHitSignalsTest {
     // ------------------------------------------------------------------ S4
 
     @Test
-    fun `S4 a REST related call records the page hit by hit and the MCP call over the same data records the same text`() =
+    fun `S4 a REST related call records the page hit by hit and the MCP call over the same data records the same text`(): Unit =
         restApp {
             val fx = seedRelated()
 
@@ -335,7 +335,7 @@ class RestCallLogHitSignalsTest {
         }
 
     @Test
-    fun `S4 a REST related call with an empty page, a REST get and a resource GET leave hit_signals NULL`() =
+    fun `S4 a REST related call with an empty page, a REST get and a resource GET leave hit_signals NULL`(): Unit =
         restApp {
             val fx = seedRelated()
             val control = ops("items_read", related(fx.ref.id), token = ADMIN_TOKEN)
@@ -364,7 +364,7 @@ class RestCallLogHitSignalsTest {
     // ------------------------------------------------------------------ S6 .. S10 over REST
 
     @Test
-    fun `S6 a REST start on a lifecycle-free item records one rejection and a start on a plain item records none`() =
+    fun `S6 a REST start on a lifecycle-free item records one rejection and a start on a plain item records none`(): Unit =
         restApp {
             val page = rig.page("Page")
             val plain = rig.make("Plain")
@@ -380,7 +380,7 @@ class RestCallLogHitSignalsTest {
         }
 
     @Test
-    fun `S7 a REST non-atomic batch counts lifecycle-free rejections once each and skips role-bearing ones and successes`() =
+    fun `S7 a REST non-atomic batch counts lifecycle-free rejections once each and skips role-bearing ones and successes`(): Unit =
         restApp {
             val page = rig.page("Page")
             val plain = rig.make("Plain")
@@ -398,7 +398,7 @@ class RestCallLogHitSignalsTest {
         }
 
     @Test
-    fun `S8 a REST atomic batch whose lifecycle-free element fails records one rejection`() =
+    fun `S8 a REST atomic batch whose lifecycle-free element fails records one rejection`(): Unit =
         restApp {
             val page = rig.page("Page")
             val plain = rig.make("Plain")
@@ -412,7 +412,7 @@ class RestCallLogHitSignalsTest {
         }
 
     @Test
-    fun `S9 a REST BLOCKS dependency with a lifecycle-free endpoint records one rejection and RELATES_TO records none`() =
+    fun `S9 a REST BLOCKS dependency with a lifecycle-free endpoint records one rejection and RELATES_TO records none`(): Unit =
         restApp {
             val plain = rig.make("Plain")
             val page = rig.page("Page")
@@ -428,7 +428,7 @@ class RestCallLogHitSignalsTest {
         }
 
     @Test
-    fun `S10 a REST not-found rejection records NULL, never 0`() =
+    fun `S10 a REST not-found rejection records NULL, never 0`(): Unit =
         restApp {
             val reply = ops("advance", """{"ops":[${transition(UUID.randomUUID(), "start")}]}""")
 

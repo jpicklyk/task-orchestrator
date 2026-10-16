@@ -102,7 +102,7 @@ class LifecycleFreeToolsTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S2 get and list omit the role of a lifecycle-free item and keep it for a queue item`() =
+    fun `S2 get and list omit the role of a lifecycle-free item and keep it for a queue item`(): Unit =
         irApp(db.db, dir, yaml = TOOLS_YAML) { rig ->
             val page = rig.svc("Page", null, "page")
             val plain = rig.svc("Plain")

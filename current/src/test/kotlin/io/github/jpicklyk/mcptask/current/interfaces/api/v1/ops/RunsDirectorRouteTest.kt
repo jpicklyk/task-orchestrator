@@ -192,7 +192,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ unauthenticated
 
     @Test
-    fun `an unauthenticated call is 401 unauthenticated on every runs route and writes nothing`() =
+    fun `an unauthenticated call is 401 unauthenticated on every runs route and writes nothing`(): Unit =
         withApp {
             val before = snapshot()
             for ((path, body) in listOf(
@@ -213,7 +213,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ S13 pause and resume by path
 
     @Test
-    fun `S13 a service token that opened the run is refused pause on the plain route and succeeds on the director route`() =
+    fun `S13 a service token that opened the run is refused pause on the plain route and succeeds on the director route`(): Unit =
         withApp {
             val runId = client.open()
             val refused = client.plain(ops.ops(ops.pause(runId)))
@@ -236,7 +236,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S13 a service token that is not the coordinator and an agent token follow the same path rule for pause and resume`() =
+    fun `S13 a service token that is not the coordinator and an agent token follow the same path rule for pause and resume`(): Unit =
         withApp {
             val runId = client.open()
             for (token in listOf(other, agent)) {
@@ -260,7 +260,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S13 a human token pauses on the plain route and the opener is no exception to the kind rule`() =
+    fun `S13 a human token pauses on the plain route and the opener is no exception to the kind rule`(): Unit =
         withApp {
             val runId = client.open(token = human)
             val paused = client.plain(ops.ops(ops.pause(runId)), human)
@@ -276,7 +276,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ director route member set
 
     @Test
-    fun `the director route serves its members and answers update and mark as hidden members`() =
+    fun `the director route serves its members and answers update and mark as hidden members`(): Unit =
         withApp {
             val runId = client.open()
             for ((label, body) in listOf(
@@ -309,7 +309,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `the director route lets any runs token close any run, and the plain route lets only the coordinator or a human`() =
+    fun `the director route lets any runs token close any run, and the plain route lets only the coordinator or a human`(): Unit =
         withApp {
             val runId = client.open()
             val refused = client.plain(ops.ops(ops.close(runId, "cancelled")), other)
@@ -330,7 +330,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ S12 body actor on REST
 
     @Test
-    fun `S12 a body actor is unknown_parameter on actor and nothing is written, so it never makes a REST token the coordinator`() =
+    fun `S12 a body actor is unknown_parameter on actor and nothing is written, so it never makes a REST token the coordinator`(): Unit =
         withApp {
             val runId = client.open()
             val spoof =
@@ -354,7 +354,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S12 a read-only token cannot open and a runs token without read cannot get, each by capability`() =
+    fun `S12 a read-only token cannot open and a runs token without read cannot get, each by capability`(): Unit =
         withApp {
             val refused = client.plain(ops.ops(ops.open(ops.r1)), reader)
             assertEquals(207, refused.status.value)
@@ -367,7 +367,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ S19 idempotency
 
     @Test
-    fun `S19 open twice with one idempotency key and one payload is one run, the replay answers the same run id`() =
+    fun `S19 open twice with one idempotency key and one payload is one run, the replay answers the same run id`(): Unit =
         withApp {
             val body = ops.ops(ops.open(ops.r1, ""","idempotencyKey":"open-once""""))
             val first = client.plain(body)
@@ -380,7 +380,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S19 a reused key with a different payload is idempotency_mismatch and creates nothing`() =
+    fun `S19 a reused key with a different payload is idempotency_mismatch and creates nothing`(): Unit =
         withApp {
             assertEquals(200, client.plain(ops.ops(ops.open(ops.r1, ""","idempotencyKey":"k1""""))).status.value)
             val clash = client.plain(ops.ops(ops.open(ops.r2, ""","idempotencyKey":"k1"""")))
@@ -390,7 +390,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S19 the same key and payload from two different tokens are two different calls`() =
+    fun `S19 the same key and payload from two different tokens are two different calls`(): Unit =
         withApp {
             val body = ops.ops(ops.open(ops.r1, ""","idempotencyKey":"shared-key""""))
             val a = client.plain(body, coord)
@@ -402,7 +402,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S19 a mark replay across two calls keeps the first write and records one event`() =
+    fun `S19 a mark replay across two calls keeps the first write and records one event`(): Unit =
         withApp {
             val runId = client.open()
             assertEquals(200, client.plain(ops.ops(ops.close(runId, "completed"), top = ctop(runId))).status.value)
@@ -417,7 +417,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ S5 .. S8 lifecycle
 
     @Test
-    fun `the lifecycle records one event per transition in order, and a refused update on a paused run records none`() =
+    fun `the lifecycle records one event per transition in order, and a refused update on a paused run records none`(): Unit =
         withApp {
             val runId = client.open(""","items":["${ops.c1}"]""")
             assertEquals(200, client.plain(ops.ops(ops.update(runId, ""","addItems":["${ops.c2}"]"""), top = ctop(runId))).status.value)
@@ -439,7 +439,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `a closed run refuses every state change with run_closed and a mark still works`() =
+    fun `a closed run refuses every state change with run_closed and a mark still works`(): Unit =
         withApp {
             val runId = client.open()
             assertEquals(200, client.plain(ops.ops(ops.close(runId, "abandoned"), top = ctop(runId))).status.value)
@@ -484,7 +484,7 @@ class RunsDirectorRouteTest {
         }
 
     @Test
-    fun `S4 unmarked follows the marks across calls - a marked run leaves the list and an unmarked closed run stays`() =
+    fun `S4 unmarked follows the marks across calls - a marked run leaves the list and an unmarked closed run stays`(): Unit =
         withApp {
             val a = client.open()
             val b = client.open()
@@ -515,7 +515,7 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ the view
 
     @Test
-    fun `the view of a closed run carries the close instant, closer and reason, is not stalled, and omits absent members`() =
+    fun `the view of a closed run carries the close instant, closer and reason, is not stalled, and omits absent members`(): Unit =
         withApp {
             val runId = client.open()
             assertEquals(200, client.plain(ops.ops(ops.close(runId, "failed"), top = ctop(runId)), coord).status.value)

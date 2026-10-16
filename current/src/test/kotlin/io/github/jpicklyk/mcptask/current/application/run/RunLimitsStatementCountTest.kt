@@ -99,7 +99,7 @@ class RunLimitsStatementCountTest {
     // ------------------------------------------------------------------ S7 statement counts
 
     @Test
-    fun `S7 a token heartbeat on an unlimited run issues no single-table runs SELECT and one statement fewer than on a budgeted run`() =
+    fun `S7 a token heartbeat on an unlimited run issues no single-table runs SELECT and one statement fewer than on a budgeted run`(): Unit =
         world { w ->
             val unlimited = w.open(members = listOf(w.m1))
             val budgeted = w.open(members = listOf(w.d), extra = ",\"budget\":{\"tokens\":100000}")
@@ -126,7 +126,7 @@ class RunLimitsStatementCountTest {
         }
 
     @Test
-    fun `S7 a token start on an unlimited run skips the limit reads of a budgeted run and issues two statements fewer`() =
+    fun `S7 a token start on an unlimited run skips the limit reads of a budgeted run and issues two statements fewer`(): Unit =
         world { w ->
             assertTrue(
                 w.start(w.m3, null).ok(),
@@ -205,7 +205,7 @@ class RunLimitsStatementCountTest {
         ).toLong()
 
     @Test
-    fun `S7 a writer batch updates runs once per distinct run id, whatever the number of rows and the rows without a run`() =
+    fun `S7 a writer batch updates runs once per distinct run id, whatever the number of rows and the rows without a run`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val b = w.open(members = listOf(w.m2))
@@ -238,7 +238,7 @@ class RunLimitsStatementCountTest {
         }
 
     @Test
-    fun `S7 probe an empty batch updates no run, and a duplicate request id is stored once`() =
+    fun `S7 probe an empty batch updates no run, and a duplicate request id is stored once`(): Unit =
         world { w ->
             val a = w.open(members = listOf(w.m1))
             val writer = writerFor(w)
@@ -266,7 +266,7 @@ class RunLimitsStatementCountTest {
     // ------------------------------------------------------------------ S8 the check still decides
 
     @Test
-    fun `S8 usage equal to the limit does not pause, one more token pauses on a run-budget decision`() =
+    fun `S8 usage equal to the limit does not pause, one more token pauses on a run-budget decision`(): Unit =
         world { w ->
             val run = w.open(extra = ",\"budget\":{\"tokens\":100}")
             val seat = seatUp(w, run, w.m1)
@@ -283,7 +283,7 @@ class RunLimitsStatementCountTest {
         }
 
     @Test
-    fun `S8 an unlimited run is never paused by usage however large, and its seat keeps starting items`() =
+    fun `S8 an unlimited run is never paused by usage however large, and its seat keeps starting items`(): Unit =
         world { w ->
             val run = w.open()
             val seat = seatUp(w, run, w.m1)
@@ -296,7 +296,7 @@ class RunLimitsStatementCountTest {
         }
 
     @Test
-    fun `S8 a token start while the run is paused for its limit is run_paused, while a manual pause allows it`() =
+    fun `S8 a token start while the run is paused for its limit is run_paused, while a manual pause allows it`(): Unit =
         world { w ->
             val limited = w.open(members = listOf(w.m1, w.m2), extra = ",\"budget\":{\"tokens\":100}")
             val a = seatUp(w, limited, w.m1)

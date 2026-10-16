@@ -59,13 +59,13 @@ class PerRootConfigServiceTest {
     // --- No config row ---
 
     @Test
-    fun `getSchemas returns null when no config row exists`() =
+    fun `getSchemas returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getSchemas(rootItemId))
         }
 
     @Test
-    fun `getTraitNotes returns null when no config row exists`() =
+    fun `getTraitNotes returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getTraitNotes(rootItemId, "needs-migration-review"))
         }
@@ -73,7 +73,7 @@ class PerRootConfigServiceTest {
     // --- Parse: work_item_schemas format ---
 
     @Test
-    fun `getSchemas parses work_item_schemas format`() =
+    fun `getSchemas parses work_item_schemas format`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -99,7 +99,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `getSchemaForType returns the matching schema by type`() =
+    fun `getSchemaForType returns the matching schema by type`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -122,7 +122,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `getTraitNotes returns trait entries from traits block`() =
+    fun `getTraitNotes returns trait entries from traits block`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -150,7 +150,7 @@ traits:
     // --- Unknown top-level keys ignored silently, no schemas section required ---
 
     @Test
-    fun `config with only unrelated top-level keys parses to empty schemas without warning-driven failure`() =
+    fun `config with only unrelated top-level keys parses to empty schemas without warning-driven failure`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -168,7 +168,7 @@ project:
     // --- Missing canonical form -> fail closed (never a fall-through to global config) ---
 
     @Test
-    fun `NULL canonical_json throws PerRootConfigInvalidException`() =
+    fun `NULL canonical_json throws PerRootConfigInvalidException`(): Unit =
         runBlocking {
             repository.upsert(rootItemId, "work_item_schemas:\n  default: {}\n")
             DriverManager.getConnection(sqliteDb.jdbcUrl).use { c ->
@@ -181,7 +181,7 @@ project:
     // --- Cache hit: identical fingerprint reuses the cached parse ---
 
     @Test
-    fun `repeated reads with unchanged content return equivalent parsed schemas`() =
+    fun `repeated reads with unchanged content return equivalent parsed schemas`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -211,7 +211,7 @@ work_item_schemas:
     // --- Hot reload: upsert new content is visible on next read, no restart / no invalidation call ---
 
     @Test
-    fun `hot-reload — upserting new content is reflected on the very next read`() =
+    fun `hot-reload — upserting new content is reflected on the very next read`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -253,7 +253,7 @@ work_item_schemas:
     // --- Config row deleted after being cached -> falls back to null ---
 
     @Test
-    fun `getSchemas returns null after the config row is deleted, even if previously cached`() =
+    fun `getSchemas returns null after the config row is deleted, even if previously cached`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -277,13 +277,13 @@ work_item_schemas:
     // --- getNoteLimitsMode: absent-vs-explicit ---
 
     @Test
-    fun `getNoteLimitsMode returns null when no config row exists`() =
+    fun `getNoteLimitsMode returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getNoteLimitsMode(rootItemId))
         }
 
     @Test
-    fun `getNoteLimitsMode returns null when the per-root doc has no note_limits section`() =
+    fun `getNoteLimitsMode returns null when the per-root doc has no note_limits section`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -301,7 +301,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `getNoteLimitsMode returns the explicit mode when the per-root doc configures note_limits`() =
+    fun `getNoteLimitsMode returns the explicit mode when the per-root doc configures note_limits`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -315,7 +315,7 @@ note_limits:
         }
 
     @Test
-    fun `getNoteLimitsMode resolves to the warn default when note_limits is present without a mode key`() =
+    fun `getNoteLimitsMode resolves to the warn default when note_limits is present without a mode key`(): Unit =
         runBlocking {
             repository.upsert(rootItemId, "note_limits: {}\n")
 
@@ -329,13 +329,13 @@ note_limits:
     // --- layer: single-pass combined view ---
 
     @Test
-    fun `layer returns null when no config row exists`() =
+    fun `layer returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.layer(rootItemId))
         }
 
     @Test
-    fun `layer combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`() =
+    fun `layer combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -384,13 +384,13 @@ status_labels:
     // --- getStatusLabels: absent-vs-explicit, partial map ---
 
     @Test
-    fun `getStatusLabels returns null when no config row exists`() =
+    fun `getStatusLabels returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getStatusLabels(rootItemId))
         }
 
     @Test
-    fun `getStatusLabels returns null when the per-root doc has no status_labels section`() =
+    fun `getStatusLabels returns null when the per-root doc has no status_labels section`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -405,7 +405,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `getStatusLabels returns a partial map when the per-root doc only overrides some triggers`() =
+    fun `getStatusLabels returns a partial map when the per-root doc only overrides some triggers`(): Unit =
         runBlocking {
             repository.upsert(
                 rootItemId,

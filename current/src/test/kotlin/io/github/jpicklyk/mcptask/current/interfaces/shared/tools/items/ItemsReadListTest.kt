@@ -91,7 +91,7 @@ class ItemsReadListTest {
     // ------------------------------------------------------------------ S3
 
     @Test
-    fun `S3 children of a parent are compact entries with 8-hex short ids and the exact total`() =
+    fun `S3 children of a parent are compact entries with 8-hex short ids and the exact total`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
 
@@ -117,7 +117,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 pages are disjoint and their union is every match, with a stable total`() =
+    fun `S3 pages are disjoint and their union is every match, with a stable total`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
             val expected = shorts(*t.kids.toTypedArray())
@@ -147,7 +147,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 sort title asc and desc order the whole set`() =
+    fun `S3 sort title asc and desc order the whole set`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
             val parent = """"parentId":"${t.parent.id}""""
@@ -160,7 +160,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 each filter narrows to exactly the matching items`() =
+    fun `S3 each filter narrows to exactly the matching items`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
             val p = """"parentId":"${t.parent.id}""""
@@ -193,7 +193,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 ancestorId lists the subtree including the item itself and depth 0 lists the roots`() =
+    fun `S3 ancestorId lists the subtree including the item itself and depth 0 lists the roots`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
 
@@ -209,7 +209,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 time bounds keep everything for a past lower bound and nothing for a future one`() =
+    fun `S3 time bounds keep everything for a past lower bound and nothing for a future one`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -226,7 +226,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 fields summary adds summary to entries that have one and nothing else`() =
+    fun `S3 fields summary adds summary to entries that have one and nothing else`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
 
@@ -240,7 +240,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 fields createdAt modifiedAt roleChangedAt ancestors are accepted and add their members`() =
+    fun `S3 fields createdAt modifiedAt roleChangedAt ancestors are accepted and add their members`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
 
@@ -259,7 +259,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S3 the default page size is 50 and limit 200 returns up to 200`() =
+    fun `S3 the default page size is 50 and limit 200 returns up to 200`(): Unit =
         irApp(db.db, dir) { rig ->
             val box = rig.make("Box")
             repeat(55) { rig.make("many-$it", box) }
@@ -277,7 +277,7 @@ class ItemsReadListTest {
     // ------------------------------------------------------------------ S18
 
     @Test
-    fun `S18 a full-UUID parentId that names nothing is an ok empty page`() =
+    fun `S18 a full-UUID parentId that names nothing is an ok empty page`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -292,7 +292,7 @@ class ItemsReadListTest {
     // ------------------------------------------------------------------ S13 (list)
 
     @Test
-    fun `S13 limit outside 1 to 200 is invalid_request on limit and the bounds are accepted`() =
+    fun `S13 limit outside 1 to 200 is invalid_request on limit and the bounds are accepted`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -307,7 +307,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 enum members outside their set are invalid_request on that member`() =
+    fun `S13 enum members outside their set are invalid_request on that member`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -328,7 +328,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 an inverted time range is invalid_request on the lower bound and a bad timestamp on its own member`() =
+    fun `S13 an inverted time range is invalid_request on the lower bound and a bad timestamp on its own member`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -343,7 +343,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 a malformed cursor is invalid_cursor`() =
+    fun `S13 a malformed cursor is invalid_cursor`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -355,7 +355,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 unknown members and members of other selects are unknown_parameter`() =
+    fun `S13 unknown members and members of other selects are unknown_parameter`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -367,7 +367,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 an unknown fields name is invalid_request on fields listing the five allowed names`() =
+    fun `S13 an unknown fields name is invalid_request on fields listing the five allowed names`(): Unit =
         irApp(db.db, dir) { rig ->
             seed(rig)
 
@@ -383,7 +383,7 @@ class ItemsReadListTest {
         }
 
     @Test
-    fun `S13 id filters accept a UUID or a hex prefix and reject malformed ids on their own pointer`() =
+    fun `S13 id filters accept a UUID or a hex prefix and reject malformed ids on their own pointer`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seed(rig)
 

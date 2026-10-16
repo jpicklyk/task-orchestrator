@@ -179,7 +179,7 @@ class McpJwksRestAuthTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `valid JWT authorizes a REST request`() =
+    fun `valid JWT authorizes a REST request`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
 
@@ -195,14 +195,14 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `missing token returns 401 in jwks mode`() =
+    fun `missing token returns 401 in jwks mode`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/resources/leases").status)
         }
 
     @Test
-    fun `JWT signed with disallowed algorithm returns 401`() =
+    fun `JWT signed with disallowed algorithm returns 401`(): Unit =
         testApplication {
             // Verifier only allows RS512; the token is RS256 → rejected by the allowlist check.
             application { installJwksApp(verifier(algorithms = listOf("RS512"))) }
@@ -219,7 +219,7 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `expired JWT returns 401`() =
+    fun `expired JWT returns 401`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
 
@@ -232,7 +232,7 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `mcp endpoint stays open in jwks mode`() =
+    fun `mcp endpoint stays open in jwks mode`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             // /mcp must remain reachable without any REST credential, even in jwks mode (the public-path
@@ -259,7 +259,7 @@ class McpJwksRestAuthTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `SSE missing token returns 401 in jwks mode`() =
+    fun `SSE missing token returns 401 in jwks mode`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }
@@ -267,7 +267,7 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `SSE invalid JWT returns 401 in jwks mode`() =
+    fun `SSE invalid JWT returns 401 in jwks mode`(): Unit =
         testApplication {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }

@@ -287,7 +287,7 @@ class ActorAuthenticationRemovedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8 info response carries no actorAuthenticationEnabled field and keeps the service fields`() =
+    fun `S8 info response carries no actorAuthenticationEnabled field and keeps the service fields`(): Unit =
         testApplication {
             application {
                 configureTestApp {

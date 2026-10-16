@@ -252,7 +252,7 @@ class MaxStaleUnavailableTest {
     // ------------------------------------------------------------------ S10 REST
 
     @Test
-    fun `S10 REST answers 503 unavailable with retryAfterMs and no WWW-Authenticate while the key set is unavailable`() =
+    fun `S10 REST answers 503 unavailable with retryAfterMs and no WWW-Authenticate while the key set is unavailable`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             val token = jwt()
@@ -268,7 +268,7 @@ class MaxStaleUnavailableTest {
         }
 
     @Test
-    fun `S10 probe REST during the outage still answers 401 invalid_request for an absent or empty credential`() =
+    fun `S10 probe REST during the outage still answers 401 invalid_request for an absent or empty credential`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             outage.set(true)
@@ -289,7 +289,7 @@ class MaxStaleUnavailableTest {
         }
 
     @Test
-    fun `S10 probe the bearer scheme name is case-insensitive on the unavailable answer`() =
+    fun `S10 probe the bearer scheme name is case-insensitive on the unavailable answer`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             outage.set(true)
@@ -301,7 +301,7 @@ class MaxStaleUnavailableTest {
         }
 
     @Test
-    fun `S10 the outage log line may name the reason but never carries the token`() =
+    fun `S10 the outage log line may name the reason but never carries the token`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             val root = LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) as Logger
@@ -324,7 +324,7 @@ class MaxStaleUnavailableTest {
     // ------------------------------------------------------------------ S12 REST
 
     @Test
-    fun `S12 REST keeps 401 invalid_token for a JWT with a bad signature while the key set is available`() =
+    fun `S12 REST keeps 401 invalid_token for a JWT with a bad signature while the key set is available`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             val rejected = client.get(LEASES) { header(HttpHeaders.Authorization, "Bearer ${jwt(signWith = otherKey)}") }
@@ -400,7 +400,7 @@ class MaxStaleUnavailableTest {
     private fun bus() = ApiEventBus(source = db.repositoryProvider().eventStore())
 
     @Test
-    fun `S11 SSE answers 503 unavailable for the Authorization header and the token query while the key set is unavailable`() =
+    fun `S11 SSE answers 503 unavailable for the Authorization header and the token query while the key set is unavailable`(): Unit =
         testApplication {
             application { installJwksApp(verifier(), eventBus = bus(), allowQueryToken = true) }
             val token = jwt()
@@ -444,7 +444,7 @@ class MaxStaleUnavailableTest {
         }
 
     @Test
-    fun `S12 SSE keeps 401 invalid_token for a JWT with a bad signature on both spellings`() =
+    fun `S12 SSE keeps 401 invalid_token for a JWT with a bad signature on both spellings`(): Unit =
         testApplication {
             application { installJwksApp(verifier(), eventBus = bus(), allowQueryToken = true) }
             val rejected = jwt(signWith = otherKey)
