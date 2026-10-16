@@ -559,7 +559,7 @@ test('S6b (unit): overlapDeferral in "per-item" mode returns a deferral when fil
   const mine = { short: 'lowpri', output: { mainFiles: ['src/x.js'], docFiles: [], testFiles: [], existingTestEdits: [] } }
   const higher = [{ short: 'hipri', output: { mainFiles: ['src/x.js'], docFiles: [], testFiles: [], existingTestEdits: [] } }]
 
-  assert.deepEqual(core.overlapDeferral(mine, higher, 'per-item'), { reason: 'overlap hipri' })
+  assert.deepEqual(core.overlapDeferral(mine, higher, 'per-item'), { reason: 'overlap hipri on src/x.js' })
   assert.equal(core.overlapDeferral(mine, higher, 'shared'), null)
 
   const disjointHigher = [{ short: 'hipri2', output: { mainFiles: ['src/other.js'], docFiles: [], testFiles: [], existingTestEdits: [] } }]
@@ -594,7 +594,7 @@ test('S6b: in per-item worktree mode, a lower-priority item whose planner output
   const result = await runPromise
   const rB = result.items.find((r) => r.short === itemB.short)
   assert.equal(rB.status, 'deferred')
-  assert.equal(rB.reason, `overlap ${itemA.short}`)
+  assert.equal(rB.reason, `overlap ${itemA.short} on src/shared.js`)
   assert.ok(!calls.some((c) => c.label === `implementer:${itemB.short}`))
 })
 
