@@ -1,121 +1,71 @@
-// Drives retro-ack.mjs as a subprocess. Marker isolation: retro-ack has no session_id to key
-// off of — with a `project:` block configured it acks exactly that rootId's marker; WITHOUT one
-// it acks every marker file in the shared directory (see retro-ack.mjs's module doc), which
-// would be unsafe to exercise here (it could ack a concurrently-running test's marker, or the
-// live marker for this repo's real root). So every test below configures a randomly-generated
-// fixture project rootId, keeping this hook's tests isolated the same way retro-backstop.test.mjs
-// isolates its rootId-keyed test — never exercising the ack-everything fallback path.
+// retro-ack.mjs is a compatibility no-op (c7e43c6d, AC7, scenario S13): exit 0, one stdout line
+// saying the run mark is the acknowledgement, no REST request, no file written anywhere.
 
-import { test, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { markerPath, writeMarker, readMarker } from '../retro-lib.mjs';
+import { HOOKS, ROOT, rid, retroConfig, withFixture, runFixture, listTree, runHook, makeSandbox } from './retro-fake-runs.mjs';
 
-const HOOK = fileURLToPath(new URL('../retro-ack.mjs', import.meta.url));
-
-function writeConfig(dir, content) {
-  const cfgDir = join(dir, '.taskorchestrator');
-  mkdirSync(cfgDir, { recursive: true });
-  writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
-}
-
-const made = [];
-function freshDir(prefix) {
-  const d = mkdtempSync(join(tmpdir(), prefix));
-  made.push(d);
-  return d;
-}
-after(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
-
-// Hermetic: pinned empty TASK_ORCHESTRATOR_HOME, cwd = fixture dir. agentConfigDir === null removes
-// AGENT_CONFIG_DIR (user scope). iso pins TEMP/TMP/TMPDIR so the marker scan sees only its own dir.
-function runHook(agentConfigDir, { home, cwd, iso } = {}) {
-  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: home ?? freshDir('to-ack-home-') };
-  if (agentConfigDir === null) delete env.AGENT_CONFIG_DIR;
-  else env.AGENT_CONFIG_DIR = agentConfigDir;
-  if (iso) { env.TEMP = iso; env.TMP = iso; env.TMPDIR = iso; }
-  return spawnSync(process.execPath, [HOOK], {
-    env,
-    encoding: 'utf-8',
-    cwd: cwd ?? agentConfigDir ?? freshDir('to-ack-cwd-'),
-  });
-}
-
-function tmpConfigDir() {
-  return mkdtempSync(join(tmpdir(), 'to-retro-ack-'));
-}
-
-test('ackMarker resets terminalCount to 0 (fix H1), alongside sawTerminal/pendingRoots/handledAt', () => {
-  const dir = tmpConfigDir();
-  const rootId = `project-root-${randomUUID()}`;
-  writeConfig(dir, `project:\n  rootId: "${rootId}"\n`);
-  const marker = markerPath(rootId);
-  try {
-    writeMarker(marker, {
-      sawTerminal: true,
-      pendingRoots: ['root-1'],
-      terminalCount: 7,
-      rootUuids: ['root-1'],
-    });
-    const res = runHook(dir);
-    assert.equal(res.status, 0);
-    const after = readMarker(marker);
-    assert.equal(after.terminalCount, 0);
-    assert.equal(after.sawTerminal, false);
-    assert.deepEqual(after.pendingRoots, []);
-    assert.ok(typeof after.handledAt === 'number');
-    // rootUuids is untouched by ack — only substance/handled state resets.
-    assert.deepEqual(after.rootUuids, ['root-1']);
-  } finally {
-    rmSync(marker, { force: true });
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('ackMarker on an already-empty marker still resets terminalCount to 0, not undefined', () => {
-  const dir = tmpConfigDir();
-  const rootId = `project-root-${randomUUID()}`;
-  writeConfig(dir, `project:\n  rootId: "${rootId}"\n`);
-  const marker = markerPath(rootId);
-  try {
-    // No pre-existing marker file at all — readMarker() returns {} and ackMarker must still
-    // write a well-formed terminalCount: 0, not leave it absent/undefined.
-    const res = runHook(dir);
-    assert.equal(res.status, 0);
-    const after = readMarker(marker);
-    assert.equal(after.terminalCount, 0);
-  } finally {
-    rmSync(marker, { force: true });
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S6 user scope: acks scope:user markers only, leaves project markers byte-identical', () => {
-  const NL = String.fromCharCode(10);
-  const home = freshDir('to-ack-uhome-');
-  writeConfig(home, ['project:', '  rootId: "personal-root"', ''].join(NL));
-  const iso = freshDir('to-ack-iso-');
-  const dir = join(iso, 'task-orchestrator');
-  const userMarker = join(dir, 'retro-sess-u.json');
-  const projMarker = join(dir, 'retro-root-p.json');
-  const legacyMarker = join(dir, 'retro-legacy.json');
-  writeMarker(userMarker, { sawTerminal: true, pendingRoots: ['x'], terminalCount: 4, scope: 'user' });
-  writeMarker(projMarker, { sawTerminal: true, terminalCount: 2, scope: 'project' });
-  writeMarker(legacyMarker, { sawTerminal: true, terminalCount: 1 });
-  const projBefore = readFileSync(projMarker, 'utf-8');
-  const legacyBefore = readFileSync(legacyMarker, 'utf-8');
-  const res = runHook(null, { home, cwd: freshDir('to-ack-sib-'), iso });
+function assertCompatNoop(res) {
   assert.equal(res.status, 0);
-  assert.ok(res.stdout.includes('Acked 1 '), res.stdout);
-  const acked = readMarker(userMarker);
-  assert.equal(acked.sawTerminal, false);
-  assert.equal(acked.terminalCount, 0);
-  assert.ok(typeof acked.handledAt === 'number');
-  assert.equal(readFileSync(projMarker, 'utf-8'), projBefore);
-  assert.equal(readFileSync(legacyMarker, 'utf-8'), legacyBefore);
+  const lines = res.stdout.split(/\r?\n/).filter((l) => l.trim() !== '');
+  assert.equal(lines.length, 1, `exactly one stdout line, got: ${JSON.stringify(res.stdout)}`);
+  assert.match(lines[0], /mark/i, lines[0]);
+  assert.match(lines[0], /acknowledg/i, lines[0]);
+}
+
+test('S13: with a project root, an API URL and an unmarked closed run: one line, exit 0, no request, no file', async () => {
+  const config = retroConfig({ rootId: ROOT, mode: 'dispatch', threshold: 0 });
+  await withFixture({ config, runs: [runFixture(1, { terminal: 3 })] }, async ({ ack, fake, sbx }) => {
+    const cfgBefore = listTree(sbx.cfg);
+    const res = await ack({ session_id: 'sess-ack-1' });
+    assertCompatNoop(res);
+    assert.equal(fake.requests.length, 0, JSON.stringify(fake.requests));
+    assert.equal(fake.isMarked(rid(1)), false, 'retro-ack must not mark a run');
+    assert.deepEqual(listTree(sbx.tmp), [], 'nothing written under TEMP');
+    assert.deepEqual(listTree(sbx.cfg), cfgBefore, 'nothing written next to the config');
+    assert.deepEqual(listTree(sbx.home), [], 'nothing written under the home');
+  });
+});
+
+test('S13: with no stdin at all it behaves the same', async () => {
+  const sbx = makeSandbox({ config: retroConfig({ mode: 'dispatch' }) });
+  try {
+    const res = await runHook(HOOKS.ack, null, sbx);
+    assertCompatNoop(res);
+    assert.deepEqual(listTree(sbx.tmp), []);
+  } finally {
+    sbx.cleanup();
+  }
+});
+
+test('S13: with no config at all it behaves the same', async () => {
+  const sbx = makeSandbox({ config: null });
+  try {
+    const res = await runHook(HOOKS.ack, { session_id: 'sess-ack-2' }, sbx);
+    assertCompatNoop(res);
+    assert.deepEqual(listTree(sbx.tmp), []);
+  } finally {
+    sbx.cleanup();
+  }
+});
+
+test('S13 probe: garbage on stdin still exits 0 with the single line', async () => {
+  const sbx = makeSandbox({ config: retroConfig({ mode: 'dispatch' }) });
+  try {
+    const res = await runHook(HOOKS.ack, '{not valid json', sbx);
+    assertCompatNoop(res);
+  } finally {
+    sbx.cleanup();
+  }
+});
+
+test('S13/S14: running the ack leaves no retro-* entry under <tmp>/task-orchestrator', async () => {
+  const sbx = makeSandbox({ config: retroConfig({ mode: 'dispatch' }) });
+  try {
+    await runHook(HOOKS.ack, { session_id: 'sess-ack-3' }, sbx);
+    const retro = listTree(sbx.tmp).filter((p) => p.split('/').some((seg) => seg.startsWith('retro-')));
+    assert.deepEqual(retro, []);
+  } finally {
+    sbx.cleanup();
+  }
 });
