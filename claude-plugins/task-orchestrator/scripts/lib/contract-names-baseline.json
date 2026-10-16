@@ -25,10 +25,6 @@
       "owner": "0bbdc4cc"
     },
     {
-      "file": "hooks/retro-trigger.mjs",
-      "owner": "c7e43c6d"
-    },
-    {
       "file": "hooks/session-start.mjs",
       "owner": "8cd79bc0"
     },
