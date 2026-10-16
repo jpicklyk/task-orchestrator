@@ -1,18 +1,66 @@
 // Cross-session invalidation: an SSE stream read through `curl` while a consumer is subscribed,
 // with a 15s poll when there is no API URL or curl keeps failing. Zero subscribers, no stream, no poll.
+//
+// Resume (D6): within one live generation the last digit-only frame `id` is kept as a string (event ids
+// are above 10^12 and may pass 2^53, so never a Number) and each reconnect sends it as Last-Event-ID; a
+// `sync.lost` frame's own id (the sentinel the server replays from) replaces it. A new generation starts
+// without one. The server answers an unreplayable cursor with `sync.lost` as its first frame.
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { refresh, refreshNow } from './refresh.ts'
-import { REMOTE_FOLLOW_DEBOUNCE_MS, REMOTE_FOLLOW_QUIET_MS, attribute, eventItemId, localActorIds, localWindow, markRemote, remoteFollowCandidate } from './remote.ts'
+import { REMOTE_FOLLOW_DEBOUNCE_MS, REMOTE_FOLLOW_QUIET_MS, attribute, eventItemId, localWindow, markRemote, remoteFollowCandidate } from './remote.ts'
+import { applyDecisionEvent, applyRunEvent } from './runs.ts'
 import { readRootId } from './snapshot.ts'
 
 export const POLL_MS = 15_000
 export const BACKOFF_START_MS = 2_000
 export const BACKOFF_MAX_MS = 60_000
 export const MAX_SPAWN_FAILURES = 3
-/** Spelled out: `types` is a comma-separated list of exact names, not a glob. */
-export const SSE_TYPES = ['item.created', 'item.updated', 'item.deleted', 'item.advanced', 'note.upserted', 'note.deleted', 'dependency.added', 'dependency.removed']
+/**
+ * The 4.0 domain event types, spelled out (`types` is a comma-separated list of exact names, not a glob).
+ * The control events sync.lost and auth.expired bypass `types=` and are not listed; note.ownership_transferred
+ * always precedes a note.upserted of the same write and is not subscribed.
+ */
+export const SSE_TYPES = [
+  'item.created',
+  'item.updated',
+  'item.deleted',
+  'item.advanced',
+  'note.upserted',
+  'note.deleted',
+  'dependency.added',
+  'dependency.removed',
+  'scope.entered',
+  'scope.left',
+  'run.opened',
+  'run.updated',
+  'run.paused',
+  'run.resumed',
+  'run.ended',
+  'run.marked',
+  'seat.ended',
+  'decision.raised',
+  'decision.acknowledged',
+  'decision.answered',
+  'decision.withdrawn',
+]
 const MAX_BUFFER = 1_048_576
+const DIGITS = /^\d+$/
+
+/** The data of a 4.0 SSE frame (api-rest.md "SSE / ApiEvent"); every member is optional on the wire. */
+export interface ApiEventData {
+  id?: number | string
+  event?: string
+  itemId?: string
+  rootId?: string
+  runId?: string
+  decisionId?: string
+  class?: string
+  severity?: string
+  reason?: string
+  newRole?: string
+  actor?: { id?: string; kind?: string; parent?: string }
+}
 
 /** True only for a bare loopback origin (no credentials, path, query or fragment); mirrors hooks/api-client.mjs. */
 export function isLoopbackApiUrl(base: string): boolean {
@@ -29,7 +77,7 @@ export function isLoopbackApiUrl(base: string): boolean {
   }
 }
 
-async function readClientApiUrl(io: GraphIo, path: string): Promise<string | null> {
+async function readClientApiUrl(io: Pick<GraphIo, 'readFile'>, path: string): Promise<string | null> {
   try {
     let text = await io.readFile(path)
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
@@ -48,7 +96,7 @@ async function readClientApiUrl(io: GraphIo, path: string): Promise<string | nul
  * when a bare loopback origin, so a repo file cannot redirect the token); else the user-level
  * client.json. Null when none yields one.
  */
-export async function resolveApiUrl(io: GraphIo): Promise<string | null> {
+export async function resolveApiUrl(io: Pick<GraphIo, 'envApiUrl' | 'readFile' | 'homeDir'>): Promise<string | null> {
   const fromEnv = await io.envApiUrl()
   if (fromEnv) return fromEnv.replace(/\/+$/, '')
   const project = await readClientApiUrl(io, '.taskorchestrator/client.json')
@@ -60,11 +108,11 @@ export async function resolveApiUrl(io: GraphIo): Promise<string | null> {
 }
 
 /**
- * Feeds raw SSE text in; calls `onEvent(name, data)` once per complete frame that carries an `event:`
+ * Feeds raw SSE text in; calls `onEvent(name, data, id)` once per complete frame that carries an `event:`
  * line. `data` is the frame's `data:` lines (joined by newlines) parsed as JSON; undefined when the frame
- * has none or they are not JSON.
+ * has none or they are not JSON. `id` is the frame's `id:` value as text (undefined when it has none).
  */
-export function createSseParser(onEvent: (name: string, data?: unknown) => void): (chunk: string) => void {
+export function createSseParser(onEvent: (name: string, data?: unknown, id?: string) => void): (chunk: string) => void {
   let buffer = ''
 
   return chunk => {
@@ -74,10 +122,12 @@ export function createSseParser(onEvent: (name: string, data?: unknown) => void)
       const frame = buffer.slice(0, end)
       buffer = buffer.slice(end + 2)
       let name: string | undefined
+      let id: string | undefined
       const dataLines: string[] = []
       for (const line of frame.split('\n')) {
         if (line.startsWith('event:') && name === undefined) name = line.slice(6).trim()
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+        else if (line.startsWith('id:')) id = line.slice(3).replace(/^ /, '').trim()
       }
       if (name !== undefined) {
         let data: unknown
@@ -88,7 +138,7 @@ export function createSseParser(onEvent: (name: string, data?: unknown) => void)
             data = undefined
           }
         }
-        onEvent(name, data)
+        onEvent(name, data, id)
       }
       end = buffer.indexOf('\n\n')
     }
@@ -96,9 +146,13 @@ export function createSseParser(onEvent: (name: string, data?: unknown) => void)
   }
 }
 
-/** curl reads its options (the bearer header) from stdin, so the token never appears in argv. */
-export function curlRequest(url: string, token: string | undefined): { argv: string[]; input?: string } {
+/**
+ * curl reads its options (the bearer header) from stdin, so the token never appears in argv. A
+ * digit-only `lastEventId` adds a `Last-Event-ID` header (the resume cursor); anything else adds none.
+ */
+export function curlRequest(url: string, token: string | undefined, lastEventId?: string): { argv: string[]; input?: string } {
   const argv = ['curl', '-s', '-N', '-f', '-H', 'Accept: text/event-stream']
+  if (typeof lastEventId === 'string' && DIGITS.test(lastEventId)) argv.push('-H', `Last-Event-ID: ${lastEventId}`)
   if (!token || /[\r\n]/.test(token)) return { argv: [...argv, url] }
   const quoted = `Authorization: Bearer ${token}`.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
@@ -146,14 +200,14 @@ function scheduleFollow(io: GraphIo, itemId: string): void {
 }
 
 /**
- * Marks an SSE event's item as changed elsewhere, unless it is this session's own echo (remote.ts: by actor
- * when the event has one, else by the echo window); an item.advanced remote by actor in this project also
- * schedules a pane follow. Only the SSE stream marks: a poll cannot tell whose change it saw. Advisory: a failure is ignored.
+ * Marks an SSE event's item as changed elsewhere, unless it is this session's own echo (remote.ts: by the
+ * echo window only); a remote item.advanced in this project also schedules a pane follow. Only the SSE
+ * stream marks: a poll cannot tell whose change it saw. Advisory: a failure is ignored.
  */
 async function noteRemote(io: GraphIo, name: string, data: unknown): Promise<void> {
   try {
     const now = await io.now()
-    const a = attribute(data, localWindow(), localActorIds(), now)
+    const a = attribute(data, localWindow(), now)
     if (a.origin === 'local') return
     const follow = remoteFollowCandidate(name, data, a, projectRoot)
     if (follow !== undefined) scheduleFollow(io, follow)
@@ -163,6 +217,45 @@ async function noteRemote(io: GraphIo, name: string, data: unknown): Promise<voi
   } catch {
     // marks are advisory
   }
+}
+
+async function noteDecision(io: GraphIo, name: string, data: unknown): Promise<void> {
+  try {
+    await io.updateDecisions?.(map => applyDecisionEvent(map, name, data))
+  } catch {
+    // decision glyphs are advisory
+  }
+}
+
+async function noteRun(io: GraphIo, name: string, data: unknown): Promise<void> {
+  try {
+    const root = projectRoot
+    await io.updateRuns?.(map => applyRunEvent(map, name, data, root))
+  } catch {
+    // the run summary is advisory
+  }
+}
+
+/**
+ * One parsed frame: run.* updates the run summary only (no snapshot refresh); decision.* updates the
+ * decision glyphs and refreshes; sync.lost (any reason) re-snapshots at once; every other domain event
+ * refreshes after the debounce (item.updated also drops the cached plan labels).
+ */
+function dispatchEvent(io: GraphIo, name: string, data: unknown): void {
+  if (name === 'sync.lost') {
+    void refreshNow(io)
+
+    return
+  }
+  if (name.startsWith('run.')) {
+    void noteRun(io, name, data)
+
+    return
+  }
+  if (name === 'item.updated') invalidateLabels()
+  if (name.startsWith('decision.')) void noteDecision(io, name, data)
+  void noteRemote(io, name, data)
+  void refresh(io)
 }
 
 let running = false
@@ -192,18 +285,18 @@ async function sseLoop(io: GraphIo, url: string, token: string | undefined, gen:
     abort.abort()
     void iterator?.return(undefined).catch(() => undefined)
   }
-  const request = curlRequest(url, token)
+  /** The resume cursor of this generation: the last digit-only frame id, as text. */
+  let cursor: string | undefined
   let failures = 0
   let delay = BACKOFF_START_MS
   while (gen === generation && !abort.signal.aborted) {
     let gotData = false
     try {
-      iterator = io.spawn(request)
+      iterator = io.spawn(curlRequest(url, token, cursor))
       void setLiveSource(io, 'sse')
-      const parse = createSseParser((name, data) => {
-        if (name === 'item.updated') invalidateLabels()
-        void noteRemote(io, name, data)
-        void (name === 'sync.lost' ? refreshNow(io) : refresh(io))
+      const parse = createSseParser((name, data, id) => {
+        if (id !== undefined && DIGITS.test(id)) cursor = id
+        dispatchEvent(io, name, data)
       })
       for (;;) {
         const step = await iterator.next()
@@ -272,7 +365,7 @@ export function syncLive(io: GraphIo, subscribers: number): void {
   }
 }
 
-/** Tears down a running live source and starts it again (a fresh spawn budget); nothing starts with no subscribers. */
+/** Tears down a running live source and starts it again (a fresh spawn budget and no resume cursor); nothing starts with no subscribers. */
 export function restartLive(io: GraphIo, subscribers: number): void {
   if (running) {
     running = false

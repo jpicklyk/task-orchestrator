@@ -1,5 +1,5 @@
 // /to-graph pane: a top-down dependency graph of keyed, state-filled boxes (T3 a47dcd6f, rewritten).
-// Read-only: the pane makes only query_items, get_context and query_notes calls and no TO write tool, ever.
+// Read-only: the pane makes only items_read and notes_read calls and no TO write tool, ever.
 //
 // This is the only file here that touches `$` (the plugin validator follows `$` only into functions
 // of the same file). Control is atom-driven, so the atoms below are this file's own same-literal
@@ -7,7 +7,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
-import type { GraphActivity, GraphAgentInfo, GraphDetail, GraphSnapshot, GraphStatus } from '../../types'
+import type { GraphActivity, GraphAgentInfo, GraphDecision, GraphDetail, GraphRun, GraphSnapshot, GraphStatus } from '../../types'
 import { CONFIG_PATH, parseProjectRootId } from '../shared/config.ts'
 import { PLUGIN, TO_SERVER } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
@@ -23,6 +23,7 @@ import { cardsOf, criticalPath, stepsOf } from './model.ts'
 import type { Card, CriticalPath, Model } from './model.ts'
 import { recordFocusOrder, redirectFocus } from './focus.ts'
 import { gateToastLines } from '../graph-data/events.ts'
+import { decisionGlyph, runSummary } from '../graph-data/runs.ts'
 import { activeScope, detailLines, firstSpawnUuid, isDegraded, isSwitching, loadingTitle, owningScope, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
 import type { ToolCall } from './pane-model.ts'
 import { CRIT_COLOR, raster, runs } from './raster.ts'
@@ -34,7 +35,7 @@ import { edgeSvg, px } from './svg.ts'
 export const PANE_ID = 'to-graph'
 
 /** Every TO tool this pane calls; none is a write tool. */
-export const READ_TOOLS: readonly string[] = ['query_items', 'get_context', 'query_notes']
+export const READ_TOOLS: readonly string[] = ['items_read', 'notes_read']
 
 const graphSnapshot = atom({ plugin: 'task-orchestrator-mod', key: 'graphSnapshot' } as const, null as GraphSnapshot | null)
 const graphStatus = atom({ plugin: 'task-orchestrator-mod', key: 'graphStatus' } as const, { refreshing: false, liveSource: 'none' } as GraphStatus)
@@ -48,6 +49,8 @@ const graphActivity = atom({ plugin: 'task-orchestrator-mod', key: 'graphActivit
 const graphAgents = atom({ plugin: 'task-orchestrator-mod', key: 'graphAgents' } as const, {} as Record<string, GraphAgentInfo>)
 const graphShowDone = atom({ plugin: 'task-orchestrator-mod', key: 'graphShowDone' } as const, false)
 const graphRemote = atom({ plugin: 'task-orchestrator-mod', key: 'graphRemote' } as const, {} as Record<string, number>)
+const graphDecisions = atom({ plugin: 'task-orchestrator-mod', key: 'graphDecisions' } as const, {} as Record<string, GraphDecision>)
+const graphRuns = atom({ plugin: 'task-orchestrator-mod', key: 'graphRuns' } as const, {} as Record<string, GraphRun>)
 
 /** The engine's spelling of every TO tool (`mcp__<server>__<tool>`); reads count as "working on it". */
 const TO_TOOL = /^mcp__.*task-orchestrator.*__[a-z_]+$/
@@ -99,13 +102,13 @@ async function activeFeature($: EngineInterface): Promise<string | null> {
     } catch {
       // fall through to the legacy rule
     }
-    const found = (await call('query_items', {
-      operation: 'search',
+    const found = (await call('items_read', {
+      select: 'list',
       ancestorId: rootId,
       type: 'feature-implementation',
       role: 'work',
-      sortBy: 'modifiedAt',
-      sortOrder: 'desc',
+      sort: 'modifiedAt',
+      order: 'desc',
       limit: 1,
     })) as { items?: { id?: unknown }[] }
     const id = found.items?.[0]?.id
@@ -124,9 +127,9 @@ async function openDetail($: EngineInterface, itemId: string): Promise<void> {
   await update($, graphScopeMode, pinned)
   const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
   const [ctx, item, notes] = await Promise.allSettled([
-    call('get_context', { itemId }),
-    call('query_items', { operation: 'get', itemId, includeTimestamps: true }),
-    call('query_notes', { operation: 'list', itemId, includeBody: false }),
+    call('items_read', { select: 'context', itemId }),
+    call('items_read', { select: 'get', itemId, fields: ['createdAt', 'modifiedAt', 'roleChangedAt'] }),
+    call('notes_read', { select: 'list', itemId, limit: 200 }),
   ])
   const now = await $.clock.now()
   const lines =
@@ -139,7 +142,9 @@ async function openDetail($: EngineInterface, itemId: string): Promise<void> {
           ...(item.status === 'fulfilled' ? { item: item.value } : { itemFailed: true }),
           ...(notes.status === 'fulfilled' ? { notes: notes.value } : { notesFailed: true }),
         })
-  await update($, graphDetail, () => ({ itemId, lines }))
+  // Graph ids are short ids; the full UUID (for Copy UUID) comes from the get view.
+  const full = item.status === 'fulfilled' && typeof (item.value as { id?: unknown })?.id === 'string' ? ((item.value as { id: string }).id) : undefined
+  await update($, graphDetail, () => ({ itemId, lines, ...(full !== undefined ? { uuid: full } : {}) }))
 }
 
 /**
@@ -193,7 +198,7 @@ async function noteActivity(
     const id = resolveId(t.id, known)
     if (id === null) continue
     const model = e.agentId !== undefined ? agents[e.agentId]?.model : undefined
-    hits.push({ id, seat: seatOf(e.agentId, agents, t.actor), ...(model !== undefined ? { model } : {}) })
+    hits.push({ id, seat: seatOf(e.agentId, agents), ...(model !== undefined ? { model } : {}) })
   }
   if (hits.length === 0) return
   const now = await $.clock.now()
@@ -212,7 +217,7 @@ async function noteActivity(
   $.clock.after(WORKING_TTL_MS + 500, () => void prune())
 }
 
-/** Marks this session's gate-blocked advance_item rows on their snapshot items; they expire after GATE_BLOCK_MS. */
+/** Marks this session's gate-blocked advance elements on their snapshot items; they expire after GATE_BLOCK_MS. */
 async function noteGateBlocks($: EngineInterface, rows: readonly GateBlockRow[]): Promise<void> {
   const snap = await read($, graphSnapshot)
   if (snap === null) return
@@ -261,7 +266,7 @@ const activityIo = ($: EngineInterface, toasts: boolean): ActivityIo => ({
  * The tool.call hook body: skips the pane's own calls, always returns the call's result untouched.
  * The gate blocks are recorded after the call's activity, so the call's own write does not clear them.
  */
-export async function trackToolCall<E extends { tool: string; agentId?: string }, R extends { deny?: unknown; isError?: unknown; text?: unknown }>(
+export async function trackToolCall<E extends { tool: string; agentId?: string }, R extends { deny?: unknown; isError?: unknown; result?: unknown }>(
   io: ActivityIo,
   e: E,
   next: ((e: E) => Promise<R>) & { origin: { plugin: string } },
@@ -270,7 +275,7 @@ export async function trackToolCall<E extends { tool: string; agentId?: string }
   const ran = await next(e)
   try {
     await io.note(e, shouldRefresh(e.tool, next.origin.plugin, ran))
-    const blocks = ran.deny === undefined ? gateBlocks(e.tool, ran.text) : []
+    const blocks = ran.deny === undefined ? gateBlocks(e.tool, ran) : []
     if (blocks.length > 0) await io.gate(blocks)
   } catch {
     // bookkeeping only: the model's call is never affected
@@ -304,6 +309,8 @@ interface BoxSpec {
   recent: boolean
   /** Last changed by another session: `⇄ ` after the `✱ ` on line 1. */
   remote: boolean
+  /** The open-decision glyph (`?`) after those, or '' when the item has no open decision. */
+  decision: string
 }
 
 /**
@@ -319,7 +326,7 @@ function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true
   const n = s.rect.width - 2
   // A recently changed item is marked in its title (a Button label takes no colour); a change made by
   // another session adds `⇄ ` after it.
-  const [first, second] = titleLines(`${s.recent ? '✱ ' : ''}${s.remote ? '⇄ ' : ''}${s.line1}`, n)
+  const [first, second] = titleLines(`${s.recent ? '✱ ' : ''}${s.remote ? '⇄ ' : ''}${s.decision !== '' ? `${s.decision} ` : ''}${s.line1}`, n)
   const press = () => open(s.id)
   const dim = s.warn ? {} : { dimColor: true }
 
@@ -359,6 +366,8 @@ interface CanvasInput {
   extraChars: number
   /** The critical path (empty on the overview). */
   crit: CriticalPath
+  /** Open decisions by short item id (graphDecisions), for the per-box glyph. */
+  decisions: Record<string, GraphDecision>
 }
 
 /** The graph canvas (or a one-line notice when the tree would not fit). */
@@ -417,7 +426,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, warn: false, recent: false, remote: false }, i.open, wholeClick),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, warn: false, recent: false, remote: false, decision: decisionGlyph(root.id, i.decisions) }, i.open, wholeClick),
     )
     order.push(root.id)
   }
@@ -438,7 +447,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       const card = byId.get(id) as Card
       const rect = lay.cards.get(id)
       if (rect === undefined) continue
-      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, warn: card.warn, recent: card.recent, remote: card.remote }, i.open, wholeClick))
+      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, warn: card.warn, recent: card.recent, remote: card.remote, decision: decisionGlyph(id, i.decisions) }, i.open, wholeClick))
       order.push(id)
       // A sibling stripe on the card's left column: the card's own subtree is untouched (G5 keys hold).
       if (stripes && critIds.has(id)) {
@@ -552,6 +561,8 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const activity = await read($, graphActivity)
     const showDone = await read($, graphShowDone)
     const remote = (await read($, graphRemote)) ?? {}
+    const decisions = (await read($, graphDecisions)) ?? {}
+    const runSummaryText = runSummary((await read($, graphRuns)) ?? {})
     const open = (id: string): Promise<void> => openDetail($, id)
 
     const view: GraphView | null = snap
@@ -611,7 +622,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
     // With a breadcrumb the scope is named there; the header keeps the counts and the live source.
     const trail = view.trail ?? []
-    const header = [...(trail.length > 0 ? [] : [scopeHeader(view)]), summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
+    const header = [...(trail.length > 0 ? [] : [scopeHeader(view)]), summaryLine(view), ...(runSummaryText !== '' ? [runSummaryText] : []), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
     const crumbs = trail.flatMap((c, i) => {
       const last = i === trail.length - 1
       const sep = i > 0 ? [h(Text, { key: `crumb-sep:${c.id}`, dimColor: true }, ' › ')] : []
@@ -654,14 +665,15 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
       if (lay.tooWide !== null) {
         body.push(h(Text, { key: 'too-wide', dimColor: true }, `Graph is ${lay.tooWide} columns wide; the pane shows ${lay.cols}. Widen the pane or open a smaller scope.`))
       }
-      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true, extraChars: extrasChars(detail?.lines ?? null, trail.map(c => c.title)), crit }))
+      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true, extraChars: extrasChars(detail?.lines ?? null, trail.map(c => c.title)), crit, decisions }))
     }
 
     if (detail !== null) {
       // The detail is its own bordered panel: title line bold, then facts, then a row of actions.
+      const uuid = detail.uuid ?? detail.itemId
       const facts = [
         ...detail.lines.map((line, i) => h(Text, { key: `detail-${i}`, ...(i === 0 ? { bold: true } : {}) }, line)),
-        h(Text, { key: 'detail-uuid', dimColor: true }, `uuid: ${detail.itemId}`),
+        h(Text, { key: 'detail-uuid', dimColor: true }, `uuid: ${uuid}`),
       ]
       const working = (activity.working[detail.itemId] ?? []).map(w =>
         h(Text, { key: `working-${w.agentId}` }, `working: ${w.seat}${w.model !== undefined ? ` · ${w.model}` : ''} · ${w.agentId === 'main' ? 'main loop' : id8(w.agentId)}`),
@@ -673,14 +685,14 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
           onPress: async press => {
             let copied = false
             try {
-              const res = (await $.ui.copy({ text: detail.itemId, surface: press.surface })) as { isCopied?: boolean; value?: { isCopied?: boolean } }
+              const res = (await $.ui.copy({ text: uuid, surface: press.surface })) as { isCopied?: boolean; value?: { isCopied?: boolean } }
               copied = res.isCopied === true || res.value?.isCopied === true
             } catch {
               copied = false
             }
             // $.ui.copy has no path on a remote surface (the desktop app) yet: fall back to the OS clipboard tool.
-            if (!copied) copied = await hostCopy($, detail.itemId)
-            $.ui.toast(copied ? `Copied ${detail.itemId}` : `Copy unavailable here. UUID: ${detail.itemId}`)
+            if (!copied) copied = await hostCopy($, uuid)
+            $.ui.toast(copied ? `Copied ${uuid}` : `Copy unavailable here. UUID: ${uuid}`)
           },
         }),
         ...(detail.itemId !== view.scopeId

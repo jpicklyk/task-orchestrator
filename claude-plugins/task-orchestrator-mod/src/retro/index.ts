@@ -1,22 +1,26 @@
-// Retrospective dispatch in-process (T5).
+// Retrospective dispatch in-process (T5, ported to 4.0 run marks).
 // Owned by work item 0f4fe024-9c3f-454c-83f7-ec13de173355.
 //
-// In-process port of retro-trigger.mjs (PostToolUse) and retro-backstop.mjs (Stop). State lives in
-// session-scoped `$.state` (it survives /compact and hot reload and is never keyed by rootId), and
-// the retrospective is spawned with `$.agent.spawn` at the run boundary instead of being handed to
-// the model as a directive.
+// In-process port of retro-trigger.mjs (PostToolUse on runs_write) and retro-backstop.mjs (Stop). State
+// lives in session-scoped `$.state` (it survives /compact and hot reload), the cross-session dedupe is the
+// server's `retro` run mark (first write wins), and the retrospective is spawned with `$.agent.spawn` at
+// the run boundary instead of being handed to the model as a directive.
 //
-//   tool.call (advance_item / complete_tree)  classify, update state, add a nudge or the one-line
-//                                             "queued" notice to the result's context
-//   tool.call (Bash running retro-ack.mjs)    ack the mod's state
-//   classic.PostToolUse                       forward `to_mod_retro` so retro-trigger.mjs steps aside
-//   classic.Stop                              spawn the queued retrospective once nothing runs in the
-//                                             background; else the nudge-only backstop
+//   tool.call (runs_write)   a successful close: in a subagent or without a project rootId, record it;
+//                            else evaluate the root's closed, unmarked runs (runs_read list + frontier,
+//                            REST runs_write mark) and add the one-line "queued" notice or a nudge to the
+//                            result's context
+//   classic.PostToolUse      forward `to_mod_retro` so retro-trigger.mjs steps aside
+//   classic.Stop             spawn the queued retrospective once nothing runs in the background; else
+//                            evaluate again (rootId) or nudge once from recorded closes (no rootId)
+// Reads go through the engine's own MCP connection (the mod's own calls are skipped by every mod hook, own
+// origin); the mark is REST only on the server, so it is a curl POST to /api/v1/ops/runs_write, and a failed
+// mark (no API URL, curl error, bad body, error envelope) nudges, never dispatches unmarked.
 //
 // Ownership: the mod owns retro handling only when the session is not a headless iteration AND the
-// cwd config is readable (the mod cannot see AGENT_CONFIG_DIR / main-checkout / user configs, and
-// must not override a config it cannot see). Otherwise every hook passes through untouched and the
-// command hooks act as before. The flag is feature-scoped (`to_mod_retro`), so it cannot silence
+// cwd config is readable (the mod cannot see AGENT_CONFIG_DIR fallbacks such as the main-checkout or user
+// configs, and must not override a config it cannot see). Otherwise every hook passes through untouched
+// and the command hooks act as before. The flag is feature-scoped (`to_mod_retro`), so it cannot silence
 // another feature's command hook.
 //
 // This is the only file here that touches `$` (the validator follows `$` only into functions
@@ -25,33 +29,32 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { RetroState } from '../../types'
 import { CONFIG_PATH } from '../shared/config.ts'
-import { PLUGIN, toToolName } from '../shared/constants.ts'
+import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
+import { parseToResult } from '../shared/to-client.ts'
+import { resolveApiUrl } from '../graph-data/live.ts'
 import { readSection, scalar } from '../lib/yaml-lite.mjs'
 import {
-  ackState,
-  afterBackstop,
-  applyCall,
-  backstopRoots,
+  QUEUED_NOTICE,
   buildDispatch,
   buildNudge,
   buildSpawnPrompt,
-  classifyCall,
-  extractResponseJson,
+  evaluateRuns,
   holdsForTasks,
-  isAckCommand,
+  markRequest,
   normalizeState,
   parseRetrospectiveConfig,
-  QUEUED_NOTICE,
+  recordCloses,
+  successfulCloses,
 } from './logic.ts'
-import type { RetroConfig } from './logic.ts'
+import type { RetroCall, RetroConfig } from './logic.ts'
 
 /** Added to a classic.PostToolUse / classic.Stop event so the retro command hooks exit early. */
 export const RETRO_OWNED_FLAG = 'to_mod_retro'
 
 const MAX_RETRO_AGENTS = 20
 
-/** The tools the retro hooks care about: advance_item, complete_tree, and Bash (the retro-ack.mjs call). Matchers keep this feature's hooks distinct from the other features' registrations. */
-const RETRO_TOOLS = /^(?:Bash|mcp__.*task-orchestrator.*__(?:advance_item|complete_tree))$/
+/** The one tool the retro hooks care about: runs_write (a run close). */
+const RETRO_TOOLS = /^mcp__.*task-orchestrator.*__runs_write$/
 
 type Ownership = { owned: boolean; cfg: RetroConfig; ancestorId: string | null }
 type Held = { state: RetroState; version: number }
@@ -97,6 +100,37 @@ async function save($: EngineInterface, state: RetroState, ifVersion?: number): 
   return res.isSet
 }
 
+/**
+ * A TO call returning the envelope `data` (rejects on an error envelope). Reads go over the engine's MCP
+ * connection; the one write, `runs_write` `mark`, is REST only on the server, so it is POSTed with curl
+ * (markRequest: the token rides curl's stdin, never argv, and never enters an error string).
+ */
+function toCall($: EngineInterface): RetroCall {
+  return async (tool, args) => {
+    if (tool !== 'runs_write') return parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
+    const base = await resolveApiUrl({
+      envApiUrl: () => $.env.get('TASK_ORCHESTRATOR_API_URL'),
+      readFile: p => $.fs.read(p),
+      homeDir: async () => (await $.env.get('TASK_ORCHESTRATOR_HOME')) || (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')),
+    })
+    if (base === null) throw new Error('runs_write: no REST API')
+    const ops = (args as { ops?: { runId?: unknown }[] }).ops
+    const runId = Array.isArray(ops) && typeof ops[0]?.runId === 'string' ? ops[0].runId : ''
+    const token = await $.env.get('TASK_ORCHESTRATOR_API_TOKEN')
+    const { argv, input } = markRequest(base, runId, token)
+    const ran = await $.process.run(argv, { stdin: input, timeoutMs: 3000 })
+    if (ran.exitCode !== 0) throw new Error(`runs_write: curl exit ${ran.exitCode}`)
+    let body: unknown
+    try {
+      body = JSON.parse(ran.stdout)
+    } catch {
+      throw new Error('runs_write: unparsable response')
+    }
+
+    return parseToResult<unknown>('runs_write', body)
+  }
+}
+
 /** True for a retrospective agent the mod spawned and for any agent it descends from one. */
 async function isRetroAgent($: EngineInterface, agentId: string | undefined, state: RetroState): Promise<boolean> {
   const mine = state.retroAgents ?? []
@@ -114,19 +148,6 @@ async function isRetroAgent($: EngineInterface, agentId: string | undefined, sta
   return false
 }
 
-function parseResponse(r: { text?: string; result?: unknown }): Record<string, unknown> | null {
-  if (typeof r.text === 'string') {
-    try {
-      const parsed = JSON.parse(r.text)
-      if (parsed !== null && typeof parsed === 'object') return parsed as Record<string, unknown>
-    } catch {
-      // fall through to the structured result
-    }
-  }
-
-  return extractResponseJson(r.result)
-}
-
 function withContext<T extends object>(r: T, line: string): T {
   const ctx = (r as { context?: readonly string[] }).context ?? []
 
@@ -139,54 +160,76 @@ function withBlock<T extends object>(r: T, text: string): T {
   return { ...r, block: prior ? `${prior}\n\n${text}` : text }
 }
 
+/**
+ * Spawns one retrospective agent for `runs` and records it. False when the spawn was denied or threw (the
+ * caller then falls back to a Stop block carrying buildDispatch).
+ */
+async function spawnRetro($: EngineInterface, runs: readonly string[], ancestorId: string | null): Promise<boolean> {
+  let agentId: string | undefined
+  try {
+    const spawned = await $.agent.spawn({
+      subagentType: 'general-purpose',
+      model: 'sonnet',
+      description: 'Session retrospective',
+      prompt: buildSpawnPrompt(runs, ancestorId),
+    })
+    // Core sets agentId on a started agent; a denial carries `deny` and starts none.
+    if (spawned.deny !== undefined) return false
+    agentId = spawned.agentId
+  } catch {
+    return false
+  }
+  const now = await $.clock.now()
+  const cur = (await load($)).state
+  await save($, {
+    ...cur,
+    dispatched: { ...(agentId !== undefined && { agentId }), runs: [...runs], at: now },
+    ...(agentId !== undefined && { retroAgents: [...(cur.retroAgents ?? []), agentId].slice(-MAX_RETRO_AGENTS) }),
+  })
+
+  return true
+}
+
+/** Whether background work is running: the Stop event's own list, else the agent list. */
+async function isBusy($: EngineInterface, tasks: readonly { status: string }[] | undefined): Promise<boolean> {
+  return tasks !== undefined ? holdsForTasks(tasks) : holdsForTasks(await $.agent.list())
+}
+
 export function registerRetro(on: On): void {
   on('tool.call', { tool: RETRO_TOOLS }, async ($, e, next) => {
     if (next.origin?.plugin === PLUGIN) return next(e)
-    const name = toToolName(e.tool)
-    const command = e.tool === 'Bash' ? (e as unknown as { command?: unknown }).command : undefined
-    const isAck = isAckCommand(command)
-    if (name !== 'advance_item' && name !== 'complete_tree' && !isAck) return next(e)
+    if (toToolName(e.tool) !== 'runs_write') return next(e)
 
     let own: Ownership
-    let held: Held
     let retro: boolean
     try {
       own = await ownership($)
       if (!own.owned) return next(e)
-      held = await load($)
-      retro = await isRetroAgent($, e.agentId, held.state)
+      retro = await isRetroAgent($, e.agentId, (await load($)).state)
     } catch {
       return next(e)
-    }
-
-    if (isAck) {
-      const r = await next(e)
-      // A failed or denied ack run changed nothing on the command side; do not ack the mod's state.
-      if (r.deny !== undefined || r.isError === true) return r
-      try {
-        const now = await $.clock.now()
-        const cur = await load($)
-        await save($, ackState(cur.state, now, !retro))
-      } catch {
-        // an ack that cannot be recorded leaves the cooldown to run out
-      }
-
-      return r
     }
     if (retro) return next(e)
 
     const r = await next(e)
-    if (r.deny !== undefined || r.isError === true) return r
+    // `isError` is not consulted: a batch with a failed element is isError although its closes succeeded.
+    if (r.deny !== undefined) return r
     try {
-      const input = e as unknown as Record<string, unknown>
-      const classified = classifyCall(name as string, input, parseResponse(r))
-      if (classified === null) return r
-      const now = await $.clock.now()
-      const cur = await load($)
-      const out = applyCall(cur.state, classified, own.cfg, now, e.agentId !== undefined)
-      if (out.state !== cur.state) await save($, out.state)
-      if (out.action === 'queue') return withContext(r, QUEUED_NOTICE)
-      if (out.action === 'nudge') return withContext(r, buildNudge(out.roots))
+      const closes = successfulCloses(e, r)
+      if (closes === null) return r
+      const cur = (await load($)).state
+      // A subagent never acts, and without a project rootId there is nothing to evaluate: record the close
+      // for the main session's Stop.
+      if (e.agentId !== undefined || own.ancestorId === null) {
+        await save($, recordCloses(cur, closes))
+
+        return r
+      }
+      const result = await evaluateRuns(toCall($), own.ancestorId, own.cfg, cur, await $.clock.now())
+      const updated: RetroState = result.won.length > 0 ? { ...result.state, pendingDispatch: [...new Set([...(result.state.pendingDispatch ?? []), ...result.won])] } : result.state
+      if (updated !== cur) await save($, updated)
+      if (result.won.length > 0) return withContext(r, QUEUED_NOTICE)
+      if (result.nudge.length > 0) return withContext(r, buildNudge(result.nudge))
     } catch {
       return r
     }
@@ -195,8 +238,7 @@ export function registerRetro(on: On): void {
   })
 
   on('classic.PostToolUse', { tool_name: RETRO_TOOLS }, async ($, e, next) => {
-    const name = toToolName(e.tool_name)
-    if ((name !== 'advance_item' && name !== 'complete_tree') || next.origin?.plugin === PLUGIN) return next(e)
+    if (toToolName(e.tool_name) !== 'runs_write' || next.origin?.plugin === PLUGIN) return next(e)
     try {
       if (!(await ownership($)).owned) return next(e)
     } catch {
@@ -221,49 +263,45 @@ export function registerRetro(on: On): void {
 
     try {
       const { state, version } = await load($)
-      const now = await $.clock.now()
 
-      const roots = state.pendingDispatch ?? []
-      if (roots.length > 0) {
+      const queued = state.pendingDispatch ?? []
+      if (queued.length > 0) {
         // Hold while work runs in the background; the Stop that ends the wake-up turn re-checks.
-        const busy = e.background_tasks !== undefined ? holdsForTasks(e.background_tasks) : holdsForTasks(await $.agent.list())
-        if (busy) return r
+        if (await isBusy($, e.background_tasks)) return r
         // Claim it: only the Stop whose write lands at `version` spawns.
         if (!(await save($, { ...state, pendingDispatch: null }, version))) return r
-
-        let agentId: string | undefined
-        let spawnedOk = false
-        try {
-          const spawned = await $.agent.spawn({
-            subagentType: 'general-purpose',
-            model: 'sonnet',
-            description: 'Session retrospective',
-            prompt: buildSpawnPrompt(roots, own.ancestorId),
-          })
-          // Core sets agentId on a started agent; a denial carries `deny` and starts none.
-          spawnedOk = spawned.deny === undefined
-          agentId = spawned.deny === undefined ? spawned.agentId : undefined
-        } catch {
-          spawnedOk = false
-        }
-        if (!spawnedOk) return withBlock(r, buildDispatch(roots, own.ancestorId))
-
-        const cur = (await load($)).state
-        await save($, {
-          ...cur,
-          handledAt: now,
-          dispatched: { ...(agentId !== undefined && { agentId }), roots: [...roots], at: now },
-          ...(agentId !== undefined && { retroAgents: [...(cur.retroAgents ?? []), agentId].slice(-MAX_RETRO_AGENTS) }),
-        })
+        if (!(await spawnRetro($, queued, own.ancestorId))) return withBlock(r, buildDispatch(queued, own.ancestorId))
 
         return r
       }
 
-      const nudgeRoots = backstopRoots(state, own.cfg, now)
-      if (nudgeRoots === null) return r
-      await save($, afterBackstop(state, now))
+      if (own.ancestorId !== null) {
+        const result = await evaluateRuns(toCall($), own.ancestorId, own.cfg, state, await $.clock.now())
+        if (result.won.length > 0) {
+          if (await isBusy($, e.background_tasks)) {
+            await save($, { ...result.state, pendingDispatch: [...result.won] })
 
-      return withBlock(r, buildNudge(nudgeRoots))
+            return r
+          }
+          if (result.state !== state) await save($, result.state)
+          if (!(await spawnRetro($, result.won, own.ancestorId))) return withBlock(r, buildDispatch(result.won, own.ancestorId))
+
+          return r
+        }
+        if (result.nudge.length > 0) {
+          await save($, result.state)
+
+          return withBlock(r, buildNudge(result.nudge))
+        }
+
+        return r
+      }
+
+      // No project rootId: nudge once per session from the closes this session recorded.
+      if (!state.sawClose || state.backstopNudged) return r
+      await save($, { ...state, backstopNudged: true })
+
+      return withBlock(r, buildNudge(state.closes ?? []))
     } catch {
       return r
     }

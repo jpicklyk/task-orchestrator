@@ -2,37 +2,15 @@
 // index.ts is the only file here that touches `$` (the validator follows `$` only into functions of
 // the same file); it builds a GuardIo from `$` and calls these.
 import type { PhaseGuardEntry } from '../../types'
-import {
-  ACTOR_DENY_REASON,
-  MAX_BLOCKS_PER_AGENT,
-  MAX_ITEMS_PER_AGENT,
-  actorForResult,
-  actorMissing,
-  blockerFor,
-  buildActorMap,
-  buildReason,
-  extractEnteredRoles,
-  extractRecordableItemIds,
-  extractResponseJson,
-  gateFromContext,
-  isActorAttributionRequired,
-  isActorAuthenticationEnabled,
-  isWorkflowSeatActor,
-  seatOwnedCandidates,
-  seatOwnedWarning,
-  skillAdvisories,
-} from './helpers.ts'
+import { envelopeOf } from '../shared/to-client.ts'
+import { MAX_BLOCKS_PER_AGENT, MAX_ITEMS_PER_AGENT, blockerFor, buildReason, gateFromContext, recordableEntries } from './helpers.ts'
 import type { Blocker } from './helpers.ts'
 
 export interface GuardIo {
   getEntry(agentId: string): Promise<PhaseGuardEntry>
   setEntry(agentId: string, entry: PhaseGuardEntry): Promise<void>
-  getWarned(): Promise<string[]>
-  setWarned(pairs: string[]): Promise<void>
-  /** A TO read tool's parsed JSON result; throws on an error result. */
+  /** A TO read tool's envelope `data`; throws on an error envelope or none. */
   callTo(tool: string, args: Record<string, unknown>): Promise<unknown>
-  /** The raw project config text, or null when absent or unreadable. */
-  readConfig(): Promise<string | null>
   /** True in a headless ralph iteration (TASK_ORCHESTRATOR_MODE=headless-iteration). */
   isHeadless(): Promise<boolean>
 }
@@ -54,9 +32,17 @@ export interface PostToolUseLike {
   tool_response?: unknown
 }
 
+/** A non-empty top-level `seatToken`: a run seat's call, which the run itself supervises. */
+function hasSeatToken(toolInput: unknown): boolean {
+  const token = toolInput !== null && typeof toolInput === 'object' ? (toolInput as { seatToken?: unknown }).seatToken : undefined
+
+  return typeof token === 'string' && token.length > 0
+}
+
 /**
- * Port of phase-guard-record.mjs `main`: records, for a subagent, the items whose advance_item call
- * entered (or found it already in) a phase. Returns true when something was written.
+ * Port of phase-guard-record.mjs `main` for an `advance` call: records, for a subagent, the items whose
+ * transition entered (or found it already in) a phase, with the role entered. A call made under a seat
+ * token records nothing, nor does a 3.x payload. Returns true when something was written.
  * Edge (accepted, D3): if this throws, the caller forwards without the flag and the command hook may
  * write a marker file that the mod's SubagentStop never reads, so phase-guard.mjs is suppressed for
  * that agent - a rare fail-open.
@@ -64,19 +50,13 @@ export interface PostToolUseLike {
 export async function recordAdvance(io: GuardIo, e: PostToolUseLike): Promise<boolean> {
   if (await io.isHeadless()) return false
   if (!e.agent_id) return false
+  if (hasSeatToken(e.tool_input)) return false
 
-  const toolResponse = e.tool_response as { structuredContent?: unknown } | undefined
-  const structured = toolResponse?.structuredContent ?? toolResponse
-  const payload = extractResponseJson(structured)
-
-  const actorMap = buildActorMap(e.tool_input)
-  const rawResults: any[] = Array.isArray(payload?.results) ? payload.results : []
-  const nonWorkflow = rawResults.filter((r, i) => !isWorkflowSeatActor(actorForResult(actorMap, r?.itemId, i, rawResults.length)))
-  const filtered = { ...payload, results: nonWorkflow }
-
-  const newItems = extractRecordableItemIds(filtered)
-  if (newItems.length === 0) return false
-  const newRoles = extractEnteredRoles(filtered)
+  const recorded = recordableEntries(envelopeOf(e.tool_response))
+  if (recorded.length === 0) return false
+  const newItems = recorded.map(r => r.itemId)
+  const newRoles: Record<string, string> = {}
+  for (const r of recorded) if (r.role) newRoles[r.itemId] = r.role
 
   const entry = await io.getEntry(e.agent_id)
   const merged = [...new Set([...entry.items, ...newItems])]
@@ -98,9 +78,12 @@ export interface SubagentStopLike {
 
 /**
  * Port of phase-guard.mjs `main`: the block reason for a stopping subagent, or null to let it stop.
- * The gate of each recorded item comes from get_context (D2); an item whose read fails does not block.
+ * The gate of each recorded item comes from `items_read` select `context` (D2), keyed by the recorded
+ * id; an item whose read fails does not block. A workflow subagent is supervised by its workflow and
+ * never blocked.
  */
 export async function checkStop(io: GuardIo, e: SubagentStopLike): Promise<string | null> {
+  if (e.agent_type === 'workflow-subagent') return null
   if (await io.isHeadless()) return null
   if (!e.agent_id) return null
 
@@ -116,7 +99,7 @@ export async function checkStop(io: GuardIo, e: SubagentStopLike): Promise<strin
   const gates = await Promise.all(
     entry.items.map(async itemId => {
       try {
-        return gateFromContext(await io.callTo('get_context', { itemId }))
+        return gateFromContext(await io.callTo('items_read', { select: 'context', itemId }), itemId)
       } catch {
         return null
       }
@@ -139,60 +122,4 @@ export async function checkStop(io: GuardIo, e: SubagentStopLike): Promise<strin
   await io.setEntry(e.agent_id, { items: entry.items, blocks: entry.blocks + 1, enteredRoles: entry.enteredRoles })
 
   return buildReason(blockers)
-}
-
-/** Result of the PreToolUse advisories for one call. */
-export interface PreToolVerdict {
-  /** Set when the call must be refused. */
-  deny?: string
-  /** Advisory texts for the model, possibly empty. */
-  context: string[]
-  /** False when the config could not be read, so the command hook must stay authoritative. */
-  handled: boolean
-}
-
-/** Port of skill-enforcement.mjs for a manage_notes call. Advisory only. */
-export async function skillEnforcement(io: GuardIo, toolInput: any): Promise<PreToolVerdict> {
-  if (!toolInput || toolInput.operation !== 'upsert' || !Array.isArray(toolInput.notes)) return { context: [], handled: true }
-  const config = await io.readConfig()
-  if (config === null) return { context: [], handled: false }
-  const warned = new Set(await io.getWarned())
-  const { warnings, newlyWarned } = skillAdvisories(config, toolInput, warned)
-  if (warnings.length === 0) return { context: [], handled: true }
-  await io.setWarned([...warned, ...newlyWarned])
-
-  return { context: [warnings.join('\n\n')], handled: true }
-}
-
-/**
- * Port of enforce-actor-attribution.mjs: deny an actor-less write when enforcement is on, and warn
- * (never deny) when an orchestrator re-upserts a note stored under a subagent actor.
- */
-export async function actorAttribution(io: GuardIo, toolName: 'advance_item' | 'manage_notes', toolInput: any): Promise<PreToolVerdict> {
-  const input = toolInput ?? {}
-  const isUpsert = toolName === 'manage_notes' && input.operation === 'upsert'
-  if (toolName === 'manage_notes' && !isUpsert) return { context: [], handled: true }
-
-  const config = await io.readConfig()
-  if (config === null) return { context: [], handled: false }
-  const enforced = isActorAuthenticationEnabled(config) || isActorAttributionRequired(config)
-
-  if (actorMissing(enforced, toolName, input)) return { deny: ACTOR_DENY_REASON, context: [], handled: true }
-  if (!isUpsert) return { context: [], handled: true }
-
-  const found = await Promise.all(
-    seatOwnedCandidates(input).map(async c => {
-      try {
-        const listed = (await io.callTo('query_notes', { operation: 'list', itemId: c.itemId, keys: [c.key], includeBody: false })) as any
-        const stored = Array.isArray(listed?.notes) ? listed.notes.find((n: any) => n?.key === c.key) : undefined
-        if (stored?.actor?.kind === 'subagent') return seatOwnedWarning(c.itemId, c.key, String(stored.actor.id))
-      } catch {
-        // best-effort: stay silent
-      }
-
-      return null
-    }),
-  )
-
-  return { context: found.filter((w): w is string => w !== null), handled: true }
 }

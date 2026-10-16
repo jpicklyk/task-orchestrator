@@ -10,6 +10,11 @@
 //       session.start and resets module variables; $.state survives.
 // The kit does not route the plugin's own $.state.set writes to its own state.set hooks (mod CLAUDE.md
 // rule 5/6), so every scenario here passes only through a direct request call, never a state.set hook.
+//
+// 4.0 (item 5dbd8275): the fake TO server answers items_read / deps_read as response envelopes in
+// `structuredContent` (current/docs/api-reference.md "Response envelope"), compact views carry 8-hex short ids and
+// the fixture ids are UUIDs with distinct first 8 hex; SSE frames carry `id:` lines (api-rest.md section 21) and the
+// run.* / decision.* events of the 4.0 set (scenario S7: they drive the graphRuns and graphDecisions atoms).
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
@@ -26,43 +31,61 @@ const SLACK = 1_000
 
 type Engine = Parameters<Parameters<typeof test>[1]>[0]
 type Slot = { value: unknown; version: number }
+/** Feeds one SSE chunk to the open stream of a `stream: true` world. */
+let push: (text: string) => void = () => undefined
 type Call = { tool: string; args: Record<string, unknown> }
 
-const reply = (body: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(body) }] })
-const failed = (message: string) => ({ isError: true, content: [{ type: 'text', text: message }] })
+const reply = (body: unknown) => ({ content: [{ type: 'text', text: 'ok' }], structuredContent: { ok: true, data: body } })
+const failed = (code: string, message: string) => ({
+  isError: true,
+  content: [{ type: 'text', text: `${code}: ${message}` }],
+  structuredContent: { ok: false, error: { code, kind: 'permanent', message } },
+})
 
 type Item = { id: string; parentId?: string; title: string; role: string; depth: number }
+const FEAT = 'f1000000-0000-4000-8000-000000000002'
+const TASK = 'f2000000-0000-4000-8000-000000000003'
 /** Project root -> feature (work) -> one task in work. */
 const ITEMS: Item[] = [
   { id: ROOT, title: 'Project', role: 'work', depth: 0 },
-  { id: 'feat', parentId: ROOT, title: 'Feature', role: 'work', depth: 1 },
-  { id: 't-work', parentId: 'feat', title: 'Working task', role: 'work', depth: 2 },
+  { id: FEAT, parentId: ROOT, title: 'Feature', role: 'work', depth: 1 },
+  { id: TASK, parentId: FEAT, title: 'Working task', role: 'work', depth: 2 },
 ]
+const compact = (i: Item) => ({ id: i.id.slice(0, 8), ...(i.parentId !== undefined ? { parentId: i.parentId.slice(0, 8) } : {}), title: i.title, role: i.role, priority: 'medium', depth: i.depth, version: 1 })
+const byPrefix = (arg: unknown): Item | undefined => ITEMS.find(i => typeof arg === 'string' && arg.length >= 8 && i.id.startsWith(arg.toLowerCase()))
 
 /** The TO server's read tools, answered from ITEMS. */
 function answer(tool: string, args: Record<string, unknown>) {
-  if (tool === 'query_items' && args.operation === 'overview') {
-    const anchor = String(args.anchorId)
-    const rows = ITEMS.filter(i => i.parentId === anchor).map(i => ({ ...i, priority: 'medium', childCounts: { work: 1 } }))
+  if (tool === 'items_read' && args.select === 'overview') {
+    const anchor = byPrefix(args.anchorId)
+    const rows = ITEMS.filter(i => anchor !== undefined && i.parentId === anchor.id).map(i => ({ ...compact(i), childCounts: { work: 1 } }))
 
-    return reply({ anchor: { id: anchor, title: 'Project' }, items: rows, total: rows.length, truncated: false, offset: 0 })
+    return reply({ anchor: { id: anchor?.id.slice(0, 8), title: 'Project' }, items: rows, page: { total: rows.length, truncated: false } })
   }
-  if (tool === 'query_items' && args.operation === 'get') {
-    const item = ITEMS.find(i => i.id === String(args.itemId))
+  if (tool === 'items_read' && args.select === 'get') {
+    const item = byPrefix(args.itemId)
 
-    return item ? reply(item) : failed('not found')
+    return item ? reply({ ...item, rootId: ROOT, priority: 'medium', version: 1 }) : failed('not_found', 'no such item')
   }
-  if (tool === 'query_items') {
-    const scope = String(args.ancestorId)
-    const inTree = (i: Item | undefined): boolean => i !== undefined && (i.id === scope || (i.parentId !== undefined && inTree(ITEMS.find(p => p.id === i.parentId))))
-    const rows = ITEMS.filter(i => inTree(i)).map(i => ({ ...i, priority: 'medium' }))
+  if (tool === 'items_read' && args.select === 'list') {
+    const scope = byPrefix(args.ancestorId)
+    const inTree = (i: Item | undefined): boolean => i !== undefined && scope !== undefined && (i.id === scope.id || (i.parentId !== undefined && inTree(ITEMS.find(p => p.id === i.parentId))))
+    const rows = ITEMS.filter(i => inTree(i)).map(compact)
 
-    return reply({ items: rows, total: rows.length, returned: rows.length, limit: 50, offset: 0 })
+    return reply({ items: rows, page: { total: rows.length, truncated: false } })
   }
-  if (tool === 'query_dependencies') return reply({ dependencies: [] })
-  if (tool === 'get_context') return reply({})
+  if (tool === 'items_read' && args.select === 'context' && args.itemId !== undefined) {
+    const item = byPrefix(args.itemId)
 
-  return failed(`unexpected ${tool}`)
+    return item ? reply({ item: compact(item) }) : failed('not_found', 'no such item')
+  }
+  if (tool === 'items_read' && args.select === 'context') {
+    return reply({ active: { items: [], page: { total: 0, truncated: false } }, blocked: { items: [], page: { total: 0, truncated: false } }, stalled: [], claimSummary: { active: 0, expired: 0, unclaimed: 0 } })
+  }
+  if (tool === 'items_read' && args.select === 'history') return reply({ items: [], page: { total: 0, truncated: false } })
+  if (tool === 'deps_read') return reply({ items: [], page: { total: 0, truncated: false } })
+
+  return failed('invalid_request', `unexpected ${tool}`)
 }
 
 type World = {
@@ -72,7 +95,7 @@ type World = {
   spawns: { argv: readonly string[]; input?: string }[]
   opened: unknown[]
   clock: ReturnType<typeof mock.clock>
-  /** Snapshot reads (search or overview), the unit a poll tick or an SSE event costs. */
+  /** Snapshot reads (list or overview), the unit a poll tick or an SSE event costs. */
   reads: () => number
   /** Every graphStatus.liveSource the plugin wrote, in order. */
   liveWrites: () => string[]
@@ -85,7 +108,7 @@ type World = {
  * Everything beneath the plugin, in memory: $.state, fs (config only), env, the clock, the TO server,
  * process.spawn (a curl stream that stays open), ui.open/close/status/render, command.register.
  */
-function world(on: On, opts: { seed?: Record<string, unknown>; env?: Record<string, string> } = {}): World {
+function world(on: On, opts: { seed?: Record<string, unknown>; env?: Record<string, string>; stream?: boolean } = {}): World {
   const state = new Map<string, Slot>()
   const slot = (e: { plugin: string; key: string; id?: string }) => `${e.plugin}/${e.key}/${e.id ?? ''}`
   const SLOT = (key: string) => `${PLUGIN}/${key}/`
@@ -118,8 +141,20 @@ function world(on: On, opts: { seed?: Record<string, unknown>; env?: Record<stri
 
     return { value: answer(e.tool, e.args) } as never
   })
+  const frames: string[] = []
+  let wake: () => void = () => undefined
+  push = text => {
+    frames.push(text)
+    wake()
+  }
   on('process.spawn', async function* (_$, e) {
     spawns.push({ argv: [...e.argv], input: e.input })
+    if (opts.stream === true) {
+      for (;;) {
+        while (frames.length === 0) await new Promise<void>(resolve => (wake = resolve))
+        yield { stream: 'stdout' as const, text: frames.shift() as string }
+      }
+    }
     // curl holds the stream open: it never ends within a test's mocked minutes. A generator suspended in
     // an await cannot observe the reader's return() (measured: a finally here never ran on close), so the
     // kill itself is not asserted; S4 (sse) checks the status and that no second curl follows.
@@ -152,7 +187,7 @@ function world(on: On, opts: { seed?: Record<string, unknown>; env?: Record<stri
     spawns,
     opened,
     clock,
-    reads: () => calls.filter(c => c.tool === 'query_items' && (c.args.operation === 'search' || c.args.operation === 'overview')).length,
+    reads: () => calls.filter(c => c.tool === 'items_read' && (c.args.select === 'list' || c.args.select === 'overview')).length,
     liveWrites: () => sets.filter(s => s.key === 'graphStatus').map(s => (s.value as GraphStatus).liveSource),
     subscriberWrites: () => sets.filter(s => s.key === 'graphSubscribers').map(s => s.value),
     put: (key, value) => state.set(SLOT(key), { value, version: (state.get(SLOT(key))?.version ?? 0) + 1 }),
@@ -414,4 +449,66 @@ test('S10: after a reload, /to-graph with the pane already counted still runs ex
   await settle(w, POLL)
   expect(w.spawns).toHaveLength(1)
   expect(lastLive(w)).toBe('sse')
+})
+
+// ── S7: the 4.0 event set reaches the run and decision atoms through the loaded plugin ─────────────
+
+const RUN = 'd1111111-0000-4000-8000-000000000001'
+const ITEM = 'b1111111-0000-4000-8000-000000000001'
+let seq = 1_000_000_000_000
+const frameOf = (event: string, data: Record<string, unknown> = {}) => {
+  seq++
+
+  return `id: ${seq}\nevent: ${event}\ndata: ${JSON.stringify({ id: seq, event, rootId: ROOT, ...data })}\n\n`
+}
+
+test('4.0 events: run and decision events from the stream drive the graphRuns and graphDecisions atoms, and run events alone cost no read', SSE_TIME, async ($, on) => {
+  const w = world(on, { env: SSE_ENV, stream: true })
+  await start($, w)
+  await openGraph($, w)
+  expect(w.spawns).toHaveLength(1)
+  const base = w.reads()
+
+  push(frameOf('run.opened', { runId: RUN }))
+  await settle(w, 100)
+  expect(w.valueOf('graphRuns')).toEqual({ [RUN]: { status: 'open' } })
+  push(frameOf('run.paused', { runId: RUN }))
+  await settle(w, 100)
+  expect(w.valueOf('graphRuns')).toEqual({ [RUN]: { status: 'paused' } })
+  expect(w.reads()).toBe(base)
+
+  push(frameOf('decision.raised', { itemId: ITEM, decisionId: 'dec-1', class: 'deviation', severity: 'high' }))
+  await settle(w, 100)
+  expect(w.valueOf('graphDecisions')).toEqual({ [ITEM.slice(0, 8)]: { decisionId: 'dec-1', severity: 'high', class: 'deviation' } })
+
+  push(frameOf('run.ended', { runId: RUN }))
+  push(frameOf('decision.answered', { itemId: ITEM, decisionId: 'dec-1' }))
+  await settle(w, 100)
+  expect(w.valueOf('graphRuns')).toEqual({})
+  expect(w.valueOf('graphDecisions')).toEqual({})
+})
+
+test('4.0 events: an item.advanced frame and a seat.ended frame each cost one debounced snapshot read; a run frame costs none', SSE_TIME, async ($, on) => {
+  const w = world(on, { env: SSE_ENV, stream: true })
+  await start($, w)
+  await openGraph($, w)
+  const base = w.reads()
+  push(frameOf('run.updated', { runId: RUN }))
+  await settle(w, 1_000)
+  expect(w.reads()).toBe(base)
+  push(frameOf('item.advanced', { itemId: TASK, newRole: 'review' }))
+  await settle(w, 1_000)
+  expect(w.reads()).toBe(base + 1)
+  push(frameOf('seat.ended', { itemId: TASK, runId: RUN }))
+  await settle(w, 1_000)
+  expect(w.reads()).toBe(base + 2)
+})
+
+test('4.0 events: the stream is opened with the 4.0 event types in its url', SSE_TIME, async ($, on) => {
+  const w = world(on, { env: SSE_ENV, stream: true })
+  await start($, w)
+  await openGraph($, w)
+  const url = w.spawns[0]!.argv.join(' ')
+  for (const t of ['run.opened', 'run.ended', 'seat.ended', 'decision.raised', 'decision.answered', 'scope.entered']) expect(url).toContain(t)
+  expect(url).not.toContain('sync.lost')
 })
