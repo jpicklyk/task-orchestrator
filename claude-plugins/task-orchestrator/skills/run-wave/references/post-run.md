@@ -21,6 +21,12 @@ recorded at all â€” neither a successful `stage-result` nor a `stopped` marker â
 `stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
 nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`.
 
+An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
+verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
+lists under `items[].outputs.<seat>`, plus a `rollup` of counts, and cuts every reason to 120
+characters. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
+the seats' notes when a later step needs it.
+
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
 budget, attempts or manual) is surfaced to the user now, with its pause decision; post-run work
 that needs no new seat continues, and the run closes as usual.

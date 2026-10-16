@@ -57,8 +57,9 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
 | `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
 | `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
-| `director-guard.mjs` | `{}` (no marker write, no denial) | `{}` (exempt; no marker write) | Not read | Writes the marker on a director `Skill` call (`off` removes it); under the marker denies `Read`/`Edit`/`Write`, `Bash` outside the allow-list and foreground `Agent`; fails closed |
+| `director-guard.mjs` | `{}` (no marker write, no denial) | `{}` (exempt; no marker write) | Not read | Writes the marker on a director `Skill` call (`off` removes it); under the marker denies `Read`/`Edit`/`Write`/`Grep`/`Glob`/`NotebookEdit`, `Bash` outside the allow-list (a `git log` that prints patches or writes a file, and a `git branch` that does more than list, are denied too) and foreground `Agent`; fails closed |
 | `director-context.mjs` | `{}` | `{}` | Not read | Re-injects the altitude rule after compaction (SessionStart `compact`); `{}` without the marker |
+| `director-watch.mjs` | `{}` | `{}` | Not read (`extensions.claude-code.retrospective.mode` `off` gives no retrospective directive) | Acts only under the marker (PostToolUse on `runs_read`): a `decisions` result with a new `open` decision gives one `Decision waiting:` directive to call PushNotification once; a `get` result for a `closed`, unmarked run gives the retrospective nudge or dispatch once per run, and is silent when the REST path is configured (retro-trigger owns it then); `{}` without the marker |
 
 Every row was re-derived from the hook sources at the P10/P12/P13 merge. A change that alters a hook's gating
 updates that hook's row in the same PR.
