@@ -134,7 +134,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
 <header class="plate-head">
   <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 2 of 9</span></p>
   <h1>One call moves an item. The gate decides.</h1>
-  <p class="lede">Every work item sits in one of five roles. Agents never edit status directly. They call <code>advance_item</code> with a trigger, and that call is where the server checks required notes.</p>
+  <p class="lede">Every work item sits in one of five roles. Agents never edit status directly. They call <code>advance</code> with a trigger, and that call is where the server checks required notes.</p>
 </header>
 
 <section>
@@ -256,7 +256,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
   <p>Every failure carries a <code>kind</code> that says whether retrying can help, and a <code>code</code> to branch on. An agent never has to parse the message text.</p>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="A failed call is one of three kinds. Transient: back off and retry with a fresh requestId. Permanent: do not retry, fix the request. Shedding: wait the stated time, then retry.">
+      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="A failed call is one of three kinds. Transient: back off and retry the same request. Permanent: do not retry, fix the request. Shedding: wait the stated time, then retry.">
         <rect x="10" y="88" width="150" height="60" rx="4" class="bx"/>
         <text x="85" y="114" text-anchor="middle" class="b">A call fails</text>
         <text x="85" y="132" text-anchor="middle" class="s mu">read error.kind</text>
@@ -267,7 +267,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
         <text x="305" y="46" text-anchor="middle" class="hd">transient</text>
         <line x1="380" y1="40" x2="416" y2="40" class="l" marker-end="url(#ah)"/>
         <rect x="420" y="10" width="470" height="60" rx="4" class="bx"/>
-        <text x="434" y="35" class="b">Back off, then retry with a fresh requestId</text>
+        <text x="434" y="35" class="b">Back off, then retry the same request</text>
         <text x="434" y="55" class="s mu">A contended lease or claim, a busy database. Or pick another item.</text>
         <rect x="230" y="88" width="150" height="60" rx="4" class="r-blocked"/>
         <text x="305" y="124" text-anchor="middle" class="hd">permanent</text>
@@ -283,21 +283,22 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
         <text x="434" y="211" class="s mu">The server is over capacity. Poll less often if it persists.</text>
       </svg>
     </div>
-    <figcaption>The envelope also carries <code>details</code>, such as a gate's missing notes or the blockers of a dependency, and <code>contendedItemId</code> when another agent got there first.</figcaption>
+    <figcaption>The error also carries <code>detail</code>, such as a gate's missing notes or the blockers of a dependency, and a <code>fix</code> sentence for codes that define one. A <code>claim_held</code> error names the item and when the claim expires, never the holder.</figcaption>
   </figure>
   <div class="grid2">
     <pre>{
+  "ok": false,
   "error": {
+    "code": "claim_held",
     "kind": "transient",
-    "code": "claim_contention",
-    "message": "Item already claimed by another agent",
-    "retryAfterMs": 420000,
-    "contendedItemId": "550e8400-…"
+    "message": "...",
+    "detail": { "itemId": "550e8400-...", "expiresAt": "2026-10-16T13:15:00Z", "retryAfterMs": 420000 },
+    "retryAfterMs": 420000
   }
 }</pre>
     <div style="display:grid;gap:16px;align-content:start">
-      <div class="rule"><h3>A requestId makes a write safe to resend</h3><p class="small">Write tools accept a <code>requestId</code>. The server remembers the response for that actor and id for about ten minutes and returns it again instead of running the call twice. <code>claim_item</code> requires one.</p></div>
-      <div class="rule"><h3>Same id or a fresh one</h3><p class="small">No response arrived, such as a timeout: resend with the same id. A response arrived, even a failure: use a fresh id, because the remembered failure would be replayed.</p></div>
+      <div class="rule"><h3>An idempotencyKey makes a write safe to resend</h3><p class="small">Each element of a write call may carry an <code>idempotencyKey</code>. The server records a committed element for 24 hours per principal and tool and returns its stored result again (<code>replayed: true</code>) instead of running it twice. The same key with a different element is <code>idempotency_mismatch</code>.</p></div>
+      <div class="rule"><h3>Same key on every retry</h3><p class="small">No response arrived, such as a timeout: resend with the same key. Only an element that committed is recorded, so an element that failed runs again when you retry with the same key.</p></div>
     </div>
   </div>
 </section>
@@ -306,7 +307,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
   <h2>Schemas and notes never touch until the gate</h2>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 760 124" role="img" aria-label="A schema in config.yaml states which notes are required. Notes are content stored in the database. The two meet only inside the gate check of advance_item.">
+      <svg class="d" viewBox="0 0 760 124" role="img" aria-label="A schema in config.yaml states which notes are required. Notes are content stored in the database. The two meet only inside the gate check of advance.">
         <rect x="10" y="22" width="220" height="80" rx="4" class="bx"/>
         <text x="120" y="50" text-anchor="middle" class="hd">Schema</text>
         <text x="120" y="70" text-anchor="middle" class="s">rules in config.yaml</text>
@@ -315,7 +316,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
         <text x="258" y="52" text-anchor="middle" class="s mu">requires</text>
         <rect x="290" y="22" width="180" height="80" rx="4" class="r-gate"/>
         <text x="380" y="58" text-anchor="middle" class="hd">Gate check</text>
-        <text x="380" y="78" text-anchor="middle" class="m">advance_item</text>
+        <text x="380" y="78" text-anchor="middle" class="m">advance</text>
         <line x1="530" y1="62" x2="474" y2="62" class="l" marker-end="url(#ah)"/>
         <text x="502" y="52" text-anchor="middle" class="s mu">provides</text>
         <rect x="530" y="22" width="220" height="80" rx="4" class="bx"/>
@@ -362,7 +363,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
     log('err','✗ '+m);
   }
   function fire(t){
-    log('call','advance_item(trigger="'+t+'")');
+    log('call','advance(op="transition", trigger="'+t+'")');
     var r=s.role,open=r!=='terminal',m;
     if(t==='start'){
       if(r==='terminal'||r==='blocked')return bad(t);
@@ -399,7 +400,7 @@ legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08
   }
   $('triggers').addEventListener('click',function(e){var t=e.target.getAttribute&&e.target.getAttribute('data-t');if(t)fire(t);});
   NOTES.forEach(function(n){$('n-'+n.key).addEventListener('change',function(e){
-    if(e.target.checked){log('call','manage_notes(operation="upsert", key="'+n.key+'")');log('ok','✓ upserted');}
+    if(e.target.checked){log('call','notes_write(op="upsert", key="'+n.key+'")');log('ok','✓ upserted');}
     else{log('sys','note '+n.key+' cleared');}
   });});
   $('hasReview').addEventListener('change',function(){log('sys','schema changed: review-phase notes '+(hasReview()?'declared':'removed'));render();});
