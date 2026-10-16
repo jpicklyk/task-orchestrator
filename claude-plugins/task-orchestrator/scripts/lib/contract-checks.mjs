@@ -34,9 +34,9 @@ const SELF_EXEMPT = new Set(['scripts/lib/contract-checks.mjs', 'scripts/lib/con
 const SCANNED_EXTENSIONS = new Set(['.mjs', '.js', '.json', '.md', '.yaml', '.yml', '.txt', '.sh']);
 const SKIPPED_SEGMENTS = new Set(['tests', 'node_modules']);
 
-const SEG = '(?:(?!__)[A-Za-z0-9_.-])*';
+const SEG = '(?:(?!__)[A-Za-z0-9_.*+?-])*';
 const QUALIFIED_RE = new RegExp(`mcp__(${SEG}${SERVER_SEGMENT_TOKEN}${SEG})__([a-z][a-z0-9_]*|\\*)`, 'g');
-const BARE_RE = new RegExp(`\\b(${BARE_RETIRED.join('|')})\\b`, 'g');
+const BARE_RE = new RegExp(`(?<![A-Za-z0-9])(${BARE_RETIRED.join('|')})(?![A-Za-z0-9_])`, 'g');
 
 // ---------------------------------------------------------------------------------------------------
 // Matchers
@@ -262,40 +262,4 @@ export function checkToCall(value, catalog) {
     if (spec.required && !field.includes('.') && !(field in value.args)) errors.push(`missing required arg: ${field}`);
   }
   return errors;
-}
-
-/**
- * Scans markdown files for to-call blocks and validates each against the catalog.
- * @param {{pluginRoot: string, dirs: string[], catalog: object}} args dirs are plugin-relative dirs scanned for *.md
- *   (recursively when the entry ends with "/**", otherwise one level)
- * @returns {{file: string, line: number, error: string}[]}
- */
-export function scanToCallDocs({ pluginRoot, dirs, catalog }) {
-  const problems = [];
-  for (const spec of dirs) {
-    const recursive = spec.endsWith('/**');
-    const dir = join(pluginRoot, recursive ? spec.slice(0, -3) : spec);
-    const files = [];
-    if (recursive) walkAll(dir, files);
-    else if (existsSync(dir)) {
-      for (const name of readdirSync(dir).sort()) if (name.endsWith('.md')) files.push(join(dir, name));
-    }
-    for (const abs of files) {
-      const file = toPosix(relative(pluginRoot, abs));
-      for (const block of parseToCallBlocks(readText(abs))) {
-        if ('error' in block) problems.push({ file, line: block.line, error: block.error });
-        else for (const error of checkToCall(block.value, catalog)) problems.push({ file, line: block.line, error });
-      }
-    }
-  }
-  return problems;
-}
-
-function walkAll(dir, out) {
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir).sort()) {
-    const abs = join(dir, name);
-    if (statSync(abs).isDirectory()) walkAll(abs, out);
-    else if (name.endsWith('.md')) out.push(abs);
-  }
 }
