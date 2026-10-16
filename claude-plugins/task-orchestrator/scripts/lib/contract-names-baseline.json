@@ -1,30 +1,6 @@
 {
   "pendingPort": [
     {
-      "file": "hooks/dispatch-hint.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/enforce-actor-attribution.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/phase-guard-record.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/phase-guard.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/skill-enforcement.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/subagent-start.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
       "file": "scripts/ralph-lib.mjs",
       "owner": "cae5d141"
     },

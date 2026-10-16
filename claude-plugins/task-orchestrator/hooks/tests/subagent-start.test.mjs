@@ -1,29 +1,11 @@
-// Blind test-author coverage for c39fe915 (subagent-start.mjs: the SubagentStart protocol text
-// branches on the POSITIVE errorCode a failure carries, never on the absence of one). Test author
-// actor id: test-author:c39fe915.
+// Protocol-text coverage for subagent-start.mjs on the 4.0 surface (0bbdc4cc P10 / AC8; the 3.x S15
+// errorCode wording of c39fe915 is retired with the advance_item tool). Test author actor id:
+// test-author:0bbdc4cc:r-202610161834-0bbdc4cc.
 //
-// Oracle (O-D): dispatch DECLARATIONS block for subagent-start.mjs -- "a SubagentStart hook: reads
-// JSON on stdin, writes JSON.stringify({ hookSpecificOutput: { hookEventName: "SubagentStart",
-// additionalContext: "<protocol text>" } }) to stdout. The protocol text now contains: the phrase
-// errorCode: "gate_blocked" together with previousRole as the already-in-phase signal; the
-// sentence "Every `advance_item` failure now carries an `errorCode`; branch on which POSITIVE
-// code you got, never on the absence of one."; and a paragraph beginning "**Any other
-// `errorCode`**" that lists item_not_found, invalid_trigger, invalid_actor, dependency_blocked,
-// validation_failed, invalid_transition, apply_failed, not_claim_holder, rejected_by_policy and
-// instructs the agent to stop and report. It no longer contains the text "no `errorCode`"."
-//
-// Disclosure (per test-author blindness rule 4.6): this session's OWN SubagentStart hook fired
-// automatically at dispatch, before any tool call of mine, and its additionalContext happened to
-// contain protocol text matching the OLD pre-fix wording (the exact "no errorCode" bug pattern
-// this item fixes). That text was not fetched by any tool call of mine -- it was environment-
-// injected context, not a read of subagent-start.mjs on this branch. I did not use it as an
-// oracle: every assertion below is grounded solely in the DECLARATIONS block quoted above, not in
-// anything I incidentally saw. Recorded in test-manifest's arbitration record as well.
-//
-// Scenario S15 (test-plan, section "node --test"): EXISTING-SURFACE -- subagent-start.mjs already
-// emits a SubagentStart protocol text; this fix rewrites its errorCode-handling paragraphs.
-// Narrowest-revert recipe per test-plan: revert the protocol-text edit and this file goes red
-// (the old text still says "no errorCode" and lacks the "Any other errorCode" paragraph).
+// The gating tests (phase-owner agent types, headless iteration, workflow-subagent skip, locator
+// gate, fail-open stdin) are unchanged. The protocol-text tests assert the 4.0 call shapes and
+// derive the expected error-code groups from lib/tool-catalog.json and lib/tool-names.mjs
+// ERROR_KINDS (generated artifacts), never from the hook output.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,6 +14,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ERROR_KINDS, TOOLS } from '../lib/tool-names.mjs';
 
 const HOOK = fileURLToPath(new URL('../subagent-start.mjs', import.meta.url));
 
@@ -75,61 +58,103 @@ function protocolText(payload = { session_id: 'test-session', agent_id: 'test-ag
   return out.hookSpecificOutput.additionalContext;
 }
 
-// ── S15: the already-in-phase signal is a positive errorCode, not an absence ─────────────────
+// ── S7 / AC8: the protocol names the 4.0 call shapes; the error-code groups come from the catalog ──
+// Oracle (0bbdc4cc AC8): the protocol names advance (ops: [{op: "transition", itemId, trigger:
+// "start"}]), notes_write (op: "upsert"), items_read (select: "context"), seatToken as a top-level field
+// of every call when the dispatch prompt carries one, error.code / error.kind / retryAfterMs. The codes
+// are NOT hand-written: lib/tool-catalog.json tools.advance.entries.transition.errors, partitioned by
+// lib/tool-names.mjs ERROR_KINDS. gate_blocked with detail.role equal to the agent phase = already in
+// phase; the transient and shedding codes = stop, report retryAfterMs, never spin; the remaining
+// permanent codes listed by name = stop and report. The expected sets below are computed here from
+// those two generated files, never copied from the hook output.
 
-test('S15: protocol text names errorCode gate_blocked together with previousRole as the already-in-phase signal', () => {
-  const text = protocolText();
-  assert.ok(text.includes('errorCode: "gate_blocked"'), 'expected the literal phrase errorCode: "gate_blocked"');
-  assert.ok(text.includes('previousRole'), 'expected previousRole named alongside gate_blocked');
+const CATALOG = JSON.parse(readFileSync(fileURLToPath(new URL('../lib/tool-catalog.json', import.meta.url)), 'utf-8'));
+const TRANSITION_CODES = CATALOG.tools.advance.entries.transition.errors;
+const NON_PERMANENT = TRANSITION_CODES.filter((c) => ERROR_KINDS[c] !== 'permanent').sort();
+const PERMANENT_OTHER = TRANSITION_CODES.filter((c) => ERROR_KINDS[c] === 'permanent' && c !== 'gate_blocked').sort();
+
+const paragraphs = (text) => text.split(/\n\s*\n/);
+const paragraphWith = (text, needle) => paragraphs(text).find((p) => p.includes(needle));
+/** The backticked snake_case tokens of a paragraph that are not tool names. */
+const codeTokens = (para) =>
+  [...para.matchAll(/`([a-z]+(?:_[a-z]+)*)`/g)].map((m) => m[1]).filter((t) => !TOOLS.includes(t)).sort();
+
+test('S7 oracle sanity: the catalog partition has all three groups (guards the computed expectations)', () => {
+  assert.ok(TRANSITION_CODES.includes('gate_blocked'));
+  assert.deepEqual(NON_PERMANENT, ['internal', 'resource_unavailable', 'unavailable']);
+  assert.ok(PERMANENT_OTHER.length >= 5, PERMANENT_OTHER.join(','));
+  assert.ok(PERMANENT_OTHER.includes('not_claim_holder') && PERMANENT_OTHER.includes('seat_forbidden'));
 });
 
-test('S15: protocol text states the branch-on-positive-code rule verbatim', () => {
+test('S7: protocol text names advance / transition / start, notes_write upsert, items_read context and the seatToken rule', () => {
   const text = protocolText();
-  assert.ok(
-    text.includes(
-      'Every `advance_item` failure now carries an `errorCode`; branch on which POSITIVE code you got, never on the absence of one.'
-    ),
-    'expected the exact branch-on-positive-code sentence'
-  );
-});
-
-test('S15: protocol text no longer contains the old "no errorCode" absence-based wording', () => {
-  const text = protocolText();
-  assert.ok(!text.includes('no `errorCode`'), 'the old absence-based phrasing must be gone');
-});
-
-// ── S15: every other errorCode is named and the agent is told to stop and report ─────────────
-
-test('S15: protocol text has an "Any other errorCode" paragraph listing every remaining code', () => {
-  const text = protocolText();
-  const idx = text.indexOf('**Any other `errorCode`**');
-  assert.ok(idx >= 0, 'expected a paragraph beginning **Any other `errorCode`**');
-  // The paragraph is the intended reading unit; take a generous window to remain robust to
-  // reflowing without silently matching text far outside the paragraph.
-  const paragraph = text.slice(idx, idx + 800);
-  const expectedCodes = [
-    'item_not_found',
-    'invalid_trigger',
-    'invalid_actor',
-    'dependency_blocked',
-    'validation_failed',
-    'invalid_transition',
-    'apply_failed',
-    'not_claim_holder',
-    'rejected_by_policy',
-  ];
-  for (const code of expectedCodes) {
-    assert.ok(paragraph.includes(code), `expected "${code}" listed in the Any other errorCode paragraph`);
+  assert.ok(text.includes('`advance`'), 'advance');
+  assert.match(text, /op:\s*"transition"/);
+  assert.match(text, /trigger:\s*"start"/);
+  assert.ok(text.includes('`notes_write`'), 'notes_write');
+  assert.match(text, /op:\s*"upsert"/);
+  assert.ok(text.includes('`items_read`'), 'items_read');
+  assert.match(text, /select:\s*"context"/);
+  assert.ok(text.includes('seatToken'), 'seatToken');
+  assert.match(text, /top-level field of every call/);
+  for (const field of ['error.code', 'error.kind', 'retryAfterMs']) {
+    assert.ok(text.includes(field), field);
   }
 });
 
-test('S15: protocol text instructs the agent to stop and report for any other errorCode', () => {
+test('S7: protocol text carries none of the retired 3.x vocabulary', () => {
   const text = protocolText();
-  const idx = text.indexOf('**Any other `errorCode`**');
-  assert.ok(idx >= 0);
-  const paragraph = text.slice(idx, idx + 800);
-  assert.ok(/stop/i.test(paragraph), 'expected the paragraph to instruct stopping');
-  assert.ok(/report/i.test(paragraph), 'expected the paragraph to instruct reporting');
+  for (const retired of ['advance_item', 'manage_notes', 'get_context', 'invalid_actor', 'rejected_by_policy', 'errorCode', 'previousRole', 'item_not_found', 'dependency_blocked']) {
+    assert.ok(!text.includes(retired), `retired token present: ${retired}`);
+  }
+  assert.ok(!/\bactor\b/i.test(text), 'the removed actor field must not be mentioned');
+});
+
+test('S7: every transition error code of the catalog is named in the protocol text', () => {
+  const text = protocolText();
+  for (const code of TRANSITION_CODES) {
+    assert.ok(text.includes(code), `expected "${code}" (tools.advance.entries.transition.errors) in the protocol text`);
+  }
+});
+
+test('S7: gate_blocked is the already-in-phase signal, keyed to error.detail.role equal to the agent phase', () => {
+  const para = paragraphWith(protocolText(), 'gate_blocked');
+  assert.ok(para, 'expected a paragraph naming gate_blocked');
+  assert.match(para, /already in your phase/i);
+  assert.ok(para.includes('detail.role'), para);
+  assert.ok(!para.includes('stop immediately'), 'already-in-phase is not a stop-and-report case');
+});
+
+test('S7: the transient and shedding codes (ERROR_KINDS) share one paragraph: stop, report retryAfterMs, never spin', () => {
+  const text = protocolText();
+  const para = paragraphWith(text, NON_PERMANENT[0]);
+  assert.ok(para, 'expected a paragraph naming the transient codes');
+  assert.deepEqual(codeTokens(para), NON_PERMANENT, 'exactly the non-permanent codes, no hand-written extras');
+  assert.match(para, /stop/i);
+  assert.ok(para.includes('retryAfterMs'), para);
+  assert.match(para, /do NOT retry|not retry|never spin|spin/i);
+  for (const code of PERMANENT_OTHER) assert.ok(!para.includes(code), `${code} is permanent but sits in the transient paragraph`);
+});
+
+test('S7: the remaining permanent codes (ERROR_KINDS) are listed by name in one paragraph: stop and report', () => {
+  const text = protocolText();
+  const para = paragraphWith(text, 'not_claim_holder');
+  assert.ok(para, 'expected a paragraph naming the permanent codes');
+  assert.deepEqual(codeTokens(para), PERMANENT_OTHER, 'exactly the permanent codes of the catalog except gate_blocked');
+  assert.match(para, /stop/i);
+  assert.match(para, /report/i);
+  for (const code of NON_PERMANENT) assert.ok(!para.includes(code), `${code} is not permanent but sits in the permanent paragraph`);
+});
+
+test('S7: the transient group and the permanent group are different paragraphs', () => {
+  const text = protocolText();
+  assert.notEqual(paragraphWith(text, NON_PERMANENT[0]), paragraphWith(text, 'not_claim_holder'));
+});
+
+test('S7 probe: the protocol text is identical for the plugin-qualified and bare implementer / reviewer (no per-seat code list drift)', () => {
+  const a = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' });
+  const b = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'implementer' });
+  assert.equal(paragraphWith(a, 'not_claim_holder'), paragraphWith(b, 'not_claim_holder'));
 });
 
 // ── 004d65fd: headless-iteration and non-phase-owner agent-type gating ───────────────────────
@@ -209,7 +234,7 @@ test('empty stdin fails open the same way: exit 0, no output', () => {
   assert.equal(res.stdout, '');
 });
 
-test('protocol text conditions advance_item(start) on being the entry seat, not a blanket instruction', () => {
+test('protocol text conditions advance on being the entry seat, not a blanket instruction', () => {
   const text = protocolText();
   assert.ok(
     text.includes("Follow your dispatch prompt's seat assignment"),
@@ -220,9 +245,8 @@ test('protocol text conditions advance_item(start) on being the entry seat, not 
     'expected the text to name the entry-seat concept as the one that advances the item'
   );
   assert.ok(
-    /read-only.*never calls `advance_item`|never calls `advance_item`.*read-only/is.test(text) ||
-      (/read-only/i.test(text) && /never calls `advance_item`/.test(text)),
-    'expected the text to say a read-only agent never calls advance_item'
+    /read-only/i.test(text) && /never calls `advance`/.test(text),
+    'expected the text to say a read-only agent never calls advance'
   );
 });
 
