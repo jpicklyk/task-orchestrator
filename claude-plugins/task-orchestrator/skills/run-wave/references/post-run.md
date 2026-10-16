@@ -355,18 +355,24 @@ parent whose schema has no review phase (it cascades to terminal; the gate check
 notes, `GatePredicate.kt:64-75`).
 
 **Why every child first.** A review-role parent whose required notes are filled cascades to
-terminal when its last child completes (`CascadeDetector.kt:130-163`). A feature review written
+terminal when its last child completes: `CascadeDetector.kt:130-163` detects the all-children-terminal
+event and the cascade gate at `AdvanceService.kt:961-980` (`missingForComplete`) checks only the
+required notes; this holds for lifecycle `auto`. A feature review written
 earlier can therefore close the parent before any finding is disposed.
 
 1. **Dispatch one feature reviewer.** The parent is in review. Dispatch one
    `task-orchestrator:reviewer` with an explicit `model`: the model the parent's review dispatch
-   profile names, else `opus`. Range: shared mode `git -C <feature-worktree> diff <base>...HEAD`;
-   per-item mode, the base-branch range from the SHA before the first child merged to the merged
-   tip. Input: each child's `review-checklist` (`query_notes keys=["review-checklist"]`); list any
-   child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
+   profile names, else `opus`. Range: the merged diff of the feature's owned files, pathspec = the
+   union of the children's owned files: shared mode `git -C <feature-worktree> diff <base>...HEAD
+   -- <paths>`; per-item mode the same pathspec over the base-branch range from the SHA before the
+   first child merged to the merged tip, so unrelated base merges stay out. Input: each child's
+   `review-checklist` (`query_notes(operation="list", itemId=<child>, keys=["review-checklist"])`
+   per child); list any child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
-2. **On Fail**, run the Step 5 fix cycle against the parent. A blocking finding can only be
-   disposed `fixed`.
+2. **On Fail**, the orchestrator dispatches each fix to the child item that owns the finding's file
+   (a fresh `implementer-a<n>` seat on that child, scoped to the finding); the parent has no seats
+   or owned files of its own. The SAME feature reviewer then re-checks only the fixed findings. A
+   blocking finding can only be disposed `fixed`.
 3. **Dispose every finding.** In the parent's `orchestrator-confirmation` (role review, actor
    `orchestrator:<session>`), one line per finding:
    `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`, ending with

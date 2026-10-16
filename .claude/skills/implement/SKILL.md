@@ -829,8 +829,10 @@ cannot see them, and a shared naming contract does not prevent them, since namin
 and semantic coherence are orthogonal. Evidence: 5 blocking cross-file contradictions caught
 this way at 5-item scale (retro `6d562acb`) and canonical-config consistency issues at 7-item
 scale (retro `bd4ec109`) — trend `028c7b5d`. The consolidated reviewer fills the review-phase
-notes of whichever items carry a review phase (typically the parent feature's
-`review-checklist`, since `feature-task` children skip review by default).
+notes of the CHILD items that carry a review phase (or, when the children skip review, which is
+the `feature-task` default, an orchestrator-owned per-wave note). It never fills the parent
+feature's `review-checklist`: the parent is reviewed once, in Step 6 item 3 (`run-wave`
+`post-run.md` Step 7b), after every child is terminal.
 
 **If the implementation used the shared feature worktree** (Parallel tier), the
 review agent operates in that worktree, scoped to **that child's owned files** — the diff of
