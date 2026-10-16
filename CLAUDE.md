@@ -38,12 +38,13 @@ violation fails the test, and so would a stale baseline line.
 
 **Application sub-packages (enforced acyclic by `PackageCycleTest`):** `application/` splits into `api` (tool
 request types and handlers' shared context), `service` (command services, advance), `read` (read views), `run`
-(runs and seats), `knowledge` (links, related items), `config` (schema/trait resolution, status labels), `support`
-(small shared helpers: `IdRef`, `ScopeGuard`, `eventRootOf`), `telemetry`, `port` (storage ports and paging:
-`PageRequest`, `ListPage`, `CursorCodec`), and the top-level `decision`, `report` and `upgrade`. Dependencies point
-down this order: `api` -> everything; `service` -> config, knowledge, port, support, telemetry; `read` -> port,
-service; `run` -> config, port, service, support; `knowledge` -> port, telemetry; `support` -> port; `telemetry` ->
-port; `config` and `port` depend on no other sub-package. `PackageCycleTest` fails on any edge that closes a cycle
+(runs and seats), `knowledge` (links, related items, documents, search), `config` (schema/trait resolution, status
+labels), `support` (small shared helpers, e.g. `IdRef`, `ScopeGuard`, `eventRootOf`, `Cancellation`, `UnitResults`),
+`telemetry`, `port` (storage ports and paging: `PageRequest`, `ListPage`, `CursorCodec`), and the top-level
+`decision`, `report` and `upgrade`. Dependencies point down this order: `api` -> service, read, run, knowledge, config,
+support, telemetry, port (`decision` and `report` depend on `api`, not the reverse); `service` -> config, knowledge,
+port, support, telemetry; `read` -> port, service; `run` -> config, port, service, support; `knowledge` -> port,
+support, telemetry; `support` -> port; `telemetry` -> port; `config` and `port` depend on no other sub-package. `PackageCycleTest` fails on any edge that closes a cycle
 between sub-packages, against `current/src/test/resources/architecture/package-cycle-baseline.txt`, which is empty.
 To share a type, move it down to a package every consumer already sits above. Guard tests
 (`ToolSurfaceGuardsTest`, `ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest`) derive their tool list from
