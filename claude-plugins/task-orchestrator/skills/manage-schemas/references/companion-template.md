@@ -45,7 +45,7 @@ Note the UUID, then read the schema decoration for it (a create does not return 
 {"tool": "items_read", "select": "schema", "args": {"itemId": "<uuid>"}}
 ```
 
-Confirm `role: queue`, then continue to Phase 1.
+Confirm with `items_read` `context` that `item.role` is `queue` (the schema view has no role), then continue to Phase 1.
 
 ---
 
@@ -134,6 +134,6 @@ Confirm `newRole: "terminal"`.
 <if review:>
 | review | <list required review keys or "(none required)"> | `start` → terminal |
 
-**Gate error pattern:** a `gate_blocked` answer lists the required notes still missing for the phase
+**Gate error pattern:** a refused `advance` answers call-level `partial_failure`; `data.results[0].error.code` `gate_blocked` lists the required notes still missing for the phase in `detail.missing[]`
 → Fill the listed notes, then retry the `advance` transition.
 ````

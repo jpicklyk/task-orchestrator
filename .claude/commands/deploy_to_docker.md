@@ -196,6 +196,6 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 
 ## Troubleshooting
 - **Build fails:** verify the Dockerfile exists at project root; check disk space.
-- **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. With REST **off**, a missing `MCP_ALLOW_UNAUTHENTICATED=true` fails startup as `MCP_AUTH`; a failed pre-upgrade copy (free space, a leftover `.bak`) fails startup as `UPGRADE_BACKUP` before any migration.
+- **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. With REST **off**, a missing `MCP_ALLOW_UNAUTHENTICATED=true` fails startup as `MCP_AUTH`; a failed pre-upgrade copy (free space, a busy checkpoint, a failed verify, or a file already at the exact stamped name) fails startup as `UPGRADE_BACKUP` before any migration.
 - **DB permission errors:** `docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data`.
 - **Config not found:** use a config mount (not None) if you rely on the global fallback config; verify `deploy/global-config/.taskorchestrator/` exists.

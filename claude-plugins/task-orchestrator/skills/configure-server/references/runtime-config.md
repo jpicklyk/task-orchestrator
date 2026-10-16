@@ -247,7 +247,7 @@ Over stdio the director profile is a second entry with `MCP_TOOL_PROFILE=directo
   }
 }
 ```
-Both stdio processes share the volume and act as the one `local` principal.
+Both stdio processes share the volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, run one process only (start the orchestration entry alone, then add the director): two concurrent first boots can race the `UPGRADE_BACKUP` copy.
 
 ---
 

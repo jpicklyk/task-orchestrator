@@ -57,7 +57,7 @@ Drop any result tagged `personal-root`: a personal root is not a project anchor 
 
 ### 1c — Config-push capability (tolerant)
 
-The `config` tool (orchestration profile) pushes the config in EXECUTE step (d). Do not probe it destructively here — just remember to attempt the push there and, if the tool is not served (a knowledge-profile connection) or answers `forbidden` (the credential lacks `write-config`), skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step c) is the source of truth; the server push is a convenience sync.
+The `config` tool (orchestration profile) pushes the config in EXECUTE step (d). Do not probe it destructively here — just remember to attempt the push there and, if the tool is not served (a knowledge-profile connection) or fails with `data.results[0].error.code` `forbidden` (the credential lacks `write-config`), skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step c) is the source of truth; the server push is a convenience sync.
 
 A 4.x server recomputes descendant depths when a subtree is re-parented, so no capability probe is needed. A 3.x server before PR #219/#220 does not (bug `99a3e642`); if the server may predate 4.0, upgrade it before adopting.
 
@@ -126,7 +126,7 @@ Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it
 
 Perform in this order. Record pre-execution counts first (used by Step 5): the depth-0 root count, the MOVE count, and the KEEP-GLOBAL count from Step 2.
 
-**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create answers `schema_violation` and `detail.availableTypes` lacks `project`, follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
+**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project`, follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "<project name>", "type": "project", "summary": "Project anchor — subtree scope for <project name>", "priority": "low"}}
@@ -153,7 +153,7 @@ A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Ea
   ```
 - If a `project:` key somehow already exists (it should not — Step 1a would have aborted), update its `rootId`/`name` in place rather than adding a duplicate key.
 
-**(d) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config answers `config` `get` with `not_found`, which means "no head" (then omit `expectedVersion`):
+**(d) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config fails `config` `get` with `data.results[0].error.code` `not_found`, which means "no head" (then omit `expectedVersion`):
 
 ```to-call
 {"tool": "config", "op": "get", "args": {"rootId": "<ANCHOR_ID>"}}
@@ -168,7 +168,7 @@ A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Ea
 ```
 
 - `validate` reports a problem as `valid: false` with `errors[{path, reason}]`; show them and skip the push (the local file is saved). Relay `warnings`.
-- `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
+- Read failures from `data.results[0].error` (call-level `partial_failure`): `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
 - If the `config` tool is not available or the call is `forbidden`, skip this step and note: "Config saved locally only — the server push was not possible; the local config.yaml is authoritative."
 
 ---

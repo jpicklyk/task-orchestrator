@@ -275,10 +275,10 @@ Use the template in `references/companion-template.md` within this skill folder.
 
 ## Step 6 — Smoke Test
 
-Create a temporary item to confirm the schema loads. A create takes `type`; add `traits` (an array) only to test a trait the schema uses:
+Create a temporary item to confirm the schema loads. A create takes `type`; the `parentId` matters because a depth-0 item has no root config and sees only the server's schemas. Without a `project.rootId`, skip the smoke test unless the type is in the server file and the server has restarted. Add `traits` (an array) only to test a trait the schema uses:
 
 ```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Schema smoke test", "type": "<schema-name>", "priority": "low"}}
+{"tool": "items_write", "op": "create", "args": {"title": "Schema smoke test", "type": "<schema-name>", "priority": "low", "parentId": "<project.rootId>"}}
 ```
 
 A create does not return the schema decoration, so read it back for the new item:
@@ -287,7 +287,7 @@ A create does not return the schema decoration, so read it back for the new item
 {"tool": "items_read", "select": "schema", "args": {"itemId": "<smoke-test-uuid>"}}
 ```
 
-Check that the notes list the correct keys and roles. An empty or missing list means the push has not reached the server (the item resolved no schema); re-run the Step 4 push of the manage-schemas skill and retry. An item created before a push keeps its pinned schema, so create a new smoke-test item after each push.
+Check that the notes list the correct keys and roles. A push that has not reached the server shows as a failed create: `data.results[0].error.code` `schema_violation`, whose `detail.availableTypes` lacks the schema. Re-run the Step 4 push of the manage-schemas skill and retry. A read-back showing `configSource: global` means the server's schema of that name won. An item created before a push keeps its pinned schema, so create a new smoke-test item after each push.
 
 Delete the smoke-test item after verification:
 

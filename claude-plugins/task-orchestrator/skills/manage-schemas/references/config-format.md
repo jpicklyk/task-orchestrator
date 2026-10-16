@@ -68,7 +68,7 @@ resources:                      # Optional registry, SERVER FILE ONLY - describe
     maxHolders: 1                # values > 1 are rejected ("not yet supported")
 ```
 
-The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project`, `extensions`) are described in "Key ownership" in [config-reference.md](../../../../../current/docs/config-reference.md#key-ownership). The older `note_schemas` form (schemas keyed by tag) is read only for documents stored before 4.0; do not write it, and it cannot share a document with `work_item_schemas`.
+The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project`, `extensions`) are described in "Key ownership" in [config-reference.md](../../../../../current/docs/config-reference.md#key-ownership). The legacy `note_schemas` form (a type name mapped to its notes, auto lifecycle) is still accepted but cannot share a document with `work_item_schemas`; write `work_item_schemas`.
 
 ---
 
@@ -96,7 +96,7 @@ The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`
 | `maxLength` | no | integer | Max note body length (chars), at least 1. Enforced on every note write path (`notes_write` `upsert`, including `body` and `bodyFromFile`, and the notes of `items_write` `create_tree`) per top-level `note_limits.mode` |
 | `seat` | no | string | Owning seat; see "Seats" |
 | `independent_of` | no | list | Seats this note's authoring must stay independent of; see "Independence (A2)" |
-| `shared` | no | boolean | Default `false`. `true` exempts the key from the note-ownership check: any caller allowed to write the item may upsert or delete it, and a shared-key write never changes the note's owner. Attribution (the principal and seat recorded on the note) is always the last writer's. Without it, a note is owned by the principal that first wrote it, and another principal's `notes_write` upsert or delete is refused `note_owned_by_other`. Must be a boolean (a non-boolean rejects a push); an off-schema key is never shared. See [config-reference.md](../../../../../current/docs/config-reference.md#note-entry-shared) |
+| `shared` | no | boolean | Default `false`. `true` exempts the key from the note-ownership check: any caller allowed to write the item may upsert or delete it, and a shared-key write never changes the note's owner. Attribution (the principal and seat recorded on the note) is always the last writer's. Without it, a note is owned by the (principal, seat) pair that first wrote it, and any other pair's (the same principal under another seat included) `notes_write` upsert or delete is refused `note_owned_by_other`. Must be a boolean (a non-boolean rejects a push); an off-schema key is never shared. See [config-reference.md](../../../../../current/docs/config-reference.md#note-entry-shared) |
 
 ### `guidance` vs `skill` - when to use which
 
@@ -154,7 +154,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   `skill`/`skillPointer` field - the caller always resolves the actual body through the `rules` op.
 - **Key grammar.** `^[a-z0-9][a-z0-9._-]{0,99}$` - lowercase alphanumeric, `.`, `_`, `-`; must
   start with an alphanumeric; max 100 characters; never `/`, uppercase, or `:`. The `rules` op
-  enforces it (`docs_write` itself accepts any rule slug), and it is the grammar a `skill:` value must
+  enforces it (`docs_write` checks only its generic slug rules), and it is the grammar a `skill:` value must
   match for it to resolve as a rule key - a `skill:` pointer that fails it still works as a
   Skill-tool name, it simply cannot also resolve through the `rules` op.
 - **Size budget.** A `rule` document body is capped at **16384 UTF-8 bytes** (`payload_too_large`),
@@ -200,7 +200,7 @@ The `lifecycle` field on a schema controls automatic cascade behavior when child
 
 | Mode | Behavior |
 |------|----------|
-| `auto` | Default - parent cascades to terminal when all children are terminal. A parent in the `review` role never cascades: the cascade is held (`review-pending`) until the parent's own review is done |
+| `auto` | Default - parent cascades to terminal when all children are terminal. A parent in the `review` role never cascades: the cascade is refused (`gate_blocked`, `review-pending`), and the parent leaves review only by an explicit `advance` |
 | `manual` | Terminal cascade suppressed - parent must be explicitly completed. Reopen cascade also suppressed. |
 | `permanent` | Parent never auto-terminates and never auto-reopens - always manual lifecycle. |
 | `none` | Lifecycle-free: the item has no role at all (pages of knowledge or reference material). Notes may be declared but none required, and no seats; no trigger applies to it and it cannot be an endpoint of a `blocks` edge. See [Lifecycle-free items](../../../../../current/docs/config-reference.md#lifecycle-free-items) |
@@ -218,15 +218,11 @@ config and the server config; see "Global vs Per-Project Config"):
 2. The server's schema for that `type`.
 3. The root's schema named `default`.
 4. The server's schema named `default`.
-5. Nothing matches: the item is schema-free - no gate enforcement. An item with no `type` uses only
-   steps 3 and 4.
+5. Nothing matches: the item is schema-free - no gate enforcement. An existing item with no `type` (pre-4.0) uses only steps 3 and 4.
 
 **Key points:**
 - Setting `type` on an item is how a schema is activated. Tags are never consulted.
-- A `default` schema is the last resort in each layer, never a substitute for an exact match: a root's
-  empty `default` does **not** override a server schema declared for the same type (the server's exact
-  type is tried first). To make every type of a root gate-free, declare an empty schema for each
-  type, or accept that the server's typed schemas still apply.
+- A `default` is the last resort in each layer, never a catch-all for new items. A create or retype must name a type one of the two layers declares (`default` counts) whenever either declares any, or it fails `schema_violation` with `detail.availableTypes`. A depth-0 create sees only the server's types. Steps 3-4 serve items typed `default`, and existing items whose type is no longer declared, when they are pinned or repinned. A root's `default` does not override a server type. To make a root gate-free, declare each type it uses with `notes: []`.
 - Only one schema applies per item. Matching is exact and case-sensitive.
 - The schema is pinned when the item is created, and again at the other pin points. A later push
   changes new and unpinned items only; an in-flight item keeps its pinned schema until `items_write`
@@ -254,7 +250,7 @@ How trait notes merge into an item's resolved schema (the one merge, `TraitResol
    contains the trait's name, its notes, seats, resources and dispatch all come from that entry, and
    a dimension the entry does not declare is empty (see "Global vs Per-Project Config"). Restate
    everything you want to keep.
-6. An unknown trait name on an item is skipped with a server-side warning.
+6. A create or update naming a trait neither layer declares fails `schema_violation` (`detail.availableTraits`) whenever any trait is declared; a trait that stops being declared after the write is skipped with a server-side warning.
 
 **Example - the base role wins, `required` ORs:**
 
@@ -314,7 +310,7 @@ because a resource key is a server-global lock/lease namespace. It holds TTL def
 description per key. A trait's `resources[].key` must be declared in the server registry: an undeclared
 resource key is rejected by a push and by the boot import. `maxHolders` greater than `1` is an error
 (storage is semaphore-ready for a future multi-holder release, but admission is capped at exactly 1).
-Reserved budget fields (`budgetLimit`, `budgetWindowSeconds`) are not stored.
+Reserved budget fields (`budgetLimit`, `budgetWindowSeconds`) are errors: a push and the boot import reject them on a registry entry and on a trait's resource entry.
 
 ### Merge semantics - read this before combining traits
 
@@ -345,8 +341,8 @@ types if you want audit visibility without the lock.
 
 ### Interaction with `credentialRefs`
 
-Once an item declares at least one resource via its traits' `resources:`, the `credentialRefs`
-field on that item's `advance` transitions becomes a **closed set** - each supplied ref must
+When an item that declares resources via its traits' `resources:` enters WORK with the lease gate active, the `credentialRefs`
+field on that transition is a **closed set** (its declared keys plus the registry keys) - each supplied ref must
 name a declared/registered key, or the transition is rejected, naming the unrecognized ref and the
 known-key list. Declared keys (both `exclusive`, once acquired, and `advisory`) are
 **auto-recorded** into `consumedCredentials` on work entry - you do not need to repeat them in
@@ -433,9 +429,8 @@ therefore always advisory in Claude Code; to make a particular effort actually a
 `agent` at a definition whose own frontmatter carries that `effort` - a profile naming neither
 `agent` nor a matching definition has nothing to attach its `effort` to at all. Clients that call
 the model API directly, rather than dispatching through Claude Code's Agent tool, may apply a
-profile's `effort` field themselves. The plugin ships two agent definitions that declare `effort` this
-way - `task-orchestrator:implementer` (`effort: medium`) and `task-orchestrator:reviewer`
-(`effort: high`) - both using `model: inherit` in their own frontmatter, which is exactly why the
+profile's `effort` field themselves. The plugin's agent definitions declare `effort` in their frontmatter (see `agents/`)
+and use `model: inherit` there, which is exactly why the
 caller must still pass `model` explicitly on every dispatch of the phase owner - `dispatch.model`
 when the profile sets one, otherwise its own model choice. See
 [`orchestrate`](../../orchestrate/SKILL.md) -> Dispatching an item's phase owner for the
@@ -516,7 +511,7 @@ it sends must be in its `transitions:` list (default `block`, `hold`). An enteri
 `complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
 item. A seat named `orchestrator` is the one seat whose note keys a run's coordinator token may write; every other
 seat-owned key needs that seat's own token (a human credential is exempt). Enforcement applies only to
-an item that is a member of a run that is open or paused, and a refusal is `seat_forbidden`; outside a
+an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other` with `detail.ownerSeat`; outside a
 run the seats stay a signal. The full rules, and the interaction with run membership, are in
 [config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
 
@@ -729,7 +724,7 @@ The Claude Code plugin keeps its own settings under `extensions.claude-code`. Th
 `extensions` without reading it (it must be a mapping), so these keys can change without a server
 release, and an edit takes effect on the next hook fire, with no reconnect. A top-level copy of any of
 them (`orchestration:`, `retrospective:`) is rejected by a push and only warned about at server boot
-(see [config-reference.md, `extensions`](../../../../../current/docs/config-reference.md#extensions)).
+(see [config-reference.md, `extensions`](../../../../../current/docs/config-reference.md#extensions)). `extensions` and `claude-code` must be block mappings; the hooks ignore a flow-form (`{...}`) block there, while the leaf section may be inline.
 
 ```yaml
 extensions:
@@ -853,8 +848,8 @@ Config resolves in **two layers**, chosen per work item by its `rootId`:
 | **Per-root** | pushed into the database per project-root UUID (`config` `push`, or `POST /api/v1/ops/config`) | **hot-reloaded** - no restart | one per project root |
 
 A push is **strict**: it validates the whole document (`config` `validate` runs the same pipeline without
-writing) and any error rejects it with `config_invalid` and a `{path, reason}` list; nothing is stored.
-The server file is held to the same rules at boot, with a narrow allowance for the 3.x plugin sections
+writing) and any error rejects it with `config_invalid` and a `{path, reason}` list; nothing is stored. Through the `config` tool a push is one element of a non-atomic call: the call-level error is `partial_failure`, and `config_invalid` with `detail.errors` is at `data.results[0].error`.
+The server file is held to the same rules at boot, with a narrow allowance for the 3.x plugin sections and `schema_resolution`
 (see [Parse modes](../../../../../current/docs/config-reference.md#parse-modes)); any other error fails
 startup. Which top-level key may appear in which layer is in
 [Key ownership](../../../../../current/docs/config-reference.md#key-ownership).
@@ -874,26 +869,6 @@ same level.
 | `runs` | per field: root value, else server, else default |
 | `decision_classes` | per class name: a root entry replaces the server entry of that name |
 | `status_labels` | per trigger: the root's value (an explicit `null` included) wins, else the server's |
-
-### Schema-free / non-dev / business-workflow projects
-
-A project that has no notion of "notes to fill" - business-process tracking, or anything using Task
-Orchestrator purely for status and dependency tracking - can push a per-root config with an **empty
-`default` schema**:
-
-```yaml
-work_item_schemas:
-  default:
-    lifecycle: auto   # or manual / permanent for workflow-style projects
-    notes: []
-```
-
-Because a `default` is tried only after both layers' exact type matches (see "Matching Rules"), it gates
-nothing for a type the server declares: that type keeps the server's schema. Give each such type its own
-empty schema in the root document if the root must be entirely gate-free.
-
-The server's `default` still matters as the floor for items with no root (stdio, or items created before
-a workspace's first push) and for the process containers that sit outside any single project root.
 
 ---
 

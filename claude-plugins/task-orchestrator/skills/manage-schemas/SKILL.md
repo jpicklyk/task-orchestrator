@@ -37,10 +37,7 @@ The target file is the path on the SessionStart context's `Config:` line (projec
 
 **If the file does not exist:**
 - For **VIEW** or **VALIDATE**: report "No schemas configured — `.taskorchestrator/config.yaml` does not exist." and stop.
-- For **CREATE**, **EDIT**, or **DELETE**: create the `.taskorchestrator/` directory if missing, then create `config.yaml` with an empty `work_item_schemas:` key:
-  ```yaml
-  work_item_schemas:
-  ```
+- For **CREATE**, create the file with the new schema (create-workflow Step 4). For **EDIT** or **DELETE**, report "No schemas configured" and stop.
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
@@ -139,8 +136,8 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
      {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, LF>"}}
      ```
 
-     Show each `errors[{path, reason}]` and stop on any (the local file is already saved; fix it and re-run VALIDATE). Relay `warnings`. Show the diff against the root's head (`types`, `traits`, `settings`, each with `added`, `removed` and `changed` names) and `affectedInFlight` (`{count, sample}`: in-flight items whose resolved schema would change on a repin; `sample` holds the first 20 ids).
-  2. Head version. A root with no config answers `not_found`, which means "no head".
+     Show each `errors[{path, reason}]` and stop on any (the local file is already saved; fix it and re-run VALIDATE). Relay `warnings`. Show the diff against the root's head (`types`, `traits`, `settings`, each with `added`, `removed` and `changed` names) and `affectedInFlight` (`{count, sample}`: in-flight items whose resolved schema would change on a repin; `sample` holds up to 20 `{itemId, changedNotes, schema?, lifecycle?}` entries, and `affectedInFlight` is present only for a valid document).
+  2. Head version. A root with no config fails with `data.results[0].error.code` `not_found`, which means "no head".
 
      ```to-call
      {"tool": "config", "op": "get", "args": {"rootId": "<project.rootId>"}}
@@ -153,10 +150,11 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
      ```
 
      - Success → report the new `version`; relay `warnings`. Re-pushing identical content appends nothing (`appended: false`), so a push after every write is safe.
+     - A failure answers call-level `partial_failure`; read the code, `detail` and `fix` from `data.results[0].error`.
      - `config_invalid` → the server rejected the document; show `detail.errors[{path, reason}]`. Nothing was stored.
-     - `version_conflict` → the head moved since step 2. Read it again, show what differs, and ask before pushing; `force` is only for an intentional overwrite (it never skips validation or `expectedVersion`).
+     - `version_conflict` → the head moved since step 2, or the document matches an earlier version (`force` re-pushes it). Read it again, show what differs, and ask before pushing; `force` is only for an intentional overwrite (it never skips validation or `expectedVersion`).
      - `forbidden` → the credential lacks `write-config`.
-  4. When `affectedInFlight.count` is above 0, tell the user those items still resolve their pinned schema and offer (ask first) to move them to the new head with `items_write` `repin`, one per listed id. Only 20 ids are listed; for a larger count, list the root's in-flight items with `items_read` `list`.
+  4. When `affectedInFlight.count` is above 0, tell the user those items still resolve their pinned schema and offer (ask first) to move them to the new head with `items_write` `repin`, one per `sample[i].itemId`. Only 20 ids are listed; for a larger count, list the root's in-flight items with `items_read` `list`.
 
      ```to-call
      {"tool": "items_write", "op": "repin", "args": {"id": "<item-uuid>"}}
@@ -174,9 +172,9 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 - Solution: `items_write` `repin` for that item (Step 4, item 4), or create the item again.
 
 **Schema not applied — item has no schema**
-- Cause: the item's `type` matches no key under `work_item_schemas`, and no `default` schema is declared. Tags are never consulted.
+- Cause: an existing item whose `type` no layer declares any more (a 3.x carry-over or a deleted schema) when there is no `default`, or an item created at depth 0 or outside the project root, which sees only the server config. Tags are never consulted. A new item cannot be created with an undeclared type (`schema_violation`).
 - Resolution order (fixed): the root's exact type, the server's exact type, the root's `default`, the server's `default`. See `references/config-format.md` → Matching Rules.
-- Solution: Verify the item's type with `items_read` `get`, and set `type` to a key that exists in `work_item_schemas`.
+- Solution: Verify the item's type with `items_read` `get`, then `items_write` `update` `{id, type}` to a declared type, or `{id, parentId}` under the root.
 
 ```to-call
 {"tool": "items_read", "select": "get", "args": {"itemId": "<uuid>"}}

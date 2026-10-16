@@ -47,7 +47,7 @@ Both modes, once the server answers. Locate the orchestration entry the way `hoo
 - **stdio:** the orchestration entry's `command` and `args`, with `-e MCP_TOOL_PROFILE=director` inserted before the image name.
 - **HTTP:** the orchestration entry with `url` set to `<base>/mcp/director` (`<base>` is the orchestration URL without its trailing `/mcp`).
 
-Say why it exists: a single developer on one stdio server has no HTTP endpoint for the director tools, and a run-budget or attempt-cap decision is answered through a second stdio entry started with `MCP_TOOL_PROFILE=director` ([fleet deployment](../../../../current/docs/fleet-deployment.md)). That profile serves only read, run-control and decision operations, and no read that returns a note, document or transition-summary body ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). Both stdio processes share the database volume and act as the one `local` principal.
+Say why it exists: a single developer on one stdio server has no HTTP endpoint for the director tools, and a run-budget or attempt-cap decision is answered through a second stdio entry started with `MCP_TOOL_PROFILE=director` ([fleet deployment](../../../../current/docs/fleet-deployment.md)). That profile serves only read, run-control and decision operations, and no read that returns a note, document or transition-summary body ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). Both stdio processes share the database volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, run one process only (start the orchestration entry alone, then add the director): two concurrent first boots can race the `UPGRADE_BACKUP` copy.
 
 **Credential mode.** The server is in credential mode when an unauthenticated `POST <base>/mcp` answers `401`, or when the orchestration entry already carries an `Authorization` header:
 
@@ -94,13 +94,13 @@ Drop any item tagged `personal-root` from the results.
 - **No matches** -> census the depth-0 roots with `items_read` `overview`. If roots exist other than the global containers (Session Retrospectives, Improvement Proposals, `agent-observation` items, `type=project` items), the database already holds unscoped work. Offer via `AskUserQuestion`: hand off to `/task-orchestrator:adopt-project-scope` (it creates the anchor, re-parents the work and writes the config; init then resumes at Rule seeding), create a fresh anchor and leave those roots alone, or abort.
 - **Nothing but global containers** -> create a fresh anchor.
 
-Name: from `$ARGUMENTS`, else the main checkout's directory name; confirm with the user. Create it at depth 0. A create takes `type` (see [`items_write` create](../_generated/call-shapes.md#items_write-create)); the global floor has declared `project` since 4.0:
+Name: from `$ARGUMENTS`, else the main checkout's directory name; confirm with the user. Create it at depth 0. A create takes `type` (see [`items_write` create](../_generated/call-shapes.md#items_write-create)); the global floor declares `project`:
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "<name>", "type": "project", "priority": "low"}}
 ```
 
-**`schema_violation` on `project`.** When the answer is `schema_violation` and `detail.availableTypes` does not contain `project` (a custom server file, or a floor that predates 4.0), say so and show the list. Offer, via `AskUserQuestion`, either `container` (if listed) or adding `project: {lifecycle: permanent, notes: []}` under `work_item_schemas` in the server file (it is imported at boot, so a restart is needed; for stdio a reconnect starts a new process). Never pick a type silently.
+**`schema_violation` on `project`.** When the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` does not contain `project` (a custom or older server file), say so and show the list. Offer, via `AskUserQuestion`, either `container` (if listed) or adding `project: {lifecycle: permanent, notes: []}` under `work_item_schemas` in the server file (it is imported at boot, so a restart is needed; for stdio a reconnect starts a new process). Never pick a type silently.
 
 ### P4 - Write the `project:` block
 
@@ -116,9 +116,9 @@ Read-modify-write surgically: preserve all other content byte for byte; update a
 
 ### P5 - Validate, then push
 
-The `config` tool is orchestration-profile only. Use the file text with CRLF replaced by LF as `configYaml` (at most 131072 bytes).
+The `config` tool is orchestration-profile only. Use the file text with CRLF replaced by LF as `configYaml` (at most 131072 bytes). If the `config` tool is not served (a knowledge-profile connection), skip P5 with a note: the local file is authoritative.
 
-1. Head. A root with no config answers `not_found`, which here means "no head".
+1. Head. A root with no config fails with `data.results[0].error.code` `not_found`, which here means "no head".
 
 ```to-call
 {"tool": "config", "op": "get", "args": {"rootId": "<anchor-uuid>"}}
@@ -136,9 +136,11 @@ The `config` tool is orchestration-profile only. Use the file text with CRLF rep
 {"tool": "config", "op": "push", "args": {"rootId": "<anchor-uuid>", "configYaml": "<file text, LF>", "expectedVersion": 1}}
 ```
 
+Read a failure from `data.results[0].error`; the call-level `error` is only `partial_failure` (no detail, no fix).
+
 - Success: relay `warnings`. Re-pushing identical content appends nothing (`appended: false`).
 - `config_invalid`: show `detail.errors[{path, reason}]`; nothing was stored.
-- `version_conflict`: someone pushed since step 1. Read the head again (step 1), show what differs and ask before retrying; use `force` only when overwriting is intended (it never skips validation or `expectedVersion`).
+- `version_conflict`: someone pushed since step 1, or the document matches an earlier version (`force` re-pushes it). Read the head again (step 1), show what differs and ask before retrying; use `force` only when overwriting is intended (it never skips validation or `expectedVersion`).
 - `forbidden`: the credential lacks `write-config`; say so and stop.
 
 ### P5b - Project-level `client.json`
@@ -271,7 +273,7 @@ Upsert the text of `bundled-rules/<key>.md`. The server normalizes CRLF to LF be
 {"tool": "docs_write", "op": "upsert", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "<key>", "body": "<text of bundled-rules/<key>.md>", "expectedVersion": 0}}
 ```
 
-Compare the returned `contentHash` with the manifest's LAST hash for that key. Mismatch: upsert once more. Still mismatched: report the key and both hashes, and warn that config-sync will treat that body as project-authored and never repair it. `version_conflict` means someone wrote the rule since the listing: list again and re-apply the policy.
+Compare the returned `contentHash` with the manifest's LAST hash for that key. Mismatch: upsert once more. Still mismatched: report the key and both hashes, and warn that config-sync will treat that body as project-authored and never repair it. `version_conflict` (on `data.results[0].error`) means someone wrote the rule since the listing: list again and re-apply the policy.
 
 Rule documents live under a root: they anchor to the project root that P3 or U2 found or created. Verify (both paths) by listing again with the same `docs_read` call, or with the `config` tool's `rules` op, which returns `{key, rulesVersion, updatedAt}` per rule:
 

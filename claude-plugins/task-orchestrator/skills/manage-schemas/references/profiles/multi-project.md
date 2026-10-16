@@ -12,8 +12,6 @@ layering strategy, not one YAML:
 - **Per-team dispatch**: claim-mode fleets and orchestrated projects coexist on one server.
 
 **Rationale to present:** walk the user toward per-root configs per team and a deliberately
-minimal global floor. A gate-free team gives its types empty schemas, or an empty `default` for the
-types nobody declares (see `schema-free.md`: the server's typed schemas still win over a per-root
-`default`, because resolution is root type, server type, root `default`, server `default`). Resource
+minimal global floor. A gate-free team declares each of its types with `notes: []` (see `schema-free.md`). An empty `default` alone admits no new type, and the server's typed schemas still win over a root `default`. Resource
 keys should be project-scoped (`team-a/staging-db`) to avoid false serialization across teams. Read the
 queue with `items_read` `next` / `blocked` scoped by `ancestorId` to the team's root.

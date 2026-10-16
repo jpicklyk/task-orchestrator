@@ -252,7 +252,7 @@ a READ-capability call — under bearer auth, the token rendered for `TASK_ORCHE
 as fail-open, not an error) — call this out whenever rendering a bearer-mode token for a workspace that
 also uses the guard.
 
-Two token properties matter for decisions on a run. `kind: human` is what answers a `human-only` decision
+Two token properties matter for decisions on a run. `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision
 class (a director or agent credential cannot), and `profile: director` confines a token to the director
 path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`); both are set in the token file
 ([fleet deployment](../../../../current/docs/fleet-deployment.md)).

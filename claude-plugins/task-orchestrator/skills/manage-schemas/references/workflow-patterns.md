@@ -43,7 +43,7 @@ dimensions below fit its 4-question limit). Do not interrogate dimension by dime
 | `data-pipeline-ops.md` | "ETL", "data pipeline", "warehouse", "one run at a time", "data quality" | `pipeline-run` leaf with exclusive resource lease trait (+ advisory credential), work quality-scorecard; `data-product` permanent container; `needs-anomaly-review` trait on threshold breach |
 | `incident-response.md` | "incidents", "on-call", "runbook", "postmortem", "SRE" | `incident` (severity-triage gate, containment-log, review postmortem — can't close without it) + permanent `incidents` container; `needs-prod-access` trait with advisory credential audit |
 | `document-review.md` | "contracts", "documents to review", "redline", "sign-off", "compliance", "audit trail" | `contract-review`: intake gate → work deviation-analysis (flags, not raw text) → review human sign-off; approval by a `human-only` decision class, or a verified credential (`API_AUTH_MODE=jwks` on the server) for attributable authorship |
-| `schema-free.md` | "just track tasks", "kanban", "no gates", "simple statuses" | Empty `default` schema — status/dependency/hierarchy tracking only; doubles as the per-root fence on a shared server |
+| `schema-free.md` | "just track tasks", "kanban", "no gates", "simple statuses" | Empty schema per project type — status/dependency/hierarchy tracking only |
 | `multi-project.md` | "multiple projects", "shared server", "different teams, one database" | Layering strategy, not one YAML: minimal global floor (process schemas + resource registry) + per-root config per team; mixed dispatch models coexist |
 
 Hybrids are normal: pick the closest primary profile, read its file, and pull traits from §3 or

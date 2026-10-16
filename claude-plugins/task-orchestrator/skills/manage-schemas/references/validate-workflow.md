@@ -2,7 +2,7 @@
 
 Structural and semantic validation of `.taskorchestrator/config.yaml`.
 
-**The server is the authority.** The `config` tool's `validate` op runs the same pipeline a push runs (structure against the JSON Schema, the parser's findings, then semantics) without writing, and returns `{valid, errors[{path, reason}], warnings[{path, reason}]}` plus a diff against the root's head and `affectedInFlight`. When the file has a `project.rootId`, call it first and report its result; the local checks below are for a file with no root, for a quick pre-read, and for the plugin-level checks the server does not make (kebab-case keys, description length, skill names). See [config-reference.md](../../../../../current/docs/config-reference.md#strict-validation), "Strict validation", for every rule the server enforces.
+**The server is the authority.** The `config` tool's `validate` op runs the same pipeline a push runs (structure against the JSON Schema, the parser's findings, then semantics) without writing, and returns `{valid, errors[{path, reason}], warnings[{path, reason}]}` plus a diff against the root's head and, for a valid document, `affectedInFlight`. When the file has a `project.rootId`, call it first and report its result; the local checks below are for a file with no root, for a quick pre-read, and for the plugin-level checks the server does not make (kebab-case keys, description length, skill names). See [config-reference.md](../../../../../current/docs/config-reference.md#strict-validation), "Strict validation", for every rule the server enforces.
 
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, CRLF replaced by LF>"}}
@@ -12,7 +12,7 @@ Hand-edited files fail on the strict rules most often, so check these before pus
 
 - An unknown key is an error, reported at the key's own path (`additionalProperties: false` at every modeled level).
 - Enumerated values are lowercase and case-sensitive: `lifecycle: auto`, resource `mode: exclusive`, note `role: queue`.
-- A note entry needs a valid `role`; a seat needs a `name`; a dispatch `effort` must be a listed value.
+- A note entry needs a valid `role`; a seat needs a `name` and a `phase`; a dispatch `effort` must be a listed value.
 - `lifecycle: none` schemas may declare notes (all optional) but no `seats` and no `required: true` note.
 - `resources` is rejected in a per-root document (it belongs to the server file).
 - A top-level `orchestration`, `retrospective`, `actor_attribution`, `schema_resolution` or `actor_authentication` is a problem (see Check 2).
@@ -27,7 +27,7 @@ Run the following checks in order. Collect all issues before reporting.
 Parse the file. If YAML is invalid, report the parse error with line number (if available) and stop — further checks cannot proceed.
 
 ### 2. Top-Level Structure
-- `work_item_schemas` must exist at the top level and be a mapping (not a list or scalar); the legacy `note_schemas` form is accepted by the server but cannot appear in the same document as `work_item_schemas`
+- `work_item_schemas` is optional; when present it must be a mapping (not a list, scalar or null); the legacy `note_schemas` form is accepted by the server but cannot appear in the same document as `work_item_schemas`
 - `traits` is an optional top-level key — if present, must be a mapping
 - `project` is an optional top-level key — recognized, not schema-related; if present, must be a mapping containing `rootId` (string, required) and optionally `name` (string). Do not flag as unknown and do not modify it. See `references/config-format.md` → Project Scoping
 - `extensions` is an optional top-level key — if present, must be a mapping of namespaces; its contents are opaque to the server and are never edited here. Plugin settings live under `extensions.claude-code` (`references/config-format.md` → "Plugin settings")
@@ -44,7 +44,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 
 **For `work_item_schemas` entries:**
 - Schema key should be kebab-case (warn if not)
-- Value must be a mapping containing optional `lifecycle`, optional `default_traits`, optional `seats`, and a `notes` list
+- Value must be a mapping containing optional `lifecycle`, optional `default_traits`, optional `seats`, and an optional `notes` list
 - `lifecycle` (if present) must be one of: `auto`, `manual`, `permanent`, `none` (lowercase only; the removed `auto-reopen` is an error). `none` makes the items lifecycle-free: no notes may be `required: true` and no `seats` may be declared (see [Lifecycle-free items](../../../../../current/docs/config-reference.md#lifecycle-free-items))
 - `default_traits` (if present) must be a list of strings
 - `notes` must be a list of note definitions
@@ -58,7 +58,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - Each note follows the same field rules as schema notes
 - `dispatch` (if present), see `references/config-format.md` → "Dispatch (Trait Dimension)" for the
   full field reference: phase keys are `queue`/`work`/`review` only (case-sensitive); each phase
-  profile needs at least one of `agent`/`model`/`effort`; `effort` (if set) must be one of `low`,
+  profile needs at least one of `agent`/`model`/`effort` (or the phase map carries only `seats:`); `effort` (if set) must be one of `low`,
   `medium`, `high`, `xhigh`, `max` (case-sensitive)
 
 ### 4. Note Definition Fields
