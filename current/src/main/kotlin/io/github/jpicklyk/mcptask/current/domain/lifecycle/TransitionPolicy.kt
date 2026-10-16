@@ -201,7 +201,13 @@ object StandardGates {
                     DomainError(
                         code = ErrorCode.GATE_BLOCKED,
                         message = "Item $id is in review; a cascade does not complete it.",
-                        detail = ErrorDetail.GateBlocked(id, Role.REVIEW.wire(), emptyList(), null),
+                        detail =
+                            ErrorDetail.GateBlocked(
+                                id,
+                                Role.REVIEW.wire(),
+                                emptyList(),
+                                listOf(GateViolation("review-pending", "a cascade does not complete an item in review"))
+                            ),
                         fixArgs = mapOf("itemId" to id.toString())
                     )
                 )
