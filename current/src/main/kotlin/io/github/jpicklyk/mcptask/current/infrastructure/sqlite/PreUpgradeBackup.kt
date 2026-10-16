@@ -118,14 +118,20 @@ internal object PreUpgradeBackup {
             }
 
             val target = File(parentDir, "${dbFile.name}.pre-4.0.${STAMP.format(now())}.bak")
+            // An existing path (file or directory, even a dangling link) is never ours to touch or delete.
+            if (Files.exists(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return fail("backup path already exists, refusing to overwrite: ${target.path}")
+            }
+            var created = false
             try {
                 Files.newOutputStream(target.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { out ->
+                    created = true
                     Files.copy(dbFile.toPath(), out)
                 }
             } catch (e: FileAlreadyExistsException) {
                 return fail("backup path already exists, refusing to overwrite: ${target.path}")
             } catch (e: Exception) {
-                runCatching { target.delete() }
+                if (created) runCatching { target.delete() }
                 return fail("copy to ${target.path} failed: ${e.message}")
             }
 
