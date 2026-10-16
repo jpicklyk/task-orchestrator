@@ -220,6 +220,23 @@ test('S13 [E]: reason lists the distinct mine files of the first deferring highe
   )
 })
 
+// S13b covers the test-plan's S13 oracle clause "in mainFiles, docFiles, testFiles,
+// existingTestEdits order": existingTestEdits entries ({file, edit} objects, planner-v1 shape)
+// are claims like the other three lists.
+test('S13b [E]: an existingTestEdits entry that overlaps a claim of a higher item is named last in the reason (test-plan S13 oracle order)', () => {
+  const mine = {
+    short: 'm',
+    output: plannerOutput({
+      mainFiles: ['src/a.js'],
+      existingTestEdits: [{ file: 't/old.test.js', edit: 'x' }],
+    }),
+  }
+  const higher = [sideOf('h', ['src/a.js', 't/old.test.js'])]
+  assert.deepEqual(
+    core().overlapDeferral(mine, higher, 'per-item', ['CHANGELOG.md']),
+    { reason: 'overlap h on src/a.js, t/old.test.js' },
+  )
+})
 
 // ============================================================================================
 // S14 - worktree-absolute claims
