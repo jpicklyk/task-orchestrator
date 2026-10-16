@@ -34,6 +34,12 @@ SELECT
 FROM flyway_schema_history
 ORDER BY installed_rank DESC
 LIMIT 10;
+
+-- 4.0 only: data_steps (V23). The sqlite3 shell does not stop at an error, so on a 3.x database
+-- this prints `no such table: data_steps` and the migration list above is unaffected.
+SELECT name, applied_at, rows_affected, binary_version
+FROM data_steps
+ORDER BY applied_at;
 ```
 
 **Temp File Location:** Create `.tmp_check_schema.sql` in the project root directory (D:\Projects\task-orchestrator\)
@@ -57,6 +63,7 @@ Present the results with:
 - List of recent migrations (up to 10)
 - Success status for each migration
 - Installation timestamps
+- The `data_steps` rows (`name, applied_at, rows_affected, binary_version`) when the database is at V23 or later; a 3.x database has no such table, so expect `no such table: data_steps` there (harmless)
 
 If the query fails:
 - Explain that the volume may not exist, or
