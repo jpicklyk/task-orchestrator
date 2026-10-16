@@ -143,7 +143,8 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
   on('fs.read', async (_$, e) => {
     const byPath = files?.[(e as { path: string }).path]
     if (byPath !== undefined) return { value: byPath } as never
-    if (files !== undefined && (e as { path: string }).path !== '.taskorchestrator/config.yaml') throw new Error('ENOENT')
+    const isConfig = (e as { path: string }).path.split(String.fromCharCode(92)).join('/').endsWith('.taskorchestrator/config.yaml')
+    if (files !== undefined && !(opts.noApi && isConfig) && (e as { path: string }).path !== '.taskorchestrator/config.yaml') throw new Error('ENOENT')
     if (config === null) throw new Error('ENOENT')
 
     return { value: config } as never
