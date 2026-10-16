@@ -17,10 +17,6 @@
       "owner": "0bbdc4cc"
     },
     {
-      "file": "hooks/retro-trigger.mjs",
-      "owner": "c7e43c6d"
-    },
-    {
       "file": "hooks/skill-enforcement.mjs",
       "owner": "0bbdc4cc"
     },

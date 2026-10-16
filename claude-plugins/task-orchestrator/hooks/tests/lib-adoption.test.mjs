@@ -1,7 +1,6 @@
 // Structural contract for the hooks/lib adoption (fc131c71, scenario S21). Oracle: task-scope
 // AC1 (pure at import), AC2 (stdin and emit plumbing lives in lib), AC3 (marker implementations delegate
-// to lib/markers.mjs), AC7 (api-client.mjs is a re-export shim of lib/api-client.mjs with the same four
-// exports), AC8 (hand-written tool-names list with a P9 TODO), AC9 (README row per lib module, a
+// to lib/markers.mjs), AC7 (the api-client.mjs shim, deleted by eb262d39 AC8), AC8 (hand-written tool-names list with a P9 TODO), AC9 (README row per lib module, a
 // CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (only session-start imports server-compat).
 // Source scans read hook files as text; they do not execute them.
 
@@ -117,18 +116,12 @@ test('S21: the four marker implementations import from ./lib/markers.mjs', () =>
 
 // ---- AC7 shim ----
 
-test('S21: hooks/api-client.mjs re-exports exactly the same four bindings as lib/api-client.mjs', async () => {
-  const shim = await import('../api-client.mjs');
-  const lib = await import('../lib/api-client.mjs');
-  const four = ['apiBaseUrl', 'authHeader', 'fetchWithTimeout', 'isLoopbackApiUrl'];
-  assert.deepEqual(Object.keys(shim).sort(), four);
-  for (const name of four) {
-    assert.equal(typeof lib[name], 'function', `lib exports ${name}`);
-    assert.strictEqual(shim[name], lib[name], `shim.${name} is the lib function itself`);
+test('S21: hooks/api-client.mjs is gone and no top-level hook imports ./api-client.mjs', () => {
+  // eb262d39 AC8: the shim is deleted; every importer points at ./lib/api-client.mjs.
+  assert.ok(!existsSync(join(HOOKS_DIR, 'api-client.mjs')), 'hooks/api-client.mjs must not exist');
+  for (const f of topLevelHookFiles()) {
+    assert.ok(!importsModule(hookSource(f), './api-client.mjs'), `${f} imports ./api-client.mjs`);
   }
-  assert.equal(typeof lib.callOp, 'function');
-  assert.equal(typeof lib.wellKnown, 'function');
-  assert.ok(!('callOp' in shim) && !('wellKnown' in shim), 'the shim stays the old four');
 });
 
 // ---- AC8 / D6 tool names ----

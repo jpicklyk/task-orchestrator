@@ -17,7 +17,7 @@ import { locateConfig, userConfigPath } from './config-locator.mjs';
 import { readSection } from './yaml-lite.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { suppressionReason } from './execution-mode.mjs';
-import { apiBaseUrl } from './api-client.mjs';
+import { apiBaseUrl } from './lib/api-client.mjs';
 import { emit } from './lib/emit.mjs';
 import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { checkServer } from './lib/server-compat.mjs';

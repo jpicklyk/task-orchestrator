@@ -8,9 +8,9 @@
 //                                worktree) in the main checkout's .taskorchestrator/client.json (bare loopback
 //                                origins only — no path, query or fragment; first usable wins), then in <home>/.taskorchestrator/client.json (home =
 //                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty.
-//   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-endpoint (e.g.
-//                                config-sync needs WRITE_CONFIG, the phase guard needs READ) —
-//                                this module has no opinion on which. Optional: an
+//   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-op (config-sync needs
+//                                read + write-config + write-docs, plan-capture write-docs, the phase
+//                                guard read) — this module has no opinion on which. Optional: an
 //                                unauthenticated server (API_AUTH_MODE=none +
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
 //                                absent, requests are sent with no Authorization header.
