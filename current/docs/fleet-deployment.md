@@ -974,7 +974,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
   external-content FTS indexes. Use the sqlite3 `.backup` command, or copy the
   file with the server stopped (include the `-wal`/`-shm` files or checkpoint first).
 - **Topology.** One HTTP server hub is the recommended shape; one stdio process per session against the
-  same database file is supported (the migration lock serializes their boots). Stop every 3.x process
+  same database file is supported (the migration lock serializes only the schema phase of their boots, not the `UPGRADE_BACKUP` copy, so start ONE 4.0 process for the first boot of a 3.x volume, see "Upgrading from 3.x"). Stop every 3.x process
   before upgrading: a 3.x binary does not fail closed on a newer database.
 
 ---
@@ -1105,32 +1105,32 @@ Rolling back discards everything 4.0 wrote after the upgrade. A 3.x binary canno
 
 To confirm the restored file is a 3.x database, run the step 4 query again: the latest `flyway_schema_history` row reads version 17, and the `data_steps` query fails with `no such table`.
 
-<!-- Source citations for the behavioural claims in "Upgrading from 3.x" (docs seat, task ff08e631; line numbers removed because they drift; search each file by the symbol or behaviour named). P = current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/sqlite/PreUpgradeBackup.kt, D = infrastructure/sqlite/DatabaseManager.kt, S = bootstrap/CurrentMcpServer.kt, A = infrastructure/config/AppConfig.kt (all under the same package root).
- 1 eligibility, stored <= 17 and binary target >= 18: P (max successful version).
- 2 a file with user tables and no flyway_schema_history is unversioned (null) and still copied: P.
- 3 binary target = latest classpath migration: D; none found = SkippedNoMigration: D.
- 4 step order free space -> checkpoint -> copy -> verify: P.
- 5 free space needs db + -wal, equality proceeds: P.
- 6 busy checkpoint is a failure: P.
- 7 file name and UTC stamp: P.
- 8 CREATE_NEW, an existing path fails and is never overwritten or deleted: P.
- 9 verification (integrity_check = ok, same max version), failed copy deleted: P.
-10 INFO log line: P.
-11 Failed maps to Reason.UPGRADE_BACKUP before updateSchema(): S, StartupOutcome.kt.
-12 non-zero exit, readiness marker not written: CurrentMain.kt; marker written only later, S and S; cleared first, S.
-13 failure detail carries the cause and the UPGRADE_BACKUP=false hint: P.
-14 UPGRADE_BACKUP=false skips with one WARN, only when a copy was otherwise due: P; default true A; EnvBoolean.parse A, EnvBoolean.kt (unset = default, unrecognized = default with WARN).
-15 new database never copied (missing, empty, no user tables): P.
-16 already >= 18 never copied (every later boot): P.
-17 FLYWAY_REPAIR, SCHEMA_MODE=validate and an invalid SCHEMA_MODE never copy: D.
-18 in-memory or non-file URL never copied: P, StartupCompaction.kt, D.
-19 only the database file is copied, after the checkpoint: P.
-20 the server never deletes a .bak (only a partial or unverifiable copy it just made); each boot still at <= 17 copies again with a new stamp: P.
-21 image defaults: Dockerfile (WORKDIR /app) (uid 1001) (VOLUME /app/data) (HEALTHCHECK on READINESS_FILE) (DATABASE_PATH=data/current-tasks.db).
-22 the database runs in WAL mode (stale -wal/-shm must not survive a restore): D.
-23 data_steps columns: current/src/main/resources/db/migration/sqlite/V23__Data_Steps.sql; an unapplied once step fails startup as DATA_STEPS: S and the "Data steps" paragraph above.
-24 configWarnings on GET /api/v1/info, authenticated: api-rest.md, ServiceRoutes.kt.
-25 a 3.x binary cannot open a V26 or later database: CHANGELOG.md.
+<!-- Source citations for the behavioural claims in "Upgrading from 3.x" (docs seat, task ff08e631). Each citation names a symbol (class, function or heading); search for it, line numbers are deliberately not used. P = PreUpgradeBackup (current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/sqlite/PreUpgradeBackup.kt), D = DatabaseManager (infrastructure/sqlite/DatabaseManager.kt), S = CurrentMcpServer (bootstrap/CurrentMcpServer.kt), A = AppConfig (infrastructure/config/AppConfig.kt).
+ 1 eligibility, stored <= 17 and binary target >= 18: PreUpgradeBackup.runBackup (the skip checks) and maxSuccessfulVersion.
+ 2 a file with user tables and no flyway_schema_history is unversioned (null) and still copied: PreUpgradeBackup.hasUserTables and maxSuccessfulVersion (null).
+ 3 binary target = latest classpath migration: DatabaseManager.latestClasspathMigration; none found = SkippedNoMigration in DatabaseManager.runPreUpgradeBackup.
+ 4 step order free space -> checkpoint -> copy -> verify: the order of steps in PreUpgradeBackup.runBackup.
+ 5 free space needs db + -wal, equality proceeds: the `free < needed` check in PreUpgradeBackup.runBackup.
+ 6 busy checkpoint is a failure: PreUpgradeBackup.checkpointBusy and its use in runBackup.
+ 7 file name and UTC stamp: PreUpgradeBackup.STAMP and the target name in runBackup.
+ 8 CREATE_NEW, an existing path fails and is never overwritten or deleted: the NOFOLLOW_LINKS exists check, CREATE_NEW and FileAlreadyExistsException branch in PreUpgradeBackup.runBackup.
+ 9 verification (integrity_check = ok, same max version), failed copy deleted: PreUpgradeBackup.verify and the delete in runBackup.
+10 INFO log line: "Pre-upgrade backup written" in PreUpgradeBackup.runBackup.
+11 Failed maps to Reason.UPGRADE_BACKUP before updateSchema(): CurrentMcpServer (the runPreUpgradeBackup call and Failed(Reason.UPGRADE_BACKUP)), Reason in StartupOutcome.
+12 non-zero exit, readiness marker not written: CurrentMain.main (non-zero exit on Failed); marker written only later by runStdioTransport and the HTTP transport runner in CurrentMcpServer; cleared first by ReadinessMarker.clear at the top of CurrentMcpServer startup.
+13 failure detail carries the cause and the UPGRADE_BACKUP=false hint: PreUpgradeBackup.fail, DISABLE_HINT and RETRY_AFTER_FIX.
+14 UPGRADE_BACKUP=false skips with one WARN, only when a copy was otherwise due: PreUpgradeBackup.runBackup (the `!enabled` branch); default true in AppConfig.upgradeBackup via EnvBoolean.parse in EnvBoolean.kt (unset = default, unrecognized = default with WARN).
+15 new database never copied (missing, empty, no user tables): PreUpgradeBackup.runBackup (isFile/length check) and hasUserTables.
+16 already >= 18 never copied (every later boot): PreUpgradeBackup.FIRST_UNPROTECTED_VERSION and the SkippedAlreadyUpgraded branch.
+17 FLYWAY_REPAIR, SCHEMA_MODE=validate and an invalid SCHEMA_MODE never copy: DatabaseManager.updateSchema (repair, validate and invalid-mode branches).
+18 in-memory or non-file URL never copied: DatabaseManager.runPreUpgradeBackup (file-URL resolution), StartupCompaction (file path helper).
+19 only the database file is copied, after the checkpoint: PreUpgradeBackup.runBackup (a single Files.copy of dbFile).
+20 the server never deletes a .bak (only a partial or unverifiable copy it just made); each boot still at <= 17 copies again with a new stamp: PreUpgradeBackup.runBackup (eligibility is re-evaluated every boot).
+21 image defaults: Dockerfile (the WORKDIR, USER, VOLUME, HEALTHCHECK on READINESS_FILE and DATABASE_PATH=data/current-tasks.db instructions).
+22 the database runs in WAL mode (stale -wal/-shm must not survive a restore): DatabaseManager (SQLiteConfig.JournalMode.WAL).
+23 data_steps columns: current/src/main/resources/db/migration/sqlite/V23__Data_Steps.sql; an unapplied once step fails startup as DATA_STEPS: CurrentMcpServer (the DataStepRunner call and Failed(Reason.DATA_STEPS)) and the "Data steps" paragraph above.
+24 configWarnings on GET /api/v1/info, authenticated: api-rest.md (configWarnings in the GET /api/v1/info section), ServiceRoutes (info route).
+25 a 3.x binary cannot open a V26 or later database: CHANGELOG.md ("Upgrading from 3.x").
 -->
 
 ---
