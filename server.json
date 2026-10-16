@@ -62,6 +62,12 @@
           "description": "Optional log file path. Unset (default) disables file logging; logs are always JSON on stderr.",
           "isRequired": false,
           "isSecret": false
+        },
+        {
+          "name": "UPGRADE_BACKUP",
+          "description": "Verified pre-upgrade copy of a 3.x database (<db>.pre-4.0.<UTC stamp>.bak) taken before its first 4.0 migration; a failed copy fails startup. Set false to skip (default: true)",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }
