@@ -1821,7 +1821,7 @@ function walkFiles(dir, out = []) {
   return out;
 }
 
-test('S17 (AC8): no file under the plugin names hooks/api-client.mjs or imports ./api-client.mjs from hooks/; the four repointed hooks import ./lib/api-client.mjs', () => {
+test('S17 (AC8): no file under the plugin names hooks/api-client.mjs or imports ./api-client.mjs from hooks/; the three repointed hooks import ./lib/api-client.mjs', () => {
   const offenders = [];
   for (const file of walkFiles(PLUGIN_ROOT)) {
     const norm = file.split('\\').join('/');
@@ -1832,7 +1832,7 @@ test('S17 (AC8): no file under the plugin names hooks/api-client.mjs or imports 
     if (norm.includes('/hooks/') && !norm.includes('/hooks/lib/') && /from\s*['"]\.\/api-client\.mjs['"]/.test(text)) offenders.push(`${norm}: imports ./api-client.mjs`);
   }
   assert.deepEqual(offenders, []);
-  for (const f of ['enforce-actor-attribution.mjs', 'phase-guard.mjs', 'phase-guard-record.mjs', 'session-start.mjs']) {
+  for (const f of ['phase-guard.mjs', 'phase-guard-record.mjs', 'session-start.mjs']) {
     const text = readFileSync(join(HOOKS_SRC, f), 'utf8');
     assert.match(text, /from\s*['"]\.\/lib\/api-client\.mjs['"]/, `${f} imports ./lib/api-client.mjs`);
   }

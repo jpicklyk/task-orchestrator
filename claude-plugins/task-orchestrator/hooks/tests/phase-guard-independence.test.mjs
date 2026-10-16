@@ -14,6 +14,10 @@
 // "Scenario detail" line, applied by hand below -- never read from phase-guard.mjs's own source,
 // which is banned reading for this dispatch (blind test author, task-scope-addendum banned file).
 //
+// 4.0 UPDATE (0bbdc4cc): the gate stub now answers POST /api/v1/ops/items_read (select context) with
+// the 4.0 envelope {ok:true, data:{item:{id,title,role}, gateStatus:{canAdvance,missing,violations?}}};
+// every S13 expectation is unchanged. Oracle: task-scope AC4.
+//
 // HARNESS: identical subprocess-plus-stub-server harness as phase-guard.test.mjs (learned by
 // reading that file, which is explicitly permitted -- src/test is not banned, only src/main and
 // phase-guard.mjs's own source). Helpers (startStub/stopStub/runHook/freshTempDir/seedMarker) are
@@ -63,17 +67,29 @@ function seedMarker(tempDir, sessionId, agentId, marker) {
 function startStub(routes) {
   return new Promise((resolveListen) => {
     const server = createServer((req, res) => {
-      const match = req.url.match(/^\/api\/v1\/items\/([^/]+)\/gate$/);
-      const id = match ? match[1] : null;
-      const route = id ? routes[id] : undefined;
-      if (route === undefined) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'not_found', message: `Item ${id} not found` }));
-        return;
-      }
-      const { status = 200, body = {} } = route;
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(body));
+      let raw = '';
+      req.on('data', (d) => {
+        raw += d;
+      });
+      req.on('end', () => {
+        let id = null;
+        if (req.method === 'POST' && req.url === '/api/v1/ops/items_read') {
+          try {
+            id = JSON.parse(raw).itemId ?? null;
+          } catch {
+            id = null;
+          }
+        }
+        const route = id ? routes[id] : undefined;
+        if (route === undefined) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: { code: 'not_found', kind: 'permanent', message: `Item ${id} not found` } }));
+          return;
+        }
+        const { status = 200, body = {} } = route;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body));
+      });
     });
     server.listen(0, '127.0.0.1', () => resolveListen(server));
   });
@@ -105,22 +121,23 @@ function runHook(payload, tempDir, apiUrl) {
   });
 }
 
-/** Builds a /gate stub body. `violations`, when passed, is the raw array (each entry
+/** Builds an items_read context stub reply. `violations`, when passed, is the raw array (each entry
  * {key, seat?, constraint, conflictingSeat?, waived?} per task-scope-addendum's frozen JSON
  * shape); omitting it entirely (undefined) means the response has NO `violations` key at all --
  * the pre-A2 shape, distinct from an empty array. */
 const gateOk = (over = {}) => ({
   status: 200,
   body: {
-    itemId: over.itemId,
-    title: over.title ?? 'Widget frobnicator',
-    role: over.role ?? 'work',
-    gateStatus: {
-      canAdvance: over.canAdvance ?? false,
-      phase: over.role ?? 'work',
-      missing: over.missing ?? [],
-      ...(over.violations !== undefined ? { violations: over.violations } : {}),
+    ok: true,
+    data: {
+      item: { id: over.itemId, title: over.title ?? 'Widget frobnicator', role: over.role ?? 'work' },
+      gateStatus: {
+        canAdvance: over.canAdvance ?? false,
+        missing: over.missing ?? [],
+        ...(over.violations !== undefined ? { violations: over.violations } : {}),
+      },
     },
+    meta: { reqId: 'req00001' },
   },
 });
 

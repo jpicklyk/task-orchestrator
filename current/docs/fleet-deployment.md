@@ -645,7 +645,7 @@ This guide covers **server-side configuration**: credentials and identity, capac
 The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance` `transition` called directly by each agent) - not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
 
 - The bundled orchestration context and skills do not reference the `advance` `claim` op and assume unclaimed items
-- The bundled `enforce-actor-attribution` hook is client-side, predates the transport-principal model and is removed in a later plugin pass; a 4.0 server rejects a body `actor` as `unknown_parameter`, and the plugin does not manage credentials or enforce claim ownership precedence
+- The plugin's `enforce-actor-attribution` hook is removed (identity is the transport principal, and a 4.0 server rejects a body `actor` as `unknown_parameter`); the plugin does not manage credentials or enforce claim ownership precedence
 - Subagent dispatch templates do not include claim acquisition steps
 
 Treat the bundled plugin's behavior in claim mode as undefined. Build your own claim-aware skills, hooks, or middleware tailored to your fleet's identity scheme, contention policy, and audit integration.
