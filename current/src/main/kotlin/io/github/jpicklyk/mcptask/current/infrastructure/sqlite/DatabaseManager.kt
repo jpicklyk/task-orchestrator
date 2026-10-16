@@ -217,6 +217,46 @@ class DatabaseManager(
     }
 
     /**
+     * Takes the verified pre-upgrade backup of a 3.x database file ([PreUpgradeBackup]) when `UPGRADE_BACKUP` is on. Called once
+     * between [initialize] and [updateSchema]; never throws. `FLYWAY_REPAIR` and `SCHEMA_MODE=validate` never migrate, so they
+     * never copy. The target is the latest migration on the classpath (Flyway `info`), or [BackupOutcome.SkippedNoMigration] when
+     * it cannot be read.
+     */
+    fun runPreUpgradeBackup(): BackupOutcome {
+        val url = jdbcUrl ?: return BackupOutcome.SkippedNotFileDb
+        if (appConfig.flywayRepair) return BackupOutcome.SkippedSchemaMode
+        val mode =
+            try {
+                SchemaMode.parse(appConfig.schemaModeRaw)
+            } catch (e: IllegalArgumentException) {
+                // updateSchema() reports the bad value and fails startup; there is nothing to back up for it.
+                return BackupOutcome.SkippedSchemaMode
+            }
+        if (mode == SchemaMode.VALIDATE) return BackupOutcome.SkippedSchemaMode
+        val target = latestClasspathMigration(url) ?: return BackupOutcome.SkippedNoMigration
+        return PreUpgradeBackup.run(url, appConfig.upgradeBackup, target, appConfig.databaseBusyTimeoutMs)
+    }
+
+    private fun latestClasspathMigration(url: String): Int? =
+        try {
+            FlywayDatabaseSchemaManager(url, false, appConfig.databaseBusyTimeoutMs, SchemaMode.MIGRATE)
+                .flywayConfiguration(url)
+                .load()
+                .info()
+                .all()
+                .mapNotNull {
+                    it.version
+                        ?.version
+                        ?.substringBefore('.')
+                        ?.toIntOrNull()
+                }.maxOrNull()
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            logger.warn("Could not determine the latest migration version for the pre-upgrade backup: ${e.message}")
+            null
+        }
+
+    /**
      * Runs lightweight SQL queries to detect self-loop and 2-hop mutual cycles in the
      * work_items parent hierarchy. Logs a WARNING for each corrupt item found but does NOT
      * fail startup or delete data — remediation is a data decision, not an infra decision.

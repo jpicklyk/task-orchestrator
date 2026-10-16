@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerT
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.BackupOutcome
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -194,6 +195,12 @@ class CurrentMcpServer(
             // the HTTP server, MCP server and JWKS providers registered later have stopped.
             shutdownCoordinator.addCleanupAction("Close Database") {
                 databaseManager.shutdown()
+            }
+            // A 3.x file gets a verified safety copy before the first 4.0 migration; a failed copy stops startup here,
+            // before updateSchema() can touch the file (the Close Database action above releases the pools).
+            val backup = databaseManager.runPreUpgradeBackup()
+            if (backup is BackupOutcome.Failed) {
+                return@runBlocking Failed(Reason.UPGRADE_BACKUP, backup.detail)
             }
             if (!databaseManager.updateSchema()) {
                 logger.error("Failed to update database schema")

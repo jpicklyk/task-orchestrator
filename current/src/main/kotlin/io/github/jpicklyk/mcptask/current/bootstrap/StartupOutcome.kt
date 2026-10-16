@@ -33,6 +33,10 @@ data class Failed(
 enum class Reason {
     DATABASE_INIT,
     SCHEMA_UPDATE,
+
+    /** The pre-upgrade backup of a 3.x database could not be taken or verified (UPGRADE_BACKUP); startup stops before any migration. */
+    UPGRADE_BACKUP,
+
     UNKNOWN_TRANSPORT,
     UNKNOWN_TOOL_PROFILE,
     READINESS_MARKER,
