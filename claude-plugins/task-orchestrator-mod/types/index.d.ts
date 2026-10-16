@@ -6,7 +6,7 @@
 export type TaskOrchestratorModFeature = 'graph-data' | 'graph-pane' | 'band' | 'retro' | 'phase-guard' | 'call-shape'
 
 // ── graph-data (T2 32492bfa) types ──
-/** One work item of a graph snapshot. `parentId` is null for the scope's top node. */
+/** One work item of a graph snapshot, keyed by its 8-hex short id. `parentId` is null for the scope's top node. */
 export interface GraphNode {
   id: string
   parentId: string | null
@@ -81,11 +81,26 @@ export interface GraphStatus {
   lastError?: string
   liveSource: 'sse' | 'poll' | 'none'
 }
+
+/** An open decision on an item, from a decision.raised SSE event (graph-data/runs.ts). */
+export interface GraphDecision {
+  decisionId: string
+  severity?: string
+  class?: string
+}
+
+/** One open or paused run of the project, from run.* SSE events (graph-data/runs.ts). */
+export interface GraphRun {
+  status: 'open' | 'paused'
+}
 // ── graph-pane (T3 a47dcd6f) types ──
-/** What the /to-graph detail section shows: the read-only get_context summary of one node, as plain lines. */
+/** What the /to-graph detail section shows: the read-only context summary of one node, as plain lines. */
 export interface GraphDetail {
+  /** The node's (short) id. */
   itemId: string
   lines: string[]
+  /** The item's full UUID, from the get view, when it could be read (Copy UUID). */
+  uuid?: string
 }
 
 /** One agent seen calling a TO tool about an item: `agentId` is 'main' on the main loop. */
@@ -97,7 +112,7 @@ export interface GraphWorker {
   at: number
 }
 
-/** One gate-blocked advance_item of this session on an item: when, the missing note keys, the target role. */
+/** One gate-blocked advance of this session on an item: when, the missing note keys, the target role (when known). */
 export interface GraphGateBlock {
   at: number
   missing: string[]
@@ -120,23 +135,24 @@ export interface GraphAgentInfo {
 
 // ── band (T4 ec1e2f91) types ──
 // ── retro (T5 0f4fe024) types ──
-/** What the retrospective feature remembers for the session: the in-process form of the retro-<key>.json marker, plus the queued dispatch. */
+/**
+ * What the retrospective feature remembers for the session (the in-process form of the command hooks'
+ * per-session retro marker), plus the queued dispatch. The cross-session dedupe is the server's `retro`
+ * run mark, so nothing here is keyed by root or survives the session.
+ */
 export interface RetroState {
-  /** A lone terminal was seen and no run boundary has surfaced it yet (the Stop backstop reads it). */
-  sawTerminal?: boolean
-  lastTerminalAt?: number
-  /** Roots recorded by lone terminals, for the backstop nudge. */
-  pendingRoots?: string[]
-  /** Items that reached terminal since the last directive; the substance gate. */
-  terminalCount?: number
-  /** When the last directive (nudge or dispatch) was issued or acked. */
-  handledAt?: number
-  /** Roots already surfaced, newest last, capped. */
-  rootUuids?: string[]
-  /** Roots of a queued dispatch the mod spawns at the next clear Stop; null/absent when none. */
+  /** Run ids of successful closes this session recorded without evaluating them (a subagent, or no project rootId); capped. */
+  closes?: string[]
+  /** A successful close was recorded; the no-rootId Stop backstop reads it. */
+  sawClose?: boolean
+  /** Runs already nudged this session (never nudged twice). */
+  nudged?: string[]
+  /** The no-rootId backstop has nudged once this session. */
+  backstopNudged?: boolean
+  /** Runs whose `retro` mark this session won, queued for the next clear Stop; null/absent when none. */
   pendingDispatch?: string[] | null
   /** The last retrospective agent the mod spawned. */
-  dispatched?: { agentId?: string; roots: string[]; at: number }
+  dispatched?: { agentId?: string; runs: string[]; at: number }
   /** Ids of agents the mod spawned for a retrospective; their TO calls never count. */
   retroAgents?: string[]
 }
@@ -165,12 +181,16 @@ declare module 'claude-code' {
       graphRefreshRequest: number
       /** Bumped to restart the live source (SSE/poll) and re-snapshot. */
       graphReconnectRequest: number
-      /** Items whose last change came from another session over SSE (not this session's echo): id -> when (ms). Capped at 200. */
+      /** Items whose last change came from another session over SSE (not this session's echo): short id -> when (ms). Capped at 200. */
       graphRemote: Record<string, number>
+      /** Open decisions seen over SSE: short item id -> decision. Capped at 200. */
+      graphDecisions: Record<string, GraphDecision>
+      /** The project's open and paused runs seen over SSE: run id -> status. */
+      graphRuns: Record<string, GraphRun>
       // ── graph-pane (T3 a47dcd6f) state ──
       /** The /to-graph pane has counted itself once in graphSubscribers; a repeat /to-graph neither double-counts nor leaks. */
       graphPaneOpen: boolean
-      /** The node whose get_context summary the pane shows, or null. */
+      /** The node whose context summary the pane shows, or null. */
       graphDetail: GraphDetail | null
       /** Live workers per item and recently-changed items; the render never reads the clock. */
       graphActivity: GraphActivity
@@ -189,8 +209,6 @@ declare module 'claude-code' {
       // ── phase-guard (T6 26246238) state ──
       /** Per subagent (keyed by agent id): replaces the tmpdir `phase-guard-*.json` marker files. */
       phaseGuardAgents: StateFamily<PhaseGuardEntry>
-      /** The `itemId::key` pairs skill-enforcement already warned about this session. */
-      skillWarned: string[]
       // ── call-shape (T7 cedcfc11) state ──
     }
   }
