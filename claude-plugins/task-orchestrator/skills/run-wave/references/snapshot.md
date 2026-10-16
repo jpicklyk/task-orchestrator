@@ -27,7 +27,8 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 - `profile` — the parsed `.taskorchestrator/run-profile.json`, or `{}` when the file is absent.
   `plan` applies the project-profile defaults itself (`worktreeRoot`, `branchPrefix`, `maxItems`,
-  `defaultModels`, `review`) — the skill never fills those defaults in by hand before writing the
+  `defaultModels`, `review`) and carries `appendOnlyFiles` (repo-relative glob patterns, canonicalised
+  into `args.project.appendOnlyFiles`; see post-run.md) — the skill never fills those defaults in by hand before writing the
   snapshot.
 - `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
   `workflowSizeGuideline`, `allow`, and whatever else it emits — copy it as-is, do not curate the
@@ -44,12 +45,16 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 ## `validateSnapshot` errors this shape introduces
 
-Two structural checks beyond the ones already documented in the helper's own doc comment:
+Structural checks beyond the ones already documented in the helper's own doc comment:
 
 - `git.repoRoot must be a non-empty string` — fires when `git` is missing entirely, or
   `git.repoRoot` is missing, empty, or not a string.
 - `profile must be an object` — fires only when `profile` is present and is not a plain object
   (an array, a string, `null`, …). An absent `profile` is valid and is treated as `{}`.
+- `profile.appendOnlyFiles must be an array of strings` — the key is present but is not an array of
+  non-empty strings (including `null`).
+- `profile.appendOnlyFiles entry "<raw>" is not a repo-relative file pattern` — one per entry that is
+  absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
 - `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
   Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 

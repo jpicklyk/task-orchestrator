@@ -71,7 +71,11 @@ the whole worktree (`worktree:<path>`); `extraLockKeys` need an exact match. In 
 worktree mode the planner's declared files decide overlap deferral instead of locks: an entry
 outside both roots, one containing `..`, or a whole-tree entry claims the whole tree and overlaps
 every entry of the other item, but an item that declares no files at all claims nothing (a
-deferral stops the lower-priority item for this run, which is heavier than a lock wait). The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
+deferral stops the lower-priority item for this run, which is heavier than a lock wait). The
+exception is `appendOnlyFiles` (profile globs): a pair of claims that are equal (case-insensitive),
+glob-free, not whole-tree, and match one of those patterns is a merge-time conflict, not an overlap,
+so it never defers; any other conflicting pair still does. The reason names the files:
+`overlap <short> on <f1>, <f2>` (an unrooted claim prints as `**`). The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
 existingTestEdits, each double-quoted with `:(literal)` or (for a glob) `:(glob)` magic; entries
 outside both roots are named on an `UNROOTED (not in pathspec): ...` line instead, and when any
 entry names the whole tree the diff has no pathspec at all.
@@ -306,6 +310,7 @@ process requires:
   --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
   from the side that made it, and when both sides changed the same bullet differently the base
   branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
+  A merge conflict on any other `appendOnlyFiles` file is resolved by keeping both sides' added lines.
   Exit 0 resolved, 1 duplicate heading (`DUPLICATE <kind> <name>`; fix by hand), 2 invalid input
   (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
   merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the

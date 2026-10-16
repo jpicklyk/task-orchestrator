@@ -276,6 +276,10 @@ function normalizeArgs(raw) {
   if (parsed.repoRoot !== undefined && parsed.repoRoot !== null && typeof parsed.repoRoot !== 'string') {
     return { ok: false, reason: 'invalid args: bad repoRoot' }
   }
+  if (parsed.project && parsed.project.appendOnlyFiles !== undefined &&
+      (!Array.isArray(parsed.project.appendOnlyFiles) || parsed.project.appendOnlyFiles.some((e) => typeof e !== 'string'))) {
+    return { ok: false, reason: 'invalid args: bad appendOnlyFiles' }
+  }
   if (!Array.isArray(parsed.items) || parsed.items.length < 1) {
     return { ok: false, reason: 'invalid args: items must be a non-empty array' }
   }
@@ -570,26 +574,65 @@ function collectFiles(output, roots) {
 }
 
 /**
- * overlapDeferral(mine, higher, mode) -> null | {reason}
+ * appendOnlyMatch(claim, patterns) -> bool
+ * True when the repo-relative claim matches at least one appendOnlyFiles pattern. Both sides are
+ * canonicalised (backslash to '/', a leading './' removed, repeated '/' collapsed) and matched
+ * whole, anchored at the repo root, segment by segment and case-insensitively. A '**' segment
+ * matches zero or more whole segments; inside a segment '*' matches any run of characters and '?'
+ * exactly one; every other character is literal.
+ */
+function appendOnlyMatch(claim, patterns) {
+  const canon = (x) => String(x).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/')
+  const segs = canon(claim).toLowerCase().split('/')
+  const segMatch = (pat, text) => {
+    let re = ''
+    for (const ch of pat) re += ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    return new RegExp('^' + re + '$').test(text)
+  }
+  const walk = (ps, pi, ti) => {
+    if (pi === ps.length) return ti === segs.length
+    if (ps[pi] === '**') {
+      for (let k = ti; k <= segs.length; k++) if (walk(ps, pi + 1, k)) return true
+      return false
+    }
+    return ti < segs.length && segMatch(ps[pi], segs[ti]) && walk(ps, pi + 1, ti + 1)
+  }
+  return (patterns || []).some((pat) => walk(canon(pat).toLowerCase().split('/'), 0, 0))
+}
+
+/**
+ * overlapDeferral(mine, higher, mode, appendOnlyFiles = []) -> null | {reason}
  * mine = {short, output, roots?}; higher = [{short, output|null, roots?}] in args order. Each
  * entry's declared paths are relativized against its own roots (its worktree, then the repo root)
  * and turned into file:<claim> keys by collectFiles.
  * mode 'shared' -> always null. Else: the first higher item (skipping those with a null output)
- * with a claim that overlaps one of mine under the lockKeysConflict predicate (equal, or a
- * directory/glob base containing the other, case-insensitive) -> {reason:'overlap <short>'};
- * none -> null.
+ * with a non-exempt claim pair that overlaps under the lockKeysConflict predicate (equal, or a
+ * directory/glob base containing the other, case-insensitive) -> {reason:'overlap <short> on
+ * <f1>[, <f2>...]'}, the files being the distinct mine claims in those pairs, in collectFiles
+ * order (an unrooted claim prints as '**'); none -> null.
+ * A pair is exempt (a merge-time conflict, not a deferral) when both claims are glob-free, not
+ * '**', equal case-insensitively, and match an appendOnlyFiles pattern (appendOnlyMatch).
  * Whole-tree claims (D6): an unrooted entry on either side — one that relativizes to '' ('.',
  * './', a root itself), stays absolute, or contains '..' — overlaps every entry on the other side,
- * including another whole-tree claim. A side whose declared set is entirely empty claims nothing,
- * so it never causes or suffers an overlap.
+ * including another whole-tree claim, and is never exempt. A side whose declared set is entirely
+ * empty claims nothing, so it never causes or suffers an overlap.
  */
-function overlapDeferral(mine, higher, mode) {
+function overlapDeferral(mine, higher, mode, appendOnlyFiles) {
   if (mode === 'shared') return null
-  const mineKeys = collectFiles(mine.output, mine.roots).map((f) => `file:${f}`)
+  const patterns = Array.isArray(appendOnlyFiles) ? appendOnlyFiles : []
+  const mineFiles = collectFiles(mine.output, mine.roots)
+  const exempt = (a, b) =>
+    a !== '**' && b !== '**' && !isGlobPath(a) && !isGlobPath(b) &&
+    a.toLowerCase() === b.toLowerCase() && appendOnlyMatch(a, patterns)
   for (const h of higher) {
     if (!h.output) continue
-    const hKeys = collectFiles(h.output, h.roots).map((f) => `file:${f}`)
-    if (mineKeys.some((a) => hKeys.some((b) => lockKeysConflict(a, b)))) return { reason: `overlap ${h.short}` }
+    const hFiles = collectFiles(h.output, h.roots)
+    const files = []
+    for (const a of mineFiles) {
+      if (files.includes(a)) continue
+      if (hFiles.some((b) => lockKeysConflict(`file:${a}`, `file:${b}`) && !exempt(a, b))) files.push(a)
+    }
+    if (files.length) return { reason: `overlap ${h.short} on ${files.join(', ')}` }
   }
   return null
 }
@@ -1398,7 +1441,7 @@ async function runItem(plan, item, deps) {
 
       if (plan.worktreeMode === 'per-item' && stage.output === 'planner-v1') {
         const higher = await higherPriorityOutputs(plan, item, deps.milestones)
-        const overlap = overlapDeferral({ short: item.short, output: env.output, roots: itemRoots(plan, item) }, higher, plan.worktreeMode)
+        const overlap = overlapDeferral({ short: item.short, output: env.output, roots: itemRoots(plan, item) }, higher, plan.worktreeMode, (plan.project && plan.project.appendOnlyFiles) || [])
         if (overlap) {
           result.status = 'deferred'
           result.reason = overlap.reason

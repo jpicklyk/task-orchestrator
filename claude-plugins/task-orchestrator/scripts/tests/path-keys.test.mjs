@@ -232,7 +232,7 @@ test('S10: overlapDeferral (per-item) defers when the same repo file is declared
   const wtB = '/repo/.claude/worktrees/b'
   const mine = { short: 'b', output: plannerOutput({ mainFiles: [`${wtB}/src/x.js`] }), roots: [wtB, REPO] }
   const higher = [{ short: 'a', output: plannerOutput({ mainFiles: [`${wtA}/src/x.js`] }), roots: [wtA, REPO] }]
-  assert.deepEqual(core.overlapDeferral(mine, higher, 'per-item'), { reason: 'overlap a' })
+  assert.deepEqual(core.overlapDeferral(mine, higher, 'per-item'), { reason: 'overlap a on src/x.js' })
 
   const disjoint = [{ short: 'a', output: plannerOutput({ mainFiles: [`${wtA}/src/other.js`] }), roots: [wtA, REPO] }]
   assert.equal(core.overlapDeferral(mine, disjoint, 'per-item'), null)
