@@ -297,8 +297,9 @@ internal suspend fun Flow<ServerSentEvent>.collectUntil(
                 if (done(collected)) throw CollectDone()
             }
         }
-    } catch (_: CollectDone) {
-        // barrier reached
+    } catch (e: Exception) {
+        // barrier reached; the Ktor SSE client wraps the signal in an SSEClientException
+        if (generateSequence<Throwable>(e) { it.cause }.none { it is CollectDone }) throw e
     }
     return collected
 }

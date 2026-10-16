@@ -198,11 +198,11 @@ class RunEventScopeSseTest {
     ): List<ApiEvent> {
         val client = createClient { install(ClientSSE) }
         val collected = mutableListOf<ApiEvent>()
-        awaitUntil("a previous connection never released its subscriber") { bus.subscriberCount() == 0 }
+        val baseline = bus.subscriberCount() // a previous connection may not have released yet; wait for one more
         withTimeout(10.seconds) {
             coroutineScope {
                 launch {
-                    bus.awaitSubscribers()
+                    bus.awaitSubscribers(baseline + 1)
                     duringConnection()
                 }
                 client.sse(
