@@ -158,9 +158,9 @@ test('non-advance_item tool -> {}', () => {
   assert.deepEqual(run(BASE, { ...call([ok(A, 'work')]), tool_name: 'mcp__x__manage_notes' }), {});
 });
 
-test('hooks-config registers a PostToolUse advance_item group running dispatch-hint', () => {
+test('hooks-config registers a PostToolUse advance group running dispatch-hint', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
-  const groups = cfg.hooks.PostToolUse.filter((g) => g.matcher === '^mcp__.*task-orchestrator.*__advance_item$');
+  const groups = cfg.hooks.PostToolUse.filter((g) => g.matcher === '^mcp__.*task-orchestrator.*__advance$');
   assert.ok(groups.some((g) => g.hooks.some((h) => /dispatch-hint\.mjs/.test(h.command))));
   const n = (JSON.stringify(cfg).match(/dispatch-hint\.mjs/g) || []).length;
   assert.equal(n, 1);
