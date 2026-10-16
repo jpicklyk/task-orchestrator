@@ -14,7 +14,8 @@
 // a nudge, never silence: nothing goes unreported, only the automatic background spawn is
 // reserved for substantial runs.
 
-import { readFileSync } from 'fs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitEmpty as writeEmpty, emitContext as writeContext } from './lib/emit.mjs';
 import {
   parseRetrospectiveConfig,
   retroMarkerKey,
@@ -33,14 +34,12 @@ import { isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs'
 const MAX_ROOT_UUIDS = 50;
 
 function emitEmpty() {
-  process.stdout.write('{}');
+  writeEmpty();
   process.exit(0);
 }
 
 function emitContext(text) {
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text },
-  }));
+  writeContext('PostToolUse', text);
   process.exit(0);
 }
 
@@ -52,21 +51,10 @@ function capRootUuids(ids) {
 }
 
 try {
-  let raw = '';
-  try {
-    raw = readFileSync(0, 'utf-8');
-  } catch {
-    emitEmpty();
-  }
-
-  debugCapture(raw);
-
-  let hookInput;
-  try {
-    hookInput = JSON.parse(raw);
-  } catch {
-    emitEmpty();
-  }
+  const hookInput = readHookInput();
+  // Diagnostics only (RETRO_HOOK_DEBUG=1): the parsed input re-serialized, not the raw bytes.
+  debugCapture(hookInput ? JSON.stringify(hookInput) : '');
+  if (!hookInput) emitEmpty();
 
   // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
   // `to_mod_retro` on the event): step aside before any config or marker I/O.

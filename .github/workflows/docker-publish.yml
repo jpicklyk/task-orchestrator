@@ -112,6 +112,9 @@ jobs:
     - name: Smoke-test the built image
       run: scripts/ci/smoke-test-image.sh task-orchestrator:release-gate
 
+    - name: Upgrade smoke (3.16 golden volume)
+      run: scripts/ci/smoke-test-image.sh --seed current/src/test/resources/upgrade/golden-v17-3.16.sqlite task-orchestrator:release-gate
+
     - name: Run Trivy vulnerability scanner (CRITICAL, must be fixable — blocks the release on failure)
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       with:

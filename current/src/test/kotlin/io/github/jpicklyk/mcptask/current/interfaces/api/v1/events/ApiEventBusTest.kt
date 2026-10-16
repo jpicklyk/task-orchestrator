@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -47,7 +46,6 @@ class ApiEventBusTest {
                     }
                 }
 
-            delay(50)
             val event = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root)
 
             val events = collected.await()
@@ -75,7 +73,6 @@ class ApiEventBusTest {
                     withTimeoutOrNull(800) { flow.take(1).toList() }
                 }
 
-            delay(50)
             val event = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root1)
 
             val result = received.await()
@@ -100,7 +97,6 @@ class ApiEventBusTest {
                     }
                 }
 
-            delay(50)
             bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root1)
             bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = root2)
 
@@ -129,7 +125,6 @@ class ApiEventBusTest {
                     }
                 }
 
-            delay(50)
             repeat(3) { bus.emit(ApiEventType.ITEM_CREATED, rootId = root) }
 
             val events = collected.await()
@@ -225,7 +220,6 @@ class ApiEventBusTest {
             val c1 = async { withTimeout(3.seconds) { flow1.take(1).toList() } }
             val c2 = async { withTimeout(3.seconds) { flow2.take(1).toList() } }
 
-            delay(50)
             val evt = bus.buildEvent(ApiEventType.AUTH_EXPIRED)
             bus.publish(evt, emptySet())
 

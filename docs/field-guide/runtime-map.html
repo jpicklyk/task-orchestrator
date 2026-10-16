@@ -303,7 +303,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
     <li><span class="ev">EnterPlanMode</span><span class="do">Reads existing items and schema gates first, so the plan covers what the gates will ask for.</span></li>
     <li><span class="ev">ExitPlanMode</span><span class="do">Turns the approved plan into items, dependency edges and queue notes before any code is written.</span></li>
     <li><span class="ev">SubagentStart</span><span class="do">Hands an implementer or reviewer its protocol: enter your phase, fill its notes, return.</span></li>
-    <li><span class="ev">advance_item</span><span class="do">Can require an actor on every write. Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
+    <li><span class="ev">advance</span><span class="do">Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
     <li><span class="ev">SubagentStop</span><span class="do">Sends a sub-agent back if the phase it entered still has required notes missing.</span></li>
   </ol>
   <div class="tscroll"><table>
@@ -339,7 +339,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <line x1="180" y1="58" x2="80" y2="126" class="l" marker-end="url(#ah)"/>
         <line x1="220" y1="58" x2="220" y2="126" class="l" marker-end="url(#ah)"/>
         <line x1="260" y1="58" x2="360" y2="126" class="l" marker-end="url(#ah)"/>
-        <text x="232" y="112" class="m mu">advance_item</text>
+        <text x="232" y="112" class="m mu">advance</text>
         <rect x="20" y="130" width="120" height="44" rx="4" class="bx"/><text x="80" y="150" text-anchor="middle" class="s b">item 1</text><text x="80" y="166" text-anchor="middle" class="s mu">sub-agent</text>
         <rect x="160" y="130" width="120" height="44" rx="4" class="bx"/><text x="220" y="150" text-anchor="middle" class="s b">item 2</text><text x="220" y="166" text-anchor="middle" class="s mu">sub-agent</text>
         <rect x="300" y="130" width="120" height="44" rx="4" class="bx"/><text x="360" y="150" text-anchor="middle" class="s b">item 3</text><text x="360" y="166" text-anchor="middle" class="s mu">sub-agent</text>
@@ -354,8 +354,8 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <rect x="260" y="12" width="150" height="40" rx="4" class="r-review"/><text x="335" y="37" text-anchor="middle" class="b">Agent 2</text>
         <line x1="105" y1="52" x2="105" y2="96" class="l" marker-end="url(#ah)"/>
         <line x1="335" y1="52" x2="335" y2="96" class="l" marker-end="url(#ah)"/>
-        <text x="115" y="78" class="m mu">claim_item</text>
-        <text x="345" y="78" class="m mu">claim_item</text>
+        <text x="115" y="78" class="m mu">claim</text>
+        <text x="345" y="78" class="m mu">claim</text>
         <rect x="30" y="100" width="150" height="36" rx="4" class="r-work"/><text x="105" y="123" text-anchor="middle" class="s b">Feature X · TTL 900 s</text>
         <rect x="260" y="100" width="150" height="36" rx="4" class="r-review"/><text x="335" y="123" text-anchor="middle" class="s b">Feature Y · TTL 900 s</text>
         <rect x="30" y="150" width="70" height="28" rx="3" class="bx"/><text x="65" y="169" text-anchor="middle" class="s">child</text>
@@ -383,9 +383,9 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <section>
   <h2>Claims in practice</h2>
   <div class="grid3">
-    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>success</code>, <code>already_claimed</code> (pick another item), <code>queue_empty</code> (nothing matches, stop or wait) and <code>none_eligible</code> (matches exist but none can be claimed now, retry later). One claim per call, and a <code>requestId</code> is required.</p></div>
-    <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. There is no background sweeper.</p></div>
-    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: <code>get_context</code> for that item.</p></div>
+    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>claimed: true</code>; a <code>claim_held</code> error (pick another item); a select with no match (<code>claimed: false</code>, no <code>reason</code>: stop or wait); and a select with a <code>reason</code> (<code>claim_held</code> or <code>dependency_unmet</code>: matches exist but none can be claimed now, retry after <code>retryAfterMs</code>). An actor holds one claim at a time, and each element may carry an <code>idempotencyKey</code>.</p></div>
+    <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. Nothing has to clear it: a background sweep only records the expiry event.</p></div>
+    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: the <code>claimDetail</code> of <code>items_read</code> <code>context</code> for that item.</p></div>
   </div>
 </section>
 
@@ -414,7 +414,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <text x="690" y="110" class="s">never a guessed identity</text>
       </svg>
     </div>
-    <figcaption>The caller is the principal its transport established, never a field in the request. The same credential works on REST and on <code>/mcp</code>. The recorded actor has one shape at every level: <code>{ id, kind, parent }</code>, with a verification of <code>api-jwks</code>, <code>api-bearer</code> or <code>local</code>.</figcaption>
+    <figcaption>The caller is the principal its transport established, never a field in the request. The same credential works on REST and on <code>/mcp</code>. The recorded actor is the principal's audited id (<code>api:&lt;id&gt;</code> or <code>local</code>) with kind <code>external</code>, and a verification of <code>api-jwks</code>, <code>api-bearer</code> or <code>local</code>.</figcaption>
   </figure>
   <div class="grid2">
     <pre>API_ENABLED=true
@@ -446,7 +446,7 @@ API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
   <h2>Three independent switches</h2>
   <div class="modes3">
     <div class="rule"><h3>Orchestration</h3><p class="small">Always on. Transitions, gates, dependencies and cascades work with no further setup.</p></div>
-    <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with <code>claim_item</code>, and the server then requires the holder's identity on its transitions.</p></div>
+    <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with the <code>claim</code> op of <code>advance</code>. The server then fences the item to its holder: a transition, note write, item update or dependency write by anyone else is <code>not_claim_holder</code>.</p></div>
     <div class="rule"><h3>Credentials</h3><p class="small">Opt-in and separate from claims. With a bearer or JWKS mode, REST and <code>/mcp</code> both require a credential, so attribution is proven and no longer shared.</p></div>
   </div>
 </section>

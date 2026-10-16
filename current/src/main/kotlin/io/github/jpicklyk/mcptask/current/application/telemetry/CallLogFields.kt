@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.TokenEstimate
-import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
+import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -268,7 +268,7 @@ object CallLogFields {
      * a non-atomic batch's `partial_failure` is not counted on top of its elements). An error counts when it is an
      * `invalid_transition` with `detail.fromRole` "none" (a transition, claim, heartbeat or flip refused for a
      * lifecycle-free item), or an `invalid_request` whose `detail.fields[].reason` is
-     * [DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON] (a BLOCKS edge with a lifecycle-free endpoint).
+     * [Dependency.LIFECYCLE_FREE_ENDPOINT_REASON] (a BLOCKS edge with a lifecycle-free endpoint).
      */
     fun lifecycleFreeRejections(body: JsonObject?): Int? {
         if (body == null) return null
@@ -295,7 +295,7 @@ object CallLogFields {
             ErrorCode.INVALID_REQUEST.wire ->
                 (detail["fields"] as? JsonArray).orEmpty().any { field ->
                     ((field as? JsonObject)?.get("reason") as? JsonPrimitive)?.contentOrNull ==
-                        DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+                        Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
                 }
             else -> false
         }

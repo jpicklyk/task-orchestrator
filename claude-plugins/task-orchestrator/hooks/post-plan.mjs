@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // PostToolUse ExitPlanMode — triggers the post-plan-workflow skill
+import { emit } from "./lib/emit.mjs";
 const output = {
   hookSpecificOutput: {
     hookEventName: "PostToolUse",
@@ -10,4 +11,4 @@ The plan has been approved. You MUST invoke the \`task-orchestrator:post-plan-wo
 Do not begin any implementation work until this completes.`
   }
 };
-process.stdout.write(JSON.stringify(output));
+emit(output);

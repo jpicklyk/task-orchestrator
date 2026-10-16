@@ -24,7 +24,6 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -145,10 +144,8 @@ class SseActorRedactionTest {
                     val pub =
                         if (live) {
                             launch {
-                                repeat(60) {
-                                    delay(150)
-                                    publish(bus)
-                                }
+                                bus.awaitSubscribers()
+                                publish(bus)
                             }
                         } else {
                             null

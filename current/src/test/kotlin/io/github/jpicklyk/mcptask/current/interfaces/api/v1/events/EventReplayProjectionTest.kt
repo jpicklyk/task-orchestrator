@@ -86,7 +86,7 @@ class EventReplayProjectionTest {
         val out = CopyOnWriteArrayList<ApiEvent>()
         coroutineScope {
             val job = launch { flow.collect { out.add(it) } }
-            delay(ms)
+            delay(ms) // settle-ok: replay-only collect window; nothing live to wait for
             job.cancel()
         }
         return out.toList()
@@ -226,9 +226,8 @@ class EventReplayProjectionTest {
             val live = CopyOnWriteArrayList<ApiEvent>()
             coroutineScope {
                 val job = launch { flow.collect { live.add(it) } }
-                delay(200)
                 val fresh = bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID())
-                delay(400)
+                awaitUntil("the live event never arrived: $live") { live.any { it.id == fresh.id } }
                 job.cancel()
                 assertEquals(listOf(fresh.id), live.map { it.id }, "only the event emitted after subscribing: $live")
             }
@@ -252,7 +251,6 @@ class EventReplayProjectionTest {
                 withTimeout(20.seconds) {
                     coroutineScope {
                         launch {
-                            delay(150)
                             repeat(3) { live += bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID()) }
                         }
                         flow.take(6).toList()

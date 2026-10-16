@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.envelope
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchExecution
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
 import io.github.jpicklyk.mcptask.current.domain.error.BatchResult
 import io.github.jpicklyk.mcptask.current.domain.error.ConfigViolation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

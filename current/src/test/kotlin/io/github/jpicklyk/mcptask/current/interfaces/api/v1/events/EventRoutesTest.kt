@@ -34,7 +34,6 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -257,8 +256,6 @@ class EventRoutesTest {
             val flow = bus.subscribe("mcp-proof-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(2).toList() } }
 
-            delay(100)
-
             // Write through the item command service (the MCP-tool write path; REST routes are NOT used
             // here). This proves the service's own event rows reach the bus.
             val itemId = UUID.randomUUID()
@@ -306,7 +303,6 @@ class EventRoutesTest {
             // Subscriber connected before the writes — create + advance produce exactly two events.
             val flow = bus.subscribe("advance-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(2).toList() } }
-            delay(100)
 
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
@@ -373,8 +369,6 @@ class EventRoutesTest {
             // produces exactly one event, so a bounded take(1) completes deterministically.
             val flow = bus.subscribe("prod-wiring-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(1).toList() } }
-
-            delay(100)
 
             // Execute the REAL MCP tool against the decorated tool context. No repository call,
             // no REST route — this goes through the exact production tool path.
@@ -469,7 +463,6 @@ class EventRoutesTest {
                     withTimeoutOrNull(800) { flow.take(1).toList() }
                 }
 
-            delay(50)
             bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root2)
 
             val result = firstEvent.await()
@@ -653,9 +646,6 @@ class EventRoutesTest {
             // Launch bounded collectors INSIDE this runBlocking scope (structured concurrency).
             val root1Deferred = async { withTimeout(10.seconds) { root1Flow.take(1).toList() } }
             val root2Deferred = async { withTimeout(10.seconds) { root2Flow.take(1).toList() } }
-
-            // Give the collectors a moment to start consuming before triggering the write.
-            delay(100)
 
             // Reparent child from root1 → root2.
             items.patch(patchOf(child, parent = ParentChange.MoveUnder(root2.id)), caller = null).orFail()

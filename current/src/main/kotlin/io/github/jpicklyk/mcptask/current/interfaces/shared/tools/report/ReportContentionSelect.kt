@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report
 
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
 import io.github.jpicklyk.mcptask.current.application.report.ReportContentionRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode

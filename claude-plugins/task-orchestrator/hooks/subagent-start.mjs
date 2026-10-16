@@ -21,7 +21,8 @@
 // it tells the agent to defer to whatever seat its OWN dispatch prompt assigned it (only an
 // entry seat, or a single-phase owner with no seat named, advances the item; a non-entry or
 // read-only seat never does), since this hook cannot see the dispatch prompt's seat assignment.
-import { readFileSync } from 'fs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emit } from './lib/emit.mjs';
 import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 
@@ -33,12 +34,7 @@ if (locateConfig().scope === 'none') {
   process.exit(0);
 }
 
-let hookInput = {};
-try {
-  hookInput = JSON.parse(readFileSync(0, 'utf-8'));
-} catch {
-  hookInput = {};
-}
+const hookInput = readHookInput() ?? {};
 
 if (hookInput.agent_type === 'workflow-subagent') {
   process.exit(0);
@@ -71,4 +67,4 @@ If you stop with your phase's required notes still unfilled, you will be sent ba
 4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. \`~/.gradle/caches\`); never search from \`/\` or a drive root.`
   }
 };
-process.stdout.write(JSON.stringify(output));
+emit(output);

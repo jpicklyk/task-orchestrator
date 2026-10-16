@@ -250,7 +250,7 @@ class SseJwksExpiryWatchdogTest {
                     // distant exp is not spuriously closed by the watchdog: if it had been closed
                     // (with auth.expired), the connection would already be gone by the time the
                     // publish below happens, and the subsequent collect would not observe item.created.
-                    delay(2500)
+                    delay(2500) // settle-ok: deliberate watchdog wait, the scenario is time-based
                     bus.publish(
                         bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()),
                         emptySet(),

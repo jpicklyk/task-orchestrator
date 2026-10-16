@@ -10,7 +10,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as configSyncModule from '../config-sync.mjs';
@@ -1396,10 +1396,13 @@ const HOOKS_SRC = fileURLToPath(new URL('..', import.meta.url));
 
 function makeCopiedHook({ key, body, manifestHashes }) {
   const root = mkdtempSync(join(tmpdir(), 'to-copied-hook-'));
-  mkdirSync(join(root, 'hooks'), { recursive: true });
+  mkdirSync(join(root, 'hooks', 'lib'), { recursive: true });
   mkdirSync(join(root, 'bundled-rules'), { recursive: true });
   for (const f of ['config-sync.mjs', 'api-client.mjs', 'config-locator.mjs', 'yaml-lite.mjs']) {
     writeFileSync(join(root, 'hooks', f), readFileSync(join(HOOKS_SRC, f)));
+  }
+  for (const f of readdirSync(join(HOOKS_SRC, 'lib')).filter((n) => n.endsWith('.mjs'))) {
+    writeFileSync(join(root, 'hooks', 'lib', f), readFileSync(join(HOOKS_SRC, 'lib', f)));
   }
   writeFileSync(join(root, 'bundled-rules', `${key}.md`), body);
   writeFileSync(join(root, 'bundled-rules', 'manifest.json'), JSON.stringify({ [key]: manifestHashes }));

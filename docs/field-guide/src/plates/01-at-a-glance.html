@@ -52,11 +52,11 @@
     </figure>
     <figure class="panel">
       <h3>In the server</h3>
-      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="The agent calls advance_item. A gate inside the server checks required notes, dependencies and leases. It returns an error naming the missing note, or passes the transition and records the actor.">
+      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="The agent calls advance. A gate inside the server checks required notes, dependencies and leases. It returns an error naming the missing note, or passes the transition and records the actor.">
         <rect x="16" y="70" width="100" height="56" rx="4" class="bx"/>
         <text x="66" y="103" text-anchor="middle" class="b">Agent</text>
         <line x1="116" y1="86" x2="216" y2="86" class="l" marker-end="url(#ah)"/>
-        <text x="166" y="76" text-anchor="middle" class="m">advance_item</text>
+        <text x="166" y="76" text-anchor="middle" class="m">advance</text>
         <line x1="220" y1="112" x2="120" y2="112" class="k-blocked" marker-end="url(#ahb)"/>
         <text x="168" y="130" text-anchor="middle" class="s c-blocked">names the note</text>
         <rect x="220" y="58" width="96" height="80" rx="4" class="r-gate"/>
@@ -80,20 +80,20 @@
   <p class="sub">A new session with no memory of yesterday picks up an item and runs into the gate.</p>
   <ol class="xchg">
     <li><span class="n">1</span>
-      <div class="call">get_context(since="2025-01-14T17:00:00Z")</div>
+      <div class="call">items_read(select="context")</div>
       <div class="resp">2 items in work, 1 blocked, 1 stalled (missing implementation-notes)</div>
-      <div class="why">One call recovers the full state: active items, recent transitions with their actors, and ancestor chains.</div></li>
+      <div class="why">One call recovers the current state: active, blocked and stalled items and claim counts, with ancestor chains on request. A second read, <code>select="history"</code>, lists recent transitions.</div></li>
     <li><span class="n">2</span>
-      <div class="call">advance_item(itemId="a3f2", trigger="start")</div>
-      <div class="resp err">Gate check failed: required notes not filled for queue phase: requirements</div>
+      <div class="call">advance(op="transition", itemId="a3f2c91e", trigger="start")</div>
+      <div class="resp err">gate_blocked: missing note requirements (queue)</div>
       <div class="why">The item's schema requires a <code>requirements</code> note before work starts.</div></li>
     <li><span class="n">3</span>
-      <div class="call">manage_notes(operation="upsert", key="requirements", body="Validate email format…")</div>
-      <div class="resp ok">Upserted. noteProgress: { filled: 1, remaining: 0, total: 1 }</div>
+      <div class="call">notes_write(op="upsert", itemId="a3f2c91e", key="requirements", role="queue", body="Validate email format…")</div>
+      <div class="resp ok">Upserted. Note version 1.</div>
       <div class="why">The agent writes the note the error named.</div></li>
     <li><span class="n">4</span>
-      <div class="call">advance_item(itemId="a3f2", trigger="start")</div>
-      <div class="resp ok">queue → work. Actor recorded.</div>
+      <div class="call">advance(op="transition", itemId="a3f2c91e", trigger="start")</div>
+      <div class="resp ok">queue → work. Principal recorded.</div>
       <div class="why">Same call, now it passes. Nothing was rebuilt from conversation history.</div></li>
   </ol>
 </section>
@@ -101,12 +101,12 @@
 <section>
   <h2>What the server owns</h2>
   <div class="owns">
-    <div class="rule"><h3>A work item graph</h3><p class="small">Everything is a WorkItem. Items nest to any depth and connect with typed dependency edges.</p><p class="tools">create_work_tree · manage_items · query_items · complete_tree</p></div>
-    <div class="rule"><h3>Phase gates</h3><p class="small">Schemas declare which notes must exist at each phase. Transitions fail until they do.</p><p class="tools">advance_item · get_next_status · manage_notes</p></div>
-    <div class="rule"><h3>Dependency ordering</h3><p class="small">A blocked item cannot start until its blocker reaches the agreed phase. Finishing a blocker reports what it unblocked.</p><p class="tools">manage_dependencies · get_blocked_items</p></div>
+    <div class="rule"><h3>A work item graph</h3><p class="small">Everything is a WorkItem. Items nest to any depth and connect with typed dependency edges.</p><p class="tools">items_write (create_tree, complete_tree) · items_read</p></div>
+    <div class="rule"><h3>Phase gates</h3><p class="small">Schemas declare which notes must exist at each phase. Transitions fail until they do.</p><p class="tools">advance · items_read (context) · notes_write</p></div>
+    <div class="rule"><h3>Dependency ordering</h3><p class="small">A blocked item cannot start until its blocker reaches the agreed phase. Finishing a blocker reports what it unblocked.</p><p class="tools">deps_write · items_read (blocked)</p></div>
     <div class="rule"><h3>Actor attribution</h3><p class="small">Transitions and notes record who made them: the principal of the credential the caller presented, or the single local principal for stdio and unauthenticated modes. A caller cannot name itself.</p><p class="tools">principal: api:&lt;id&gt; | local</p></div>
-    <div class="rule"><h3>Session continuity</h3><p class="small">A fresh session reads active, blocked and stalled items in one response instead of replaying a conversation.</p><p class="tools">get_context · get_next_item</p></div>
-    <div class="rule"><h3>Scoped, searchable notes</h3><p class="small">Notes are keyed by phase. Agents read only the note they need, or search items and notes by keyword.</p><p class="tools">query_notes · query_items(operation="search")</p></div>
+    <div class="rule"><h3>Session continuity</h3><p class="small">A fresh session reads active, blocked and stalled items in one response instead of replaying a conversation.</p><p class="tools">items_read (context, next)</p></div>
+    <div class="rule"><h3>Scoped, searchable notes</h3><p class="small">Notes are keyed by phase. Agents read only the note they need, or search items and notes by keyword.</p><p class="tools">notes_read · items_read (search)</p></div>
   </div>
   <p class="sub small">The server owns these guardrails and nothing else. It has no opinion on how agents plan or write code, and every enforcement layer is opt-in through a YAML file.</p>
 </section>

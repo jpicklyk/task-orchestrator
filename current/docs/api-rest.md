@@ -274,7 +274,7 @@ collection checks cannot drift apart.
 `POST /ops/items_write` (§20a); each element is checked against the token's scope before anything is written
 (`forbidden`, `detail.scope` `root` or `tag`). A new depth-0 root founds a new project, and no restricted scope
 owns a root that does not exist yet: creating a root (`items_write` `create` without `parentId`, or a new top-level
-root in `create_work_tree`) and moving an item to the top level (`clear: ["parentId"]` on a non-root item) are
+root in `items_write` `create_tree`) and moving an item to the top level (`clear: ["parentId"]` on a non-root item) are
 `forbidden` with `detail.scope` `root` for any token with `scope.root_ids` or `scope.tags_include`, unless it
 holds `admin` (`detail.required` is the listed roots, empty for a tag-only token). Clearing the parent of an item
 that already is a root stays a no-op. A reparent under another parent is checked against the new parent.

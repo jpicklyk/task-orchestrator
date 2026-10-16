@@ -23,16 +23,30 @@ Source lives under `current/`.
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
 
+**Composition root:** `bootstrap/` wires the server. No layer may import it; only `CurrentMain.kt` and `bootstrap`
+itself may (rule R5).
+
 **Layer rules (enforced by `LayeringTest`):** `domain` -> `application` -> `infrastructure` -> `interfaces`
 (an outer layer may depend on an inner one; the reverse is forbidden) — `domain` must not import from
 `application`/`infrastructure`/`interfaces`; `application` must not import from `infrastructure`/`interfaces`;
 `infrastructure` must not import from `interfaces`. `infrastructure -> application` IS allowed (infrastructure
 adapters implement application-layer ports); `interfaces -> anything` is unrestricted; the root package
 (`CurrentMain.kt`) is unscoped. Enforced by
-`current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), production source only, against a
-checked-in, two-way-ratcheted baseline of pre-existing violations at
-`current/src/test/resources/architecture/layering-baseline.txt` — a new violation fails the test, and so
-does a stale baseline line whose violation was already fixed. Guard tests
+`current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), production source only, against the
+two-way-ratcheted baseline `current/src/test/resources/architecture/layering-baseline.txt`, which is empty: any
+violation fails the test, and so would a stale baseline line.
+
+**Application sub-packages (enforced acyclic by `PackageCycleTest`):** `application/` splits into `api` (tool
+request types and handlers' shared context), `service` (command services, advance), `read` (read views), `run`
+(runs and seats), `knowledge` (links, related items, documents, search), `config` (schema/trait resolution, status
+labels), `support` (small shared helpers, e.g. `IdRef`, `ScopeGuard`, `eventRootOf`, `Cancellation`, `UnitResults`),
+`telemetry`, `port` (storage ports and paging: `PageRequest`, `ListPage`, `CursorCodec`), and the top-level
+`decision`, `report` and `upgrade`. Dependencies point down this order: `api` -> service, read, run, knowledge, config,
+support, telemetry, port (`decision` and `report` depend on `api`, not the reverse); `service` -> config, knowledge,
+port, support, telemetry; `read` -> port, service; `run` -> config, port, service, support; `knowledge` -> port,
+support, telemetry; `support` -> port; `telemetry` -> port; `config` and `port` depend on no other sub-package. `PackageCycleTest` fails on any edge that closes a cycle
+between sub-packages, against `current/src/test/resources/architecture/package-cycle-baseline.txt`, which is empty.
+To share a type, move it down to a package every consumer already sits above. Guard tests
 (`ToolSurfaceGuardsTest`, `ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest`) derive their tool list from
 `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`) rather than a hard-coded list, so
 they automatically cover every tool the production server registers.
