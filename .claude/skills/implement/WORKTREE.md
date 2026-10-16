@@ -157,7 +157,10 @@ Step 5 of `/implement` for the agent template.
 When all children reach terminal:
 
 1. Final test + ktlint pass on the feature worktree.
-2. Fill parent feature's notes (implementation-notes, session-tracking, review-checklist).
+2. Fill parent feature's notes (implementation-notes, session-tracking). With 2+ children the
+   feature reviewer fills `review-checklist` (`run-wave` `post-run.md` Step 7b) and the
+   orchestrator records the dispositions in `orchestrator-confirmation`; with one child the
+   orchestrator fills `review-checklist`.
 3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
    body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
 4. Push `<FEATURE_BRANCH>` and open one PR.

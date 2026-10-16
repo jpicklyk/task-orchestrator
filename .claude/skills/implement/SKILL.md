@@ -829,8 +829,12 @@ cannot see them, and a shared naming contract does not prevent them, since namin
 and semantic coherence are orthogonal. Evidence: 5 blocking cross-file contradictions caught
 this way at 5-item scale (retro `6d562acb`) and canonical-config consistency issues at 7-item
 scale (retro `bd4ec109`) — trend `028c7b5d`. The consolidated reviewer fills the review-phase
-notes of whichever items carry a review phase (typically the parent feature's
-`review-checklist`, since `feature-task` children skip review by default).
+`review-checklist` note of each reviewed CHILD (one note per child, all under the same reviewer
+actor). When the children's schema has no review phase (the `feature-task` default), this Step 5
+consolidated pass is skipped and the feature review in Step 6 item 3 (`run-wave` `post-run.md`
+Step 7b) is the only review. It never fills the parent
+feature's `review-checklist`: the parent is reviewed once, in Step 6 item 3 (`run-wave`
+`post-run.md` Step 7b), after every child is terminal.
 
 **If the implementation used the shared feature worktree** (Parallel tier), the
 review agent operates in that worktree, scoped to **that child's owned files** — the diff of
@@ -1065,8 +1069,13 @@ For Parallel-tier features with a shared feature worktree:
    ./gradlew -p <feature-worktree-path> :current:test
    ./gradlew -p <feature-worktree-path> :current:ktlintCheck
    ```
-3. Advance the parent to review and fill `review-checklist` (orchestrator-authored,
-   summarizing across all children's reviews).
+3. Advance the parent to review. With 2 or more children, run the feature review of `run-wave`
+   `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`) over
+   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's `review-checklist`;
+   the reviewer fills the parent's `review-checklist`, and the orchestrator records one line per
+   finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up <item-id> |
+   accepted: <reason>`, ending `N of N disposed`). With one child, fill `review-checklist`
+   (orchestrator-authored, summarizing the child's review) as before.
 4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
    body; the Docs line and the `CHANGELOG.md` requirement are built from
@@ -1090,7 +1099,7 @@ For Parallel-tier features with a shared feature worktree:
    <total test count, new tests added across feature>
 
    ## Review
-   <feature-level review verdict, references each child's review-checklist>
+   <feature reviewer verdict; N of N dispositions>
 
    ## Docs
    <every changed doc path from `git diff --name-only <base>...HEAD`>
@@ -1112,7 +1121,7 @@ For Parallel-tier features with a shared feature worktree:
    git worktree remove <feature-worktree-path>
    git branch -D feat/<feature-slug>
    ```
-8. Advance the parent feature to terminal.
+8. Advance the parent feature to terminal (with 2+ children, only after `N of N disposed`).
 9. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
    decision-point budget mutations in ONE batch (`run-wave` `post-run.md` Step 7a): a scratch
    worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`
