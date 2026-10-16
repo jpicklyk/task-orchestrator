@@ -490,6 +490,94 @@ function methodBReturn(core, plan, stage) {
 }
 
 // ---------------------------------------------------------------------------------------
+// reseat - out-of-run seats (breach replacements, -a<n> fix cycles)
+// ---------------------------------------------------------------------------------------
+
+const RESEAT_SEAT_RE = /^(.+)-a([1-9][0-9]*)$/
+
+function isAbsentDeclaration(text) {
+  if (typeof text !== 'string') return true
+  const t = text.trim()
+  return t === '' || t.toLowerCase() === 'none'
+}
+
+/**
+ * reseat(core, doc, result, idOrShort, seat, opts) ->
+ *   {ok:true, prompt, seat, baseSeat, cycle, actor, result} | {ok:false, error}.
+ * seat = '<stageSeat>-a<n>' (n >= 1, no leading zero; the base must be a non-reviewer stage seat
+ * of the item). The prompt is core.seatPrompt over a clone of the base stage renamed to `seat`
+ * with enters:false, outs from the result item's outputs (keyed by base seat), plus a FIX CYCLE
+ * line (and the Method B addendum on Method B plans). opts = {declarations?, model?, tokens?, pre?}.
+ * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, model,
+ * tokens, pre}: model/tokens update only when passed, pre never moves; the input is not mutated.
+ * Throws 'invalid args: ...' for argument errors; returns {ok:false} for a missing declaration.
+ */
+export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
+  const m = RESEAT_SEAT_RE.exec(String(seat || ''))
+  if (!m) throw new Error(`invalid args: seat ${seat} must be <stageSeat>-a<n> with n >= 1`)
+  const baseSeat = m[1]
+  const cycle = Number(m[2])
+  const { plan } = resolvePlan(core, doc)
+  let item
+  try {
+    item = findItem(plan, idOrShort)
+  } catch (e) {
+    throw new Error(`invalid args: ${e.message}`)
+  }
+  const baseStage = item.stages.find((s) => s.seat === baseSeat)
+  if (!baseStage) throw new Error(`invalid args: unknown base seat ${baseSeat} for ${item.short}`)
+  if (!result || !Array.isArray(result.items)) throw new Error('invalid args: result required')
+  const resItem = result.items.find((r) => r.id === item.id)
+  if (!resItem) throw new Error(`invalid args: no result for item ${item.short}`)
+
+  const outs = Object.assign({}, resItem.outputs || {})
+  const declStage = item.stages.find((s) => s.output === 'declarations-v1')
+  if (opts.declarations !== undefined && opts.declarations !== null) {
+    if (baseStage.output !== 'test-author-v1') {
+      throw new Error('invalid args: --declarations is valid only for a test-author base seat')
+    }
+    if (!declStage) {
+      throw new Error('invalid args: --declarations is only valid for a test-author base with a declarations stage')
+    }
+    if (!isAbsentDeclaration(opts.declarations)) {
+      outs[declStage.seat] = Object.assign({}, outs[declStage.seat] || {}, { declarations: opts.declarations })
+    }
+  }
+  if (baseStage.output === 'test-author-v1' && declStage) {
+    const d = outs[declStage.seat]
+    if (!d || isAbsentDeclaration(d.declarations)) {
+      return { ok: false, error: `missingDeclaration: ${seat} has no declarations` }
+    }
+  }
+
+  const stage = Object.assign({}, baseStage, { seat, enters: false })
+  let text = core.seatPrompt(plan, item, stage, outs)
+  text += `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
+  if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
+
+  const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
+  const out = JSON.parse(JSON.stringify(result))
+  const outItem = out.items.find((r) => r.id === item.id)
+  const ledger = Array.isArray(outItem.reseats) ? outItem.reseats : []
+  let entry = ledger.find((e) => e.seat === seat)
+  if (!entry) {
+    entry = {
+      seat, baseSeat, cycle,
+      model: opts.model || baseDispatch || 'unknown',
+      tokens: opts.tokens !== undefined && opts.tokens !== null ? opts.tokens : 'unknown',
+      pre: opts.pre || '',
+    }
+    ledger.push(entry)
+  } else {
+    if (opts.model) entry.model = opts.model
+    if (opts.tokens !== undefined && opts.tokens !== null) entry.tokens = opts.tokens
+  }
+  outItem.reseats = ledger
+
+  return { ok: true, prompt: text, seat, baseSeat, cycle, actor: core.seatActor(stage, item, plan), result: out }
+}
+
+// ---------------------------------------------------------------------------------------
 // Envelope validation
 // ---------------------------------------------------------------------------------------
 
@@ -888,7 +976,10 @@ function attributeCommits(itemCommits, writingStages) {
  * warning. Findings: missing sha, missing Seat trailer, unowned files written by the
  * implementer/test-author, a file the writer covers only by directory/glob that another item's
  * directory/glob also covers ('<who> wrote <f> also covered by item <short>'), test-author
- * committing before the implementer's last commit.
+ * committing before the implementer's last commit, a 'reseat <seat> pre <sha7> not in run history'
+ * finding for a reseat ledger `pre` that is not in the run's item history. Fix-cycle boundary: the
+ * test-author-before-implementer order is judged only over item commits at or before the earliest
+ * reseat ledger `pre` (the ledger `pre` is trusted as recorded).
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -1030,14 +1121,33 @@ export function verify(doc, result, gitFacts) {
       }
     }
 
+    // Fix-cycle boundary: the earliest reseat ledger `pre` position in the run's log. Order is
+    // judged only over item commits at or before it (pre == baseSha -> before every commit).
+    let boundary = Infinity
+    const fullLog = (gitFacts && gitFacts.commits) || []
+    for (const r of resItem.reseats || []) {
+      let pos
+      if (r.pre && r.pre === doc.args.baseSha) pos = -1
+      else {
+        const idx = r.pre ? fullLog.findIndex((c) => c.sha === r.pre) : -1
+        pos = idx === -1 ? undefined : idx
+      }
+      if (pos === undefined) findings.push(`reseat ${r.seat} pre ${String(r.pre || '').slice(0, 7)} not in run history`)
+      else if (pos < boundary) boundary = pos
+    }
+    const inBoundary = (c) => boundary === Infinity || fullLog.findIndex((x) => x.sha === c.sha) <= boundary
+
     const implStage = argItem.stages.find((s) => s.output === 'implementer-v1')
     const authorStage = argItem.stages.find((s) => s.output === 'test-author-v1')
     if (implStage && authorStage) {
       const implRange = rangeByStageSeat.get(implStage.seat)
       const authorRange = rangeByStageSeat.get(authorStage.seat)
-      if (implRange && authorRange && implRange.indices.length > 0 && authorRange.indices.length > 0 &&
-          authorRange.indices[0] <= implRange.indices[implRange.indices.length - 1]) {
-        findings.push(`test-author commit ${authorRange.commits[0].sha.slice(0, 7)} precedes implementer`)
+      if (implRange && authorRange) {
+        const implIdx = implRange.indices.filter((i) => inBoundary(itemCommits[i]))
+        const authorIdx = authorRange.indices.filter((i) => inBoundary(itemCommits[i]))
+        if (implIdx.length > 0 && authorIdx.length > 0 && authorIdx[0] <= implIdx[implIdx.length - 1]) {
+          findings.push(`test-author commit ${itemCommits[authorIdx[0]].sha.slice(0, 7)} precedes implementer`)
+        }
       }
     }
 
@@ -1239,7 +1349,14 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const { plan } = resolvePlan(core, doc)
     const target = findItem(plan, onlyItem)
     const line = out[target.id]
-    const extraLine = formatExtraSeats(extraSeats)
+    const resTarget = resultByItemId.get(target.id)
+    const merged = ((resTarget && resTarget.reseats) || []).map((r) => ({ seat: r.seat, model: r.model, tokens: r.tokens }))
+    for (const e of extraSeats || []) {
+      const at = merged.findIndex((r) => r.seat === e.seat)
+      if (at === -1) merged.push(e)
+      else merged[at] = e
+    }
+    const extraLine = formatExtraSeats(merged)
     return { [target.id]: extraLine ? `${line}\n${extraLine}` : line }
   }
 
@@ -1516,10 +1633,59 @@ function execProvenance(argv, io) {
     usage, meta,
     journal: flagValue(argv, '--journal'),
     extraSeats,
-    item: extraFlag !== undefined ? itemFlag : undefined,
+    item: itemFlag,
   })
   io.writeOut(JSON.stringify(out))
   io.exit(0)
+}
+
+function execReseat(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const runId = flagValue(argv, '--run')
+  if (!runId || runId !== doc.args.runId) {
+    io.fail(2, 'invalid args', `--run ${runId} does not match the plan's runId`)
+    return
+  }
+  const resultPath = flagValue(argv, '--result')
+  const resultDoc = resultPath ? io.readInput(resultPath) : null
+  if (!resultDoc) {
+    io.fail(2, 'invalid args', '--result is required')
+    return
+  }
+  const core = io.loadCore()
+  const result = resolveResultDoc(core, doc, resultDoc)
+  const item = flagValue(argv, '--item')
+  const declPath = flagValue(argv, '--declarations')
+  const tokensRaw = flagValue(argv, '--tokens')
+  let pre = flagValue(argv, '--pre')
+  if (!pre) {
+    const plan = resolvePlan(core, doc).plan
+    const found = findItem(plan, item)
+    const r = io.git(found.worktree, ['rev-parse', 'HEAD'])
+    pre = r && r.status === 0 ? String(r.stdout || '').trim() : ''
+    if (!pre) {
+      io.fail(2, 'invalid args', `reseat: cannot resolve pre (git rev-parse HEAD failed in ${found.worktree}): pass --pre <sha>`)
+      return
+    }
+  }
+  const declText = declPath ? io.readText(declPath) : undefined
+  if (declPath && declText == null) {
+    io.fail(2, 'invalid args', `--declarations ${declPath} is not readable`)
+    return
+  }
+  const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
+    declarations: declText,
+    model: flagValue(argv, '--model'),
+    tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),
+    pre,
+  })
+  io.writeOut(JSON.stringify(out))
+  io.exit(out.ok ? 0 : 3)
 }
 
 function execReviewPrompt(argv, io) {
@@ -1541,4 +1707,5 @@ export const EXEC_COMMANDS = {
   actors: execActors,
   provenance: execProvenance,
   'review-prompt': execReviewPrompt,
+  reseat: execReseat,
 }
