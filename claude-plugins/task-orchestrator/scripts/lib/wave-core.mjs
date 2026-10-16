@@ -15,7 +15,7 @@ const CORE_BEGIN = '// @core-begin';
 const CORE_END = '// @core-end';
 
 /**
- * The exact 20 names the @core-begin/@core-end region of workflows/implement-wave.js
+ * The exact 21 names the @core-begin/@core-end region of workflows/implement-wave.js
  * exports, in B1's own order (scripts/tests/workflow-harness.mjs CORE_EXPORT_NAMES).
  * Kept as a literal copy (not imported) — the harness lives under scripts/tests/, out of
  * production code's reach.
@@ -23,8 +23,9 @@ const CORE_END = '// @core-end';
 export const CORE_NAMES = [
   'ENVELOPE_VERSION', 'OUTPUT_SCHEMAS', 'normalizeArgs', 'normalizePath', 'preflight',
   'makeMilestones', 'makeLocks', 'lockKeysFor', 'overlapDeferral', 'envelopeSchema',
-  'mapEntry', 'mapStageResult', 'seatActor', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
+  'mapEntry', 'mapStageResult', 'seatTokenFile', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
   'scanDeclarations', 'relativizePath', 'lockKeysConflict',
+  'declarationGap',
 ]
 
 /**

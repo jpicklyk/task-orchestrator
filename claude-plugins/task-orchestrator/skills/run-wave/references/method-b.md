@@ -1,6 +1,7 @@
 # Method B — direct Agent dispatch over the same run plan
 
-Method B executes the **same** run plan (`run/<runId>`, the same per-item seat stages) as
+Method B executes the **same** run plan (`<scratchpad>/run-wave/<runId>/plan.json`, bound to the
+same server run, the same per-item seat stages) as
 Method A, but drives it with direct `Agent` calls from this session instead of handing it to the
 `Workflow` tool. It exists for two reasons: `Workflow` may be unavailable (Step 0 F1), or the
 server may not yet expose enough capability data for Method A to plan seat-aware dispatch (Step 0
@@ -18,7 +19,9 @@ around those calls, not the calls' internals.
 
 ## The loop
 
-1. **Schedule.** `node "<helper>" next --plan <scratchpad>/run-wave/<runId>/plan.json --state <scratchpad>/run-wave/<runId>/state.json` returns `{dispatch:[{item, seat, model, agentType, lockKeys}], waiting:[{item, seat, on}], settled:[{item, status, reason}], complete}`. `waiting` entries name what they're blocked on (`on`, e.g. `'planner <short>'` or a lock key); `settled` entries are items `next` has already resolved for this call (deferred, refused, or complete) — there is nothing left to dispatch for them. Dispatch **every** entry in `dispatch` in **one message** — a single batch of parallel `Agent` tool calls, not one call per turn. For each entry:
+1. **Schedule.** `node "<helper>" next --plan <scratchpad>/run-wave/<runId>/plan.json --state <scratchpad>/run-wave/<runId>/state.json` returns `{dispatch:[{item, seat, model, agentType, lockKeys}], waiting:[{item, seat, on}], settled:[{item, status, reason}], complete}`. `waiting` entries name what they're blocked on (`on`, e.g. `'planner <short>'` or a lock key); `settled` entries are items `next` has already resolved for this call (deferred, refused, or complete) — there is nothing left to dispatch for them.
+   **Assign the batch first.** For each `dispatch` entry whose seat is a schema seat (not an inserted stage such as `declarations-extractor`, which runs token-less and read-only), `node "<helper>" run-ops --plan <plan> --phase assign --item <short> --seat <seat>`; combine the rendered `assign` elements into ONE `runs_write` call under the coordinator token and write each `data.results[i].seatToken` to its `tokenFiles` path. An element answered `run_at_capacity` holds that entry back to a later batch (a seat must end first); `run_paused` stops the loop and is surfaced (see the retry classes in `SKILL.md`). Never dispatch a schema seat whose token file was not written.
+   Then dispatch **every** assigned entry in **one message** — a single batch of parallel `Agent` tool calls, not one call per turn. For each entry:
    - `prompt`: the exact text from `node "<helper>" prompt --plan <plan> --state <state> --item <short> --seat <seat>` — for a Method B plan (`meta.method === "B"`) it ends with a METHOD B RETURN addendum stating that no StructuredOutput tool exists, that the envelope is the last JSON object of the final message, and the exact envelope schema inlined (planner prompts also carry a line superseding the core StructuredOutput sentence); pass it verbatim
    - `model`: the entry's own `model` field (already resolved by the planner's dispatch precedence — never re-derive it here)
    - `subagent_type`: the entry's own `agentType ?? "general-purpose"`. A `test-author` seat whose dispatch names no agent defaults to `task-orchestrator:test-author` (the blind test author) under Method B, so `agentType` is already set for it
@@ -29,21 +32,22 @@ around those calls, not the calls' internals.
    - **Schema-invalid envelope:** treat it the same way. For an entering stage the schema requires `entry`, so an envelope that omits the entry report is invalid and gets the same single re-emit request, then `stopped: "invalid envelope"`.
    - **Unknown `subagent_type`:** if the Agent dispatch itself fails because the requested `subagent_type` doesn't exist, retry once with `subagent_type: "general-purpose"`, then pass `--agent-type <the originally requested type>` and `--agent-type-fallback` to that stage's `stage-result` call so the recorded state carries `agentTypeFallback: true` (parity with how Method A's core handles the same failure).
 4. **Scan declarations.** Whenever a batch includes a `declarations-extractor` stage immediately followed by a seat that owns a `test-author`-skill note, run `node "<helper>" scan-declarations --in <the extractor's saved output file>` after collecting that stage's result. This is a **report only** — `seatPrompt` (in the shared `wave-core.mjs` core, the same one Method A's `Workflow` run uses) already runs the same `scanDeclarations` pass when it renders the test-author's prompt, so `outs` keeps the extractor's **unredacted** output; Method B must not diverge from Method A by stripping words here that Method A's core did not strip. The scan's purpose in this loop is purely to surface drift as a signal: the hit count, the flagged words, and the `redacted` field (the redacted TEXT, never written back into `outs`) go into the run's eventual `session-tracking` Friction section — evidence the extractor leaked behaviour language, not something to silently launder before the test author reads it.
-5. **Persist.** After each dispatch batch completes (all its `stage-result` calls done), stash the updated state document: `manage_plan_documents(operation="stash", rootId, slug="run/<runId>/state", bodyFromFile=<scratchpad>/run-wave/<runId>/state.json)` when the server can resolve that path (relative to `AGENT_CONFIG_DIR`), else `body=<the same state document, inline>` as a fallback — note the fallback in the run's Friction section either way. Stash only the **state** document per batch — small, cheap to re-emit every round. The plan document itself (`run/<runId>`) is written once at Step 5 of the main skill and never rewritten mid-run.
+4a. **A `missingDeclaration:` stop.** When `next` settles an item as `stopped` with a reason beginning `missingDeclaration:`, the declarations extractor's `modules` output did not cover every planner `declarationModules` entry, and the test author was never dispatched. Re-run the extractor for that item (its prompt lists the full `extractFrom` union), record its new output in the state, and resume; there is no automatic re-run.
+5. **Persist.** After each dispatch batch completes (all its `stage-result` calls done), the local `<scratchpad>/run-wave/<runId>/state.json` already holds the run's progress; there is no server state document. The server's own view of the run (seats assigned, ended, stalled; members ready, in flight, waiting) is `runs_read` `get`/`frontier`/`seats`, which a resume reads. A seat whose envelope reports `seatEnded` absent or false is ended later by the post-run sweep (`references/post-run.md` Step 0b); before re-dispatching a stopped seat in a later batch, re-`assign` it (this supersedes the old token).
 5a. **Resume after an interruption.** Before re-dispatching an in-flight stage after a session restart, check each run worktree for uncommitted changes with no seat commit (no `[<short>]` commit with a `Seat:` trailer in `<baseSha>..HEAD`). If there are any, snapshot them to `refs/wip/<short>` without touching the index or the tree (temporary `GIT_INDEX_FILE`: `read-tree HEAD`, `add -A`, `write-tree`, `commit-tree -p HEAD`, `update-ref refs/wip/<short>`) and leave the tree as is. The re-dispatched writing seat carries an INTERRUPTED-ATTEMPT CHECK in its prompt and continues from those changes; an envelope reporting `interruptedAttempt: true` (with `wipRef`) is a normal `done`, not a failure.
 6. **Repeat** from step 1 until `next` reports `complete: true`. At that point, hand off to `references/post-run.md`.
 
 ---
 
-## Actor identity
+## Seat identity
 
-Every Method B seat's `manage_notes`/`advance_item` calls use an actor of the form
-`{id: "<seat>:<short>:<runId>", kind: "subagent", parent: "workflow:<runId>"}` — **not**
-`parent: "orchestrator:main"`. The `workflow:` parent marker is what makes
-`phase-guard-record.mjs` treat this as a run-plan seat (the same marker Method A's real
-`Workflow` launch would produce), which keeps the SubagentStop guard from blocking the entry
-seat on other seats' notes. This is a deliberate reuse of an existing marker, not a new
-convention — do not invent a different `parent` value for Method B dispatches.
+A Method B seat is identified by its seat token, exactly as a Method A seat: the prompt names the
+token file, and the seat passes the token as the top-level `seatToken` of every call. There is no
+attribution field to fill — the server records each write's principal and, under a token, its seat.
+A call that carries a `seatToken` is what makes `phase-guard-record.mjs` treat it as a run seat and
+keeps the SubagentStop guard from blocking the entry seat on other seats' notes. Never put a token
+in the prompt text itself, and never dispatch a schema seat token-less on a bound run: its writes
+to seat-owned keys would be refused (`note_owned_by_other`).
 
 ---
 
@@ -55,10 +59,11 @@ they are known, accepted gaps relative to Method A, not bugs to silently work ar
 1. **No prompt-cache staggering.** Method A's `Workflow` runtime can stagger dispatch to make
    better use of prompt caching across agents; a hand-driven batch of `Agent` calls in this
    session cannot replicate that scheduling.
-2. **One orchestrator turn per dispatch batch.** Each `next` → dispatch → collect cycle consumes
-   one turn of this session, rather than the async notification pattern Method A uses. This
-   inflates `orchestrator-turns` in the eventual provenance line relative to an equivalent
-   Method A run — that's expected, not a defect.
+2. **One orchestrator turn per dispatch batch.** Each `next` → assign → dispatch → collect cycle
+   consumes one turn of this session, rather than the async notification pattern Method A uses.
+   This inflates `orchestrator-turns` in the eventual provenance line relative to an equivalent
+   Method A run — that's expected, not a defect. (Method B assigns per batch, so the run view's
+   `stalledSeats` and `maxActiveSeats` are exact here, unlike Method A's launch-time assignment.)
 3. **No gap on the declarations scan — parity confirmed, not a degradation.** Method A's core
    (`seatPrompt` in the shared `wave-core.mjs`) already runs `scanDeclarations` before it renders
    the test-author's prompt; Step 4 above's `scan-declarations` call is Method B reporting on the

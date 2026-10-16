@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // run-planner.mjs — CLI dispatcher for the run-wave front door's planner helper.
 //
-// Subcommands: probe | plan | explain | validate. Input via --in <file> or stdin; JSON on
+// Subcommands: probe | plan | explain | validate | bind-run. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). This file is the ONLY place that reads the clock,
-// the filesystem or environment variables — run-planner-lib.mjs stays pure.
+// the filesystem, the network (probe's server check) or environment variables —
+// run-planner-lib.mjs stays pure.
 //
-// B2b adds rows to the subcommand table below: next, prompt, stage-result, scan-declarations,
-// verify, actors, provenance, review-prompt.
+// run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
+// scan-declarations, verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -16,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 import * as lib from './run-planner-lib.mjs';
 import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
+import { checkServer } from '../hooks/lib/server-compat.mjs';
+import { apiBaseUrl } from '../hooks/lib/api-client.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -70,24 +73,34 @@ function resolvePluginRoot(args) {
   return resolve(HERE, '..');
 }
 
-function runProbe(args) {
+// serverCompat: null when no REST API URL resolves (or --no-server-check), when the server is 4.x
+// with seats, or when it cannot be reached; else the server-compat warning line. --api-url overrides
+// the resolved base URL.
+async function probeServerCompat(args, cwd) {
+  if (args.includes('--no-server-check')) return null;
+  const base = flagValue(args, '--api-url', null) || apiBaseUrl({ cwd });
+  if (!base) return null;
+  return checkServer({ baseUrl: base });
+}
+
+async function runProbe(args) {
   const cwd = resolve(flagValue(args, '--cwd', process.cwd()));
   const pluginRoot = resolvePluginRoot(args);
   const pluginJsonText = safeRead(join(pluginRoot, '.claude-plugin', 'plugin.json'));
   const subagentStartText = safeRead(join(pluginRoot, 'hooks', 'subagent-start.mjs'));
   const phaseGuardText = safeRead(join(pluginRoot, 'hooks', 'phase-guard-record.mjs'));
-  const configYamlText = safeRead(join(cwd, '.taskorchestrator', 'config.yaml'));
   const local = safeRead(join(cwd, '.claude', 'settings.local.json'));
   const projectSettings = safeRead(join(cwd, '.claude', 'settings.json'));
   const user = safeRead(join(homeDir(), '.claude', 'settings.json'));
+  const serverCompat = await probeServerCompat(args, cwd);
 
   const result = lib.probeFrom({
     pluginRoot,
     pluginJsonText,
     subagentStartText,
     phaseGuardText,
-    configYamlText,
-    settings: [local, projectSettings, user]
+    settings: [local, projectSettings, user],
+    serverCompat
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
   process.exit(0);
@@ -144,6 +157,20 @@ function runExplain(args) {
   process.exit(0);
 }
 
+function runBindRun(args) {
+  const text = readInput(args);
+  const doc = parseJson(text);
+  if (!doc) return fail(2, 'invalid args', 'bad JSON input');
+  let out;
+  try {
+    out = lib.bindRun(doc, flagValue(args, '--server-run', null));
+  } catch (e) {
+    return fail(2, 'invalid args', String((e && e.message) || e));
+  }
+  process.stdout.write(`${JSON.stringify(out)}\n`);
+  process.exit(0);
+}
+
 function loadArgsSchema() {
   const p = join(HERE, 'tests', 'fixtures', 'run-planner', 'args-v1.schema.json');
   if (!existsSync(p)) return null;
@@ -180,7 +207,11 @@ const EXEC_IO = {
   },
   readText(path) {
     if (!path) return '';
-    return safeRead(path);
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return null;
+    }
   },
   writeOut(text) {
     process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
@@ -208,34 +239,40 @@ const EXEC_IO = {
 };
 
 // ---------------------------------------------------------------------------------------
-// Subcommand table. B2b adds: next, prompt, stage-result, scan-declarations, verify,
-// actors, provenance, review-prompt.
+// Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
+// verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
   plan: runPlan,
   explain: runExplain,
   validate: runValidate,
+  'bind-run': runBindRun,
   next: (args) => exec.EXEC_COMMANDS.next(args, EXEC_IO),
   prompt: (args) => exec.EXEC_COMMANDS.prompt(args, EXEC_IO),
   'stage-result': (args) => exec.EXEC_COMMANDS['stage-result'](args, EXEC_IO),
   'scan-declarations': (args) => exec.EXEC_COMMANDS['scan-declarations'](args, EXEC_IO),
   verify: (args) => exec.EXEC_COMMANDS.verify(args, EXEC_IO),
-  actors: (args) => exec.EXEC_COMMANDS.actors(args, EXEC_IO),
+  'notes-audit': (args) => exec.EXEC_COMMANDS['notes-audit'](args, EXEC_IO),
   provenance: (args) => exec.EXEC_COMMANDS.provenance(args, EXEC_IO),
-  'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO)
+  'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO),
+  reseat: (args) => exec.EXEC_COMMANDS.reseat(args, EXEC_IO),
+  'run-ops': (args) => exec.EXEC_COMMANDS['run-ops'](args, EXEC_IO),
+  'follow-ups': (args) => exec.EXEC_COMMANDS['follow-ups'](args, EXEC_IO)
 };
 
-function main() {
+async function main() {
   const [, , cmd, ...rest] = process.argv;
   const handler = SUBCOMMANDS[cmd];
   if (!handler) {
     return fail(2, 'invalid args', `unknown subcommand ${cmd}`);
   }
   try {
-    handler(rest);
+    await handler(rest);
   } catch (e) {
-    fail(2, 'invalid args', String((e && e.stack) || e));
+    const msg = String((e && e.message) || e);
+    // A helper's own argument error ('invalid args: ...') is reported as its message alone.
+    fail(2, 'invalid args', msg.startsWith('invalid args:') ? msg : String((e && e.stack) || e));
   }
 }
 

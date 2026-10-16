@@ -70,7 +70,7 @@
       ]
     }
   },
-  "noteActors": {},
+  "noteOwners": {},
   "parents": {
     "dddddddd-4444-4444-8444-444444444444": { "role": "work", "canAdvance": true, "missing": [] },
     "eeeeeeee-5555-4555-8555-555555555555": { "role": "work", "canAdvance": true, "missing": [] }

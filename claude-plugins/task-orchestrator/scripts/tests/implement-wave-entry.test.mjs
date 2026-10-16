@@ -16,8 +16,8 @@ const SCRIPT_PATH = join(HERE, '..', '..', 'workflows', 'implement-wave.js')
 const R7 = ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output']
 
 // D2 frozen prompt lines, verbatim.
-const SEAT_LINE =
-  'ENTRY REPORT (required): copy the advance_item result into entry (applied, newRole, previousRole, errorCode, contendedResources; missingNotes as key strings; blockers as fromItemId strings; retried true only after a config_unavailable retry). Role "work": entry {"applied":false,"alreadyInPhase":true}.'
+// 4.0 (cac1bffa AC4): the seat-mode entry report maps these advance-result fields; the 3.x verbatim line is gone.
+const SEAT_FIELDS = ['unblocked[].itemId', 'error.detail.missing[].key', 'blockers[].id', 'error.detail.resources[]', 'gate_blocked', 'detail.role']
 const PRE_ENTERED_LINE =
   'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; else entry {"applied":false,"alreadyInPhase":false} and status "stopped".'
 
@@ -97,10 +97,11 @@ test('S8: seat-mode implementer prompt carries the D2 seat line and still forbid
   const it = item('s8aaaaaa', stages.bugFixLike())
   const p = plan([it])
   const impl = core.seatPrompt(p, it, it.stages.find((s) => s.seat === 'implementer'), {})
-  assert.ok(impl.includes(SEAT_LINE), 'seat-mode implementer prompt must contain the D2 seat line verbatim')
-  assert.ok(impl.toLowerCase().includes('never call start from work'))
+  for (const f of SEAT_FIELDS) assert.ok(impl.includes(f), `seat-mode implementer prompt must map the 4.0 advance field ${f} (AC4)`)
+  assert.ok(impl.includes('ENTRY REPORT (required)'), 'seat-mode entering prompt carries the entry report')
+  assert.match(impl, /never (send|call) start from work/i)
   const ta = core.seatPrompt(p, it, it.stages.find((s) => s.seat === 'test-author'), {})
-  assert.ok(!ta.includes('ENTRY REPORT'), 'non-entering test-author prompt must not carry an ENTRY REPORT line')
+  assert.ok(!ta.includes('ENTRY REPORT (required)'), 'non-entering test-author prompt must not carry the ENTRY REPORT (required) line')
 })
 
 test('S9: pre-entered implementer prompt carries the D2 pre-entered line, not the seat line, and no advance_item tool', () => {
@@ -109,8 +110,7 @@ test('S9: pre-entered implementer prompt carries the D2 pre-entered line, not th
   const p = plan([it], { entryMode: 'pre-entered' })
   const impl = core.seatPrompt(p, it, it.stages.find((s) => s.seat === 'implementer'), {})
   assert.ok(impl.includes(PRE_ENTERED_LINE), 'pre-entered implementer prompt must contain the D2 pre-entered line verbatim')
-  assert.ok(!impl.includes(SEAT_LINE))
-  assert.ok(!impl.includes('copy the advance_item result into entry'))
+  assert.ok(!impl.includes('unblocked[].itemId'), 'pre-entered prompt must not map advance-result fields')
   assert.ok(!toolsEntriesOf(impl).includes('advance'), 'pre-entered implementer TOOLS: must have no exact advance entry')
   assert.ok(!toolsEntriesOf(impl).includes('advance_item'), 'pre-entered implementer TOOLS: must have no retired advance_item entry')
 })

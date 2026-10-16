@@ -6,7 +6,7 @@
     "runId": { "type": "string", "pattern": "^r-[A-Za-z0-9-]{4,40}$" },
     "startedAt": { "type": "string" },
     "rootId": { "type": "string" },
-    "planDocSlug": { "type": "string" },
+    "serverRunId": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
     "baseSha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
     "repoRoot": { "type": "string" },
     "worktreeMode": { "enum": ["shared", "per-item"] },
@@ -37,7 +37,8 @@
             }
           }
         },
-        "searchScope": { "type": "array", "items": { "type": "string" } }
+        "searchScope": { "type": "array", "items": { "type": "string" } },
+        "appendOnlyFiles": { "type": "array", "items": { "type": "string" } }
       }
     },
     "items": {

@@ -19,6 +19,12 @@ export const PLAN_DOC_MAX_BYTES = 61440;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLE_ENUM = new Set(['queue', 'work', 'review', 'blocked', 'terminal']);
 
+// Canonicalises exactly as appendOnlyMatch in workflows/implement-wave.js does (backslash to '/',
+// leading './' removed, repeated '/' collapsed), so the planner and the core agree on each entry.
+function canonAppendOnly(raw) {
+  return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
@@ -72,6 +78,30 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  if (snap.scopes !== undefined) {
+    const sc = snap.scopes;
+    if (sc === null || typeof sc !== 'object' || Array.isArray(sc)) {
+      errors.push('scopes must be an object');
+    } else {
+      const candidateIds = new Set(candidates.map((c) => c && c.id));
+      for (const [id, entry] of Object.entries(sc)) {
+        if (!candidateIds.has(id)) {
+          errors.push(`scopes ${id}: not a candidate`);
+          continue;
+        }
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errors.push(`scopes ${id}: entry must be an object`);
+          continue;
+        }
+        if (!Array.isArray(entry.files) || entry.files.some((k) => typeof k !== 'string')) {
+          errors.push(`scopes ${id}: files must be an array of strings`);
+        }
+        if (entry.dependsOn !== undefined && (!Array.isArray(entry.dependsOn) || entry.dependsOn.some((k) => typeof k !== 'string'))) {
+          errors.push(`scopes ${id}: dependsOn must be an array of strings`);
+        }
+      }
+    }
+  }
   // E1 (blocker B1): git.repoRoot and profile are load-bearing for assembleArgs (worktree paths,
   // <scratchpad>/<worktree> substitution) but were never validated, so a snapshot missing either
   // passed silently and produced broken paths downstream.
@@ -81,6 +111,20 @@ export function validateSnapshot(snap) {
   }
   if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
     errors.push('profile must be an object');
+  }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile) && 'appendOnlyFiles' in snap.profile) {
+    const aof = snap.profile.appendOnlyFiles;
+    if (!Array.isArray(aof) || aof.some((e) => typeof e !== 'string' || e === '')) {
+      errors.push('profile.appendOnlyFiles must be an array of strings');
+    } else {
+      for (const raw of aof) {
+        const c = canonAppendOnly(raw);
+        const segs = c.split('/');
+        if (c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
+          errors.push(`profile.appendOnlyFiles entry "${raw}" is not a repo-relative file pattern`);
+        }
+      }
+    }
   }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
@@ -108,11 +152,15 @@ export function compareVersions(a, b) {
 }
 
 /**
- * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, configYamlText, settings})
- * -> {pluginRoot, pluginVersion|null, phase0Hooks, hookMarkers:{subagentSkip, workflowParentFilter},
- *     actorAttributionRequired, workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}}
+ * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat})
+ * -> {pluginRoot, pluginVersion|null, phase0Hooks, hookMarkers:{subagentSkip, seatTokenFilter},
+ *     workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}, serverCompat:null|string}
+ * phase0Hooks needs plugin >= 3.8.0, the subagent-start workflow-subagent skip and the 4.0
+ * phase-guard-record seat filter (it skips any call that carries a top-level seatToken). serverCompat
+ * is passed through: null when compatible or no API URL resolved, else the server-compat warning line
+ * (the CLI computes it with hooks/lib/server-compat.mjs checkServer; this function stays pure).
  */
-export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, configYamlText, settings } = {}) {
+export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat } = {}) {
   let pluginVersion = null;
   if (typeof pluginJsonText === 'string' && pluginJsonText.trim() !== '') {
     try {
@@ -124,12 +172,9 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
   }
 
   const subagentSkip = typeof subagentStartText === 'string' && subagentStartText.includes('workflow-subagent');
-  const workflowParentFilter = typeof phaseGuardText === 'string' && phaseGuardText.includes('workflow:');
+  const seatTokenFilter = typeof phaseGuardText === 'string' && phaseGuardText.includes('seatToken');
   const versionCmp = pluginVersion != null ? compareVersions(pluginVersion, '3.8.0') : null;
-  const phase0Hooks = !!(versionCmp !== null && versionCmp >= 0 && subagentSkip && workflowParentFilter);
-
-  const actorAttributionRequired = typeof configYamlText === 'string'
-    && /actor_attribution\s*:\s*\n(?:[ \t]+.*\n)*?[ \t]+required\s*:\s*true/.test(configYamlText);
+  const phase0Hooks = !!(versionCmp !== null && versionCmp >= 0 && subagentSkip && seatTokenFilter);
 
   const settingsList = Array.isArray(settings) ? settings : [];
   let workflowSizeGuideline = null;
@@ -161,10 +206,10 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
     pluginRoot: pluginRoot ?? null,
     pluginVersion,
     phase0Hooks,
-    hookMarkers: { subagentSkip, workflowParentFilter },
-    actorAttributionRequired,
+    hookMarkers: { subagentSkip, seatTokenFilter },
     workflowSizeGuideline,
-    allow
+    allow,
+    serverCompat: typeof serverCompat === 'string' && serverCompat !== '' ? serverCompat : null
   };
 }
 
@@ -303,14 +348,17 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
 /**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteActors:[{key,actorId}], profile}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], profile}
+ * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
+ * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
+ * seat is skipped. A note with no owner row never skips a seat.
  */
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
-  const noteActors = ctx.noteActors || [];
+  const noteOwners = ctx.noteOwners || [];
   const profile = ctx.profile || {};
   const servedKeys = new Set(rulesServed.map((r) => r.key));
-  const actorsByKey = new Map(noteActors.map((n) => [n.key, n.actorId]));
+  const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
   const degradations = [];
 
@@ -392,13 +440,10 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
 
       const seatNotes = notes.filter((n) => n.role === s.phase && n.seat === s.name).map((n) => n.key);
 
-      // O1: match the FULL '<seat>:<this-item-short>:' prefix, not just '<seat>:' - a note
-      // actor stamped '<seat>:<OTHER item's short>:<run>' must never skip this item's seat.
+      // Resume skip: every note this seat owns already exists and is owned by this seat (the server
+      // enforces the lane, so another seat could not have written it).
       if (isResumed && seatNotes.length
-        && seatNotes.every((k) => {
-          const actorId = actorsByKey.get(k);
-          return actorId && actorId.startsWith(`${s.name}:${candidate.short}:`);
-        })) {
+        && seatNotes.every((k) => ownerSeatByKey.get(k) === s.name)) {
         continue;
       }
 
@@ -811,6 +856,64 @@ function shortFromId(id) {
   return String(id || '').replace(/-/g, '').slice(0, 8);
 }
 
+// Canonical form of a scope file for exact-equality comparison; '' means "not a plain file path".
+function canonicalScopeFile(p, repoRoot) {
+  if (typeof p !== 'string') return '';
+  let out = p.trim().replace(/\\/g, '/');
+  if (/[*?]/.test(out)) return '';
+  const drive = /^([A-Za-z]):\//.test(out);
+  const segs = out.split('/').filter((x) => x !== '' && x !== '.');
+  const lead = out.startsWith('/') ? '/' : '';
+  out = lead + segs.join('/');
+  if (drive) out = out[0].toLowerCase() + out.slice(1);
+  if (typeof repoRoot === 'string' && repoRoot.trim() !== '') {
+    let root = repoRoot.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    if (/^[A-Za-z]:/.test(root)) root = root[0].toLowerCase() + root.slice(1);
+    const cmp = drive || /^[a-z]:/.test(root);
+    const a = cmp ? out.toLowerCase() : out;
+    const b = cmp ? root.toLowerCase() : root;
+    if (a.startsWith(b + '/')) out = out.slice(root.length + 1);
+  }
+  return out;
+}
+
+/**
+ * sharedFileEdgeWarnings(snap, mode) -> string[]
+ * Advisory only. In shared mode, per-file locks already serialize two items that declare one file,
+ * so a dependency edge between same-parent candidates whose scopes share a file, and whose
+ * dependent states no dependency on the blocker, may be redundant. Warns on every unsatisfied
+ * dependency edge regardless of the role at which it unblocks.
+ */
+export function sharedFileEdgeWarnings(snap, mode) {
+  if (mode !== 'shared') return [];
+  const scopes = (snap && snap.scopes) || {};
+  const candById = new Map(((snap && snap.candidates) || []).map((c) => [c.id, c]));
+  const repoRoot = snap && snap.git && snap.git.repoRoot;
+  const canon = (id) => new Set(((scopes[id] && scopes[id].files) || []).map((f) => canonicalScopeFile(f, repoRoot)).filter((f) => f !== ''));
+  const out = [];
+  for (const b of (snap && snap.blocked) || []) {
+    if (b.blockType !== 'dependency') continue;
+    const dep = candById.get(b.itemId);
+    if (!dep || dep.hasChildren || !scopes[b.itemId]) continue;
+    for (const bb of b.blockedBy || []) {
+      if (bb.satisfied) continue;
+      const blk = candById.get(bb.itemId);
+      if (!blk || blk.hasChildren || !scopes[bb.itemId]) continue;
+      if (dep.parentId == null || dep.parentId !== blk.parentId) continue;
+      const declared = ((scopes[b.itemId].dependsOn) || []).map((d) => String(d).toLowerCase());
+      if (declared.includes(String(bb.itemId).toLowerCase()) || declared.includes(shortFromId(bb.itemId).toLowerCase())) continue;
+      const a = canon(b.itemId);
+      const shared = [...canon(bb.itemId)].filter((f) => a.has(f));
+      if (!shared.length) continue;
+      const files = [...new Set(shared)].sort().join(', ');
+      const bs = shortFromId(bb.itemId);
+      const ds = shortFromId(b.itemId);
+      out.push(`shared-file edge ${bs} -> ${ds}: same feature, both scopes name ${files}, and ${ds} states no dependency on ${bs} - per-file locks already serialize a shared file in one run; drop the edge unless it is a semantic dependency (record it as "Depends on ${bs}: <reason>")`);
+    }
+  }
+  return out;
+}
+
 function normalizePath(p) {
   if (typeof p !== 'string') return p;
   let out = p.replace(/\\/g, '/');
@@ -923,6 +1026,7 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
@@ -932,7 +1036,6 @@ export function assembleArgs(snap, planned, opts) {
     runId,
     startedAt: now,
     rootId: snap.rootId,
-    planDocSlug: `run/${runId}`,
     baseSha,
     worktreeMode: mode,
     entryMode,
@@ -993,15 +1096,20 @@ export function buildPlanDoc(snap, opts = {}) {
     const schemaEntry = (snap.schemas || {})[c.id];
     derivedById[c.id] = deriveStages(c, schemaEntry, {
       rulesServed: snap.rulesServed || [],
-      noteActors: (snap.noteActors || {})[c.id] || [],
+      noteOwners: (snap.noteOwners || {})[c.id] || [],
       profile
     });
   }
 
   const mode = chooseMode(snap, modeReq);
   const entryMode = chooseEntry(probe, entryReq);
+  const sharedFileWarnings = sharedFileEdgeWarnings(snap, mode);
 
   const guardErrors = [];
+  // D8: a server the plugin cannot drive (not 4.x, or without seats) stops the run in both methods.
+  if (typeof probe.serverCompat === 'string' && probe.serverCompat !== '') {
+    guardErrors.push(`server incompatible: ${probe.serverCompat}`);
+  }
   if (entryReq === 'seat' && !probe.phase0Hooks) {
     guardErrors.push('seat entry requires phase0Hooks');
   }
@@ -1102,7 +1210,7 @@ export function buildPlanDoc(snap, opts = {}) {
         worktreesToCreate: [],
         excluded,
         deferred: allDeferred,
-        warnings: zeroRunWarnings,
+        warnings: [...zeroRunWarnings, ...sharedFileWarnings],
         estAgents: 0,
         sizeGuideline: probe.workflowSizeGuideline ?? null,
         degradations,
@@ -1141,6 +1249,8 @@ export function buildPlanDoc(snap, opts = {}) {
     warnings.push(...w);
   }
 
+  warnings.push(...sharedFileWarnings);
+
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);
   const worktreesToCreate = buildWorktreesToCreate(snap, args, mode);
 
@@ -1162,7 +1272,12 @@ export function buildPlanDoc(snap, opts = {}) {
       sizeGuideline: probe.workflowSizeGuideline ?? null,
       degradations,
       inRunEdges,
-      advisoryResources: resourceResult.advisory
+      advisoryResources: resourceResult.advisory,
+      // runs_write open inputs: the snapshot's target scope and the profile's opt-in run budget.
+      scopeId: snap.ancestorId || null,
+      runBudget: profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)
+        ? profile.runBudget
+        : null
     }
   };
 
@@ -1206,6 +1321,9 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
+  if ((meta.warnings || []).length) {
+    lines.push(`Warnings: ${meta.warnings.join('; ')}`);
+  }
   return lines.join('\n');
 }
 
@@ -1261,6 +1379,29 @@ function validateAgainstSchema(value, schema, path) {
 }
 
 /**
+ * bindRun(doc, serverRunId) -> a NEW plan document whose args.serverRunId is the server run UUID
+ * (runs_write open's runId). Throws 'invalid args: ...' for a non-UUID id (an 8-hex prefix included:
+ * the full UUID is required), a document without args, or args without project.scratchDir (seat
+ * tokens are written under it). Rebinding to the same id is a no-op copy; rebinding to another id is
+ * allowed (a Resume re-plan opens a new run). The input is not mutated.
+ */
+export function bindRun(doc, serverRunId) {
+  if (!doc || typeof doc !== 'object' || !doc.args || typeof doc.args !== 'object') {
+    throw new Error('invalid args: not a plan document');
+  }
+  if (typeof serverRunId !== 'string' || !UUID_RE.test(serverRunId)) {
+    throw new Error(`invalid args: --server-run must be a full run UUID, got ${JSON.stringify(serverRunId)}`);
+  }
+  const project = doc.args.project;
+  if (!project || typeof project.scratchDir !== 'string' || project.scratchDir === '') {
+    throw new Error('invalid args: the plan has no project.scratchDir (re-plan with --scratchpad)');
+  }
+  const out = JSON.parse(JSON.stringify(doc));
+  out.args.serverRunId = serverRunId.toLowerCase();
+  return out;
+}
+
+/**
  * validatePlanDoc(doc, argsSchema, snapshot?) -> {ok:boolean, errors:string[]}
  * Structural check against argsSchema plus the four run-level guard strings; with a snapshot
  * also flags staleness ("stale <short>: configFingerprint|traits|not a candidate").
@@ -1284,6 +1425,9 @@ export function validatePlanDoc(doc, argsSchema, snapshot) {
       for (const item of doc.args.items || []) {
         if ((item.waitsFor || []).length) errors.push('per-item mode forbids waitsFor');
       }
+    }
+    if (doc.args.serverRunId !== undefined && !(doc.args.project && typeof doc.args.project.scratchDir === 'string' && doc.args.project.scratchDir)) {
+      errors.push('serverRunId requires project.scratchDir');
     }
     const feats = new Set((doc.args.capabilities && doc.args.capabilities.features) || []);
     for (const f of ['seats', 'dispatchBySeat', 'rules']) {

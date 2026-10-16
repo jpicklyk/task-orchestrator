@@ -49,8 +49,9 @@ export function loadScript(path) {
 const CORE_EXPORT_NAMES = [
   'ENVELOPE_VERSION', 'OUTPUT_SCHEMAS', 'normalizeArgs', 'normalizePath', 'preflight',
   'makeMilestones', 'makeLocks', 'lockKeysFor', 'overlapDeferral', 'envelopeSchema',
-  'mapEntry', 'mapStageResult', 'seatActor', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
+  'mapEntry', 'mapStageResult', 'seatTokenFile', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
   'scanDeclarations', 'relativizePath', 'lockKeysConflict',
+  'declarationGap',
 ]
 
 export function loadCore(path) {

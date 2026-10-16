@@ -32,6 +32,8 @@ import {
     lockSourceDeferrals,
     buildPlanDoc,
     validatePlanDoc,
+    explainPlan,
+    sharedFileEdgeWarnings,
     ORCHESTRATOR_PROVENANCE_NOTE,
 } from "../run-planner-lib.mjs";
 
@@ -70,7 +72,7 @@ function baseSnapshot(overrides = {}) {
         candidates: [],
         blocked: [],
         schemas: {},
-        noteActors: {},
+        noteOwners: {},
         parents: {},
         profile: {
             shell: "bash",
@@ -85,6 +87,13 @@ function baseSnapshot(overrides = {}) {
         probe: { phase0Hooks: true, pluginVersion: "3.8.0", workflowSizeGuideline: "medium" },
         ...overrides,
     };
+}
+
+// 4.0 (cac1bffa D6): a note's owner is a seat, not an actor id. The snapshot row shape is not in the
+// declarations, so each row carries every public spelling of "owned by <seat>": `seat`, `ownerSeat`
+// (note_owned_by_other detail) and `owner.seat` (notes_read). Arbitration recorded in test-manifest.
+function ownerRow(key, seat) {
+    return { key, seat, ownerSeat: seat, owner: { id: "principal-x", seat } };
 }
 
 function plainCandidate({ id, short, parentId = null, priority = "high", complexity = 2, role = "queue", source = "ready", traits = [] }) {
@@ -327,7 +336,7 @@ test("S4: deriveStages on a seat-aware bug-fix-like schema produces planner, imp
     const snap = mixedTypesFixture();
     const candidate = snap.candidates[0]; // scratch-bug, seat-aware, needs-test-author
     const schemaEntry = snap.schemas[candidate.id];
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors: [], profile: snap.profile });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners: [], profile: snap.profile });
 
     assert.equal(result.exclude, null);
     assert.equal(result.schemaFree, false);
@@ -408,7 +417,7 @@ test("S6: deriveStages routes a note's skill pointer to rules[] when served, ski
 
     const servedResult = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "test-author", rulesVersion: "1" }, { key: "commit-discipline", rulesVersion: "1" }],
-        noteActors: [], profile: snap.profile,
+        noteOwners: [], profile: snap.profile,
     });
     const plannerServed = servedResult.stages.find((s) => s.seat === "planner");
     assert.ok(plannerServed.rules.includes("test-author"));
@@ -416,7 +425,7 @@ test("S6: deriveStages routes a note's skill pointer to rules[] when served, ski
 
     const unservedResult = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "commit-discipline", rulesVersion: "1" }],
-        noteActors: [], profile: snap.profile,
+        noteOwners: [], profile: snap.profile,
     });
     const plannerUnserved = unservedResult.stages.find((s) => s.seat === "planner");
     assert.ok(!(plannerUnserved.rules ?? []).includes("test-author"));
@@ -430,7 +439,7 @@ test("S6: extractor gets rules:['declarations-extractor'] when served, else a de
 
     const served = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }],
-        noteActors: [], profile: snap.profile,
+        noteOwners: [], profile: snap.profile,
     });
     const extractorServed = served.stages.find((s) => s.seat === "declarations-extractor");
     assert.deepEqual(extractorServed.rules, ["declarations-extractor"]);
@@ -438,7 +447,7 @@ test("S6: extractor gets rules:['declarations-extractor'] when served, else a de
 
     const unserved = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "commit-discipline", rulesVersion: "1" }],
-        noteActors: [], profile: snap.profile,
+        noteOwners: [], profile: snap.profile,
     });
     const extractorUnserved = unserved.stages.find((s) => s.seat === "declarations-extractor");
     assert.deepEqual(extractorUnserved.rules, []);
@@ -845,7 +854,7 @@ test("S17: deriveStages on a not-found schema gives a single implementer stage, 
     const snap = loadFixture("schema-free.json");
     const candidate = snap.candidates[0];
     const schemaEntry = snap.schemas[candidate.id];
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [], noteActors: [], profile: snap.profile });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [], noteOwners: [], profile: snap.profile });
 
     assert.equal(result.schemaFree, true);
     assert.equal(result.stages.length, 1);
@@ -872,21 +881,21 @@ test("S17 (integration): schema-free item's plan-doc item has configFingerprint 
 
 // ═══════════════════════════════════════════════════════════════════════════
 // S18 — resume in work: queue stages skipped; a seat whose notes were all
-// already written under its own "<seat>:<short>:*" actor is skipped; a
+// already written and owned by its own seat is skipped; a
 // shared-mode resumed item with no planner-v1 stage defers unless it is the
 // run's only writer. [§4.3 S4 resume; Appendix C shared-mode lock source]
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("S18: deriveStages on a work-role item skips the queue stage and any seat already written under its own actor", () => {
+test("S18: deriveStages on a work-role item skips the queue stage and any seat whose notes are already owned by that seat", () => {
     const snap = mixedTypesFixture();
     const candidate = { ...snap.candidates[0], role: "work", source: "work" };
     const schemaEntry = snap.schemas[candidate.id];
-    const noteActors = [{ key: "implementation-notes", actorId: `implementer:${candidate.short}:r-prior` }];
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors, profile: snap.profile });
+    const noteOwners = [ownerRow("implementation-notes", "implementer")];
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners, profile: snap.profile });
 
     const seats = result.stages.map((s) => s.seat);
     assert.ok(!seats.includes("planner"), "queue stage must be skipped when the item is already in work");
-    assert.ok(!seats.includes("implementer"), "a seat whose notes are all already written under its own actor is skipped");
+    assert.ok(!seats.includes("implementer"), "a seat whose notes are all already written and owned by that seat is skipped");
     assert.ok(seats.includes("test-author"), "test-author's note is not yet written, so it must remain");
     assert.ok(seats.includes("declarations-extractor"), "the extractor is still inserted before the remaining test-author seat");
 });
@@ -958,21 +967,21 @@ function schemaWithSeat(seatExtra, noteExtra) {
 test("S20: extractor is NOT inserted when readsExclude is present but no owned note has skill:test-author", () => {
     const candidate = { id: "z1", short: "z1000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, {});
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteActors: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
 test("S20: extractor is NOT inserted when a note has skill:test-author but readsExclude is empty", () => {
     const candidate = { id: "z2", short: "z2000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({}, { skill: "test-author" });
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteActors: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
 test("S20: extractor IS inserted when both readsExclude is non-empty AND the seat owns a skill:test-author note", () => {
     const candidate = { id: "z3", short: "z3000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, { skill: "test-author" });
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteActors: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
     assert.ok(result.stages.some((s) => s.seat === "declarations-extractor" && s.inserted === true));
 });
 
@@ -1025,7 +1034,8 @@ test("S21: run-planner-lib.mjs source contains no Date.now(), Math.random(), or 
 const PLUGIN_JSON_380 = JSON.stringify({ version: "3.8.0" });
 const PLUGIN_JSON_3100 = JSON.stringify({ version: "3.10.0" });
 const PLUGIN_JSON_379 = JSON.stringify({ version: "3.7.9" });
-const BOTH_MARKERS = { subagentStartText: "matcher for 'workflow-subagent' here", phaseGuardText: "parent.startsWith('workflow:')" };
+const BOTH_MARKERS = { subagentStartText: "matcher for 'workflow-subagent' here", phaseGuardText: "if (!input.seatToken) return;" };
+const WORKFLOW_PARENT_ONLY = { subagentStartText: "matcher for 'workflow-subagent' here", phaseGuardText: "parent.startsWith('workflow:')" };
 const MISSING_ONE_MARKER = { subagentStartText: "matcher for 'workflow-subagent' here", phaseGuardText: "no marker here" };
 
 test("S22: compareVersions orders 3.10.0 after 3.8.0 (not lexicographic)", () => {
@@ -1056,6 +1066,29 @@ test("S22: probeFrom — version 3.7.9 with both markers -> phase0Hooks false (b
         ...BOTH_MARKERS, configYamlText: "", settings: ["{}", "{}", "{}"],
     });
     assert.equal(result.phase0Hooks, false);
+});
+
+test("S22 (D8): probeFrom — version 3.9.0 with the seatToken marker and the subagent marker -> phase0Hooks true", () => {
+    const result = probeFrom({
+        pluginRoot: "/plugin", pluginJsonText: JSON.stringify({ version: "3.9.0" }),
+        ...BOTH_MARKERS, configYamlText: "", settings: ["{}", "{}", "{}"],
+    });
+    assert.equal(result.phase0Hooks, true);
+});
+
+test("S22 (D8): probeFrom — the retired workflow: parent marker alone no longer proves phase0Hooks", () => {
+    const result = probeFrom({
+        pluginRoot: "/plugin", pluginJsonText: PLUGIN_JSON_380,
+        ...WORKFLOW_PARENT_ONLY, configYamlText: "", settings: ["{}", "{}", "{}"],
+    });
+    assert.equal(result.phase0Hooks, false);
+});
+
+test("S22 (D8): probeFrom — serverCompat is null when absent and passes a supplied warning through verbatim", () => {
+    const base = { pluginRoot: "/plugin", pluginJsonText: PLUGIN_JSON_380, ...BOTH_MARKERS, configYamlText: "", settings: ["{}", "{}", "{}"] };
+    assert.equal(probeFrom(base).serverCompat, null);
+    const warning = "server 3.9.0 is older than the plugin floor";
+    assert.equal(probeFrom({ ...base, serverCompat: warning }).serverCompat, warning);
 });
 
 test("S22: probeFrom — version 3.8.0 with a missing marker -> phase0Hooks false", () => {
@@ -1246,19 +1279,19 @@ test("(1) CLI plan without --now: runId's UTC yyyymmddHHMM is within a minute of
 });
 
 // ── (2) S18 'nothing to run': an item whose every seat's notes are already written under that
-//        seat's own actor has nothing left to run and is EXCLUDED with reason 'nothing to run'
+//        seat has nothing left to run and is EXCLUDED with reason 'nothing to run'
 //        (not admitted, not deferred); a co-admitted sibling still satisfies args.items minItems 1;
 //        with only such items, the run refuses (args:null, the existing zero-admitted shape).
 
 const NOTHING_TO_RUN_ID = "9a000000-0000-4000-8000-000000000000";
 const OTHER_ADMITTED_ID = "9b000000-0000-4000-8000-000000000000";
 
-function fullyResumedNoteActors(short) {
+function fullyResumedNoteOwners() {
     return [
-        { key: "diagnosis", actorId: `planner:${short}:r-prior` },
-        { key: "test-plan", actorId: `planner:${short}:r-prior` },
-        { key: "implementation-notes", actorId: `implementer:${short}:r-prior` },
-        { key: "test-manifest", actorId: `test-author:${short}:r-prior` },
+        ownerRow("diagnosis", "planner"),
+        ownerRow("test-plan", "planner"),
+        ownerRow("implementation-notes", "implementer"),
+        ownerRow("test-manifest", "test-author"),
     ];
 }
 
@@ -1267,7 +1300,7 @@ test("(2) deriveStages on a fully-resumed item (every seat's notes already writt
     const schemaEntry = bugFixLikeSchema();
     const result = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }],
-        noteActors: fullyResumedNoteActors("9a000000"),
+        noteOwners: fullyResumedNoteOwners(),
         profile: { defaultModels: DISPATCH_DEFAULTS },
     });
     assert.deepEqual(result.stages, []);
@@ -1277,14 +1310,14 @@ test("(2) deriveStages on a fully-resumed item (every seat's notes already writt
 function nothingToRunSnapshot({ withSibling }) {
     const candidates = [bugFixLikeCandidate({ id: NOTHING_TO_RUN_ID, short: "9a000000", parentId: null, role: "work", source: "work" })];
     const schemas = { [NOTHING_TO_RUN_ID]: bugFixLikeSchema() };
-    const noteActors = { [NOTHING_TO_RUN_ID]: fullyResumedNoteActors("9a000000") };
+    const noteOwners = { [NOTHING_TO_RUN_ID]: fullyResumedNoteOwners() };
     if (withSibling) {
         candidates.push(plainCandidate({ id: OTHER_ADMITTED_ID, short: "9b000000" }));
         schemas[OTHER_ADMITTED_ID] = plainSchema();
     }
     return baseSnapshot({
         rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }, { key: "commit-discipline", rulesVersion: "1" }],
-        candidates, schemas, noteActors,
+        candidates, schemas, noteOwners,
     });
 }
 
@@ -1409,7 +1442,7 @@ function extractorDispatchFor(defaultModelsExtractor) {
     const candidate = snap.candidates[0];
     const schemaEntry = snap.schemas[candidate.id];
     const profile = { ...snap.profile, defaultModels: { ...snap.profile.defaultModels, extractor: defaultModelsExtractor } };
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors: [], profile });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners: [], profile });
     const extractor = result.stages.find((s) => s.seat === "declarations-extractor");
     assert.ok(extractor, "extractor stage must be present");
     return extractor.dispatch;
@@ -1438,17 +1471,17 @@ test("(5) classifyEdge cross-run reason uses the blocker's 8-hex short, never th
     assert.ok(!result.reason.includes(fullId), result.reason);
 });
 
-// ── (6) O1: resume-skip requires the note actor's short segment to match THIS item's own short;
-//        a note written under a DIFFERENT item's short must not skip the seat.
+// ── (6) O1 (4.0): resume-skip requires the note's owner seat to be THIS seat;
+//        a note owned by a DIFFERENT seat must not skip the seat.
 
-test("(6) O1: a note actor stamped with a DIFFERENT item's short does not skip this item's seat", () => {
+test("(6) O1: a note owned by a DIFFERENT seat does not skip this item's implementer seat", () => {
     const snap = mixedTypesFixture();
     const candidate = { ...snap.candidates[0], role: "work", source: "work" };
     const schemaEntry = snap.schemas[candidate.id];
-    const noteActors = [{ key: "implementation-notes", actorId: "implementer:00000000:r-other" }]; // wrong short
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors, profile: snap.profile });
+    const noteOwners = [ownerRow("implementation-notes", "test-author")]; // wrong owner seat
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners, profile: snap.profile });
     const seats = result.stages.map((s) => s.seat);
-    assert.ok(seats.includes("implementer"), "a note actor from a different item's short must not count as this item's resume");
+    assert.ok(seats.includes("implementer"), "a note owned by another seat must not count as this seat's resume");
 });
 
 // ── (7) O9 (tightened S5): resolveDispatch's agent is exactly null, never undefined, when the
@@ -1670,7 +1703,7 @@ function optionalNotesCandidate() {
 }
 function optionalNotesCtx() {
     const snap = loadFixture("independent-two.json");
-    return { rulesServed: snap.rulesServed, noteActors: [], profile: snap.profile };
+    return { rulesServed: snap.rulesServed, noteOwners: [], profile: snap.profile };
 }
 
 test("1f00ae1e: seat-less schema - delegation-metadata leaves implementer notes and lands in orchestratorNotes", () => {
@@ -1731,7 +1764,7 @@ test("1f00ae1e: seat-aware schema - an optional seat-owned note sets optionalNot
 test("1f00ae1e: schema-free item is unchanged (no optionalNotes, no orchestratorNotes)", () => {
     const snap = loadFixture("schema-free.json");
     const candidate = snap.candidates[0];
-    const result = deriveStages(candidate, snap.schemas[candidate.id], { rulesServed: snap.rulesServed, noteActors: [], profile: snap.profile });
+    const result = deriveStages(candidate, snap.schemas[candidate.id], { rulesServed: snap.rulesServed, noteOwners: [], profile: snap.profile });
     assert.equal(result.schemaFree, true);
     assert.equal(result.stages.some((st) => "optionalNotes" in st), false);
     assert.deepEqual(result.orchestratorNotes || [], []);
@@ -1818,4 +1851,112 @@ test("S13: probeFrom - a non-orchestrator server key leaves allow.mcp false", ()
 test("S13: probeFrom - an orchestrator entry among unrelated entries is found; unrelated entries alone are not", () => {
     assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "mcp__mcp-task-orchestrator-http__*"]), true);
     assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "Workflow(task-orchestrator:implement-wave)"]), false);
+});
+
+
+
+
+// -- shared-file edge warning (febaca71) --
+
+const SF_PARENT = "f0000000-0000-4000-8000-0000000000f0";
+const SF_A = "a5000000-0000-4000-8000-000000000000";
+const SF_B = "b5000000-0000-4000-8000-000000000000";
+const BS = String.fromCharCode(92);
+
+function sharedFileSnapshot({ scopes, extra = {} } = {}) {
+    return baseSnapshot({
+        candidates: [
+            plainCandidate({ id: SF_A, short: "a5000000", parentId: SF_PARENT }),
+            plainCandidate({ id: SF_B, short: "b5000000", parentId: SF_PARENT }),
+        ],
+        blocked: [
+            { itemId: SF_B, role: "queue", blockType: "dependency", blockedBy: [{ itemId: SF_A, role: "queue", effectiveUnblockRole: "terminal", satisfied: false }] },
+        ],
+        schemas: { [SF_A]: plainSchema(), [SF_B]: plainSchema() },
+        parents: { [SF_PARENT]: { role: "work", canAdvance: true, missing: [] } },
+        scopes,
+        ...extra,
+    });
+}
+
+const SF_SCOPES = () => ({
+    [SF_A]: { files: ["/repo/docs/x.md"] },
+    [SF_B]: { files: ["docs" + BS + "x.md", "y.md"] },
+});
+
+const SF_TEXT = "shared-file edge a5000000 -> b5000000: same feature, both scopes name docs/x.md, and b5000000 states no dependency on a5000000 - per-file locks already serialize a shared file in one run; drop the edge unless it is a semantic dependency (record it as \"Depends on a5000000: <reason>\")";
+
+test("shared-file S1: same-feature edge with a shared file warns once and explain shows Warnings:", () => {
+    const result = buildPlanDoc(sharedFileSnapshot({ scopes: SF_SCOPES() }), { now: NOW, mode: "shared" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.meta.warnings, [SF_TEXT]);
+    assert.match(explainPlan(result.doc), /Warnings: shared-file edge/);
+});
+
+test("shared-file S2: a stated dependsOn (short or upper-case full id) suppresses the warning", () => {
+    for (const dep of ["a5000000", SF_A.toUpperCase()]) {
+        const scopes = SF_SCOPES();
+        scopes[SF_B].dependsOn = [dep];
+        const result = buildPlanDoc(sharedFileSnapshot({ scopes }), { now: NOW, mode: "shared" });
+        assert.equal(result.ok, true, JSON.stringify(result.errors));
+        assert.deepEqual(result.doc.meta.warnings, []);
+    }
+});
+
+test("shared-file S3: per-item mode never warns", () => {
+    const result = buildPlanDoc(sharedFileSnapshot({ scopes: SF_SCOPES() }), { now: NOW, mode: "per-item" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.meta.warnings, []);
+    assert.deepEqual(sharedFileEdgeWarnings(sharedFileSnapshot({ scopes: SF_SCOPES() }), "per-item"), []);
+});
+
+test("shared-file S4: no scopes, disjoint files or a glob give no warning and no Warnings: line", () => {
+    const cases = [
+        undefined,
+        { [SF_A]: { files: ["a.md"] }, [SF_B]: { files: ["b.md"] } },
+        { [SF_A]: { files: ["docs/*.md"] }, [SF_B]: { files: ["docs/*.md"] } },
+    ];
+    for (const scopes of cases) {
+        const result = buildPlanDoc(sharedFileSnapshot({ scopes }), { now: NOW, mode: "shared" });
+        assert.equal(result.ok, true, JSON.stringify(result.errors));
+        assert.deepEqual(result.doc.meta.warnings, []);
+        assert.doesNotMatch(explainPlan(result.doc), /Warnings:/);
+    }
+});
+
+test("shared-file S5: validateSnapshot rejects a non-candidate scopes key and non-string-array files", () => {
+    const bad = sharedFileSnapshot({ scopes: { "c5000000-0000-4000-8000-000000000000": { files: [] } } });
+    assert.ok(validateSnapshot(bad).errors.includes("scopes c5000000-0000-4000-8000-000000000000: not a candidate"));
+    const bad2 = sharedFileSnapshot({ scopes: { [SF_A]: { files: "x.md" } } });
+    assert.ok(validateSnapshot(bad2).errors.includes(`scopes ${SF_A}: files must be an array of strings`));
+    const bad3 = sharedFileSnapshot({ scopes: { [SF_A]: { files: [], dependsOn: 3 } } });
+    assert.ok(validateSnapshot(bad3).errors.includes(`scopes ${SF_A}: dependsOn must be an array of strings`));
+    assert.ok(validateSnapshot(sharedFileSnapshot({ scopes: [] })).errors.includes("scopes must be an object"));
+});
+
+
+// -- args-v1 serverRunId (cac1bffa D4): optional, UUID-shaped, replaces planDocSlug --
+
+test("D4: a plan built from a snapshot validates against the args-v1 fixture schema without a serverRunId (it is optional) and carries no planDocSlug", () => {
+    const argsSchema = loadFixture("args-v1.schema.json");
+    const snap = loadFixture("independent-two.json");
+    const built = buildPlanDoc(clone(snap), { now: NOW });
+    assert.equal(built.ok, true, JSON.stringify(built.errors));
+    assert.equal(Object.hasOwn(built.doc.args, "serverRunId"), false, "unbound plan: no serverRunId yet");
+    assert.equal(Object.hasOwn(built.doc.args, "planDocSlug"), false);
+    assert.deepEqual(validatePlanDoc(built.doc, argsSchema, snap), { ok: true, errors: [] });
+});
+
+test("D4: validatePlanDoc accepts a full-UUID serverRunId and rejects an 8-hex prefix, a brace-wrapped UUID and a non-string", () => {
+    const argsSchema = loadFixture("args-v1.schema.json");
+    const snap = loadFixture("independent-two.json");
+    const built = buildPlanDoc(clone(snap), { now: NOW });
+    assert.equal(built.ok, true, JSON.stringify(built.errors));
+    const withRun = (value) => ({ ...built.doc, args: { ...built.doc.args, serverRunId: value, project: { ...built.doc.args.project, scratchDir: "/tmp/scratch/run-wave/r-x" } } });
+    assert.deepEqual(validatePlanDoc(withRun("8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10"), argsSchema, snap), { ok: true, errors: [] });
+    for (const bad of ["8f14e45f", "{8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10}", 12345]) {
+        const result = validatePlanDoc(withRun(bad), argsSchema, snap);
+        assert.equal(result.ok, false, JSON.stringify(bad));
+        assert.ok(result.errors.some((e) => e.includes("serverRunId")), `error names serverRunId for ${JSON.stringify(bad)}: ${JSON.stringify(result.errors)}`);
+    }
 });

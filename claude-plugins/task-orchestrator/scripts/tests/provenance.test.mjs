@@ -251,3 +251,36 @@ test('P5 AC5: extra-seats format/parse round-trip; parseProvenance ignores line 
   const line = 'adapter=claude-workflow run=r-1 seats=implementer:sonnet'
   assert.deepEqual(parseProvenance(line + '\n' + text), parseProvenance(line))
 })
+
+// ── S16 (cac1bffa D4): server-run=<uuid> rides in extra, after the tails, parser-tolerated ───────
+
+const SERVER_RUN_UUID = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10'
+
+test('S16: formatProvenance with extra {server-run} keeps FIELD_ORDER first and ends with server-run=<uuid>; the line still matches STRUCTURED_RE', () => {
+  const fields = {
+    adapter: 'claude-workflow', run: 'r-20261016-aa', seats: [{ seat: 'planner', model: 'opus' }],
+    model: 'opus', isolation: 'worktree:/wt', agents: 1, tokens: 100, duration: 200,
+    deferred: 0, inRunEdges: 0, orchestratorTurns: 1,
+    modelSource: 'self-report',
+    extra: { 'server-run': SERVER_RUN_UUID },
+  }
+  const line = formatProvenance(fields)
+  assert.ok(line.endsWith(` server-run=${SERVER_RUN_UUID}`), line)
+  assert.ok(line.startsWith('adapter=claude-workflow run=r-20261016-aa seats=planner:opus '), 'run=<r-id> stays in its FIELD_ORDER slot')
+  assert.equal(STRUCTURED_RE.test(line), true)
+  assert.equal(line.split(' ').filter((kv) => kv.startsWith('run=')).length, 1, 'the r-id is the only run= token')
+})
+
+test('S16: parseProvenance round-trips server-run into extra and leaves run as the r-id', () => {
+  const line = `adapter=claude-agent run=r-20261016-aa seats=planner:opus model=opus isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1 server-run=${SERVER_RUN_UUID}`
+  const fields = parseProvenance(line)
+  assert.equal(fields.run, 'r-20261016-aa')
+  assert.deepEqual(fields.extra, { 'server-run': SERVER_RUN_UUID })
+  assert.equal(formatProvenance(fields), line, 'format(parse(line)) reproduces the line')
+})
+
+test('S16: a line without server-run parses to no extra key for it (absent is not empty)', () => {
+  const line = 'adapter=claude-workflow run=r-1 seats=planner:opus model=opus isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1'
+  const fields = parseProvenance(line)
+  assert.equal(fields.extra === undefined || !('server-run' in fields.extra), true)
+})

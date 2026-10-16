@@ -53,6 +53,7 @@ const OUTPUT_SCHEMAS = {
         },
       },
       redProofShape: { type: 'string' },
+      declarationModules: { type: 'array', items: { type: 'string' } },
     },
   },
   'implementer-v1': {
@@ -90,6 +91,7 @@ const OUTPUT_SCHEMAS = {
       declarations: { type: 'string' },
       harnessPointers: { type: 'string' },
       gaps: { type: 'string' },
+      modules: { type: 'array', items: { type: 'string' } },
     },
   },
   'test-author-v1': {
@@ -291,6 +293,22 @@ function normalizeArgs(raw) {
   // repoRoot is optional and additive (the main checkout root, a second relativization root).
   if (parsed.repoRoot !== undefined && parsed.repoRoot !== null && typeof parsed.repoRoot !== 'string') {
     return { ok: false, reason: 'invalid args: bad repoRoot' }
+  }
+  if (parsed.project && parsed.project.appendOnlyFiles !== undefined &&
+      (!Array.isArray(parsed.project.appendOnlyFiles) || parsed.project.appendOnlyFiles.some((e) => typeof e !== 'string'))) {
+    return { ok: false, reason: 'invalid args: bad appendOnlyFiles' }
+  }
+  // serverRunId is optional (set by run-planner bind-run once runs_write open answered): the server
+  // run UUID. Seats of a bound run read their seat token from a file under project.scratchDir.
+  if (parsed.serverRunId !== undefined && parsed.serverRunId !== null) {
+    if (typeof parsed.serverRunId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.serverRunId)) {
+      return { ok: false, reason: 'invalid args: bad serverRunId' }
+    }
+    const pj = parsed.project
+    if (!pj || typeof pj !== 'object' || typeof pj.scratchDir !== 'string' || pj.scratchDir === '') {
+      return { ok: false, reason: 'invalid args: serverRunId requires project.scratchDir' }
+    }
   }
   if (!Array.isArray(parsed.items) || parsed.items.length < 1) {
     return { ok: false, reason: 'invalid args: items must be a non-empty array' }
@@ -586,26 +604,65 @@ function collectFiles(output, roots) {
 }
 
 /**
- * overlapDeferral(mine, higher, mode) -> null | {reason}
+ * appendOnlyMatch(claim, patterns) -> bool
+ * True when the repo-relative claim matches at least one appendOnlyFiles pattern. Both sides are
+ * canonicalised (backslash to '/', a leading './' removed, repeated '/' collapsed) and matched
+ * whole, anchored at the repo root, segment by segment and case-insensitively. A '**' segment
+ * matches zero or more whole segments; inside a segment '*' matches any run of characters and '?'
+ * exactly one; every other character is literal.
+ */
+function appendOnlyMatch(claim, patterns) {
+  const canon = (x) => String(x).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/')
+  const segs = canon(claim).toLowerCase().split('/')
+  const segMatch = (pat, text) => {
+    let re = ''
+    for (const ch of pat) re += ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    return new RegExp('^' + re + '$').test(text)
+  }
+  const walk = (ps, pi, ti) => {
+    if (pi === ps.length) return ti === segs.length
+    if (ps[pi] === '**') {
+      for (let k = ti; k <= segs.length; k++) if (walk(ps, pi + 1, k)) return true
+      return false
+    }
+    return ti < segs.length && segMatch(ps[pi], segs[ti]) && walk(ps, pi + 1, ti + 1)
+  }
+  return (patterns || []).some((pat) => walk(canon(pat).toLowerCase().split('/'), 0, 0))
+}
+
+/**
+ * overlapDeferral(mine, higher, mode, appendOnlyFiles = []) -> null | {reason}
  * mine = {short, output, roots?}; higher = [{short, output|null, roots?}] in args order. Each
  * entry's declared paths are relativized against its own roots (its worktree, then the repo root)
  * and turned into file:<claim> keys by collectFiles.
  * mode 'shared' -> always null. Else: the first higher item (skipping those with a null output)
- * with a claim that overlaps one of mine under the lockKeysConflict predicate (equal, or a
- * directory/glob base containing the other, case-insensitive) -> {reason:'overlap <short>'};
- * none -> null.
+ * with a non-exempt claim pair that overlaps under the lockKeysConflict predicate (equal, or a
+ * directory/glob base containing the other, case-insensitive) -> {reason:'overlap <short> on
+ * <f1>[, <f2>...]'}, the files being the distinct mine claims in those pairs, in collectFiles
+ * order (an unrooted claim prints as '**'); none -> null.
+ * A pair is exempt (a merge-time conflict, not a deferral) when both claims are glob-free, not
+ * '**', equal case-insensitively, and match an appendOnlyFiles pattern (appendOnlyMatch).
  * Whole-tree claims (D6): an unrooted entry on either side — one that relativizes to '' ('.',
  * './', a root itself), stays absolute, or contains '..' — overlaps every entry on the other side,
- * including another whole-tree claim. A side whose declared set is entirely empty claims nothing,
- * so it never causes or suffers an overlap.
+ * including another whole-tree claim, and is never exempt. A side whose declared set is entirely
+ * empty claims nothing, so it never causes or suffers an overlap.
  */
-function overlapDeferral(mine, higher, mode) {
+function overlapDeferral(mine, higher, mode, appendOnlyFiles) {
   if (mode === 'shared') return null
-  const mineKeys = collectFiles(mine.output, mine.roots).map((f) => `file:${f}`)
+  const patterns = Array.isArray(appendOnlyFiles) ? appendOnlyFiles : []
+  const mineFiles = collectFiles(mine.output, mine.roots)
+  const exempt = (a, b) =>
+    a !== '**' && b !== '**' && !isGlobPath(a) && !isGlobPath(b) &&
+    a.toLowerCase() === b.toLowerCase() && appendOnlyMatch(a, patterns)
   for (const h of higher) {
     if (!h.output) continue
-    const hKeys = collectFiles(h.output, h.roots).map((f) => `file:${f}`)
-    if (mineKeys.some((a) => hKeys.some((b) => lockKeysConflict(a, b)))) return { reason: `overlap ${h.short}` }
+    const hFiles = collectFiles(h.output, h.roots)
+    const files = []
+    for (const a of mineFiles) {
+      if (files.includes(a)) continue
+      if (hFiles.some((b) => lockKeysConflict(`file:${a}`, `file:${b}`) && !exempt(a, b))) files.push(a)
+    }
+    if (files.length) return { reason: `overlap ${h.short} on ${files.join(', ')}` }
   }
   return null
 }
@@ -645,12 +702,18 @@ function envelopeSchema(outputId, extra = {}, opts = {}) {
       notes: {
         type: 'array',
         items: {
-          type: 'object', required: ['key', 'actor'],
+          type: 'object', required: ['key'],
           properties: {
-            key: { type: 'string' }, actor: { type: 'string' },
+            key: { type: 'string' }, seat: { type: 'string' },
             chars: { type: 'integer' }, warning: { type: 'string' },
           },
         },
+      },
+      seatEnded: { type: 'boolean' },
+      decisionId: { type: 'string' },
+      paused: {
+        type: 'object',
+        properties: { decisionId: { type: 'string' } },
       },
       commits: {
         type: 'object', required: ['pre', 'post'],
@@ -686,14 +749,17 @@ function mapEntry(env, entryMode = 'seat') {
   if (entry.errorCode === 'gate_blocked' && entry.previousRole === 'work') {
     return { status: 'done', reason: 'alreadyInPhase' }
   }
-  if (entry.errorCode === 'dependency_blocked' || (Array.isArray(entry.blockers) && entry.blockers.length > 0)) {
+  if (entry.errorCode === 'dependency_unmet' || (Array.isArray(entry.blockers) && entry.blockers.length > 0)) {
     return { status: 'deferred', reason: `blocked by ${(entry.blockers || []).join(',')}` }
   }
   if (entry.errorCode === 'resource_unavailable') {
     return { status: 'deferred', reason: `resource ${(entry.contendedResources || []).join(',')}` }
   }
-  if (entry.errorCode === 'config_unavailable') {
+  if (entry.errorCode === 'unavailable') {
     return { status: 'deferred', reason: 'config-unavailable' }
+  }
+  if (entry.errorCode === 'unauthenticated') {
+    return { status: 'stopped', reason: 'seat-token-rejected' }
   }
   if (entry.errorCode === 'gate_blocked' && entry.previousRole === 'queue') {
     return { status: 'stopped', reason: `queue gap ${(entry.missingNotes || []).join(',')}` }
@@ -715,13 +781,15 @@ function isNoneSentinel(s) {
 }
 
 /**
- * mapStageResult(stage, env, entryMode='seat') -> {status, reason}
+ * mapStageResult(stage, env, entryMode='seat', item?) -> {status, reason}
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
  * stage.enters and not done); planner proceed===false; planner envelope-mismatch (proceed:true
- * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); test-author
+ * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); no-test-owner (only
+ * when item is given: planner proceed:true with testFiles, no test-author-v1 stage on the item, and the
+ * item's implementer-v1 stage not implicitOwner); test-author
  * missingDeclaration/breachDisclosure; else env.status when stopped|deferred; else done.
  */
-function mapStageResult(stage, env, entryMode = 'seat') {
+function mapStageResult(stage, env, entryMode = 'seat', item) {
   if (env === null || env === undefined) return { status: 'stopped', reason: 'agent returned null' }
   if (env.reason === 'schema-changed') return { status: 'stopped', reason: 'schema-changed' }
   if (env.reason === 'config-unavailable') return { status: 'deferred', reason: 'config-unavailable' }
@@ -752,6 +820,16 @@ function mapStageResult(stage, env, entryMode = 'seat') {
       return {
         status: 'stopped',
         reason: `envelope-mismatch: planner reported no files for owned notes ${stage.notes.join(', ')}`,
+      }
+    }
+    if (item && env.output.proceed === true && (env.output.testFiles || []).length > 0) {
+      const stages = item.stages || []
+      const impl = stages.find((s) => s.output === 'implementer-v1')
+      if (!stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)) {
+        return {
+          status: 'stopped',
+          reason: `no-test-owner: add needs-test-author or clear testFiles (${env.output.testFiles.join(', ')})`,
+        }
       }
     }
   }
@@ -799,9 +877,18 @@ function scanDeclarations(text) {
   return { text: kept.join('\n'), stripped }
 }
 
-/** seatActor(stage, item, plan) -> {id, kind:'subagent', parent:'workflow:'+runId} */
-function seatActor(stage, item, plan) {
-  return { id: `${stage.seat}:${item.short}:${plan.runId}`, kind: 'subagent', parent: `workflow:${plan.runId}` }
+/**
+ * seatTokenFile(plan, item, stage) -> string | null
+ * The file a seat of a bound server run reads its seat token from:
+ * <project.scratchDir>/tokens/<short>.<seat>.token. null when the plan is not bound to a server run
+ * (no serverRunId), when the stage is an inserted (non-schema) stage, which runs token-less, or when
+ * no scratchDir is set. Only the path is ever rendered; the token itself never enters the plan.
+ */
+function seatTokenFile(plan, item, stage) {
+  if (!plan || !plan.serverRunId || !stage || stage.inserted) return null
+  const dir = plan.project && plan.project.scratchDir
+  if (typeof dir !== 'string' || dir === '') return null
+  return `${normalizePath(dir).replace(/\/+$/, '')}/tokens/${item.short}.${stage.seat}.token`
 }
 
 function isReadOnlyStage(stage) {
@@ -827,22 +914,39 @@ function promptScope(plan, item) {
   return lines.join('\n')
 }
 
-/** Part 3: tool selection. Pre-entered mode never advances, so advance_item is withheld. */
-function promptTools(plan, stage) {
+/**
+ * Part 3: tool selection. Pre-entered mode never advances, so advance is withheld; runs_write is
+ * named only for a seat that holds a seat token (end_seat, raise).
+ */
+function promptTools(plan, item, stage) {
   const names = [TOOL_NAMES.ITEMS_READ, TOOL_NAMES.NOTES_READ, TOOL_NAMES.DEPS_READ, TOOL_NAMES.CONFIG]
   if (!isReadOnlyStage(stage)) names.push(TOOL_NAMES.NOTES_WRITE)
   if (stage.enters && plan.entryMode !== 'pre-entered') names.push(TOOL_NAMES.ADVANCE)
+  if (seatTokenFile(plan, item, stage)) names.push(TOOL_NAMES.RUNS_WRITE)
   return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
 }
 
-/** Part 4: actor. */
-function promptActor(stage, item, plan) {
-  const actor = seatActor(stage, item, plan)
-  return (
-    `ACTOR: ${JSON.stringify(actor)} — place this actor inside every notes[]/transitions[] ` +
-    'element you write (enforce-actor-attribution.mjs checks per element; phase-guard-record.mjs ' +
-    'filters on parent starting with "workflow:").'
-  )
+/**
+ * Part 4: seat token. Names the token FILE, never the token: the seat reads it itself. Omitted when
+ * the plan is not bound to a server run.
+ */
+function promptSeatToken(plan, item, stage) {
+  if (!plan.serverRunId) return ''
+  const file = seatTokenFile(plan, item, stage)
+  if (!file) {
+    return (
+      `SEAT TOKEN: none. Run ${plan.serverRunId}: this stage is not a schema seat, so it runs without a seat token. ` +
+      'Read only: never write a note, never transition, never call runs_write.'
+    )
+  }
+  return [
+    `SEAT TOKEN: run ${plan.serverRunId}. Your seat token is the single line in the file ${file}. Read that file with your ` +
+      'file tool, trim the line, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included.',
+    'Never print, quote, echo, log or commit the token or the file content, and never copy it into a note, a commit message, ' +
+      'a file or your final message. Refer to it only as "the seat token".',
+    'A call refused unauthenticated ("The seat token is not accepted.") means this seat was superseded or ended: stop at once, ' +
+      'write nothing more, and return status "stopped", reason "seat-token-rejected".',
+  ].join('\n')
 }
 
 /** Part 5: owned notes / excluded reads. */
@@ -851,8 +955,8 @@ function promptOwnedNotes(stage, item) {
   const excluded = (stage.readsExclude || []).join(', ') || 'none'
   let out =
     `NOTES: you own [${owned}]. The phase's other required notes belong to other seats — ` +
-    `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys= on every ` +
-    'query_notes call.'
+    `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys:[...] on every ` +
+    'notes_read list call.'
   const optional = (stage.optionalNotes || []).filter((k) => (stage.notes || []).includes(k))
   if (optional.length) {
     out += ` Optional among yours: [${optional.join(', ')}] — fill only with real content, never a placeholder.`
@@ -880,9 +984,9 @@ function promptRules(plan, stage) {
   }
   const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
   const lines = [
-    `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) and follow the returned body over anything paraphrased here.`,
+    `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) and follow the returned body over anything paraphrased here.`,
     `Keys: ${keys.join(', ')}.`,
-    `RESOURCE_NOT_FOUND for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
+    `A not_found result for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
     `A missing PROTOCOL key (${protocolKey}) is fatal: status stopped, reason "rule ${protocolKey} unavailable".`,
     'Record every key you fetched, with its rulesVersion, under the envelope\'s rulesFetched.',
   ]
@@ -893,11 +997,11 @@ function promptRules(plan, stage) {
 function promptDriftPin(item, stage) {
   if (item.schemaFree || isReadOnlyStage(stage)) return ''
   const lines = [
-    `DRIFT PIN: before your first write, call query_items(operation:"schema", itemId:"${item.id}").`,
+    `DRIFT PIN: before your first write, call items_read(select:"schema", itemId:"${item.id}").`,
     `Its configFingerprint must equal ${item.configFingerprint}.`,
   ]
   if (item.itemTraits !== undefined) {
-    lines.push(`get(itemId) -> properties.traits must equal ${JSON.stringify(item.itemTraits)}.`)
+    lines.push(`items_read(select:"get", itemId) -> traits (the item's top-level traits array) must equal ${JSON.stringify(item.itemTraits)}.`)
   } else {
     lines.push(`For reference, traits: ${JSON.stringify(item.traits || [])}.`)
   }
@@ -905,19 +1009,48 @@ function promptDriftPin(item, stage) {
   return lines.join('\n')
 }
 
-/** Part 8: config-unavailable retry, constant. */
+/** Part 8: per-element results, constant. */
+function promptResults() {
+  return (
+    'RESULTS: a write tool answers data.results[i], one entry per ops[] element; read each element\'s own ok and ' +
+    'data.results[i].error (code, detail, fix). A call-level partial_failure only means "an element failed, look per ' +
+    'element": it carries no detail. The exception is an atomic batch (atomic: true): it answers only the failing ' +
+    'element\'s own error with error.index, and nothing was written.'
+  )
+}
+
+/** Part 9: config-unavailable retry, constant. */
 function promptConfigRetry() {
   return (
-    'CONFIG RETRY: on a config_unavailable failure, retry once after one intervening read call ' +
+    'CONFIG RETRY: on an unavailable failure (kind shedding), retry once after one intervening read call ' +
     '— no sleep. A second failure returns status "deferred", reason "config-unavailable".'
   )
 }
 
-/** Part 9: inline note bodies, constant. */
+/** Part 10: error vocabulary and retry classes, constant. */
+function promptErrors() {
+  return [
+    'ERRORS: branch on the error code (per element, see RESULTS), never on message text.',
+    'Retried: unavailable, once (CONFIG RETRY). Every other code here is never retried.',
+    'run_paused {pauseReason, pauseDecisionId}: the run is paused on a budget, attempt-cap or manual pause. Never retry it; ' +
+      'a director or a human answers the decision. Write nothing more and return status "stopped", reason "run_paused", ' +
+      'decisionId = detail.pauseDecisionId when present. A withdrawn pause decision leaves the run paused until it closes.',
+    'A successful result carrying paused:{decisionId}: your call landed and the run then paused. Make no further write; ' +
+      'return status "stopped", reason "run_paused", with paused:{decisionId} in the envelope.',
+    'run_at_capacity {active, max}: transient and coordinator-only (assign at maxActiveSeats); the coordinator backs off until a seat ends.',
+    'Permanent, never retried: note_owned_by_other {ownerSeat} (the key belongs to another seat), seat_forbidden, ' +
+      'not_claim_holder, decision_closed {decisionId, status}, forbidden (detail.required names who may), not_found ' +
+      '(detail.kind seat or decision included), invalid_transition. Stop and put the code in reason. At ENTRY, follow the ' +
+      'ENTRY REPORT instead (gate_blocked, dependency_unmet and resource_unavailable are reported there, not retried).',
+    'A blocked item allows only resume and cancel, and answering a decision never resumes it: never resume or cancel an item yourself.',
+  ].join('\n')
+}
+
+/** Part 11: inline note bodies, constant. */
 function promptInlineBodies() {
   return (
-    'NOTE BODIES: pass body inline on every manage_notes upsert. Never use bodyFromFile. ' +
-    're-trim and re-upsert if any upsert response carries a warning.'
+    'NOTE BODIES: pass body inline on every notes_write upsert (ops:[{op:"upsert", itemId, key, role, body}]). ' +
+    'Never use bodyFromFile. Re-trim and re-upsert if a result element carries a warning.'
   )
 }
 
@@ -1001,12 +1134,55 @@ function promptVerify(plan, item, stage, outsByOutput) {
   return lines.join('\n')
 }
 
+/** Items of the declarations extraction union, each relativized against roots (default: as given). */
+function extractUnion(outs, roots) {
+  const i = outs['implementer-v1'] || {}
+  const p = outs['planner-v1'] || {}
+  return dedupePaths([].concat(i.mainFilesChanged || [], p.mainFiles || [], p.declarationModules || []), roots)
+}
+
+/** Relativize, then dedupe case-insensitively keeping the first spelling. */
+function dedupePaths(list, roots) {
+  const seen = new Set()
+  const out = []
+  for (const raw of list) {
+    const rel = relativizePath(raw, roots)
+    if (!rel) continue
+    const k = rel.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(rel)
+  }
+  return out
+}
+
 /**
- * handoff(stage, outs) -> string
+ * declarationGap(plan, item, stage, outs) -> null | {status:'stopped', reason}
+ * outs is keyed by seat. Non-null only for a test-author-v1 stage on an item that also has a
+ * declarations-v1 stage, when the planner declared a non-empty declarationModules list and the
+ * extractor's output.modules lacks one of its entries (relativized, case-insensitive).
+ */
+function declarationGap(plan, item, stage, outs) {
+  if (!stage || stage.output !== 'test-author-v1') return null
+  if (!item.stages.some((s) => s.output === 'declarations-v1')) return null
+  const byOutput = reKeyOutsByOutputId(item, outs || {})
+  const planner = byOutput['planner-v1']
+  const declared = planner && planner.declarationModules
+  if (!Array.isArray(declared) || declared.length === 0) return null
+  const roots = itemRoots(plan, item)
+  const ext = byOutput['declarations-v1']
+  const have = new Set(((ext && ext.modules) || []).map((m) => relativizePath(m, roots).toLowerCase()))
+  const missing = dedupePaths(declared, roots).filter((m) => !have.has(m.toLowerCase()))
+  if (missing.length === 0) return null
+  return { status: 'stopped', reason: 'missingDeclaration: ' + missing.join(', ') }
+}
+
+/**
+ * handoff(stage, outs, roots?, item?) -> string
  * outs is keyed by OUTPUT-SCHEMA id (not seat name). Builds the hand-off block for
  * stage.output from its declared upstream outputs; empty string when none apply.
  */
-function handoff(stage, outs) {
+function handoff(stage, outs, roots, item) {
   const lines = []
   if (stage.output === 'implementer-v1') {
     const p = outs['planner-v1']
@@ -1017,6 +1193,17 @@ function handoff(stage, outs) {
       lines.push(`docFiles: ${(p.docFiles || []).join(', ') || 'none'}`)
       lines.push(`missingApiOrSeam: ${p.missingApiOrSeam || 'none'}`)
       lines.push(`diagnosisCorrections: ${p.diagnosisCorrections || 'none'}`)
+      if (item && !(item.stages || []).some((s) => s.output === 'test-author-v1')) {
+        const owned = []
+        const add = (f) => { if (typeof f === 'string' && !owned.includes(f)) owned.push(f) }
+        for (const f of p.testFiles || []) add(f)
+        for (const e of p.existingTestEdits || []) if (e && e.file) add(e.file)
+        if (owned.length > 0) {
+          lines.push(
+            `TESTS ARE YOURS: ${owned.join(', ')} - no test-author seat runs on this item; write, run and commit them yourself.`
+          )
+        }
+      }
     }
   } else if (stage.output === 'declarations-v1') {
     const i = outs['implementer-v1']
@@ -1026,6 +1213,9 @@ function handoff(stage, outs) {
       lines.push(`mainFilesChanged: ${(i.mainFilesChanged || []).join(', ') || 'none'}`)
       lines.push(`docFilesChanged: ${(i.docFilesChanged || []).join(', ') || 'none'}`)
     }
+    const pl = outs['planner-v1']
+    lines.push(`declarationModules: ${((pl && pl.declarationModules) || []).join(', ') || 'none'}`)
+    lines.push(`extractFrom: ${extractUnion(outs, roots).join(', ') || 'none'}`)
   } else if (stage.output === 'test-author-v1') {
     const d = outs['declarations-v1']
     const p = outs['planner-v1']
@@ -1047,16 +1237,17 @@ function handoff(stage, outs) {
   return lines.join('\n')
 }
 
-/** Part 13: rerun-safe check + entry protocol. */
-function promptRerunAndEntry(plan, item, stage, actor) {
+/** Part 15: rerun-safe check + entry protocol. */
+function promptRerunAndEntry(plan, item, stage) {
   if (!stage.writes && !stage.enters) return ''
   const lines = []
+  const tokenFile = seatTokenFile(plan, item, stage)
   if (stage.writes) {
     lines.push(
       `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
         `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
-        `own notes are already filled under actor ${actor.id} (verify via query_notes with includeBody:false) — stop, ` +
-        'do not redo the work.'
+        'own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
+        `bodies) — ${tokenFile ? 'end your seat (END SEAT, outcome done) and ' : ''}stop, do not redo the work.`
     )
     lines.push(
       'INTERRUPTED-ATTEMPT CHECK: if your own commit is absent but the worktree has uncommitted changes in files you may own, ' +
@@ -1071,32 +1262,82 @@ function promptRerunAndEntry(plan, item, stage, actor) {
     )
   }
   if (stage.enters) {
-    lines.push('ENTRY: call get_context(itemId) first.')
+    lines.push(`ENTRY: call items_read(select:"context", itemId:"${item.id}") first and read item.role.`)
     if (plan.entryMode === 'pre-entered') {
-      lines.push('entryMode is pre-entered: verify role is already "work" and never call advance_item.')
+      lines.push('entryMode is pre-entered: the coordinator already moved this item to work. Verify role is "work" and never call advance.')
       lines.push(
         'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; ' +
           'else entry {"applied":false,"alreadyInPhase":false} and status "stopped".',
       )
     } else {
       lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
-      lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
-      lines.push('Rerun-safe entry: never call start from work — only from queue.')
       lines.push(
-        'ENTRY REPORT (required): copy the advance_item result into entry (applied, newRole, previousRole, errorCode, ' +
-          'contendedResources; missingNotes as key strings; blockers as fromItemId strings; retried true only after a ' +
-          'config_unavailable retry). Role "work": entry {"applied":false,"alreadyInPhase":true}.',
+        `role "queue" -> call advance(ops:[{op:"transition", itemId:"${item.id}", trigger:"start"}]) exactly once` +
+          `${tokenFile ? ', with your seat token' : ''}.`
+      )
+      lines.push('Rerun-safe entry: never send start from work — only from queue.')
+      lines.push(
+        'ENTRY REPORT (required): read data.results[0]. ok -> entry {applied:true, newRole, previousRole, unblockedItems: ' +
+          'unblocked[].itemId}. An error element -> entry {applied:false, errorCode: error.code, previousRole: ' +
+          'error.detail.role (gate_blocked) or the role context showed, missingNotes: error.detail.missing[].key, blockers: ' +
+          'error.detail.blockers[].id, contendedResources: from error.detail.resources[].name}; retried true only after an ' +
+          'unavailable retry. gate_blocked with detail.role "work" means already in phase. Role "work" at context: entry ' +
+          '{"applied":false,"alreadyInPhase":true}.',
       )
     }
   }
   return lines.join('\n')
 }
 
-/** Part 14: return contract. */
-function promptReturn(stage) {
-  const lines = [`RETURN: return the structured envelope (${stage.output}); notes are the report.`]
+/** Part 16: deviation protocol, writing seats only. */
+function promptDeviation(plan, item, stage) {
+  if (!stage.writes) return ''
+  const head =
+    'DEVIATION: when a queue note (task-scope, specification, diagnosis) or a fix-decisions note is wrong, impossible or ' +
+    'costlier than an alternative, implement only what the conflict does not touch, never the alternative, and record the ' +
+    'conflict under a "## Deviations requested" heading in your own work note (the decision, why it fails, your proposed ' +
+    'alternative, evidence with file:line).'
+  if (!seatTokenFile(plan, item, stage)) {
+    return `${head} Then return status "stopped", reason "awaiting_decision"; the orchestrator raises the decision.`
+  }
+  return [
+    head,
+    `Then raise it with your seat token: runs_write(ops:[{op:"raise", class:"deviation", block:true, dedupeKey:"${item.short}:${stage.seat}:dev-<n>", ` +
+      `question, options:[{key, label, consequence}], recommended, itemId:"${item.id}"}]) where n counts your raises on this item from 1.`,
+    'Return status "stopped", reason "awaiting_decision", decisionId = the raised decision\'s id. A stall is never a reason to raise.',
+  ].join('\n')
+}
+
+/** Part 17: end the seat, token holders only. */
+function promptEndSeat(plan, item, stage) {
+  if (!seatTokenFile(plan, item, stage)) return ''
+  return (
+    'END SEAT: as your last task-orchestrator call, after your commit and notes, end your seat with your seat token: ' +
+    'runs_write(ops:[{op:"end_seat", outcome, summary}]); outcome "done" for status done, "failed" for stopped, ' +
+    '"abandoned" for deferred; summary at most 500 characters and never the token. Set seatEnded: true in the envelope ' +
+    'when it succeeded (false when it failed). The token stops working after it.'
+  )
+}
+
+/** Part 18: return contract. */
+function promptReturn(stage, item) {
+  const lines = [
+    `RETURN: return the structured envelope (${stage.output}); notes are the report. Each notes[] entry is {key, chars?, warning?}.`,
+  ]
   if (stage.output === 'planner-v1') {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
+    if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
+      lines.push(
+        'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +
+          'depends on, mirroring the declarationModules line of the test-plan note.'
+      )
+    }
+  }
+  if (stage.output === 'declarations-v1') {
+    lines.push(
+      'modules: list the repo-relative paths you actually extracted declarations for, one entry per module ' +
+        '(the extractFrom paths, plus any further module you needed).'
+    )
   }
   if (stage.output === 'test-author-v1') {
     lines.push(
@@ -1117,12 +1358,11 @@ function reKeyOutsByOutputId(item, outsBySeat) {
 
 /**
  * seatPrompt(plan, item, stage, outs) -> string
- * Joins the 14 non-empty prompt parts (§5.3) with "\n\n"; each part is a pure
- * function of plan/item/stage/outs. No rule text lives here — rules are fetched by
- * key at runtime via query_rules (part 6).
+ * Joins the non-empty prompt parts (§5.3) with "\n\n"; each part is a pure function of
+ * plan/item/stage/outs. No rule text lives here — rules are fetched by key at runtime via the
+ * config tool's rules op (part 6). No seat token is ever inlined: part 4 names its file.
  */
 function seatPrompt(plan, item, stage, outs) {
-  const actor = seatActor(stage, item, plan)
   const outsByOutput = reKeyOutsByOutputId(item, outs || {})
   if (
     stage.output === 'test-author-v1' &&
@@ -1136,18 +1376,22 @@ function seatPrompt(plan, item, stage, outs) {
   const parts = [
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
-    promptTools(plan, stage),
-    promptActor(stage, item, plan),
+    promptTools(plan, item, stage),
+    promptSeatToken(plan, item, stage),
     promptOwnedNotes(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
+    promptResults(),
     promptConfigRetry(),
+    promptErrors(),
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
-    handoff(stage, outsByOutput),
-    promptRerunAndEntry(plan, item, stage, actor),
-    promptReturn(stage),
+    handoff(stage, outsByOutput, itemRoots(plan, item), item),
+    promptRerunAndEntry(plan, item, stage),
+    promptDeviation(plan, item, stage),
+    promptEndSeat(plan, item, stage),
+    promptReturn(stage, item),
   ]
   return parts.filter((p) => p && p.length > 0).join('\n\n')
 }
@@ -1250,12 +1494,25 @@ async function runItem(plan, item, deps) {
     for (let i = 0; i < item.stages.length; i++) {
       currentIndex = i
       const stage = item.stages[i]
+      const gap = declarationGap(plan, item, stage, outs)
+      if (gap) {
+        stages.push({
+          seat: stage.seat, status: gap.status, reason: gap.reason, modelReported: '',
+          agentTypeUsed: null, agentTypeFallback: false, notes: [],
+          commits: { pre: '', post: '' }, files: [],
+        })
+        deps.milestones.settle(item.id, stage.seat, { status: gap.status, reason: gap.reason, output: null })
+        result.status = gap.status
+        result.reason = gap.reason
+        deps.milestones.releaseFrom(item, i + 1)
+        return result
+      }
       const keys = lockKeysFor(item, stage, outs, plan)
       const stageResult = await deps.locks.withLocks(keys, () => callSeat(plan, item, stage, outs, deps))
       const env = stageResult.env
       outs[stage.seat] = env ? env.output : undefined
 
-      const mapped = mapStageResult(stage, env, plan.entryMode)
+      const mapped = mapStageResult(stage, env, plan.entryMode, item)
       stages.push({
         seat: stage.seat,
         status: mapped.status,
@@ -1278,7 +1535,7 @@ async function runItem(plan, item, deps) {
 
       if (plan.worktreeMode === 'per-item' && stage.output === 'planner-v1') {
         const higher = await higherPriorityOutputs(plan, item, deps.milestones)
-        const overlap = overlapDeferral({ short: item.short, output: env.output, roots: itemRoots(plan, item) }, higher, plan.worktreeMode)
+        const overlap = overlapDeferral({ short: item.short, output: env.output, roots: itemRoots(plan, item) }, higher, plan.worktreeMode, (plan.project && plan.project.appendOnlyFiles) || [])
         if (overlap) {
           result.status = 'deferred'
           result.reason = overlap.reason
@@ -1302,7 +1559,7 @@ async function runItem(plan, item, deps) {
 }
 
 /**
- * runPlan(plan, deps) -> {contract, started:true, runId, planDocSlug, items, refused, deferred}
+ * runPlan(plan, deps) -> {contract, started:true, runId, serverRunId, items, refused, deferred}
  * deps = {agent, parallel, log, phase?, milestones?, locks?}. Runs preflight, releases
  * refused items' milestones, and starts one task per runnable item inside one parallel().
  */
@@ -1321,7 +1578,7 @@ async function runPlan(plan, deps) {
     contract: 'implement-wave/result-v1',
     started: true,
     runId: plan.runId,
-    planDocSlug: plan.planDocSlug,
+    serverRunId: plan.serverRunId || null,
     items: results,
     refused: pf.refused,
     deferred: plan.deferred || [],
