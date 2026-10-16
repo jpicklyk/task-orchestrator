@@ -1628,6 +1628,28 @@ test('S13: a successful local write clears the marks of its items and cascades; 
   expect(st.sets.filter(k => k === 'graphRemote')).toHaveLength(writes)
 })
 
+test('S13: a whole-call refusal envelope (ok:false, no data.results) clears nothing; a partial_failure with data.results clears the ids it names', async ($, on) => {
+  serveHooks(on)
+  const st = stateRig(on, { graphRemote: { [S('A')]: 1, [S('P')]: 2, [S('Q')]: 3 } })
+  const clock = mock.clock(on)
+  let reply: unknown
+  on('tool.call', async () => reply as never)
+  const call = (itemId: string) => $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId, trigger: 'complete' }] } as never)
+  reply = { ref: 'r', result: { structuredContent: { ok: false, error: { code: 'forbidden', kind: 'permanent', message: 'refused' } } }, text: 'forbidden: refused', isError: true }
+  await call(U('Q'))
+  await clock.settle()
+  expect(st.valueOf('graphRemote')).toEqual({ [S('A')]: 1, [S('P')]: 2, [S('Q')]: 3 })
+  const partial = {
+    ok: false,
+    error: { code: 'partial_failure', kind: 'permanent', message: '1 of 2 failed' },
+    data: { results: [{ ok: true, itemId: U('A'), previousRole: 'work', newRole: 'terminal' }, { ok: false, error: { code: 'not_found', kind: 'permanent', message: 'no such item' } }], summary: { ok: 1, failed: 1 } },
+  }
+  reply = { ref: 'r', result: { structuredContent: partial }, text: 'partial_failure: 1 of 2 failed', isError: true }
+  await call(U('A'))
+  await clock.settle()
+  expect(st.valueOf('graphRemote')).toEqual({ [S('P')]: 2, [S('Q')]: 3 })
+})
+
 // -- window-only echo attribution and cross-session follow from SSE --
 // Oracles: task-scope AC5 and D4 (the SSE `actor` is the transport principal, shared by every session on one
 // credential, so only the echo window attributes), api-rest.md section 21 "Actor and rootId" (what the event carries).

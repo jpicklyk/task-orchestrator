@@ -89,7 +89,8 @@ test('texts: nudge and dispatch carry the per-run command; the spawn prompt name
 // --- the loaded plugin ----------------------------------------------------------------------
 
 type Agent = { id: string; status: string; parentId?: string; description?: string; type?: string }
-type Mcp = { runs: View[]; terminal: Record<string, number>; mark: Record<string, 'won' | 'lost' | 'fail'>; calls: { tool: string; args: Record<string, unknown> }[]; marked: Set<string> }
+type Proc = { argv: readonly string[]; stdin?: string; body: { ops: { runId: string }[] } }
+type Mcp = { runs: View[]; terminal: Record<string, number>; mark: Record<string, 'won' | 'lost' | 'fail'>; calls: { tool: string; args: Record<string, unknown> }[]; marked: Set<string>; procs: Proc[]; proc: { exitCode: number; stdout?: string } }
 type Rig = {
   state: Map<string, { value: unknown; version: number }>
   spawns: { prompt: string; subagentType?: string; model?: string; description?: string }[]
@@ -109,7 +110,7 @@ type Rig = {
 const retroState = (rig: Rig): RetroState => (rig.state.get('task-orchestrator-mod/retro/')?.value ?? {}) as RetroState
 
 /** In-memory `$.state`, `$.env`, `$.fs`, `$.clock`, `$.agent` and `$.mcp` on the test's `on`. */
-function rig(on: On, opts: { config?: string | null; env?: Record<string, string>; agents?: Agent[]; files?: Record<string, string> } = {}): Rig {
+function rig(on: On, opts: { config?: string | null; env?: Record<string, string>; agents?: Agent[]; files?: Record<string, string>; noApi?: boolean } = {}): Rig {
   const r: Rig = {
     state: new Map(),
     spawns: [],
@@ -121,9 +122,11 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
     stopReply: {},
     stops: [],
     post: [],
-    mcp: { runs: [], terminal: {}, mark: {}, calls: [], marked: new Set() },
+    mcp: { runs: [], terminal: {}, mark: {}, calls: [], marked: new Set(), procs: [], proc: { exitCode: 0 } },
   }
   const config = opts.config === undefined ? `project:\n  rootId: ${ROOT}\n\n${retroYaml('dispatch')}` : opts.config
+  // no REST API: no URL in the env, and no client.json anywhere (only the project config is readable)
+  const files = opts.noApi ? { ...opts.files, '.taskorchestrator/config.yaml': config ?? '' } : opts.files
   const slot = (e: { plugin: string; key: string; id?: string }) => `${e.plugin}/${e.key}/${e.id ?? ''}`
   on('state.get', async (_$, e) => ({ value: r.state.get(slot(e as never)) ?? { value: undefined, version: 0 } }) as never)
   on('state.set', async (_$, e) => {
@@ -135,11 +138,12 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
 
     return { value: { isSet: true, version: cur + 1 } } as never
   })
-  on('env.get', async (_$, e) => ({ value: opts.env?.[e.name] }) as never)
+  const env: Record<string, string> = opts.noApi ? { ...opts.env } : { TASK_ORCHESTRATOR_API_URL: 'http://127.0.0.1:8080', ...opts.env }
+  on('env.get', async (_$, e) => ({ value: env[e.name] }) as never)
   on('fs.read', async (_$, e) => {
-    const byPath = opts.files?.[(e as { path: string }).path]
+    const byPath = files?.[(e as { path: string }).path]
     if (byPath !== undefined) return { value: byPath } as never
-    if (opts.files !== undefined && (e as { path: string }).path !== '.taskorchestrator/config.yaml') throw new Error('ENOENT')
+    if (files !== undefined && (e as { path: string }).path !== '.taskorchestrator/config.yaml') throw new Error('ENOENT')
     if (config === null) throw new Error('ENOENT')
 
     return { value: config } as never
@@ -179,24 +183,34 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
 
       return done({ ok: true, data: { runId: e.args.runId, status: 'closed', counts: { queue: 0, work: 0, review: 0, blocked: 0, terminal: t }, ready: [], inFlight: [], waiting: [] } })
     }
-    if (e.tool === 'runs_write') {
-      const op = (e.args.ops as { runId: string }[])[0] as { runId: string }
-      const m = r.mcp.mark[op.runId] ?? 'won'
-      if (m === 'fail') {
-        return done({
-          ok: false,
-          error: { code: 'partial_failure', kind: 'permanent', message: '1 of 1 failed' },
-          data: { results: [{ ok: false, error: { code: 'forbidden', kind: 'permanent', message: 'no' } }], summary: { ok: 0, failed: 1 } },
-        })
+    return done({ ok: false, error: { code: 'invalid_request', kind: 'permanent', message: `unexpected ${e.tool}` } })
+  })
+
+  // The mark is a REST write (`runs_write` `mark` has no MCP profile): curl through `$.process.run`.
+  on('process.run', async (_$, e) => {
+    const x = e as { argv: readonly string[]; init?: { stdin?: string }; stdin?: string }
+    const at = x.argv.indexOf('--data-raw')
+    const body = JSON.parse(String(x.argv[at + 1])) as Proc['body']
+    r.mcp.procs.push({ argv: x.argv, stdin: x.init?.stdin ?? x.stdin, body })
+    if (r.mcp.proc.exitCode !== 0) return { value: { exitCode: r.mcp.proc.exitCode, stdout: '', stderr: 'curl: failed' } } as never
+    if (r.mcp.proc.stdout !== undefined) return { value: { exitCode: 0, stdout: r.mcp.proc.stdout, stderr: '' } } as never
+    const op = body.ops[0] as { runId: string }
+    const m = r.mcp.mark[op.runId] ?? 'won'
+    if (m === 'fail') {
+      const failed = {
+        ok: false,
+        error: { code: 'partial_failure', kind: 'permanent', message: '1 of 1 failed' },
+        data: { results: [{ ok: false, error: { code: 'forbidden', kind: 'permanent', message: 'no' } }], summary: { ok: 0, failed: 1 } },
       }
 
-      const first = m === 'won' && !r.mcp.marked.has(op.runId)
-      if (first) r.mcp.marked.add(op.runId)
-
-      return done({ ok: true, data: { results: [{ ok: true, runId: op.runId, marked: first }], summary: { ok: 1, failed: 0 } } })
+      return { value: { exitCode: 0, stdout: JSON.stringify(failed), stderr: '' } } as never
     }
 
-    return done({ ok: false, error: { code: 'invalid_request', kind: 'permanent', message: `unexpected ${e.tool}` } })
+    const first = m === 'won' && !r.mcp.marked.has(op.runId)
+    if (first) r.mcp.marked.add(op.runId)
+    const done = { ok: true, data: { results: [{ ok: true, runId: op.runId, marked: first }], summary: { ok: 1, failed: 0 } } }
+
+    return { value: { exitCode: 0, stdout: JSON.stringify(done), stderr: '' } } as never
   })
 
   return r
@@ -205,7 +219,10 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
 /** The answer of a runs_write close for the given runs, all ok. */
 const closeReply = (...runIds: string[]) => ({ ref: 'r', result: { structuredContent: { ok: true, data: { results: runIds.map(runId => ({ ok: true, runId, status: 'closed' })), summary: { ok: runIds.length, failed: 0 } } } }, text: 'ok' })
 const closeCall = (...runIds: string[]) => ({ tool: `${TO}runs_write`, ops: runIds.map(runId => ({ op: 'close', runId, reason: 'completed' })) }) as never
-const markCalls = (g: Rig) => g.mcp.calls.filter(c => c.tool === 'runs_write')
+/** The marks written: the bodies POSTed through `$.process.run`. */
+const markCalls = (g: Rig) => g.mcp.procs.map(p => ({ tool: 'runs_write', args: p.body as unknown as Record<string, unknown> }))
+/** The real server refuses `mark` on MCP, so no mark may ride `mcp.call`. */
+const mcpMarks = (g: Rig) => g.mcp.calls.filter(c => c.tool === 'runs_write')
 
 test('S15: a close at the threshold in dispatch mode marks the run, adds only the one-line notice, and spawns nothing yet', async ($, on) => {
   const g = rig(on)
@@ -217,6 +234,7 @@ test('S15: a close at the threshold in dispatch mode marks the run, adds only th
   expect(JSON.stringify(r.context)).not.toContain('Retrospective dispatch')
   expect(retroState(g).pendingDispatch).toEqual([R1])
   expect(markCalls(g).map(c => c.args)).toEqual([{ ops: [{ op: 'mark', runId: R1, key: 'retro' }] }])
+  expect(mcpMarks(g)).toHaveLength(0)
   expect(g.spawns).toHaveLength(0)
 })
 
@@ -230,6 +248,7 @@ test('S15: a lost mark race adds nothing and queues nothing', async ($, on) => {
   expect(r.context).toBeUndefined()
   expect(retroState(g).pendingDispatch ?? null).toBeNull()
   expect(markCalls(g)).toHaveLength(1)
+  expect(mcpMarks(g)).toHaveLength(0)
 })
 
 test('S15: a failed mark nudges (never dispatches unmarked)', async ($, on) => {
@@ -242,6 +261,7 @@ test('S15: a failed mark nudges (never dispatches unmarked)', async ($, on) => {
   expect(r.context?.[0]).toContain('Retrospective suggested')
   expect(r.context?.[0]).toContain(`/session-retrospective --run ${R1}`)
   expect(retroState(g).pendingDispatch ?? null).toBeNull()
+  expect(mcpMarks(g)).toHaveLength(0)
 })
 
 test('S15: below the threshold in dispatch mode, and nudge mode, add a nudge and write no mark', async ($, on) => {
@@ -254,6 +274,7 @@ test('S15: below the threshold in dispatch mode, and nudge mode, add a nudge and
   expect(r.context?.[0]).toContain(`/session-retrospective --run ${R1}`)
   expect(retroState(g).pendingDispatch ?? null).toBeNull()
   expect(markCalls(g)).toHaveLength(0)
+  expect(mcpMarks(g)).toHaveLength(0)
 })
 
 test('S15: the list read names the root, the retro mark filter and the 24 hour window', async ($, on) => {
@@ -275,6 +296,64 @@ test('S15: a run that already carries the retro mark is skipped', async ($, on) 
   expect(g.mcp.calls.some(c => c.args.select === 'frontier')).toBe(false)
   expect(markCalls(g)).toHaveLength(0)
 })
+
+const TOKEN = 'test-token-abc'
+
+test('D7: the mark is a POST to <base>/api/v1/ops/runs_write; the token rides stdin, never argv', async ($, on) => {
+  const g = rig(on, { env: { TASK_ORCHESTRATOR_API_TOKEN: TOKEN } })
+  g.mcp.runs = [{ runId: R1 }]
+  g.mcp.terminal = { [R1]: 3 }
+  g.reply = () => closeReply(R1)
+  const r = await $.tool.call(closeCall(R1))
+  expect(g.mcp.procs).toHaveLength(1)
+  const p = g.mcp.procs[0] as Proc
+  expect(p.argv.at(-1)).toBe('http://127.0.0.1:8080/api/v1/ops/runs_write')
+  expect(p.argv).toContain('-X')
+  expect(p.argv[p.argv.indexOf('-X') + 1]).toBe('POST')
+  expect(p.body).toEqual({ ops: [{ op: 'mark', runId: R1, key: 'retro' }] })
+  expect(p.argv.some(a => a.includes(TOKEN))).toBe(false)
+  expect(p.stdin ?? '').toContain(`Authorization: Bearer ${TOKEN}`)
+  expect(mcpMarks(g)).toHaveLength(0)
+  // the token is sent only in that header: it appears in no state, context, spawn or MCP call
+  for (const seen of [r.context, [...g.state.values()], g.spawns, g.mcp.calls]) expect(JSON.stringify(seen ?? null)).not.toContain(TOKEN)
+})
+
+test('D7: with no REST API URL a dispatch-eligible run is nudged, nothing is spawned or queued, no process.run', async ($, on) => {
+  const g = rig(on, { noApi: true, env: { TASK_ORCHESTRATOR_API_TOKEN: TOKEN } })
+  g.mcp.runs = [{ runId: R1 }]
+  g.mcp.terminal = { [R1]: 3 }
+  g.reply = () => closeReply(R1)
+  const r = await $.tool.call(closeCall(R1))
+  expect(r.context?.[0]).toContain('Retrospective suggested')
+  expect(r.context?.[0]).toContain(`/session-retrospective --run ${R1}`)
+  expect(retroState(g).pendingDispatch ?? null).toBeNull()
+  expect(g.spawns).toHaveLength(0)
+  expect(g.mcp.procs).toHaveLength(0)
+  expect(mcpMarks(g)).toHaveLength(0)
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
+  expect(g.spawns).toHaveLength(0)
+  expect(g.mcp.procs).toHaveLength(0)
+  for (const seen of [r.context, [...g.state.values()], g.spawns]) expect(JSON.stringify(seen ?? null)).not.toContain(TOKEN)
+})
+
+async function failedCurl($: Parameters<Parameters<typeof test>[1]>[0], on: On, proc: { exitCode: number; stdout?: string }) {
+  const g = rig(on, { env: { TASK_ORCHESTRATOR_API_TOKEN: TOKEN } })
+  g.mcp.proc = proc
+  g.mcp.runs = [{ runId: R1 }]
+  g.mcp.terminal = { [R1]: 3 }
+  g.reply = () => closeReply(R1)
+  const r = await $.tool.call(closeCall(R1))
+  expect(g.mcp.procs).toHaveLength(1)
+  expect(r.context?.[0]).toContain('Retrospective suggested')
+  expect(r.context?.[0]).toContain(`/session-retrospective --run ${R1}`)
+  expect(retroState(g).pendingDispatch ?? null).toBeNull()
+  expect(g.spawns).toHaveLength(0)
+  expect(mcpMarks(g)).toHaveLength(0)
+  for (const seen of [r.context, [...g.state.values()]]) expect(JSON.stringify(seen ?? null)).not.toContain(TOKEN)
+}
+
+test('D7: curl exit 7 is a failed mark - nudge, never dispatched unmarked', async ($, on) => failedCurl($, on, { exitCode: 7 }))
+test('D7: a non-JSON body is a failed mark - nudge, never dispatched unmarked', async ($, on) => failedCurl($, on, { exitCode: 0, stdout: 'not json <html>' }))
 
 test('S15: a nudged run is not nudged twice', async ($, on) => {
   const h = rig(on)
@@ -338,6 +417,7 @@ test('S16: a top-level retrospective block is not read: the default nudge mode a
   const r = await $.tool.call(closeCall(R1))
   expect(r.context?.[0]).toContain('Retrospective suggested')
   expect(markCalls(g)).toHaveLength(0)
+  expect(mcpMarks(g)).toHaveLength(0)
 })
 
 test('S15: no cwd config leaves everything to the command hooks', async ($, on) => {
@@ -392,7 +472,9 @@ test('S15: a clear Stop spawns exactly one retrospective with the expected args'
   expect(g.spawns[0]).toMatchObject({ subagentType: 'general-purpose', model: 'sonnet', description: 'Session retrospective' })
   expect(g.spawns[0]?.prompt).toContain(`/session-retrospective --run ${R1}`)
   expect(g.spawns[0]?.prompt).toContain(`project ancestorId ${ROOT}`)
-  expect(retroState(g)).toMatchObject({ pendingDispatch: null, dispatched: { runs: [R1] } })
+  // A1.3: normalizeState keeps pendingDispatch only as an array, so a cleared queue reads as absent
+  expect(retroState(g)).toMatchObject({ dispatched: { runs: [R1] } })
+  expect(retroState(g).pendingDispatch ?? null).toBeNull()
   await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
   expect(g.spawns).toHaveLength(1)
 })
@@ -460,6 +542,7 @@ test('S16: at Stop with a project rootId, closed unmarked runs are evaluated: a 
   expect(g.spawns).toHaveLength(1)
   expect(g.spawns[0]?.prompt).toContain(`/session-retrospective --run ${R1}`)
   expect(markCalls(g).map(c => c.args)).toEqual([{ ops: [{ op: 'mark', runId: R1, key: 'retro' }] }])
+  expect(mcpMarks(g)).toHaveLength(0)
   await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
   expect(g.spawns).toHaveLength(1)
 })

@@ -8,7 +8,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { RetroState } from '../types'
-import { MAX_RECORDED, evaluateRuns, normalizeState, recordCloses, successfulCloses } from '../src/retro/logic.ts'
+import { MAX_RECORDED, evaluateRuns, markRequest, normalizeState, recordCloses, successfulCloses } from '../src/retro/logic.ts'
 import type { RetroConfig } from '../src/retro/logic.ts'
 
 const ROOT = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
@@ -47,6 +47,37 @@ test('S15 successfulCloses: other ops, failed closes, a missing envelope and a l
   expect(closesOf(successfulCloses({ ops: [{ op: 'close', runId: R1 }] }, undefined))).toEqual([])
   expect(closesOf(successfulCloses({ ops: [{ op: 'close', runId: R1 }] }, { structuredContent: { success: true, results: [{ ok: true }] } }))).toEqual([])
   expect(closesOf(successfulCloses({}, closeResult([{ ok: true, runId: R1 }])))).toEqual([])
+})
+
+// --- the REST mark request ---------------------------------------------------------------------
+
+// Oracle: task-scope Amendment A1.4 (argv and stdin shape of markRequest; the token never enters argv).
+test('D7 markRequest: argv shape and URL last; the token only via -K - and stdin; no token gives no -K and no input; a CR/LF token is dropped', () => {
+  const base = 'http://127.0.0.1:8080'
+  const url = `${base}/api/v1/ops/runs_write`
+  const body = JSON.stringify({ ops: [{ op: 'mark', runId: R1, key: 'retro' }] })
+  const token = 'test-token-abc'
+  const withToken = markRequest(base, R1, token)
+  expect(withToken.argv).toEqual(['curl', '-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-raw', body, '-K', '-', url])
+  expect(withToken.input).toBe(`header = "Authorization: Bearer ${token}"
+`)
+  expect(withToken.argv.some(a => a.includes(token))).toBe(false)
+  expect(withToken.argv).not.toContain('-f')
+  for (const none of [undefined, '']) {
+    const r = markRequest(base, R1, none)
+    expect(r.argv).toEqual(['curl', '-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-raw', body, url])
+    expect(r.argv).not.toContain('-K')
+    expect(r.input).toBeUndefined()
+  }
+  const NL = String.fromCharCode(10)
+  const CR = String.fromCharCode(13)
+  for (const bad of [`tok${NL}X-Evil: 1`, `tok${CR}${NL}X-Evil: 1`, `tok${CR}`]) {
+    const r = markRequest(base, R1, bad)
+    expect(r.argv).not.toContain('-K')
+    expect(r.input).toBeUndefined()
+    expect(r.argv.at(-1)).toBe(url)
+    expect(JSON.stringify(r)).not.toContain('X-Evil')
+  }
 })
 
 // --- state helpers -----------------------------------------------------------------------
