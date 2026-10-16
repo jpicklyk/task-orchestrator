@@ -8,7 +8,7 @@ argument-hint: "[optional: proposal UUID | --scope global|project]"
 
 Triages `improvement-proposal` MCP items created by `/session-retrospective` when a cross-session trend graduates. Presents pending proposals, collects a per-proposal decision, and carries out the disposition, including applying project-scoped config changes and filing or linking GitHub issues for global changes.
 
-Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). After each write read `ok`, `data.results[i].ok` and `error.code`; a multi-element call that part-fails answers `ok: false` with `error.code: partial_failure` next to the full `data`.
+Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
 Shared GitHub conventions (issue template, scrub rule, `gh` guard, dedup procedure) are not duplicated here: see `<skill-base-dir>/../session-retrospective/references/github-feedback.md` for the C2/C4/C5 contract referenced in Step 5.
 
@@ -40,6 +40,8 @@ A leftover top-level `retrospective:` block is not read by the plugin and is rej
 ```to-call
 {"tool": "items_read", "select": "search", "args": {"query": "Improvement Proposals", "kinds": ["item"], "limit": 5}}
 ```
+
+A search hit carries no depth, parent or type: take the hit titled exactly `Improvement Proposals` and confirm it is a root (`items_read` `get`, no `parentId`); a per-project container of that title sits under a project root and is not the global one.
 
 ```to-call
 {"tool": "items_read", "select": "overview", "args": {"anchorId": "<container-uuid>"}}
@@ -128,7 +130,7 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 1. **Extract the exact YAML** from the proposal note. If it has none ready to apply, draft the edit, show it as a diff against the current config file, and confirm via `AskUserQuestion` before applying anything.
 2. **A different `rootId`.** If the proposal targets a different `rootId` than this workspace's `project.rootId`, do not edit this config. Upsert `adoption-decision` recording that the change must be applied from the owning workspace, and treat the item as **deferred** (leave it in queue; do not advance).
 3. Otherwise **Edit** the config file to apply the change (additive and targeted, not a rewrite).
-4. **Validate** the full file text, LF-normalized, before pushing. Act on `valid` and `errors` (each `{path, reason}`). Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
+4. **Validate** the full file text, LF-normalized, before pushing. Act on `data.results[0].valid` and `data.results[0].errors` (each `{path, reason}`); validate reports an invalid document there, it does not fail the element with `config_invalid`. Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
 
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<rootId>", "configYaml": "<full file text>"}}
@@ -141,10 +143,10 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 ```
 
 ```to-call
-{"tool": "config", "op": "push", "args": {"rootId": "<rootId>", "configYaml": "<full file text>", "expectedVersion": 0}}
+{"tool": "config", "op": "push", "args": {"rootId": "<rootId>", "configYaml": "<full file text>", "expectedVersion": "<head version from get>"}}
 ```
 
-   Use the `version` that `get` returned (when the root has no config yet, `get` answers `not_found` and `expectedVersion` is ignored). Check `ok`, `data.results[0].ok` and `error.code`. On `version_conflict` never force blindly: `get` the head, diff its `configYaml` against the local file, and show the user the divergence. Re-push with `force: true` only after the user confirms which version wins. `config_invalid` carries `detail.errors` as `{path, reason}` pointers: fix and re-validate.
+   `expectedVersion` is the `data.results[0].version` that `get` returned (an integer, 1 or greater; `0` is `invalid_request`). When the root has no config yet, `get`'s element fails with `not_found`: omit `expectedVersion` from the push. Then check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. On `version_conflict` (`error.detail` `{expected, actual}`) never force blindly: `get` the head again. If its version differs from the one you sent, the head moved: diff its `configYaml` against the local file, show the user, and once they confirm the local file wins re-push with the new head version as `expectedVersion`. If it still equals what you sent, the local text matches an older version (superseded): re-push with `force: true` and the same `expectedVersion` only after the user confirms that revert. `force` never skips the compare-and-set. `config_invalid` carries `error.detail.errors` as `{path, reason}` pointers: fix and re-validate.
 6. Upsert the closure note:
 
 ```to-call
@@ -157,7 +159,7 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 {"tool": "advance", "op": "transition", "args": {"itemId": "<uuid>", "trigger": "start"}}
 ```
 
-   Read `ok`, `data.results[0].newRole` and `error.code`. Do **not** use `complete`: it jumps to terminal and gate-checks required notes across all phases, so the intentionally unfilled `outcome-verification` note would block it. `start` checks only the current phase's notes and lands in `review`.
+   Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked` lists `error.detail.missing`). Do **not** use `complete`: it jumps to terminal and gate-checks required notes across all phases, so the intentionally unfilled `outcome-verification` note would block it. `start` checks only the current phase's notes and lands in `review`.
 8. **Stop in `review`.** Tell the user the item dwells in `review` with `outcome-verification` intentionally unfilled: a future `/session-retrospective` run verifies whether the change helped and fills it. This is by design.
 9. Apply the **Source-trend write-back** below: the config change is applied, so the source trend retires now.
 
@@ -185,7 +187,7 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 {"tool": "advance", "op": "transition", "args": {"itemId": "<uuid>", "trigger": "cancel", "summary": "rejected - <reason>"}}
 ```
 
-Read `ok`, `data.results[0].newRole` and `error.code`. `cancel` is gate-free and goes straight to terminal from any non-terminal role. Do not fill `outcome-verification` for a rejection. Then apply the **Source-trend write-back**.
+Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code`. `cancel` is gate-free and goes straight to terminal from any non-terminal role. Do not fill `outcome-verification` for a rejection. Then apply the **Source-trend write-back**.
 
 ### Defer
 
@@ -232,9 +234,9 @@ Close with a reminder: accepted items dwelling in `review` are not stuck. Their 
 
 **`gh` unavailable or unauthenticated.** `gh auth status` failed (the C5 guard in the shared reference). For global acceptances proceed without an issue and say so in the note (`accepted - no GitHub issue filed (gh unavailable).`). Filing is best-effort and never blocks the disposition; the user can file the issue later and record the URL on the proposal note.
 
-**`version_conflict` on a config push.** The head moved since this workspace last read it (another session, `manage-schemas` or `quick-start` pushed). `get` the head, diff, show the user exactly what differs, and force only after explicit confirmation of which version wins.
+**`version_conflict` on a config push.** The head moved since this workspace last read it (another session, `manage-schemas` or `quick-start` pushed). `get` the head, diff, show the user exactly what differs, and after explicit confirmation re-push with the new head version as `expectedVersion`. `force: true` bypasses only the superseded-content guard (local text equal to an older version), never the compare-and-set.
 
-**`config_invalid` on validate or push.** Read `detail.errors`. The usual cause is a section written at the top level that belongs under `extensions.claude-code` (`retrospective`, `orchestration`, `actor_attribution`).
+**`config_invalid` on push.** The element error carries `error.detail.errors`; `validate` reports the same problems as `valid: false` with `errors`. The usual cause is a section written at the top level that belongs under `extensions.claude-code` (`retrospective`, `orchestration`, `actor_attribution`).
 
 **Proposal has no exact YAML.** The body describes the change in prose only. Draft the edit, show it as a diff, and get explicit confirmation via `AskUserQuestion` before applying. Do not guess silently and push.
 

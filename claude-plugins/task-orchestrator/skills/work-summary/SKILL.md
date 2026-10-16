@@ -21,7 +21,7 @@ Supplement the data with brief observations only for a genuine anomaly or action
 | empty | **Lean** (default) |
 | the literal word `full` | **Full Inventory** |
 | the literal word `all` | **Multi-Project** - one condensed section per known project root |
-| anything else | **Scoped** - resolve to a UUID with `items_read` `search` (`query: $ARGUMENTS`, `limit: 5`, `kinds: ["item"]`); prefer the best-matching root or container; if ambiguous, present matches via `AskUserQuestion` |
+| anything else | **Scoped** - resolve to a UUID with `items_read` `search` (`query: $ARGUMENTS`, `limit: 5`, `kinds: ["item"]`); hits carry no depth, parent or type, so `items_read` `get` the top hits before preferring a root or container; if ambiguous, present matches via `AskUserQuestion` |
 
 ## Step 0.5 - Project Scope Resolution
 
@@ -93,22 +93,28 @@ For each run (cap 5, newest first) read its frontier:
 {"tool": "runs_read", "select": "frontier", "args": {"runId": "<run UUID>"}}
 ```
 
-`data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the blocked members with a `reason` (`manual` or `dependency`), and `stalled` the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N stalled), waiting.
+`data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the members held back, each with a `reason`: `manual`, `dependency` (with `blockers`, short ids), `awaiting_decision` (with `decisionId`) or `resource`, and `stalled` the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N stalled), waiting.
 
 ### Blocked-item decisions
 
-For each health `blocked` entry with `blockType: "explicit"` (cap 10), read the item's context. Its `item.blockedReason` repeats the block reason and `decisions[]` lists the decisions raised on it as `{id, class, status, option?}` (withdrawn ones left out). The question text is not in this view: it is a director-profile read (`runs_read` `decision`), so show the decision class and status instead.
+For each health `blocked` entry with `blockType: "explicit"` (cap 10), read the item's context. Its `item.blockedReason` repeats the block reason and `decisions[]` lists the decisions raised on it as `{id, class, status, option?}` (withdrawn ones left out). The question text is not in this view: it is a director-profile read (`runs_read` `decision`), so show the decision class and status instead. This read supplies `decisions[]` class and status only; whether the item is resumable comes from the `blocked` read below.
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<blocked item id>"}}
 ```
 
-An `awaiting_decision` item is **resumable** when `decisions[]` holds none with `status` `open` or `acknowledged`: answering a decision never resumes its item, so flag it and point at `advance` op `transition` with `trigger: "resume"`.
+When health `blocked` holds an `awaiting_decision` entry, read `items_read` `blocked` once:
+
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "<rootId>", "fields": ["ancestors"]}}
+```
+
+Each `awaiting_decision` entry carries a server-computed `resumable` (true when its blocking decision is no longer `open` or `acknowledged`). Answering a decision never resumes its item, so flag a resumable one and point at `advance` op `transition` with `trigger: "resume"`.
 
 ### Enrichment
 
 - **Containers are shelves, not work.** Items with tag or `type` = `container` never count as active; exclude them from the In Flight list.
-- **Active** = health `active.items` minus containers. **Blocked / stalled** = the health lists as they are.
+- **Active** = health `active.items` minus containers. **Blocked / stalled** = the health lists as they are. Items of a `lifecycle: none` schema have no role, so role-filtered lists and counts leave them out: the dashboard covers role-bearing work (config-reference.md, Lifecycle-free items).
 - **Workstreams** = non-terminal roots with children. Progress = `terminal / total` from `childCounts`, rendered `N/M terminal` (not `done`: the terminal bucket includes cancelled items). "Next up" = the highest-priority queue row from step 5 whose `parentId` is that root.
 - **Standalone queue roots** group by kind: the `type` if set; else the first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
 - **Rollup threshold:** a group of more than 5 renders as a count line by kind, listing items only when priority is medium or higher or tagged `action-item`.
@@ -257,7 +263,7 @@ Keep each section condensed - a cross-project scan, not a deep dive. Point at `/
 
 **Status symbols:** `✓` terminal · `◉` work/review · `⊘` blocked/stalled · `○` queue.
 
-**Short IDs:** compact views already carry 8-hex ids; render them in backticks. Truncate full UUIDs (run ids, history `itemId`) to their first 8 characters. Use `—` for empty values, not `0`. Priority renders `high` / `med` / `low`.
+**Short IDs:** compact views already carry 8-hex ids; render them in backticks. Truncate full UUIDs (run ids, history `itemId`, `blockers[].id` from `items_read` `blocked`) to their first 8 characters. Use `—` for empty values, not `0`. Priority renders `high` / `med` / `low`.
 
 **Grouping key** (standalone items, all modes): `type` if set; else the first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
 

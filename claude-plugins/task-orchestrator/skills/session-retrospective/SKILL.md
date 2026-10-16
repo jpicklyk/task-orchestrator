@@ -8,7 +8,7 @@ argument-hint: "[optional: root item UUID] [--run <runId>] [--dry-run to preview
 
 Structured post-implementation analysis. Evaluates the run across five dimensions, persists findings in MCP, and keeps cross-session trend memory to surface improvement proposals.
 
-Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here): after each write read `ok`, `data.results[i].ok` and `error.code`; a multi-element call that part-fails answers `ok: false` with `error.code: partial_failure` next to the full `data`.
+Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
 ---
 
@@ -19,7 +19,7 @@ A retrospective is owed per **closed** run that is not marked `retro`. Two hooks
 - `retro-trigger` (PostToolUse on `runs_write`) acts only on a successful `op: close`.
 - `retro-backstop` (Stop) re-checks at the end of every turn, so a run closed elsewhere (another session, a subagent) is still found. A closed run is a confirmed boundary, so the backstop may dispatch as well as nudge.
 
-Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per session and never mark. No marker file in `os.tmpdir()` is kept. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
+Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
 
 `retro-ack` is a no-op kept for compatibility: the mark is the acknowledgement. The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
 
@@ -46,7 +46,7 @@ Collect the distributed `session-tracking` notes of the items in scope.
 {"tool": "runs_read", "select": "get", "args": {"runId": "<runId>"}}
 ```
 
-Members are the distinct `itemId`s of the run's seat assignments, ended ones included (coordinator rows carry no `itemId`), plus the ids in the frontier's `waiting` and `inFlight` lists. A closed run's frontier lists no terminal members, so the seats read is the source for finished work.
+Members are the distinct `itemId`s of the run's seat assignments, ended ones included (coordinator rows carry no `itemId`), plus the ids in the frontier's `waiting` and `inFlight` lists. A closed run's frontier lists no terminal members, so the seats read is the source for finished work. Seat `itemId`s are full UUIDs and frontier ids are 8-hex short ids: dedupe on the first 8 hex characters.
 
 ```to-call
 {"tool": "runs_read", "select": "seats", "args": {"runId": "<runId>", "ended": true}}
@@ -212,7 +212,7 @@ When per-session history changes the assessment (worsening, stabilizing, flagged
 {"tool": "items_read", "select": "search", "args": {"query": "Session Retrospectives", "kinds": ["item"], "limit": 5}}
 ```
 
-If no depth-0 match has that exact title, create it. A `type` the server does not declare is `schema_violation`: read `error.detail.availableTypes` and use the declared container type.
+If no root item (no `parentId`) has that exact title, create it; a search hit carries no depth, parent or type, so confirm with the 4.1 list cross-check or `items_read` `get` on the hit. An undeclared `type` fails the element with `data.results[0].error.code: schema_violation`, and `data.results[0].error.detail.availableTypes` lists the declared types: use the declared container type.
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "Session Retrospectives", "summary": "Container for structured post-implementation analyses.", "type": "container", "tags": ["container"], "priority": "low"}}
@@ -227,7 +227,7 @@ Include the project name (or rootId) in the title when known, so a shared contai
 {"tool": "items_write", "op": "create", "args": {"title": "Retrospective - <project-name> - <root-item-title> - <YYYY-MM-DD>", "summary": "<one-sentence summary of key findings>", "type": "session-retrospective", "tags": ["session-retrospective"], "parentId": "<container-uuid>"}}
 ```
 
-Check `ok`, `data.results[0].ok` and `error.code`.
+Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
 
 ### 5c. Fill the queue-phase notes
 The `session-retrospective` schema has four required notes: queue-phase `session-metrics`, `workflow-evaluation`, `improvement-signals`, and work-phase `actions-taken` (filled at 8b). Fill the three queue notes now as one `notes_write` call with three `upsert` elements (one shown):
@@ -262,16 +262,16 @@ Read `ok` and `data.results[0].newRole`. Do not complete yet: `actions-taken` de
 {"tool": "items_write", "op": "update", "args": {"id": "<trend-uuid>", "summary": "<distilled observation>. Sessions: <N+1>. Last seen: <YYYY-MM-DD>."}}
 ```
 
-Check `ok`, `data.results[0].ok`, `error.code`.
+Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
 
 ### New trend item shape
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "trend: <kebab-key> - <one-line claim>", "summary": "<distilled observation>. Sessions: 1. Last seen: <YYYY-MM-DD>.", "type": "retrospective-trend", "tags": ["retrospective-trend", "<dimension>"], "parentId": "<trends-container-uuid>", "priority": "low"}}
 ```
 
-`<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` as a further tag for a positive pattern. The kebab key in the title is the stable identity to match on. Batch up to ~10 creates per call; for a batch read `data.results[i].ok` for each element and `error.code: partial_failure`.
+`<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` as a further tag for a positive pattern. The kebab key in the title is the stable identity to match on. Batch up to ~10 creates per call; read `data.results[i].ok` per element; a failed one carries its cause in `data.results[i].error` (the top-level `partial_failure` names no element).
 
-**Trend memory unavailable.** The `retrospective-trend` type comes from the server floor config. If a create answers `schema_violation` for that type, record "trend memory unavailable" in `improvement-signals`, skip the trend writes of this step and the graduation checks of Step 7, and continue: the retrospective itself never fails on it.
+**Trend memory unavailable.** The `retrospective-trend` type comes from the server floor config. If a create's `data.results[i].error.code` is `schema_violation` for that type, record "trend memory unavailable" in `improvement-signals`, skip the trend writes of this step and the graduation checks of Step 7, and continue: the retrospective itself never fails on it.
 
 Then the first evidence note:
 
@@ -360,7 +360,7 @@ Check `ok` and `data.results[0].ok`, then complete:
 {"tool": "advance", "op": "transition", "args": {"itemId": "<retro-uuid>", "trigger": "complete"}}
 ```
 
-Read `ok`, `data.results[0].newRole` and `error.code` (`gate_blocked` names the missing note). There is no acknowledgement step: the run's `retro` mark is the hooks' dedupe, and a manual run does not set it (see the honest limit above).
+Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked`, whose `error.detail.missing` names the unfilled notes). There is no acknowledgement step: the run's `retro` mark is the hooks' dedupe, and a manual run does not set it (see the honest limit above).
 
 ---
 

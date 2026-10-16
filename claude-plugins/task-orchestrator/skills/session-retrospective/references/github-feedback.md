@@ -103,7 +103,7 @@ Re-upsert the note with the appended line, using its existing `key` and `role` (
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "<existing body>\n\ngithub-issue: <url>"}}
 ```
 
-Check `ok`, `data.results[0].ok` and `error.code`.
+Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
 
 ---
 

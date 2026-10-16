@@ -2,13 +2,13 @@
 
 One-time migration of the legacy `memory/retrospectives.md` trend file into trend items under the `Retrospective Trends` container. Called from `session-retrospective` Step 4.1; any `memory/retrospectives.md` content, in whatever legacy shape, migrates to MCP rather than to a history file.
 
-Call shapes are in [`../../_generated/call-shapes.md`](../../_generated/call-shapes.md). After each write read `ok`, `data.results[i].ok` and `error.code`; a batch that part-fails answers `ok: false` with `error.code: partial_failure` next to the full `data`.
+Call shapes are in [`../../_generated/call-shapes.md`](../../_generated/call-shapes.md). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
 **Condition** (checked at Step 4.1): the Trends container is absent or empty AND `memory/retrospectives.md` exists with at least one `- <kebab-key>: ...` entry line. This is self-terminating: after migration the file is a pointer stub with no entry lines, so the condition cannot match again for the project.
 
 **Procedure.** Create and verify BEFORE touching the file, so an interrupted migration leaves content duplicated (recoverable), never lost.
 
-1. **Create the Trends container** (if 4.1 did not find it empty). Use the declared container type; a `schema_violation` lists `error.detail.availableTypes`.
+1. **Create the Trends container** (if 4.1 did not find it empty). Use the declared container type; a `schema_violation` element error lists `data.results[0].error.detail.availableTypes`.
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "Retrospective Trends", "summary": "Cross-session trend memory for retrospectives.", "type": "container", "tags": ["container"], "priority": "low"}}
@@ -32,7 +32,7 @@ Call shapes are in [`../../_generated/call-shapes.md`](../../_generated/call-sha
 {"tool": "items_write", "op": "create", "args": {"title": "trend: <kebab-key> - <one-line claim>", "summary": "<condensed observation>. Sessions: <N>. Last seen: <YYYY-MM-DD>.", "type": "retrospective-trend", "tags": ["retrospective-trend", "<dimension>"], "parentId": "<trends-container-uuid>", "priority": "low"}}
 ```
 
-   If the create answers `schema_violation` for `retrospective-trend`, the server floor does not declare the type yet: stop, report "trend memory unavailable", and leave the file untouched.
+   If a create's `data.results[i].error.code` is `schema_violation` for `retrospective-trend`, the server floor does not declare the type yet: stop, report "trend memory unavailable", and leave the file untouched.
 
    Then upsert one `evidence-migrated` note per item (role `work`), batched, holding the ORIGINAL entry text verbatim, as the provenance record:
 

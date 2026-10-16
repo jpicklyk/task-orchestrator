@@ -6,7 +6,7 @@ argument-hint: "[optional: describe what you want to track, e.g. 'a web app proj
 
 # Quick Start - MCP Task Orchestrator
 
-Interactive onboarding that teaches by doing. Detects your workspace state and adapts. Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`).
+Interactive onboarding that teaches by doing. Detects your workspace state and adapts. Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
 ## Step 0: Learn Your Tools First
 
@@ -14,7 +14,7 @@ Teach this before anything else. The server shows a client only the tools of its
 
 | Profile | Where | What it is for |
 |---|---|---|
-| `orchestration` (the default) | `/mcp`, and stdio unless `MCP_TOOL_PROFILE` says otherwise | every tool: read and write items, notes, dependencies, `advance`, `config`, runs |
+| `orchestration` (the default) | `/mcp`, and stdio unless `MCP_TOOL_PROFILE` says otherwise | nearly every tool: items, notes, dependencies, documents, `advance`, `config`, runs and seats; the `report` tool and the decision tools (`runs_read` `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer`/`withdraw`) are director-only |
 | `director` | `/mcp/director`, or `MCP_TOOL_PROFILE=director` | oversight: reads and reports, no note or document bodies, a few run writes |
 | `knowledge` | `/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` | items, notes, dependencies and documents only (no `advance`) |
 
@@ -24,6 +24,9 @@ Any tool answers `describe: true` with its own parameters and errors instead of 
 
 ```json
 { "describe": true }
+```
+
+```json
 { "select": "overview", "describe": true }
 ```
 
@@ -47,7 +50,7 @@ Health check; pass `ancestorId` only when a **project** rootId is known (persona
 {"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>"}}
 ```
 
-**If `data.active` and `data.stalled` are both empty**, follow the **Fresh-Start Path** (Steps 2-8). **Otherwise** follow the **Orientation Path** (Steps A-C).
+**If `data.active.items` and `data.stalled` are both empty**, follow the **Fresh-Start Path** (Steps 2-8). **Otherwise** follow the **Orientation Path** (Steps A-C).
 
 ---
 
@@ -114,7 +117,7 @@ Reinforce: the **plan file** and **MCP items** are not duplicates, they serve di
 {"tool": "config", "op": "effective", "args": {"rootId": "<rootId>"}}
 ```
 
-`data.types` lists the declared types and `data.schemas` their resolved schemas. Use the root `type: "container"` when it is declared (or any declared type, or any name when the server declares none); give the children a declared non-container type, shown below as `<task-type>`. If the list is long, ask the user which type fits a task.
+`data.results[0].types` lists the declared types and `data.results[0].schemas` their resolved schemas. Use the root `type: "container"` when it is declared (or any declared type, or any name when the server declares none); give the children a declared non-container type, shown below as `<task-type>`. If the list is long, ask the user which type fits a task.
 
 Create the container, three children and two dependencies as ONE atomic unit. With a project or personal root known, add `parentId` so the tree hangs under it.
 
@@ -122,7 +125,7 @@ Create the container, three children and two dependencies as ONE atomic unit. Wi
 {"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "<Project Name> - Tutorial", "summary": "Quick-start tutorial project to learn MCP Task Orchestrator", "type": "container", "priority": "medium"}, "children": [{"ref": "design", "title": "Design <topic>", "summary": "Define requirements and approach", "type": "<task-type>", "priority": "high"}, {"ref": "implement", "title": "Implement <topic>", "summary": "Build the solution", "type": "<task-type>", "priority": "high"}, {"ref": "test", "title": "Test <topic>", "summary": "Verify the implementation", "type": "<task-type>", "priority": "medium"}], "deps": [{"from": "design", "to": "implement", "type": "blocks"}, {"from": "implement", "to": "test", "type": "blocks"}]}}
 ```
 
-Read the envelope: `ok`, then `data.results[0].ok`; on success `data.results[0].items` is `[{ref, id, depth}]` (keep the ids) and on failure `error.code` (`schema_violation` carries `detail.availableTypes`).
+Read the envelope: `ok`, then `data.results[0].ok`; on success `data.results[0].items` is `[{ref, id, depth}]` (keep the ids) and on failure `data.results[0].error.code` (`schema_violation` carries `data.results[0].error.detail.availableTypes`); the top-level `error.code` is then `partial_failure`.
 
 **Explain:**
 - `create_tree` creates everything atomically: the container, three children and two edges. In a real workflow **Claude does this after a plan is approved**.
@@ -150,7 +153,7 @@ Fill each missing required key (one `upsert` element per key; the first shown, o
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "<design-id>", "key": "<note-key>", "role": "<queue|work|review>", "body": "Define requirements and approach for <topic>."}}
 ```
 
-Check `ok`, `data.results[i].ok` and `error.code` for the whole call. Tell the user: in a real workflow subagents fill these notes as work happens, phase by phase; here we pre-fill them only so the `complete` call in Step 5 is not gate-blocked.
+Check `ok` and each `data.results[i].ok`; a failed element's cause is `data.results[i].error.code`. Tell the user: in a real workflow subagents fill these notes as work happens, phase by phase; here we pre-fill them only so the `complete` call in Step 5 is not gate-blocked.
 
 ---
 
@@ -164,7 +167,7 @@ Items move queue, work, review, terminal through `advance` `transition` triggers
 {"tool": "advance", "op": "transition", "args": {"itemId": "<design-id>", "trigger": "start"}}
 ```
 
-Check `ok`, `data.results[0].newRole` and `error.code` (`gate_blocked` names the missing note). Point out `cascades`: the container cascades `queue` to `work` because its first child started. In a real workflow **each subagent calls this** when it begins its item.
+Check `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked`: `error.detail.missing` names the unfilled notes). Point out `cascades`: a parent whose schema lifecycle is `auto` (or that has no schema) moves `queue` to `work` when its first child starts and is listed there; a `manual` container, such as the server floor's `container`, does not cascade and stays in `queue` (`cascades` empty) until advanced itself. In a real workflow **each subagent calls this** when it begins its item.
 
 **5b. Complete the design task:**
 
@@ -172,7 +175,7 @@ Check `ok`, `data.results[0].newRole` and `error.code` (`gate_blocked` names the
 {"tool": "advance", "op": "transition", "args": {"itemId": "<design-id>", "trigger": "complete"}}
 ```
 
-Point out `unblocked`: implement is now unblocked; the container stays in `work` while siblings are active.
+Point out `unblocked`: implement is now unblocked. An `auto` container stays in `work` while siblings are active and completes with the last child; a `manual` one moves only when you advance it.
 
 **5c. Confirm what is next:**
 
@@ -224,7 +227,7 @@ MCP items can have **required notes** that act as documentation gates:
 {"tool": "items_write", "op": "delete", "args": {"id": "<container-id>", "recursive": true}}
 ```
 
-Check `ok`, `data.results[0].ok` (`data.results[0].deleted` counts the removed subtree) and `error.code`.
+Check `ok` and `data.results[0].ok` (`data.results[0].deleted` counts the removed subtree); on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
 
 ---
 
@@ -250,8 +253,8 @@ Run three reads in parallel; add `ancestorId` / `anchorId` only when a **project
 
 Present a condensed dashboard:
 
-- **Active Work** (`data.active`): items in `work` or `review`: title, role, ancestor path.
-- **Blocked / Stalled** (`data.blocked`, `data.stalled`): explicit blocks, items waiting on a dependency, and items missing required notes.
+- **Active Work** (`data.active.items`): items in `work` or `review`: title, role, ancestor path.
+- **Blocked / Stalled** (`data.blocked.items`, `data.stalled`): explicit blocks, items waiting on a dependency, and items missing required notes.
 - **Containers**: the overview's root items with `childCounts` by role.
 - **Recommendations**: the `next` result.
 
@@ -279,7 +282,8 @@ Recommend one concrete action:
 | Situation | Recommendation |
 |---|---|
 | Stalled items with missing notes | Fill the required notes: show the exact `notes_write` call |
-| Blocked items with satisfied deps | Advance with `advance` `transition`, `trigger: "start"` |
+| Explicitly blocked item (`blockType: "explicit"`) whose cause is cleared | `advance` `transition` with `trigger: "resume"` (back to its previous role; `start` is invalid from `blocked`) |
+| Dependency-blocked item (`blockType: "dependency"`) | Finish its blocker; the item is actionable once the dependency is satisfied |
 | No active work, queue items exist | Start the highest-priority queue item |
 | Empty workspace | Switch to the Fresh-Start path (Step 2) |
 | Everything terminal | Suggest creating new work with `/create-item` |
