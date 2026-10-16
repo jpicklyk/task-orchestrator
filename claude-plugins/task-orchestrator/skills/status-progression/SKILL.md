@@ -6,7 +6,7 @@ argument-hint: "[optional: item id or title to look up]"
 
 # Status Progression
 
-Guides role transitions for a work item: identify it, read its gate status, fill missing notes, advance, and recover from a blocked or failed transition. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`advance` `transition`); semantics are in `current/docs/api-reference.md` ("advance" and "items_read"). Ids below are 8-hex shorts and any id field also takes the full UUID. Read each answer through the envelope: `ok`, `data.results[0]`, and on failure `error.code`, `error.kind` (retry class) and `error.fix`.
+Guides role transitions for a work item: identify it, read its gate status, fill missing notes, advance, and recover from a blocked or failed transition. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`advance` `transition`); semantics are in `current/docs/api-reference.md` ("advance" and "items_read"). Ids below are 8-hex shorts and any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[0]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[0].error`. A read (`select`) call reports its failure in the call-level `error`.
 
 ## Step 1: Identify the item
 
@@ -41,7 +41,7 @@ Render a status card from the answer:
 | `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note`, `lease` |
 | `guidanceKey` | resolve its text with `items_read` `schema` (`fields: ["guidance"]`) and show it as Guidance |
 | `transitions` | the allowed triggers and the role each leads to |
-| `blockedReason`, `decisionId` | for a blocked item: why it is blocked (below) |
+| `item.blockedReason`, `item.decisionId` | for a blocked item: why it is blocked (below) |
 | `decisions[]` | the item's decisions, withdrawn ones excluded: `id`, `class`, `status`, and the chosen `option` once answered |
 
 A schema-free item has an open gate: the schema read answers `{schemaFree: true}`.
@@ -89,7 +89,7 @@ Omit a line when its field is empty.
 | `cancel` | any non-terminal | terminal | statusLabel cancelled; bypasses note gates, not claim ownership |
 | `block` / `hold` | any non-terminal, non-blocked | blocked | take `reason` (below) |
 | `resume` | blocked | previous role | clears the reason |
-| `reopen` | terminal | queue | clears statusLabel, bypasses gates, and is a pin point (the item is re-pinned to the current config) |
+| `reopen` | terminal | queue | clears statusLabel, bypasses note gates (not claim ownership), and is a pin point (the item is re-pinned to the current config) |
 
 ## Blocked items
 
@@ -100,14 +100,14 @@ Omit a line when its field is empty.
 ```
 
 - `items_read` `get` and `context` show `blockedReason` and `decisionId` for a blocked item.
-- `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, `decisionId` and, for `awaiting_decision`, `resumable` (true once the decision is answered, withdrawn or missing).
+- `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, and an `awaiting_decision` entry adds `decisionId` and `resumable` (true once the decision is answered, withdrawn or missing).
 - **Answering a decision never resumes the item.** Read the answer, then send `resume` yourself. `resume` clears the reason.
 - Decisions are listed on the item in `context` `decisions[]`; `runs_read` `decisions` is director-only.
-- Errors to recognize: `decision_closed` (`detail.decisionId`, `detail.status`: the decision is already answered or withdrawn, so it cannot be waited on or acted on again); `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
+- Errors to recognize (on `data.results[0].error`): `decision_closed` (`detail.decisionId`, `detail.status`: the decision is already answered or withdrawn, so it cannot be waited on or acted on again); `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
 
 ## Troubleshooting
 
-**`gate_blocked`.** `error.detail.missing[]` lists the notes. Fill them (Step 3) and retry.
+**`gate_blocked`.** `data.results[0].error.detail.missing[]` lists the notes. Fill them (Step 3) and retry.
 
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 
@@ -121,11 +121,11 @@ Use `/dependency-manager` to view or change the edges.
 
 **Skip the review phase.** `complete` jumps from work straight to terminal but checks every phase's required notes; fill what is missing or use `cancel`.
 
-**`resource_unavailable` (kind transient).** A shared resource the item declares through a trait is held by another item. This is not a note gate: do not fill notes and do not spin-retry. Report `error.detail.resources[]` and `retryAfterMs`, work a different item, and retry later. To see the holder, read `context` `resourceLeases` (`holderItemId`, `expiresAt`); an operator can clear a stuck lease with `DELETE /api/v1/resources/leases/{key}` (admin). See [Workflow Guide, Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing).
+**`resource_unavailable` (kind transient).** A shared resource the item declares through a trait is held by another item. This is not a note gate: do not fill notes and do not spin-retry. Report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs`, work a different item, and retry later. To see the holder, read `context` `resourceLeases` (`holderItemId`, `expiresAt`); an operator can clear a stuck lease with `DELETE /api/v1/resources/leases/{key}` (admin). See [Workflow Guide, Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing).
 
 **A parent cascaded unexpectedly.** Cascades are by design: the first child starting moves a queued parent to work; the last child reaching terminal moves the parent to terminal. The `cascades` list shows each parent and why. A parent in review is never moved by that cascade (`applied: false`, review-pending): it needs its own explicit `complete` (or its review, then `start`).
 
-**`invalid_transition`.** Read `detail.fromRole` and `detail.allowed`. A terminal item allows only `reopen`; a lifecycle-free item (`fromRole: none`) allows nothing.
+**`invalid_transition`.** Read `data.results[0].error.detail.fromRole` and `.allowed`. A terminal item allows only `reopen`; a lifecycle-free item (`fromRole: none`) allows nothing.
 
 **Item is terminal and should be worked again.** Send `reopen`; it returns to queue and its terminal parent returns to work.
 

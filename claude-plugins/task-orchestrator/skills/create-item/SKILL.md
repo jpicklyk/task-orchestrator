@@ -6,7 +6,7 @@ argument-hint: "[optional: brief description of what to create]"
 
 # create-item - Container-Anchored Work Item Creation
 
-Create work items from conversation context: anchor them in a category container, pick a declared `type`, and pre-fill the queue notes. Call shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); field semantics are in `current/docs/api-reference.md`. Ids in examples are 8-hex shorts; any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`; on failure `error.kind` says whether to retry and `error.fix` says what to change.
+Create work items from conversation context: anchor them in a category container, pick a declared `type`, and pre-fill the queue notes. Call shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); field semantics are in `current/docs/api-reference.md`. Ids in examples are 8-hex shorts; any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
 ## Step 1 - Infer intent
 
@@ -55,7 +55,7 @@ Process-global types such as `agent-observation` resolve from the server config 
 {"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
 ```
 
-`data.types` lists the declared types and `data.traits` the declared traits (`rootId` omitted reads the server config alone). When types are declared, a create with any other type fails `schema_violation` and `error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
+`data.types` lists the declared types and `data.traits` the declared traits (`rootId` omitted reads the server config alone). When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
 
 Match the context to a declared type (a bug to the bug type, a feature to the feature type, and so on). With no confident match use the `default` type when it is listed; otherwise ask via `AskUserQuestion` with the declared types as options. When the config declares no types at all, any non-blank type is accepted and the item is schema-free.
 
@@ -69,7 +69,7 @@ Traits are an array: `"traits": ["needs-migration-review"]`. Assign only declare
 | Auth, input validation, external data | `needs-security-review` |
 | Hot path, per-request work | `needs-perf-review` |
 
-A trait that carries `resources` makes the item take an exclusive lease on entering work; `advance transition start` can then fail `resource_unavailable` (transient). Mention it to the user; no action is needed here.
+A trait that carries an `exclusive` resource (the default mode; `advisory` is recorded only, never leased) makes the item take a lease on entering work; `advance transition start` can then fail `resource_unavailable` (transient). Mention it to the user; no action is needed here.
 
 ## Step 5 - Create
 
@@ -145,7 +145,7 @@ Never automated: creating without explicit confirmation, acting on dedup candida
 {"tool": "items_write", "op": "update", "args": {"id": "4b7d0e19", "parentId": "6e21c0aa"}}
 ```
 
-**`schema_violation` on create.** Read `error.detail.availableTypes` (or `availableTraits`) and retry with a declared name.
+**`schema_violation` on create.** Read `data.results[i].error.detail.availableTypes` (or `availableTraits`) and retry with a declared name.
 
 **Schema read says `schemaFree: true` for a typed item.** The type resolves to no schema under the item's pin. An item keeps its pin after a config push (`items_read` `get` shows `stale: true`); `repin` adopts the push:
 

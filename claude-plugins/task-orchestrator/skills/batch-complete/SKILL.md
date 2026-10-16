@@ -101,7 +101,7 @@ Report from `data.results[0]`. `items[]` has one entry per item:
 | `skipped`, `reason: upstream_failed` | an in-set blocker failed (`blockedBy[]` lists it); retry after fixing that item |
 | `failed` | rejected; `error.code` says why (`gate_blocked` with `detail.missing`, `dependency_unmet`, `not_claim_holder`, `resource_unavailable`, `invalid_transition`) |
 
-`summary` is `{total, applied, skipped, failed}`. A per-item failure is data: the applied transitions still commit together. A store fault or `unavailable` fails the whole element and rolls it back.
+`summary` is `{total, applied, skipped, failed}`. A per-item failure is data: the applied transitions still commit together. A store fault or `unavailable` fails the whole element and rolls it back. An element failure (a store fault, `unavailable`, or `not_found`/`ambiguous_id` on `rootId`) answers call-level `partial_failure`; its code is on `data.results[0].error`.
 
 ```
 Batch complete - "Auth System Feature"
@@ -128,7 +128,7 @@ A parent without `recursive: true` fails `invalid_request`. The answer's `delete
 
 **Items failed the gate.** Fill each item's missing notes with `notes_write` and rerun `complete_tree`; items already terminal are skipped as `already_terminal`. Or switch to `cancel`.
 
-**Items skipped as `upstream_failed`.** Fix the upstream failure first (fill its notes), then rerun. Only the previously failed items are processed.
+**Items skipped as `upstream_failed`.** Fix the upstream failure first (fill its notes), then rerun. The rerun processes every item not yet terminal, the formerly `upstream_failed` ones included; terminal ones skip as `already_terminal`.
 
 **`not_found` or `ambiguous_id` on `rootId`.** The id matches nothing, or an 8-hex prefix matches several items. Look it up again with `items_read` `get`, or search by title, and use the full id.
 

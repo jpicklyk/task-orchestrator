@@ -6,7 +6,7 @@ user-invocable: false
 
 # Schema Workflow
 
-Drive a work item through its gate-enforced lifecycle. The skill is schema-driven: note requirements and authoring guidance are read from the item's resolved schema at runtime, never assumed. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts (a full UUID is also accepted). Read every answer through the envelope: `ok`, `data`, and on failure `error.code`, `error.kind` (retry class) and `error.fix`.
+Drive a work item through its gate-enforced lifecycle. The skill is schema-driven: note requirements and authoring guidance are read from the item's resolved schema at runtime, never assumed. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts (a full UUID is also accepted). Read every answer through the envelope: `ok`, then `data.results[0]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[0].error`. A read (`select`) call reports its failure in the call-level `error`.
 
 **Applies to** any item whose `type` resolves to a schema under its pin (`config` `effective` lists the declared types). An item whose type resolves to no schema is schema-free and advances without gates.
 
@@ -67,15 +67,15 @@ Read `data.results[0]`:
 | Field | Check |
 |---|---|
 | `newRole` | the phase entered (`previousRole` is also present) |
-| `cascades` | parents re-evaluated: `{itemId, previousRole, targetRole, applied, blocked?}` |
+| `cascades` | parents re-evaluated: `{itemId, previousRole, targetRole, applied, blocked?}`; when blocked, `reason` and `missing[]` (gate), `contended[]` (resource) or `blockers[]` (dependency) |
 | `unblocked` | items that were waiting on this one |
 | `expectedNotes` | note keys the new phase expects; fill these next |
 | `dispatch` | the profile for `newRole` |
 
-Failures are `ok: false` with `error.code`:
+A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 
-- `gate_blocked`: `error.detail.missing[]` names the notes still unfilled. Fill them (Step 2) and retry; no need to re-read first. For an independence block `missing` is empty and `detail.violations` explains.
-- `resource_unavailable` (`error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `error.detail.resources[]` and `retryAfterMs` and see `/status-progression`.
+- `gate_blocked`: `data.results[0].error.detail.missing[]` names the notes still unfilled. Fill them (Step 2) and retry; no need to re-read first. For an independence block `missing` is empty and `detail.violations` (inside that same error) explains.
+- `resource_unavailable` (`data.results[0].error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs` and see `/status-progression`.
 - `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
 - `not_claim_holder`: someone else holds the claim; only the holder can transition.
 
@@ -129,7 +129,7 @@ Never dispatch a reviewer at a work-role parent. Note that the terminal cascade 
 
 ## Creating a schema item
 
-Set `type` to a declared schema key (`config` `effective` `types`; a wrong one is `schema_violation` with `detail.availableTypes`):
+Set `type` to a declared schema key (`config` `effective` `types`; a wrong one fails `schema_violation` with `data.results[0].error.detail.availableTypes`):
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "Add retry layer", "type": "feature-task", "priority": "medium", "traits": ["needs-docs-accuracy-review"]}}

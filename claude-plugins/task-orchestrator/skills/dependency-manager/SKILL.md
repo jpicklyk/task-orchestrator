@@ -6,7 +6,7 @@ argument-hint: "[optional: item id, title, or action like 'show blockers for X']
 
 # dependency-manager - Dependency Visualization, Creation and Diagnosis
 
-Manage `blocks` and `relates_to` edges between work items: view them, create them, delete them and diagnose why an item cannot start. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`deps_read`, `deps_write`); semantics are in `current/docs/api-reference.md` ("deps_read", "deps_write"). Ids below are 8-hex shorts and any item id field also takes the full UUID. Every answer is the envelope: `ok`, `data`, and on failure `error.code`, `error.kind` and `error.fix`; a batch answers `data.results[i]` and `data.summary {ok, failed}`.
+Manage `blocks` and `relates_to` edges between work items: view them, create them, delete them and diagnose why an item cannot start. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`deps_read`, `deps_write`); semantics are in `current/docs/api-reference.md` ("deps_read", "deps_write"). Ids below are 8-hex shorts and any item id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
 ## Step 1: Determine intent
 
@@ -117,7 +117,7 @@ The answer is `{deleted: n}`. An unknown `id` is `not_found`; a pair or item tha
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}
 ```
 
-Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. For an explicit block it also has `reason`, `decisionId` and `resumable`.
+Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`.
 
 For each unsatisfied blocker decide what must happen:
 
@@ -155,7 +155,7 @@ Then point to the fix: `/status-progression` on the blocker, or fill its missing
 
 ## Troubleshooting
 
-**`cycle_detected` on create.** The edge or pattern would close a loop (the error carries the path). One edge is backwards: flip `from` and `to`.
+**`cycle_detected` on create.** The edge or pattern would close a loop (`data.results[i].error.detail.path`). One edge is backwards: flip `from` and `to`.
 
 **`duplicate`.** The edge exists already; list it instead.
 
