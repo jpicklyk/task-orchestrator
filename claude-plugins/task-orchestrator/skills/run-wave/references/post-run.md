@@ -218,6 +218,8 @@ do not dispatch the generic reviewer yourself. The generic review prompt is deli
 seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
 carries no rule text inline (the reviewer fetches those itself).
 
+**Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off (a feature-level review; this repo's `/implement` Step 6 item 3), `get_context(itemId=<parent>)` and branch on its role. No review-role entry in its schema -> do not advance it: `start` from work with no review phase lands TERMINAL (`current/docs/api-reference.md:1237`; `container` is such a type, `.taskorchestrator/config.yaml:148-155`). Role `work` and `gateStatus.canAdvance` -> `advance_item` `trigger:"start"` (work->review) first, then dispatch. Role `work`, not `canAdvance` -> fill the orchestrator's own missing work notes or surface the seat-owned ones; never dispatch a reviewer at a work-role parent. Role `queue` -> run the `SKILL.md` Step 5 parent check first. Already `review` -> dispatch. Advance immediately before dispatch, not earlier: a REVIEW parent with every required note filled cascades to TERMINAL when its last child completes (`CascadeDetector.kt:130-163`, `current/docs/api-reference.md:1262-1266`).
+
 **Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
 
 **Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
@@ -362,3 +364,57 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
 6. **Remove the scratch worktree** (`git worktree remove --force <unique-tmp>`) and set
    `state.redProofs = "done"` on the run's state document so a resume does not repeat the step.
+
+---
+
+## Step 7b - Feature closure
+
+Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
+`feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
+pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
+on Step 7a. Not covered: a parent with one child (that child's review covers the range) and a
+parent whose schema has no review phase (it cascades to terminal; the gate checks only required
+notes, `GatePredicate.kt:64-75`).
+
+**Why every child first.** A review-role parent whose required notes are filled cascades to
+terminal when its last child completes: `CascadeDetector.kt:130-163` detects the all-children-terminal
+event and the cascade gate at `AdvanceService.kt:961-980` (`missingForComplete`) checks the
+required notes and independence violations (`AdvanceService.kt:963-967`); this holds for lifecycle `auto`. A feature review written
+earlier can therefore close the parent before any finding is disposed.
+
+1. **Dispatch one feature reviewer.** The parent is in review. Dispatch one
+   `task-orchestrator:reviewer` with an explicit `model`: the model the parent's review dispatch
+   profile names, else `opus`. Range: the merged diff of the feature's owned files, pathspec = the
+   union of the children's owned files (the reviewer also runs `git diff --stat <range>` over the WHOLE
+   range, without the pathspec, and flags any off-scope change; this whole-range check applies in
+   shared mode, while in per-item mode compare each child PR's merged diff instead, since the base
+   merges in between are not the feature's changes): shared mode `git -C <feature-worktree> diff <base>...HEAD
+   -- <paths>`; per-item mode the same pathspec over the base-branch range from the SHA before the
+   first child merged to the merged tip, so unrelated base merges stay out. Input: each child's
+   `review-checklist` (`query_notes(operation="list", itemId=<child>, keys=["review-checklist"])`
+   per child); list any child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
+   never rewrites them.
+2. **On Fail**, the orchestrator dispatches a fix seat (a fresh `implementer-a<n>`, scoped to the
+   finding's file) against the PARENT feature, with NO `advance_item` call: its dispatch prompt must
+   name it a NON-ENTRY seat (a default implementer's `advance_item(start)` on the review-role
+   parent would complete it, `RoleTransitionHandler.kt:446`). In shared mode it commits on the
+   feature branch; in per-item mode there is no feature branch, so the fix lands as its own small PR
+   against the base branch and the re-check reads that PR's diff. Either way it carries a
+   `Seat: implementer-a<n>` trailer and a `[<parent-short>]` tag, and the
+   orchestrator records the dispatch in the parent's `delegation-metadata`. Never reopen a terminal
+   child to carry a fix: that seat's `advance_item(start)` fails on a terminal child, and
+   completing the child again cascades the parent to terminal (every parent note is filled,
+   including the Fail `review-checklist`; `CascadeDetector.kt:130-163`, `AdvanceService.kt:961-980`)
+   before the re-check and dispositions. The SAME feature reviewer then re-checks only the fixed
+   findings (a fresh reviewer seat when the original cannot be resumed). A blocking finding can only
+   be disposed `fixed`.
+3. **Dispose every finding.** In the parent's `orchestrator-confirmation` (role review, actor
+   `orchestrator:<session>`), one line per finding:
+   `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`, ending with
+   `<N> of <N> disposed`. A follow-up item must exist before its line is written
+   (`/task-orchestrator:create-item`).
+4. **Complete.** The orchestrator's explicit `complete` on the parent, only after N of N.
+
+**Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
+is optional and off-schema, so this is discipline, not enforcement. Under `review: "handoff"` the
+project's finalization applies the same rules (this repo: `/implement` Step 6 Parallel).

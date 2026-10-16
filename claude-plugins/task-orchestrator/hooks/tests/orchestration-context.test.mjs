@@ -97,7 +97,7 @@ test('schema variant differs: no tier sizing route, but phase-owner dispatch sti
 test('both variants carry the core rules and omit excluded sections', () => {
   for (const cfg of [BASE, `${BASE}orchestration:\n  mode: schema\n`]) {
     const c = ctxOf(run(cfg));
-    for (const s of ['resource_unavailable', 'orchestrator-confirmation', 'task-orchestrator:run-wave', 'task-orchestrator:create-item', 'explicitly']) {
+    for (const s of ['resource_unavailable', 'orchestrator-confirmation', 'task-orchestrator:run-wave', 'task-orchestrator:create-item', 'explicitly', 'follow-up <item-id>']) {
       assert.ok(c.includes(s), `missing ${s}`);
     }
     assert.ok(!c.includes('## Project Scope'));
