@@ -16,10 +16,14 @@ on:
       - 'claude-plugins/task-orchestrator/hooks/phase-guard-record.mjs'
       - 'claude-plugins/task-orchestrator/hooks/phase-guard.mjs'
       - 'claude-plugins/task-orchestrator/hooks/yaml-lite.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/retro-lib.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json'
+      - 'claude-plugins/task-orchestrator/hooks/lib/tool-names.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/tests/mod-contract.test.mjs'
       - 'scripts/ci/check-task-orchestrator-mod.mjs'
       - '.github/workflows/task-orchestrator-mod.yml'
   pull_request:
-    branches: [main]
+    branches: [main, 'release/**']
     paths:
       - 'claude-plugins/task-orchestrator-mod/**'
       - 'claude-plugins/task-orchestrator/hooks/retro-trigger.mjs'
@@ -27,6 +31,10 @@ on:
       - 'claude-plugins/task-orchestrator/hooks/phase-guard-record.mjs'
       - 'claude-plugins/task-orchestrator/hooks/phase-guard.mjs'
       - 'claude-plugins/task-orchestrator/hooks/yaml-lite.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/retro-lib.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json'
+      - 'claude-plugins/task-orchestrator/hooks/lib/tool-names.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/tests/mod-contract.test.mjs'
       - 'scripts/ci/check-task-orchestrator-mod.mjs'
       - '.github/workflows/task-orchestrator-mod.yml'
   workflow_dispatch:

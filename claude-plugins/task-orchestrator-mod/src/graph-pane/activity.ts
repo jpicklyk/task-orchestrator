@@ -2,6 +2,7 @@
 // atoms and the hooks, and the render never reads the clock (prune-on-write plus timers expire entries).
 import type { GraphActivity, GraphAgentInfo, GraphGateBlock, GraphWorker } from '../../types'
 import { toToolName } from '../shared/constants.ts'
+import { envelopeOf, shortId } from '../shared/to-client.ts'
 
 /** A worker stays on an item this long after its last call about it. */
 export const WORKING_TTL_MS = 120_000
@@ -19,44 +20,41 @@ type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
-/** An item id a TO call named, with the actor id on that element (or the call). */
+/** An item id a TO call named. */
 export interface Touch {
   id: string
-  actor?: string
 }
 
-const actorId = (v: unknown): string | undefined => (isObj(v) ? text(v.id) : undefined)
-
 /**
- * The ids a TO tool call names: top-level `itemId`, and `itemId`/`id` of each element of
- * transitions, claims, notes and items. Unresolved (may be prefixes). Deduplicated, call order.
+ * The ids a TO tool call names: top-level `itemId` and `item`, then each `ops[]` element's `itemId` (else
+ * its `id`) and its string `from` / `to` (deps_write). Unresolved (may be short ids or full UUIDs).
+ * Deduplicated, call order.
  */
 export function touchedIds(input: unknown): Touch[] {
   if (!isObj(input)) return []
-  const top = actorId(input.actor)
   const out = new Map<string, Touch>()
-  const add = (id: string | undefined, actor: string | undefined): void => {
+  const add = (id: string | undefined): void => {
     if (id === undefined || out.has(id)) return
-    out.set(id, actor !== undefined ? { id, actor } : { id })
+    out.set(id, { id })
   }
-  add(text(input.itemId), top)
-  for (const key of ['transitions', 'claims', 'notes', 'items']) {
-    const list = input[key]
-    if (!Array.isArray(list)) continue
-    for (const el of list) {
-      if (isObj(el)) add(text(el.itemId) ?? text(el.id), actorId(el.actor) ?? top)
+  add(text(input.itemId))
+  add(text(input.item))
+  if (Array.isArray(input.ops)) {
+    for (const el of input.ops) {
+      if (!isObj(el)) continue
+      add(text(el.itemId) ?? text(el.id))
+      add(text(el.from))
+      add(text(el.to))
     }
   }
 
   return [...out.values()]
 }
 
-/** Prefers the seat agent.spawn recorded, then the actor id's prefix before `:`, then `agent` / `main`. */
-export function seatOf(agentId: string | undefined, agents: Record<string, GraphAgentInfo>, actor?: string): string {
+/** Prefers the seat agent.spawn recorded, then `agent` (a subagent) / `main` (the main loop). */
+export function seatOf(agentId: string | undefined, agents: Record<string, GraphAgentInfo>): string {
   const known = agentId !== undefined ? agents[agentId]?.seat : undefined
   if (known !== undefined && known.length > 0) return known
-  const prefix = actor !== undefined ? actor.split(':')[0] : undefined
-  if (prefix !== undefined && prefix.length > 0) return prefix
 
   return agentId !== undefined ? 'agent' : 'main'
 }
@@ -69,19 +67,28 @@ export function shortModel(model: string | undefined): string | undefined {
   return short.length > 0 ? short : model
 }
 
-/** Resolves a call's id against the snapshot's ids: exact, or a prefix (>= 4 chars) that matches exactly one. */
+/**
+ * Resolves a call's id against the snapshot's (short) ids: an id of 8 or more characters by its short id,
+ * a shorter one (>= 4 chars) as a prefix that matches exactly one.
+ */
 export function resolveId(raw: string, known: readonly string[]): string | null {
   if (known.includes(raw)) return raw
+  if (raw.length >= 8) {
+    const short = shortId(raw)
+
+    return known.includes(short) ? short : null
+  }
   if (raw.length < 4) return null
-  const hits = known.filter(id => id.startsWith(raw))
+  const lower = raw.toLowerCase()
+  const hits = known.filter(id => id.startsWith(lower))
 
   return hits.length === 1 ? (hits[0] as string) : null
 }
 
-/** A gate-blocked advance_item marks its item this long (or until a later TO write on it). */
+/** A gate-blocked advance marks its item this long (or until a later TO write on it). */
 export const GATE_BLOCK_MS = 600_000
 
-/** One gate-blocked transition of an advance_item result. */
+/** One gate-blocked transition of an advance result. */
 export interface GateBlockRow {
   itemId: string
   targetRole?: string
@@ -89,29 +96,25 @@ export interface GateBlockRow {
 }
 
 /**
- * The gate-blocked rows of an advance_item result as the model reads it (`ran.text`, the JSON text):
- * rows with `applied: false` and `errorCode: 'gate_blocked'`. Any other tool, or text that is not
- * that JSON, gives []. `missingNotes` entries may be `{ key }` objects or plain strings.
+ * The gate-blocked elements of an `advance` result (read from its envelope): each `data.results[i]` with
+ * `ok: false` and `error.code === 'gate_blocked'`, as `{itemId: detail.itemId, missing: detail.missing[].key}`
+ * (plain string entries tolerated). Any other tool, or a result without an envelope, gives [].
  */
-export function gateBlocks(tool: string, text: unknown): GateBlockRow[] {
-  if (toToolName(tool) !== 'advance_item' || typeof text !== 'string') return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return []
-  }
-  const rows = isObj(parsed) && Array.isArray(parsed.results) ? parsed.results : []
+export function gateBlocks(tool: string, result: unknown): GateBlockRow[] {
+  if (toToolName(tool) !== 'advance') return []
+  const env = envelopeOf(result)
+  const data = env !== null && isObj(env.data) ? env.data : {}
+  const rows = Array.isArray(data.results) ? data.results : []
   const out: GateBlockRow[] = []
   for (const row of rows) {
-    if (!isObj(row) || row.applied !== false || row.errorCode !== 'gate_blocked') continue
-    const itemId = typeof row.itemId === 'string' ? row.itemId : undefined
+    if (!isObj(row) || row.ok !== false || !isObj(row.error) || row.error.code !== 'gate_blocked') continue
+    const detail = isObj(row.error.detail) ? row.error.detail : {}
+    const itemId = text(detail.itemId)
     if (itemId === undefined) continue
-    const missing = Array.isArray(row.missingNotes)
-      ? row.missingNotes.map(m => (typeof m === 'string' ? m : isObj(m) && typeof m.key === 'string' ? m.key : undefined)).filter((k): k is string => k !== undefined)
+    const missing = Array.isArray(detail.missing)
+      ? detail.missing.map(m => (typeof m === 'string' ? m : isObj(m) && typeof m.key === 'string' ? m.key : undefined)).filter((k): k is string => k !== undefined)
       : []
-    const target = typeof row.targetRole === 'string' ? row.targetRole : undefined
-    out.push({ itemId, missing, ...(target !== undefined ? { targetRole: target } : {}) })
+    out.push({ itemId, missing })
   }
 
   return out

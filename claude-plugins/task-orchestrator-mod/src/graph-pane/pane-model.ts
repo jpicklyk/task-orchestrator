@@ -1,6 +1,8 @@
 // Pure model of the /to-graph pane: command arguments, scope titles and the read-only detail
-// lines (T3 a47dcd6f). No `$` here.
+// lines (T3 a47dcd6f). No `$` here. Snapshot ids are 8-hex short ids (graph-data D1), so every
+// comparison with an id from elsewhere (an atom, a call, a history row) goes through shortId.
 import type { GraphSnapshot, GraphStatus } from '../../types'
+import { shortId } from '../shared/to-client.ts'
 import { id8, kindOf } from './shared.ts'
 import type { GraphView } from './shared.ts'
 
@@ -37,8 +39,12 @@ export function scopeHeader(view: GraphView): string {
   return `${hit?.type === 'feature-implementation' ? 'Feature' : 'Scope'}: ${title}`
 }
 
-/** The scope id the pane is asked for: the atom, with null (the project root) read as the snapshot's root id. */
-export const wantedScope = (scope: string | null, snap: GraphSnapshot | null): string | null => scope ?? snap?.rootId ?? null
+/** The scope id the pane is asked for, by short id: the atom, with null (the project root) read as the snapshot's root id. */
+export const wantedScope = (scope: string | null, snap: GraphSnapshot | null): string | null => {
+  const want = scope ?? snap?.rootId ?? null
+
+  return want === null ? null : shortId(want)
+}
 
 /** Whether the loaded snapshot is for another scope than the one asked for (a switch is still loading). */
 export function isSwitching(scope: string | null, snap: GraphSnapshot | null): boolean {
@@ -68,7 +74,7 @@ export function summaryLine(view: GraphView): string {
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-/** A get_context (item mode) result as plain lines: role, whether it can advance, missing notes, claim. */
+/** An `items_read` `context` (item mode) result as plain lines: role, whether it can advance, missing notes, claim. */
 export function formatDetail(ctx: unknown): string[] {
   if (!isObj(ctx)) return ['No detail available.']
   const item = isObj(ctx.item) ? ctx.item : {}
@@ -84,14 +90,14 @@ export function formatDetail(ctx: unknown): string[] {
     : []
   lines.push(missing.length > 0 ? `missing notes: ${missing.join(', ')}` : 'missing notes: none')
 
-  lines.push(claimLine(ctx, item))
+  lines.push(claimLine(ctx))
 
   return lines
 }
 
-/** The claim line of a get_context result: `claimed by <who>[ (expired)][, expires <t>]` or `claim: none`. */
-function claimLine(ctx: Obj, item: Obj): string {
-  const claim = isObj(ctx.claim) ? ctx.claim : isObj(item.claim) ? item.claim : isObj(ctx.claimDetail) ? ctx.claimDetail : { ...item, ...ctx }
+/** The claim line of a `context` result, from its `claimDetail`: `claimed by <who>[ (expired)][, expires <t>]` or `claim: none`. */
+function claimLine(ctx: Obj): string {
+  const claim = isObj(ctx.claimDetail) ? ctx.claimDetail : {}
   const claimedBy = claim.claimedBy
   if (claimedBy === undefined || claimedBy === null) return 'claim: none'
   const who = isObj(claimedBy) ? String(claimedBy.id ?? JSON.stringify(claimedBy)) : String(claimedBy)
@@ -111,11 +117,11 @@ export function duration(ms: number): string {
 
 export interface DetailInput {
   itemId: string
-  /** The get_context result (item mode). */
+  /** The `items_read` `context` data (item mode). */
   ctx: unknown
-  /** The query_items get result, when it could be read. */
+  /** The `items_read` `get` data (with timestamps), when it could be read. */
   item?: unknown
-  /** The query_notes list result (bodies not needed), when it could be read. */
+  /** The `notes_read` `list` data (no bodies), when it could be read. */
   notes?: unknown
   now: number
   itemFailed?: boolean
@@ -124,13 +130,13 @@ export interface DetailInput {
 
 /**
  * The click-through detail: title and type, phase and time in it, summary, one line per required note of
- * the current phase with its author, can-advance and the claim. Read-only data in, plain lines out.
+ * the current phase with its author (when attribution is visible), can-advance and the claim. Read-only
+ * data in, plain lines out.
  */
 export function detailLines(i: DetailInput): string[] {
   const ctx = isObj(i.ctx) ? i.ctx : {}
   const ctxItem = isObj(ctx.item) ? ctx.item : {}
-  const raw = isObj(i.item) ? i.item : {}
-  const item = isObj(raw.item) ? raw.item : raw
+  const item = isObj(i.item) ? i.item : {}
   const gate = isObj(ctx.gateStatus) ? ctx.gateStatus : {}
   const lines: string[] = []
   const title = typeof item.title === 'string' ? item.title : typeof ctxItem.title === 'string' ? ctxItem.title : i.itemId
@@ -145,7 +151,7 @@ export function detailLines(i: DetailInput): string[] {
   else if (i.itemFailed === true) lines.push('(summary unavailable)')
 
   const authors = new Map<string, string>()
-  const noteList = isObj(i.notes) && Array.isArray(i.notes.notes) ? i.notes.notes : []
+  const noteList = isObj(i.notes) && Array.isArray(i.notes.items) ? i.notes.items : []
   for (const n of noteList) {
     if (isObj(n) && typeof n.key === 'string' && isObj(n.actor) && typeof n.actor.id === 'string') authors.set(n.key, n.actor.id)
   }
@@ -162,19 +168,19 @@ export function detailLines(i: DetailInput): string[] {
   if (i.notesFailed === true) lines.push('(authors unavailable)')
 
   if (typeof gate.canAdvance === 'boolean') lines.push(`can advance: ${gate.canAdvance ? 'yes' : 'no'}`)
-  lines.push(claimLine(ctx, ctxItem))
+  lines.push(claimLine(ctx))
 
   return lines
 }
 
-/** A parsed read-only TO call, closed over `$` in index.ts so this module stays `$`-free. */
+/** A read-only TO call returning the envelope `data`, closed over `$` in index.ts so this module stays `$`-free. */
 export type ToolCall = (tool: string, args: Record<string, unknown>) => Promise<unknown>
 
 /** How far back the default-scope read looks for the latest transition under the root. */
 export const SCOPE_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000
-const SCOPE_TRANSITION_LIMIT = 200
+const SCOPE_READ_LIMIT = 200
 
-const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).flatMap(a => (typeof a.id === 'string' ? [a.id] : [])) : [])
+const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).flatMap(a => (typeof a.id === 'string' && a.id.length > 0 ? [shortId(a.id)] : [])) : [])
 
 /** Most distinct transition candidates activeScope examines before giving up. */
 export const SCOPE_CANDIDATE_LIMIT = 10
@@ -182,15 +188,16 @@ export const SCOPE_CANDIDATE_LIMIT = 10
 type ReadItem = (id: string) => Promise<unknown>
 const typeOf = (n: unknown): string | undefined => (isObj(n) && typeof n.type === 'string' ? n.type : undefined)
 const isContainerType = (t: string | undefined): boolean => t === 'container' || t === 'project'
+const itemsOf = (data: unknown): unknown[] => (isObj(data) && Array.isArray(data.items) ? data.items : [])
 
-/** One `query_items get` per id per call (memoized), with ancestors so a candidate's root membership is known. */
+/** One `items_read` `get` (with ancestors) per id per call (memoized), so a candidate's root membership is known. */
 function itemReader(call: ToolCall): ReadItem {
   const memo = new Map<string, Promise<unknown>>()
 
   return id => {
     let hit = memo.get(id)
     if (hit === undefined) {
-      hit = call('query_items', { operation: 'get', itemId: id, includeAncestors: true })
+      hit = call('items_read', { select: 'get', itemId: id, fields: ['ancestors'] })
       memo.set(id, hit)
     }
 
@@ -199,14 +206,15 @@ function itemReader(call: ToolCall): ReadItem {
 }
 
 /**
- * The owning scope along a nearest-first chain (the item, then its ancestors up to the root): the nearest
- * feature-implementation; a container or project stops the walk and the last non-container seen is
- * returned (a bug under a Bugs container is its own scope).
+ * The owning scope along a nearest-first chain of short ids (the item, then its ancestors up to the root):
+ * the nearest feature-implementation; a container or project stops the walk and the last non-container
+ * seen is returned (a bug under a Bugs container is its own scope).
  */
 async function walkScope(read: ReadItem, chain: readonly string[], rootId: string): Promise<string | null> {
+  const root = shortId(rootId)
   let last: string | null = null
   for (const id of chain) {
-    if (id === rootId) return last
+    if (id === root) return last
     const type = typeOf(await read(id))
     if (type === 'feature-implementation') return id
     if (isContainerType(type)) return last
@@ -217,16 +225,17 @@ async function walkScope(read: ReadItem, chain: readonly string[], rootId: strin
 }
 
 /**
- * The owning scope of one item under `rootId` (one `query_items get` per id on the walk). Accepts an id
- * prefix: the reply's full id is used. Null when the reply has no id, the root is not among the item's
+ * The owning scope (a short id) of one item under `rootId` (one `items_read` `get` per id on the walk).
+ * Accepts a full id or a short id. Null when the reply has no id, the root is not among the item's
  * ancestors, or the item is the root, a container or a project. A read that throws propagates.
  */
 export async function owningScope(call: ToolCall, itemId: string, rootId: string): Promise<string | null> {
-  const first = await call('query_items', { operation: 'get', itemId, includeAncestors: true })
-  if (!isObj(first) || typeof first.id !== 'string') return null
-  const id = first.id
+  const first = await call('items_read', { select: 'get', itemId, fields: ['ancestors'] })
+  if (!isObj(first) || typeof first.id !== 'string' || first.id.length === 0) return null
+  const id = shortId(first.id)
+  const root = shortId(rootId)
   const ancestors = idsOf(first.ancestors)
-  if (id === rootId || !ancestors.includes(rootId) || isContainerType(typeOf(first))) return null
+  if (id === root || !ancestors.includes(root) || isContainerType(typeOf(first))) return null
   const rest = itemReader(call)
   const read: ReadItem = i => (i === id ? Promise.resolve(first) : rest(i))
 
@@ -234,32 +243,27 @@ export async function owningScope(call: ToolCall, itemId: string, rootId: string
 }
 
 /**
- * The scope `/to-graph` opens with no argument: the owning scope of the most recent transition under
- * `rootId`. One session-resume read; the first transition (newest first) whose item is still active
- * wins, else the newest transition's item if the root is among its ancestors (transitions are not
- * scoped by the server). Rows for the root or a container/project are skipped (a start-cascade can sort
- * one ahead of the real item), and at most SCOPE_CANDIDATE_LIMIT distinct ids are examined. The owning
- * scope is the nearest feature-implementation walking up from that item; a container or project stops
- * the walk and the last non-container seen is returned (a bug under a Bugs container is its own scope).
- * Returns null when nothing usable was found; a read that throws propagates, so the caller falls back
- * to the legacy rule on either.
+ * The scope `/to-graph` opens with no argument: the owning scope (a short id) of the most recent
+ * transition under `rootId`. One `history` read (newest first, since now - SCOPE_LOOKBACK_MS) and one
+ * health-mode `context` read of the root's subtree with ancestors: the first transition whose item is
+ * still active wins, else the newest transition's item if the root is among its ancestors (history is not
+ * scoped to the root). Rows for the root or a container/project are skipped (a start-cascade can sort one
+ * ahead of the real item), and at most SCOPE_CANDIDATE_LIMIT distinct ids are examined. Returns null when
+ * nothing usable was found; a read that throws propagates, so the caller falls back to the legacy rule on
+ * either.
  */
 export async function activeScope(call: ToolCall, rootId: string, now: number): Promise<string | null> {
-  const resume = await call('get_context', {
-    mode: 'session-resume',
-    since: new Date(now - SCOPE_LOOKBACK_MS).toISOString(),
-    ancestorId: rootId,
-    includeAncestors: true,
-    limit: SCOPE_TRANSITION_LIMIT,
-  })
-  if (!isObj(resume)) return null
-  const moves = [...new Set((Array.isArray(resume.recentTransitions) ? resume.recentTransitions : []).filter(isObj).flatMap(t => (typeof t.itemId === 'string' ? [t.itemId] : [])))].slice(0, SCOPE_CANDIDATE_LIMIT)
+  const root = shortId(rootId)
+  const history = await call('items_read', { select: 'history', since: new Date(now - SCOPE_LOOKBACK_MS).toISOString(), limit: SCOPE_READ_LIMIT })
+  const context = await call('items_read', { select: 'context', ancestorId: rootId, limit: SCOPE_READ_LIMIT, fields: ['ancestors'] })
+  const moves = [...new Set(itemsOf(history).filter(isObj).flatMap(t => (typeof t.itemId === 'string' && t.itemId.length > 0 ? [shortId(t.itemId)] : [])))].slice(0, SCOPE_CANDIDATE_LIMIT)
   const active = new Map<string, string[]>()
-  for (const a of Array.isArray(resume.activeItems) ? resume.activeItems.filter(isObj) : []) {
-    if (typeof a.id === 'string') active.set(a.id, idsOf(a.ancestors))
+  const activeItems = isObj(context) && isObj(context.active) ? itemsOf(context.active) : []
+  for (const a of activeItems.filter(isObj)) {
+    if (typeof a.id === 'string' && a.id.length > 0) active.set(shortId(a.id), idsOf(a.ancestors))
   }
   const read = itemReader(call)
-  const usable = async (id: string): Promise<boolean> => id !== rootId && !isContainerType(typeOf(await read(id)))
+  const usable = async (id: string): Promise<boolean> => id !== root && !isContainerType(typeOf(await read(id)))
   let start: string | undefined
   let ancestors: string[] = []
   for (const id of moves) {
@@ -274,7 +278,7 @@ export async function activeScope(call: ToolCall, rootId: string, now: number): 
       const item = await read(id)
       if (!isObj(item)) continue
       const up = idsOf(item.ancestors)
-      if (!up.includes(rootId) || id === rootId || isContainerType(typeOf(item))) continue
+      if (!up.includes(root) || id === root || isContainerType(typeOf(item))) continue
       start = id
       ancestors = up
       break
