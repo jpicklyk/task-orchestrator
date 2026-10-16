@@ -1,6 +1,6 @@
 // Drives skill-enforcement.mjs as a subprocess with fixture JSON on stdin. Marker isolation:
 // every test uses a fixture (randomly-generated) session_id, so the shared marker file at
-// os.tmpdir()/task-orchestrator/skill-enforce-<session>.json is never the live marker for a
+// os.tmpdir()/task-orchestrator/<session>/skill-enforce.json is never the live marker for a
 // real session. Markers are cleaned up in `finally` blocks using a locally-duplicated
 // markerPath (the hook does not export it — it is deliberately self-contained, see scope
 // note in skill-enforcement.mjs).
@@ -41,7 +41,7 @@ function writeConfig(dir, content) {
 
 function markerPath(sessionId) {
   const sanitized = sessionId ? String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_') : 'unknown';
-  return join(tmpdir(), 'task-orchestrator', `skill-enforce-${sanitized}.json`);
+  return join(tmpdir(), 'task-orchestrator', sanitized, 'skill-enforce.json');
 }
 
 // Hermeticity recipe (Ruling 2): every spawn pins TASK_ORCHESTRATOR_HOME to its OWN fresh empty

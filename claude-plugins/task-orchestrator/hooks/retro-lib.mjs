@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
+import { sharedMarkerPath, readMarker as readMarkerFile, writeMarker as writeMarkerFile } from './lib/markers.mjs';
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
 const DEFAULT_MODE = 'nudge';
@@ -72,25 +73,19 @@ export function dispatchAncestorId(located) {
   return located && located.scope === 'project' ? (located.rootId || null) : null;
 }
 
+// The retro marker is cross-session (keyed by rootId, or the session id in user scope), so it keeps
+// its shared path. P13 retires it.
 export function markerPath(key) {
-  return join(os.tmpdir(), 'task-orchestrator', 'retro-' + key.replace(/[^a-zA-Z0-9-]/g, '_') + '.json');
+  return sharedMarkerPath('retro-' + key);
 }
 
 export function readMarker(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch {
-    return {};
-  }
+  return readMarkerFile(path, {});
 }
 
 export function writeMarker(path, obj) {
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(obj));
-  } catch {
-    // swallow all errors — a marker write must never crash a hook
-  }
+  // atomic and fail-open: a marker write must never crash a hook
+  writeMarkerFile(path, obj);
 }
 
 // Default cooldown, in ms — overridden per-config by `retrospective.cooldownMinutes` (see

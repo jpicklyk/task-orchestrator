@@ -33,30 +33,26 @@
 // check blocks only on the role this agent actually entered, never on whatever role the item has
 // since moved to under a later seat.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import os from 'os';
 import { apiBaseUrl } from './api-client.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitEmpty as writeEmpty } from './lib/emit.mjs';
+import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { extractResponseJson } from './retro-lib.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 
 const MAX_ITEMS_PER_AGENT = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function sanitizeForFilename(value) {
-  return String(value).replace(/[^a-zA-Z0-9-]/g, '_');
-}
-
 /**
- * One state file per (session_id, agent_id) pair, under os.tmpdir()/task-orchestrator/, with a
- * `phase-guard-` prefix. Deliberately NOT retro-lib's `markerPath`: that hard-codes a `retro-`
+ * One state file per (session_id, agent_id) pair, under os.tmpdir()/task-orchestrator/<session>/,
+ * named `phase-guard-<agent>.json`. Deliberately NOT retro-lib's `markerPath`: that hard-codes a `retro-`
  * prefix and is keyed only on session/rootId — a shared per-session map would race under
  * parallel subagents advancing concurrently, which per-agent files avoid.
  */
 export function phaseGuardMarkerPath(sessionId, agentId) {
-  const key = sanitizeForFilename(`${sessionId || 'unknown'}-${agentId || 'unknown'}`);
-  return join(os.tmpdir(), 'task-orchestrator', `phase-guard-${key}.json`);
+  return sessionMarkerPath(sessionId, 'phase-guard', agentId || 'unknown');
 }
 
 /** Shape: `{items: string[], blocks: number, enteredRoles: {[itemId]: string}}`. `enteredRoles`
@@ -65,8 +61,8 @@ export function phaseGuardMarkerPath(sessionId, agentId) {
  * than crashing. Any read failure degrades to the empty default. */
 export function readPhaseGuardMarker(path) {
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf-8'));
-    if (!parsed || typeof parsed !== 'object') return { items: [], blocks: 0, enteredRoles: {} };
+    const parsed = readMarker(path, null);
+    if (!parsed) return { items: [], blocks: 0, enteredRoles: {} };
     const enteredRoles =
       parsed.enteredRoles && typeof parsed.enteredRoles === 'object' && !Array.isArray(parsed.enteredRoles)
         ? parsed.enteredRoles
@@ -82,12 +78,8 @@ export function readPhaseGuardMarker(path) {
 }
 
 export function writePhaseGuardMarker(path, obj) {
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(obj));
-  } catch {
-    // swallow all errors — a marker write must never crash a hook
-  }
+  // atomic and fail-open: a marker write must never crash a hook
+  writeMarker(path, obj);
 }
 
 export function isFullUuid(value) {
@@ -210,25 +202,14 @@ export function extractEnteredRoles(payload) {
 }
 
 function emitEmpty() {
-  process.stdout.write('{}');
+  writeEmpty();
   process.exit(0);
 }
 
 function main() {
   try {
-    let raw = '';
-    try {
-      raw = readFileSync(0, 'utf-8');
-    } catch {
-      emitEmpty();
-    }
-
-    let hookInput;
-    try {
-      hookInput = JSON.parse(raw);
-    } catch {
-      emitEmpty();
-    }
+    const hookInput = readHookInput();
+    if (!hookInput) emitEmpty();
 
     // The task-orchestrator-mod plugin already handled this event in-process (it sets
     // `to_mod_active` before forwarding); recording here too would write a redundant marker file.

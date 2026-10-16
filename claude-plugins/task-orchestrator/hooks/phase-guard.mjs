@@ -49,10 +49,12 @@
 // violations, mirroring the seat-only note-missing filter above. A `warn`-mode item never trips
 // this (its `canAdvance` stays true), and a waived violation never blocks in any mode.
 
-import { readFileSync, unlinkSync } from 'fs';
+import { unlinkSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitEmpty as writeEmpty, emitBlock as writeBlock } from './lib/emit.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
 import { isHeadlessIteration, phaseOwnerSeat, isTestAuthorAgentType } from './execution-mode.mjs';
 
@@ -63,12 +65,12 @@ const SEAT_ROLE = { implementer: 'work', reviewer: 'review' };
 export const TEST_AUTHOR_OWNED_KEYS = new Set(['test-manifest']);
 
 function emitEmpty() {
-  process.stdout.write('{}');
+  writeEmpty();
   process.exit(0);
 }
 
 function emitBlock(reason) {
-  process.stdout.write(JSON.stringify({ decision: 'block', reason }));
+  writeBlock(reason);
   process.exit(0);
 }
 
@@ -127,19 +129,8 @@ function buildReason(blockers) {
 
 async function main() {
   try {
-    let raw = '';
-    try {
-      raw = readFileSync(0, 'utf-8');
-    } catch {
-      emitEmpty();
-    }
-
-    let hookInput;
-    try {
-      hookInput = JSON.parse(raw);
-    } catch {
-      emitEmpty();
-    }
+    const hookInput = readHookInput();
+    if (!hookInput) emitEmpty();
 
     // The task-orchestrator-mod plugin already guarded this stop in-process (it sets `to_mod_active`
     // before forwarding), so this command hook stands down.
