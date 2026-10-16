@@ -1,37 +1,34 @@
 #!/usr/bin/env node
-// PostToolUse hook — detects when an implementation run reaches terminal, via advance_item
-// (direct transition or cascade) or complete_tree, and surfaces a retrospective nudge or a
-// hard dispatch directive, per the `retrospective` config in .taskorchestrator/config.yaml.
+// PostToolUse hook for runs_write — a retrospective is owed per closed run that is not marked
+// `retro`. On a successful `close` op this hook (main session, REST configured with a project rootId)
+// lists the root's recently closed, unmarked runs, reads each run's terminal member count, and either
+// dispatches a retrospective (mode: dispatch and terminal >= dispatchThreshold, after winning the
+// server-side `retro` mark: first write wins, so two sessions never both dispatch) or nudges.
 //
-// Fail-open by design: any read/parse error, missing config, unparseable tool_response, or
-// unrecognized tool shape results in a silent `{}` on stdout and exit 0 — this hook must never
-// block a tool call.
+// Without REST (no API URL, or no project rootId) the hook only records the close in the per-session
+// marker; the Stop backstop (retro-backstop.mjs) nudges once from it. A subagent never acts: it records
+// the close for the main session's backstop.
 //
-// Substance gate: in `mode: dispatch`, a hard background dispatch only fires once the count of
-// items that reached terminal SINCE THE LAST retrospective directive (nudge or dispatch) clears
-// `dispatchThreshold` (default 3) — tracked in marker.terminalCount, accumulated across
-// LONE_TERMINAL calls and reset to 0 whenever any directive fires. Below threshold still emits
-// a nudge, never silence: nothing goes unreported, only the automatic background spawn is
-// reserved for substantial runs.
+// Fail-open by design: any error, missing config, or unrecognized tool shape results in a silent `{}`
+// on stdout and exit 0 — this hook must never block a tool call.
 
 import { readHookInput } from './lib/stdin.mjs';
 import { emitEmpty as writeEmpty, emitContext as writeContext } from './lib/emit.mjs';
+import { parseToolResult } from './lib/envelope.mjs';
+import { opsOf } from './lib/ops.mjs';
 import {
   parseRetrospectiveConfig,
-  retroMarkerKey,
-  dispatchAncestorId,
-  markerPath,
-  readMarker,
-  writeMarker,
-  extractResponseJson,
+  restRootId,
+  readSessionState,
+  writeSessionState,
+  evaluateRuns,
+  directiveFor,
   debugCapture,
-  buildNudge,
-  buildDispatch,
 } from './retro-lib.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 
-const MAX_ROOT_UUIDS = 50;
+const MAX_RECORDED = 50;
 
 function emitEmpty() {
   writeEmpty();
@@ -43,11 +40,22 @@ function emitContext(text) {
   process.exit(0);
 }
 
-// Keep only the most recent MAX_ROOT_UUIDS entries so the marker file can't grow unbounded
-// across a long-running session. `ids` comes from a Set spread, so insertion order (oldest
-// first) is preserved — slicing off the tail keeps the newest ones.
-function capRootUuids(ids) {
-  return ids.length > MAX_ROOT_UUIDS ? ids.slice(ids.length - MAX_ROOT_UUIDS) : ids;
+// Run ids of the `close` ops whose result at the same index is ok === true. Null when there is none.
+function successfulCloses(toolInput, toolResponse) {
+  const parsed = parseToolResult(toolResponse?.structuredContent ?? toolResponse);
+  if (!parsed) return null;
+  const ops = opsOf(toolInput);
+  const ids = [];
+  let any = false;
+  ops.forEach((op, i) => {
+    if (op.op !== 'close') return;
+    const r = parsed.results[i];
+    if (!r || r.ok !== true) return;
+    any = true;
+    const runId = typeof op.runId === 'string' && op.runId ? op.runId : (typeof r.runId === 'string' ? r.runId : null);
+    if (runId) ids.push(runId);
+  });
+  return any ? ids : null;
 }
 
 try {
@@ -56,172 +64,37 @@ try {
   debugCapture(hookInput ? JSON.stringify(hookInput) : '');
   if (!hookInput) emitEmpty();
 
-  // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
-  // `to_mod_retro` on the event): step aside before any config or marker I/O.
-  if (hookInput?.to_mod_retro === true) emitEmpty();
-
-  // Headless ralph iteration: emit empty BEFORE any marker read/write, so a headless iteration's
-  // tool calls never pollute the per-rootId marker the interactive session's Stop backstop
-  // (retro-backstop.mjs) relies on.
+  // The task-orchestrator-mod plugin owns retrospective handling for this event: step aside first.
+  if (hookInput.to_mod_retro === true) emitEmpty();
   if (isHeadlessIteration()) emitEmpty();
 
-  const sessionId = hookInput.session_id;
   const toolName = hookInput.tool_name || '';
-  const toolInput = hookInput.tool_input || {};
-  const toolResponse = hookInput.tool_response;
+  if (!/(^|__)runs_write$/.test(toolName)) emitEmpty();
 
   const located = locateConfig();
   const config = parseRetrospectiveConfig(located.text);
   if (config.mode === 'off') emitEmpty();
 
-  const cooldownMs = config.cooldownMinutes * 60 * 1000;
+  const closes = successfulCloses(hookInput.tool_input, hookInput.tool_response);
+  if (closes === null) emitEmpty();
 
-  const rootId = located.rootId;
-  const key = retroMarkerKey(located, sessionId);
-  const path = markerPath(key);
-  const marker = readMarker(path);
-  const now = Date.now();
+  const sessionId = hookInput.session_id;
+  const state = readSessionState(sessionId);
+  const rootId = restRootId(located);
 
-  const resp = extractResponseJson(toolResponse?.structuredContent ?? toolResponse);
-  if (resp === null) emitEmpty();
-
-  // Classify the tool call into PARENT_COMPLETION (dispatch/nudge now), LONE_TERMINAL (record
-  // and wait — a single leaf finishing isn't necessarily a run boundary), or neither.
-  let kind = null;
-  let roots = [];
-  let thisCallTerminalCount = 0;
-
-  if (toolName.endsWith('complete_tree')) {
-    const completed = resp?.summary?.completed;
-    if (typeof completed === 'number' && completed > 0) {
-      const ctRoots = toolInput?.rootId
-        ? [toolInput.rootId]
-        : (Array.isArray(toolInput?.itemIds) ? toolInput.itemIds : []);
-      if (ctRoots.length === 0) {
-        // completed>0 but no identifiable root — don't emit a directive with an empty root
-        // list (broken text). Record it like a lone-terminal signal so the Stop backstop can
-        // still catch it via its own pendingRoots/rootId fallback. Still counts toward
-        // substance so a later identifiable completion isn't under-counted.
-        writeMarker(path, {
-          ...marker,
-          sawTerminal: true,
-          lastTerminalAt: now,
-          terminalCount: (marker.terminalCount || 0) + completed,
-          sessionId,
-          rootId,
-          scope: located.scope,
-        });
-        emitEmpty();
-      }
-      kind = 'PARENT_COMPLETION';
-      roots = ctRoots;
-      thisCallTerminalCount = completed;
-    }
-  } else if (toolName.endsWith('advance_item')) {
-    const results = Array.isArray(resp?.results) ? resp.results : [];
-
-    const cascadeTerminals = [];
-    for (const r of results) {
-      const events = Array.isArray(r.cascadeEvents) ? r.cascadeEvents : [];
-      for (const e of events) {
-        if (e.targetRole === 'terminal' && e.applied === true) {
-          cascadeTerminals.push(e.itemId);
-        }
-      }
-    }
-
-    // Per-result scoping: a result is a lone-terminal candidate iff it went terminal AND that
-    // same result has no non-empty unblockedItems of its own. A batch-wide "any unblocked"
-    // check would wrongly drop an unrelated terminal result in the same batch.
-    const loneTerminalCandidates = results
-      .filter(r => r.newRole === 'terminal' && !(Array.isArray(r.unblockedItems) && r.unblockedItems.length > 0))
-      .map(r => r.itemId);
-
-    // Direct terminal results in this same batched call, regardless of unblockedItems — used
-    // only for substance counting below, never for `roots` (which stays scoped to cascade
-    // parents so the dispatch/nudge text's "what completed" scope is unchanged).
-    const directTerminals = results
-      .filter(r => r.newRole === 'terminal')
-      .map(r => r.itemId);
-
-    if (cascadeTerminals.length) {
-      kind = 'PARENT_COMPLETION';
-      roots = [...new Set(cascadeTerminals)];
-      // Substance count: distinct itemIds reaching terminal in this call — the union of cascade
-      // terminals and any direct newRole === 'terminal' results in the same batch (e.g. several
-      // children going terminal plus one cascaded parent all count toward substance).
-      thisCallTerminalCount = new Set([...cascadeTerminals, ...directTerminals]).size;
-    } else if (loneTerminalCandidates.length) {
-      kind = 'LONE_TERMINAL';
-      roots = loneTerminalCandidates;
-    }
-  }
-
-  if (!kind) emitEmpty();
-
-  // A subagent (agent_id present, non-headless) never fires the interactive-orchestrator
-  // directive itself: a would-be PARENT_COMPLETION is recorded exactly like a LONE_TERMINAL so
-  // the main session's Stop backstop (retro-backstop.mjs) is the one that surfaces it, once the
-  // subagent has actually returned control.
-  if (kind === 'PARENT_COMPLETION' && isSubagentInvocation(hookInput)) {
-    writeMarker(path, {
-      ...marker,
-      sawTerminal: true,
-      lastTerminalAt: now,
-      pendingRoots: [...new Set([...(marker.pendingRoots || []), ...roots])],
-      terminalCount: (marker.terminalCount || 0) + thisCallTerminalCount,
-      sessionId,
-      rootId,
-      scope: located.scope,
-    });
+  // A subagent never acts; without REST there is nothing to evaluate. Either way, record the close so
+  // the main session's backstop can surface it.
+  if (isSubagentInvocation(hookInput) || !rootId) {
+    state.sawClose = true;
+    state.closes = [...new Set([...state.closes, ...closes])].slice(-MAX_RECORDED);
+    writeSessionState(sessionId, state);
     emitEmpty();
   }
 
-  if (kind === 'PARENT_COMPLETION') {
-    const existingRoots = marker.rootUuids || [];
-    // Deliberately NOT removing this bypass: triggers are event-driven with no retry, so
-    // without it a second feature tree completing inside the cooldown window of the first
-    // would get no retrospective at all, not merely a late one. config-format.md promises one
-    // retrospective per run, not per time window.
-    const newRun =
-      !marker.handledAt ||
-      (now - marker.handledAt > cooldownMs) ||
-      roots.some(r => !existingRoots.includes(r));
-
-    if (!newRun) emitEmpty();
-
-    const substance = (marker.terminalCount || 0) + thisCallTerminalCount;
-
-    writeMarker(path, {
-      ...marker,
-      handledAt: now,
-      rootUuids: capRootUuids([...new Set([...existingRoots, ...roots])]),
-      sawTerminal: false,
-      pendingRoots: [],
-      terminalCount: 0,
-      sessionId,
-      rootId,
-      scope: located.scope,
-    });
-
-    const text = (config.mode === 'dispatch' && substance >= config.dispatchThreshold)
-      ? buildDispatch(roots, dispatchAncestorId(located))
-      : buildNudge(roots);
-    emitContext(text);
-  }
-
-  // LONE_TERMINAL — record it so a subsequent cascade/parent completion in this run is
-  // recognized, but don't nudge/dispatch yet. Accumulates toward the substance gate.
-  writeMarker(path, {
-    ...marker,
-    sawTerminal: true,
-    lastTerminalAt: now,
-    pendingRoots: [...new Set([...(marker.pendingRoots || []), ...roots])],
-    terminalCount: (marker.terminalCount || 0) + roots.length,
-    sessionId,
-    rootId,
-    scope: located.scope,
-  });
+  const result = await evaluateRuns({ rootId, config, state });
+  const text = directiveFor(result, located);
+  if (result.nudge.length > 0) writeSessionState(sessionId, state);
+  if (text) emitContext(text);
   emitEmpty();
 } catch {
   emitEmpty();

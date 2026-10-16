@@ -1,145 +1,192 @@
+// retro-lib.mjs pure functions (c7e43c6d): config reading (AC6, S12), directive text (AC9, S15)
+// and the removal of the cross-session marker API (AC1). Oracle: task-scope AC1/AC6/AC9 and the
+// declarations' doc comments (dispatchAncestorId: only a project-scope config contributes its
+// rootId).
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  parseRetrospectiveConfig,
-  parseRetrospectiveMode,
-  retroMarkerKey,
-  dispatchAncestorId,
-  buildNudge,
-  buildDispatch,
-  COOLDOWN_MS,
-} from '../retro-lib.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as lib from '../retro-lib.mjs';
 
-test('parseRetrospectiveConfig: defaults when config content is absent', () => {
-  assert.deepEqual(parseRetrospectiveConfig(null), { mode: 'nudge', dispatchThreshold: 3, cooldownMinutes: 30 });
-  assert.deepEqual(parseRetrospectiveConfig(''), { mode: 'nudge', dispatchThreshold: 3, cooldownMinutes: 30 });
+const { parseRetrospectiveConfig, parseRetrospectiveMode, dispatchAncestorId, restRootId, buildNudge, buildDispatch } = lib;
+
+const NL = String.fromCharCode(10);
+const DEFAULTS = { mode: 'nudge', dispatchThreshold: 3 };
+const nested = (...retroLines) =>
+  ['extensions:', '  claude-code:', '    retrospective:', ...retroLines.map((l) => `      ${l}`), ''].join(NL);
+
+// ---- S12 defaults and shape -----------------------------------------------------------------
+
+test('S12: absent or empty config -> exactly {mode: nudge, dispatchThreshold: 3} (no cooldownMinutes key)', () => {
+  assert.deepEqual(parseRetrospectiveConfig(null), DEFAULTS);
+  assert.deepEqual(parseRetrospectiveConfig(undefined), DEFAULTS);
+  assert.deepEqual(parseRetrospectiveConfig(''), DEFAULTS);
 });
 
-test('parseRetrospectiveConfig: defaults when the retrospective: block is absent', () => {
-  const cfg = parseRetrospectiveConfig('work_item_schemas:\n  foo: bar\n');
-  assert.deepEqual(cfg, { mode: 'nudge', dispatchThreshold: 3, cooldownMinutes: 30 });
+test('S12: a config without the extensions block, or without retrospective inside it -> defaults', () => {
+  assert.deepEqual(parseRetrospectiveConfig('work_item_schemas:\n  foo: bar\n'), DEFAULTS);
+  assert.deepEqual(parseRetrospectiveConfig('extensions:\n  claude-code:\n    other: x\n'), DEFAULTS);
+  assert.deepEqual(parseRetrospectiveConfig('extensions:\n  claude-code: {}\n'), DEFAULTS);
 });
 
-test('parseRetrospectiveConfig: reads all three keys from a block', () => {
-  const content = [
-    'retrospective:',
-    '  mode: dispatch',
-    '  dispatchThreshold: 5',
-    '  cooldownMinutes: 10',
-  ].join('\n');
-  assert.deepEqual(parseRetrospectiveConfig(content), { mode: 'dispatch', dispatchThreshold: 5, cooldownMinutes: 10 });
+test('S12: reads mode and dispatchThreshold from extensions.claude-code.retrospective', () => {
+  assert.deepEqual(parseRetrospectiveConfig(nested('mode: dispatch', 'dispatchThreshold: 5')), { mode: 'dispatch', dispatchThreshold: 5 });
+  assert.deepEqual(parseRetrospectiveConfig(nested('mode: off')), { mode: 'off', dispatchThreshold: 3 });
+  assert.deepEqual(parseRetrospectiveConfig(nested('dispatchThreshold: 7')), { mode: 'nudge', dispatchThreshold: 7 });
 });
 
-test('parseRetrospectiveConfig: invalid dispatchThreshold falls back to the default of 3', () => {
-  assert.equal(
-    parseRetrospectiveConfig('retrospective:\n  dispatchThreshold: not-a-number\n').dispatchThreshold,
-    3,
-  );
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  dispatchThreshold: -1\n').dispatchThreshold, 3);
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  dispatchThreshold: 2.5\n').dispatchThreshold, 3);
+test('S12: a sibling key before retrospective under claude-code does not hide it', () => {
+  const text = ['extensions:', '  claude-code:', '    other: x', '    retrospective:', '      mode: dispatch', '      dispatchThreshold: 4', ''].join(NL);
+  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'dispatch', dispatchThreshold: 4 });
 });
 
-test('parseRetrospectiveConfig: valid dispatchThreshold of 0 is honored (not treated as invalid)', () => {
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  dispatchThreshold: 0\n').dispatchThreshold, 0);
+test('S12: a column-0 comment inside the block does not break it', () => {
+  const text = ['extensions:', '  claude-code:', '    retrospective:', '# a comment', '      mode: dispatch', ''].join(NL);
+  assert.equal(parseRetrospectiveConfig(text).mode, 'dispatch');
 });
 
-test('parseRetrospectiveConfig: invalid cooldownMinutes falls back to the default of 30', () => {
-  assert.equal(
-    parseRetrospectiveConfig('retrospective:\n  cooldownMinutes: not-a-number\n').cooldownMinutes,
-    30,
-  );
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  cooldownMinutes: 0\n').cooldownMinutes, 30);
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  cooldownMinutes: -5\n').cooldownMinutes, 30);
+// ---- S12 the old top-level block is no longer read -------------------------------------------
+
+test('S12: a top-level retrospective: block is ignored -> defaults', () => {
+  assert.deepEqual(parseRetrospectiveConfig('retrospective:\n  mode: dispatch\n  dispatchThreshold: 9\n'), DEFAULTS);
+  assert.deepEqual(parseRetrospectiveConfig('retrospective:\n  mode: off\n'), DEFAULTS);
 });
 
-test('parseRetrospectiveConfig: valid non-default cooldownMinutes is honored', () => {
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  cooldownMinutes: 10\n').cooldownMinutes, 10);
+test('S12: with both blocks present only the extensions one counts', () => {
+  const text = 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 9\n' + nested('mode: nudge', 'dispatchThreshold: 2');
+  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'nudge', dispatchThreshold: 2 });
 });
 
-test('parseRetrospectiveConfig: mode off stays off — never silently falls back to nudge', () => {
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  mode: off\n').mode, 'off');
+test('S12 probe: a retrospective block under another extension namespace is not this plugin\'s', () => {
+  const text = ['extensions:', '  other-tool:', '    retrospective:', '      mode: dispatch', ''].join(NL);
+  assert.deepEqual(parseRetrospectiveConfig(text), DEFAULTS);
 });
 
-test('parseRetrospectiveConfig: unrecognized mode value falls back to nudge', () => {
-  assert.equal(parseRetrospectiveConfig('retrospective:\n  mode: bogus\n').mode, 'nudge');
+test('S12: cooldownMinutes is dropped: configured or not, it never appears in the result', () => {
+  const r = parseRetrospectiveConfig(nested('mode: dispatch', 'cooldownMinutes: 10'));
+  assert.deepEqual(r, { mode: 'dispatch', dispatchThreshold: 3 });
+  assert.ok(!('cooldownMinutes' in r));
 });
 
-test('parseRetrospectiveConfig: a column-0 comment above mode does not break the block', () => {
-  const content = [
-    'retrospective:',
-    '# comment describing the mode field',
-    '  mode: dispatch',
-  ].join('\n');
-  assert.equal(parseRetrospectiveConfig(content).mode, 'dispatch');
+// ---- S12 validation ---------------------------------------------------------------------------
+
+test('S12: unrecognised mode -> nudge; off stays off; dispatch stays dispatch', () => {
+  assert.equal(parseRetrospectiveConfig(nested('mode: bogus')).mode, 'nudge');
+  assert.equal(parseRetrospectiveConfig(nested('mode: ')).mode, 'nudge');
+  assert.equal(parseRetrospectiveConfig(nested('mode: off')).mode, 'off');
+  assert.equal(parseRetrospectiveConfig(nested('mode: dispatch')).mode, 'dispatch');
 });
 
-test('parseRetrospectiveConfig: inline {} form reads mode and dispatchThreshold', () => {
-  const cfg = parseRetrospectiveConfig('retrospective: { mode: dispatch, dispatchThreshold: 7 }\n');
-  assert.equal(cfg.mode, 'dispatch');
-  assert.equal(cfg.dispatchThreshold, 7);
+test('S12: dispatchThreshold must be an integer >= 0, else 3; 0 is honoured', () => {
+  for (const bad of ['not-a-number', '-1', '2.5', '""', '']) {
+    assert.equal(parseRetrospectiveConfig(nested(`dispatchThreshold: ${bad}`)).dispatchThreshold, 3, `value ${JSON.stringify(bad)}`);
+  }
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 0')).dispatchThreshold, 0);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 1')).dispatchThreshold, 1);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 12')).dispatchThreshold, 12);
 });
 
-test('parseRetrospectiveConfig: inline {} form with a trailing comment after the brace still reads mode (fix M2)', () => {
-  const cfg = parseRetrospectiveConfig('retrospective: { mode: dispatch }  # comment\n');
-  assert.equal(cfg.mode, 'dispatch');
-});
-
-test('parseRetrospectiveMode: thin wrapper matches parseRetrospectiveConfig().mode', () => {
-  const content = 'retrospective:\n  mode: dispatch\n';
-  assert.equal(parseRetrospectiveMode(content), parseRetrospectiveConfig(content).mode);
+test('S12: parseRetrospectiveMode is the mode of parseRetrospectiveConfig', () => {
+  const text = nested('mode: dispatch');
+  assert.equal(parseRetrospectiveMode(text), 'dispatch');
+  assert.equal(parseRetrospectiveMode(text), parseRetrospectiveConfig(text).mode);
   assert.equal(parseRetrospectiveMode(null), 'nudge');
+  assert.equal(parseRetrospectiveMode('retrospective:\n  mode: dispatch\n'), 'nudge');
 });
 
-test('retroMarkerKey: user scope keys on the session id (rootId ignored)', () => {
-  assert.equal(retroMarkerKey({ scope: 'user', rootId: 'P' }, 'sess-1'), 'sess-1');
-  assert.equal(retroMarkerKey({ scope: 'user', rootId: 'P' }, undefined), 'unknown');
-});
+// ---- scope helpers -----------------------------------------------------------------------------
 
-test('retroMarkerKey: project scope keys on rootId, else session id; none scope uses session id', () => {
-  assert.equal(retroMarkerKey({ scope: 'project', rootId: 'R' }, 'sess-1'), 'R');
-  assert.equal(retroMarkerKey({ scope: 'project', rootId: null }, 'sess-1'), 'sess-1');
-  assert.equal(retroMarkerKey({ scope: 'none', rootId: null }, 'sess-1'), 'sess-1');
-  assert.equal(retroMarkerKey({ scope: 'none', rootId: null }, undefined), 'unknown');
-});
-
-test('dispatchAncestorId: project -> rootId; user and none -> null', () => {
+test('dispatchAncestorId: a project-scope config contributes its rootId; user and none scope do not', () => {
   assert.equal(dispatchAncestorId({ scope: 'project', rootId: 'R' }), 'R');
   assert.equal(dispatchAncestorId({ scope: 'user', rootId: 'P' }), null);
   assert.equal(dispatchAncestorId({ scope: 'none', rootId: null }), null);
 });
 
-test('buildNudge: empty roots renders a clean command with no argument and no root(s) fragment', () => {
-  const text = buildNudge([]);
-  assert.ok(!text.includes('root(s):'));
-  assert.ok(text.includes('`/session-retrospective`'));
+// restRootId depends on the API base URL, which resolves from TASK_ORCHESTRATOR_API_URL (or a client.json
+// under TASK_ORCHESTRATOR_HOME). These tests set both themselves instead of reading the ambient shell.
+async function withApiEnv({ url, home }, fn) {
+  const saved = { url: process.env.TASK_ORCHESTRATOR_API_URL, home: process.env.TASK_ORCHESTRATOR_HOME };
+  const emptyHome = mkdtempSync(join(tmpdir(), 'retro-config-home-'));
+  try {
+    if (url === undefined) delete process.env.TASK_ORCHESTRATOR_API_URL;
+    else process.env.TASK_ORCHESTRATOR_API_URL = url;
+    process.env.TASK_ORCHESTRATOR_HOME = home ?? emptyHome;
+    return await fn();
+  } finally {
+    if (saved.url === undefined) delete process.env.TASK_ORCHESTRATOR_API_URL;
+    else process.env.TASK_ORCHESTRATOR_API_URL = saved.url;
+    if (saved.home === undefined) delete process.env.TASK_ORCHESTRATOR_HOME;
+    else process.env.TASK_ORCHESTRATOR_HOME = saved.home;
+    rmSync(emptyHome, { recursive: true, force: true });
+  }
+}
+
+test('restRootId (AC3): with an API URL, a project-scope config with a rootId yields the rootId; other configs yield none', async () => {
+  await withApiEnv({ url: 'http://127.0.0.1:1' }, () => {
+    assert.equal(restRootId({ scope: 'project', rootId: 'R' }), 'R');
+    for (const located of [
+      { scope: 'user', rootId: 'P' },
+      { scope: 'none', rootId: null },
+      { scope: 'project', rootId: null },
+    ]) {
+      assert.ok([null, undefined].includes(restRootId(located)), JSON.stringify(located));
+    }
+  });
 });
 
-test('buildNudge: non-empty roots renders the root list and the first root as the argument', () => {
-  const text = buildNudge(['aaa', 'bbb']);
-  assert.ok(text.includes('root(s): aaa, bbb'));
-  assert.ok(text.includes('`/session-retrospective aaa`'));
+test('restRootId (AC3): with no API URL resolvable, even a project-scope config with a rootId yields none', async () => {
+  await withApiEnv({ url: undefined }, () => {
+    assert.ok([null, undefined].includes(restRootId({ scope: 'project', rootId: 'R' })));
+  });
 });
 
-test('buildNudge: includes the background-tasks skip condition', () => {
-  for (const text of [buildNudge([]), buildNudge(['aaa'])]) {
-    assert.ok(text.includes('background tasks or subagents are still running'), text);
+// ---- AC1 the cross-session marker API is gone ---------------------------------------------------
+
+test('AC1: markerPath, readMarker, writeMarker, retroMarkerKey and COOLDOWN_MS are no longer exported', () => {
+  for (const name of ['markerPath', 'readMarker', 'writeMarker', 'retroMarkerKey', 'COOLDOWN_MS']) {
+    assert.ok(!(name in lib), `${name} must be removed`);
   }
 });
 
-test('buildDispatch: includes roots and the ancestor rootId', () => {
-  const text = buildDispatch(['aaa'], 'root-1');
-  assert.ok(text.includes('aaa'));
-  assert.ok(text.includes('root-1'));
-  assert.ok(text.includes('Retrospective dispatch'));
+test('Invariants: the exports other modules import are still there', () => {
+  for (const name of ['extractResponseJson', 'debugCapture', 'parseRetrospectiveMode', 'dispatchAncestorId', 'parseRetrospectiveConfig', 'buildNudge', 'buildDispatch']) {
+    assert.equal(typeof lib[name], 'function', name);
+  }
 });
 
-test('buildDispatch: directive is durable — defers past in-flight background work and merges held directives', () => {
-  const text = buildDispatch(['aaa'], 'root-1');
+// ---- S15 directive text (AC9) --------------------------------------------------------------------
+
+test('S15: buildNudge names every runId as /session-retrospective --run <runId>', () => {
+  const text = buildNudge(['run-aaa', 'run-bbb']);
+  assert.ok(text.includes('Retrospective suggested'), text);
+  assert.ok(text.includes('/session-retrospective --run run-aaa'), text);
+  assert.ok(text.includes('/session-retrospective --run run-bbb'), text);
+});
+
+test('S15: buildNudge with an empty list renders the bare command and no --run', () => {
+  const text = buildNudge([]);
+  assert.ok(text.includes('/session-retrospective'), text);
+  assert.ok(!text.includes('--run'), text);
+});
+
+test('S15: buildDispatch names every runId, keeps the durable wording, names the ancestor, drops the depth-0 clause', () => {
+  const text = buildDispatch(['run-aaa', 'run-bbb'], 'root-1');
+  assert.ok(text.includes('Retrospective dispatch'), text);
+  assert.ok(text.includes('/session-retrospective --run run-aaa'), text);
+  assert.ok(text.includes('/session-retrospective --run run-bbb'), text);
+  assert.ok(text.includes('root-1'), text);
   assert.ok(text.includes('durable'), text);
-  assert.ok(text.includes('next run boundary'), text);
-  assert.ok(text.includes('union of their roots'), text);
+  assert.ok(!/depth 0/i.test(text), 'the depth 0 clause is dropped (AR-73): ' + text);
+  assert.ok(!/outside any project root/i.test(text), text);
 });
 
-test('COOLDOWN_MS default equals 30 minutes', () => {
-  assert.equal(COOLDOWN_MS, 30 * 60 * 1000);
+test('S15: buildDispatch with an empty list renders the bare command; a null ancestor does not throw', () => {
+  const bare = buildDispatch([], 'root-1');
+  assert.ok(bare.includes('/session-retrospective'), bare);
+  assert.ok(!bare.includes('--run'), bare);
+  const noAncestor = buildDispatch(['run-aaa'], null);
+  assert.ok(noAncestor.includes('/session-retrospective --run run-aaa'), noAncestor);
+  assert.ok(!/depth 0/i.test(noAncestor), noAncestor);
 });
