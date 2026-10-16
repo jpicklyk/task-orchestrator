@@ -356,10 +356,22 @@ function routeFindings(plan, collected) {
   return { direct, adjudicate, capped, orphans, uncoveredObservations }
 }
 
-/** matchPrompt(plan, shard) -> string; READ-ONLY; names query_items(get) and query_notes(list) */
+/**
+ * findingsSource(plan) -> string; '' unless the plan names its findings document (deep mode, where
+ * the session-retrospective skill stashed the findings with docs_write upsert kind plan slug
+ * retro/<runId>). The document is the authority; the FINDINGS list in the prompt is its projection.
+ */
+function findingsSource(plan) {
+  if (!plan.planDocSlug || !plan.rootId) return ''
+  return 'FINDINGS SOURCE: the findings document is docs_read(select="get", rootId="' + plan.rootId + '", kind="plan", slug="' +
+    plan.planDocSlug + '"); read it when a finding below needs more context than its text. Do not write it.\n\n'
+}
+
+/** matchPrompt(plan, shard) -> string; READ-ONLY; names items_read(get) and notes_read(list) */
 function matchPrompt(plan, shard) {
   let out = 'READ-ONLY. You are matching findings from a retrospective run against a shard of ' + shard.kind + ' items. '
-  out += 'Use query_items(operation="get", itemId=<id>) to read each target’s summary (look for lines such as "Sessions: N" and "Last seen:" to report trendState for trend targets), and query_notes(operation="list", itemId=<id>) to read its notes when useful. Do not write anything.\n\n'
+  out += 'Use items_read(select="get", itemId=<id>) to read each target’s summary (look for lines such as "Sessions: N" and "Last seen:" to report trendState for trend targets), and notes_read(select="list", itemId=<id>) to list its notes (notes_read(select="get", itemId, key) reads one body) when useful. Do not write anything.\n\n'
+  out += findingsSource(plan)
   if (plan.mode === 'audit') {
     out += 'AUDIT MODE: fid is \'\' -- you are not matching against specific findings. Instead, report clusters of at least two targets in your shard that share one recurring pattern (label, claim, dimension, targetIds).\n\n'
   } else {
@@ -372,10 +384,11 @@ function matchPrompt(plan, shard) {
   return out
 }
 
-/** adjudicatePrompt(plan, finding, candidates) -> string; READ-ONLY; names query_items(get) */
+/** adjudicatePrompt(plan, finding, candidates) -> string; READ-ONLY; names items_read(get) */
 function adjudicatePrompt(plan, finding, candidates) {
   let out = 'READ-ONLY. You are adjudicating one retrospective finding with several candidate trend matches. '
-  out += 'Use query_items(operation="get", itemId=<id>) to read each candidate trend before deciding. Do not write anything.\n\n'
+  out += 'Use items_read(select="get", itemId=<id>) to read each candidate trend before deciding. Do not write anything.\n\n'
+  out += findingsSource(plan)
   out += 'FINDING:\n' + JSON.stringify(finding) + '\n\n'
   out += 'CANDIDATE TRENDS: ' + candidates.map((c) => c.trendId).join(', ') + '\n\n'
   out += 'Decide whether this finding is a recurrence of exactly one candidate trend (decision="match", trendId = the canonical candidate) or a genuinely new pattern (decision="new", with a kebabKey and a claim). Give a short rationale.'

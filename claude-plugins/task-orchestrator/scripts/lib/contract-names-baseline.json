@@ -9,26 +9,6 @@
       "owner": "cae5d141"
     },
     {
-      "file": "scripts/run-exec-lib.mjs",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "workflows/audit.js",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "workflows/implement-wave.js",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "workflows/retro-analysis.js",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "workflows/review-wave.js",
-      "owner": "cac1bffa"
-    },
-    {
       "file": "agents/implementer.md",
       "owner": "c6740063"
     },
@@ -67,22 +47,6 @@
     {
       "file": "skills/ralph/iteration-system-prompt.md",
       "owner": "cae5d141"
-    },
-    {
-      "file": "skills/run-wave/SKILL.md",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/run-wave/references/method-b.md",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/run-wave/references/post-run.md",
-      "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/run-wave/references/snapshot.md",
-      "owner": "cac1bffa"
     }
   ],
   "proseExceptions": []

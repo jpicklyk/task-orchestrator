@@ -313,7 +313,7 @@ function verifierPreamble(plan) {
   out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. Default stance: skeptical — the finding must earn its place.\n\n'
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (open items; use these, and a search, to judge alreadyTrackedId):\n' + backlog + '\n\n'
-  out += 'Always fill every verdict field. refuted = true iff, under your lens, this finding should be dropped. confidence = your confidence in refuted. evidenceAccurate = false only when a cited fact is actually wrong (then explain the correction in correctedEvidence; leave correctedEvidence empty when the evidence is accurate). adjustedSeverity = your own severity per the rubric (may equal, raise, or lower the reported one). alreadyTrackedId = the id of a backlog entry that substantially already covers this finding — if the backlog list above is not conclusive, run a query_items search (operation="search") by the finding\'s title keywords to check; leave it the empty string when nothing already covers this finding. rationale = a short justification for your verdict.\n\n'
+  out += 'Always fill every verdict field. refuted = true iff, under your lens, this finding should be dropped. confidence = your confidence in refuted. evidenceAccurate = false only when a cited fact is actually wrong (then explain the correction in correctedEvidence; leave correctedEvidence empty when the evidence is accurate). adjustedSeverity = your own severity per the rubric (may equal, raise, or lower the reported one). alreadyTrackedId = the id of a backlog entry that substantially already covers this finding — if the backlog list above is not conclusive, run an items_read search (select="search", query=<the finding\'s title keywords>) to check; leave it the empty string when nothing already covers this finding. rationale = a short justification for your verdict.\n\n'
   return out
 }
 
@@ -515,7 +515,7 @@ async function runAudit(plan, deps) {
     const chunks = []
     for (let i = 0; i < triageTargets.length; i += 10) chunks.push(triageTargets.slice(i, i + 10))
     const triageResults = await parallel(chunks.map((chunk, i) => () =>
-      agent('READ-ONLY. For each finding below, run an UNSCOPED query_items search (operation="search", no scope filter, limit=5) using key terms from its title to look for likely duplicate existing items; report up to a few candidates each (id, short, role, title) and a likelyDuplicate verdict of none, weak, or strong.\n\nFINDINGS:\n' +
+      agent('READ-ONLY. For each finding below, run an UNSCOPED items_read search (select="search", no ancestorId or itemId filter, limit=5) using key terms from its title to look for likely duplicate existing items; report up to a few candidates each (id, short, role, title) and a likelyDuplicate verdict of none, weak, or strong.\n\nFINDINGS:\n' +
         JSON.stringify(chunk.map((k) => ({ findingId: k.findingId, title: k.title, category: k.category }))),
         agentOpts(plan, 'triage', { label: 'triage:' + (i + 1), phase: 'Triage', schema: S.TRIAGE }))))
     triageResults.forEach((tr, i) => {
