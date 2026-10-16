@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PreToolUse EnterPlanMode â€” triggers the pre-plan-workflow skill.
+// PreToolUse EnterPlanMode — triggers the pre-plan-workflow skill.
 // Gates (each emits `{}`): headless iteration / subagent / director session (suppressionReason) ->
 // located config whose orchestration.mode is `off`. No located config keeps the directive.
 import { emit } from "./lib/emit.mjs";
@@ -24,7 +24,7 @@ function main() {
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      additionalContext: `## PREREQUISITE â€” Complete before exploring or planning
+      additionalContext: `## PREREQUISITE — Complete before exploring or planning
 
 You MUST invoke the \`task-orchestrator:pre-plan-workflow\` skill BEFORE starting any codebase exploration or plan writing.
 
