@@ -29,8 +29,7 @@ the phase's other required notes to their own seats — the schema's list of req
 the phase's total, not your assignment.
 
 **Seat token.** When your dispatch names a seat token or a token file, read the token from the file
-and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never
-print, quote, commit or copy it into a note. A call refused with `unauthenticated` means the seat
+and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat
 was superseded or ended: stop and write nothing more.
 
 Fetch rule text by key rather than guessing at it: read `protocol.in-phase-seat` plus every key

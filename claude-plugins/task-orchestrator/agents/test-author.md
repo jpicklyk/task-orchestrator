@@ -40,8 +40,7 @@ You never call `advance` or `items_write` — this seat writes tests and records
 not transition the item.
 
 **Seat token.** When your dispatch names a seat token or a token file, read the token from the file
-and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never
-print, quote, commit or copy it into a note. A call refused with `unauthenticated` means the seat
+and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat
 was superseded or ended: stop and write nothing more.
 
 Fill `test-manifest` only, via `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent

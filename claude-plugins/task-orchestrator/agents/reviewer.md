@@ -22,9 +22,9 @@ you, so do not call `advance` at all, not even once to enter — go straight to
 gaps in the note instead. Never call `advance` — the orchestrator owns the review→terminal
 transition.
 
-**Seat token.** When your dispatch names a seat token or a token file, read the token from the file and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote, commit or copy it into a note. A call refused with `unauthenticated` means the seat was superseded or ended: stop and write nothing more. Write your notes with `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent (no takeover).
+**Seat token.** When your dispatch names a seat token or a token file, read the token from the file and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat was superseded or ended: stop and write nothing more. Write your notes with `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent (no takeover).
 
-**Carry-in dispositions.** When the item's schema lists `carry-in-dispositions` (and `orchestrator-carry-in-dispositions`), read both with `notes_read` `get` and compare them with the carry-in keys on the item (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
+**Carry-in dispositions.** When the item's schema lists `carry-in-dispositions` (and `orchestrator-carry-in-dispositions`), read both with `notes_read` `get` and compare them with the carry-in keys your dispatch names (its CARRY-INS block) (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
 
 **Semantic claims.** Where the plan, docs, CHANGELOG or a new header comment states nullability,
 redaction, ownership or an honest limit, open each `file:line` it cites and confirm the code
