@@ -244,7 +244,7 @@ cap on cycles.
 
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
 run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
-any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`)
+any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage)
 and the same scope, so the actor audit and audit trail distinguish the cycle. Render that seat's
 prompt with the helper's `reseat` command instead of writing it by hand:
 
@@ -263,7 +263,7 @@ The output JSON carries a `result` copy with the seat appended to `items[].resea
 recorded once and never moves): write it back to `result.json`. Verify then judges the
 test-author-before-implementer order only over item commits at or before the earliest recorded
 `pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
-finding. The actor audit (`actors`) does not yet accept `-a<n>` actors.
+finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`. The actor audit (`actors`) does not yet accept `-a<n>` actors.
 
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
@@ -282,7 +282,7 @@ re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor 
 two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
 reported. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
-so `--extra-seats` is only needed for seats `reseat` never saw (re-review, amendment planner); a seat
+so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
 named in both takes the flag's model and tokens. `--item` alone now restricts the output to that
 item; `--extra-seats` requires `--item`.
 

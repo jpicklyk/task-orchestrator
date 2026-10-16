@@ -536,7 +536,10 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
     if (baseStage.output !== 'test-author-v1') {
       throw new Error('invalid args: --declarations is valid only for a test-author base seat')
     }
-    if (!isAbsentDeclaration(opts.declarations) && declStage) {
+    if (!declStage) {
+      throw new Error('invalid args: --declarations is only valid for a test-author base with a declarations stage')
+    }
+    if (!isAbsentDeclaration(opts.declarations)) {
       outs[declStage.seat] = Object.assign({}, outs[declStage.seat] || {}, { declarations: opts.declarations })
     }
   }
@@ -973,7 +976,10 @@ function attributeCommits(itemCommits, writingStages) {
  * warning. Findings: missing sha, missing Seat trailer, unowned files written by the
  * implementer/test-author, a file the writer covers only by directory/glob that another item's
  * directory/glob also covers ('<who> wrote <f> also covered by item <short>'), test-author
- * committing before the implementer's last commit.
+ * committing before the implementer's last commit, a 'reseat <seat> pre <sha7> not in run history'
+ * finding for a reseat ledger `pre` that is not in the run's item history. Fix-cycle boundary: the
+ * test-author-before-implementer order is judged only over item commits at or before the earliest
+ * reseat ledger `pre` (the ledger `pre` is trusted as recorded).
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -1634,9 +1640,14 @@ function execProvenance(argv, io) {
 }
 
 function execReseat(argv, io) {
-  const doc = io.readInput(flagValue(argv, '--plan'))
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
   const runId = flagValue(argv, '--run')
-  if (!runId || !doc || !doc.args || runId !== doc.args.runId) {
+  if (!runId || runId !== doc.args.runId) {
     io.fail(2, 'invalid args', `--run ${runId} does not match the plan's runId`)
     return
   }
@@ -1657,9 +1668,18 @@ function execReseat(argv, io) {
     const found = findItem(plan, item)
     const r = io.git(found.worktree, ['rev-parse', 'HEAD'])
     pre = r && r.status === 0 ? String(r.stdout || '').trim() : ''
+    if (!pre) {
+      io.fail(2, 'invalid args', `reseat: cannot resolve pre (git rev-parse HEAD failed in ${found.worktree}): pass --pre <sha>`)
+      return
+    }
+  }
+  const declText = declPath ? io.readText(declPath) : undefined
+  if (declPath && declText == null) {
+    io.fail(2, 'invalid args', `--declarations ${declPath} is not readable`)
+    return
   }
   const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
-    declarations: declPath ? io.readText(declPath) : undefined,
+    declarations: declText,
     model: flagValue(argv, '--model'),
     tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),
     pre,

@@ -180,7 +180,11 @@ const EXEC_IO = {
   },
   readText(path) {
     if (!path) return '';
-    return safeRead(path);
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return null;
+    }
   },
   writeOut(text) {
     process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
@@ -209,7 +213,7 @@ const EXEC_IO = {
 
 // ---------------------------------------------------------------------------------------
 // Subcommand table. B2b adds: next, prompt, stage-result, scan-declarations, verify,
-// actors, provenance, review-prompt.
+// actors, provenance, review-prompt, reseat.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
