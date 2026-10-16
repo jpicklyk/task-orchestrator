@@ -49,7 +49,7 @@ that checks whether a change is present in the codebase.
 
 **Force-DOWN signals:**
 - User says "just fix it" / "quick" → Direct (unless complexity contradicts)
-- Schema tag is `default` or absent → eligible for Direct
+- The item's type resolves to the `default` schema, or the item is schema-free -> eligible for Direct
 <!-- END GENERATED:tier-classification -->
 
 Delegated with ≥2 ready items, or Parallel → run `/task-orchestrator:run-wave`.

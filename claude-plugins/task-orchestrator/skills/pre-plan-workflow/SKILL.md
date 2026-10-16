@@ -1,82 +1,57 @@
 ---
 name: pre-plan-workflow
-description: "Internal, hook-triggered: gathers existing MCP items and schema gate requirements to set the definition floor before planning."
+description: "Internal, hook-triggered when entering plan mode: reads existing MCP items and the declared schemas so the plan accounts for tracked work and gate requirements."
 user-invocable: false
 ---
 
-# Pre-Plan Workflow — Definition Floor
+# Pre-Plan Workflow - Definition Floor
 
-When entering plan mode, use the MCP to set the **definition floor** before writing your plan.
+On entering plan mode, set the **definition floor** before writing the plan: the baseline of existing work, note requirements and gates the plan must account for. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts and any id field also takes the full UUID.
 
-The definition floor is the baseline of existing work, documentation requirements, and gate constraints that the plan must account for.
+**If MCP is unreachable:** plan from conversation context, note in the plan that MCP state could not be verified (existing work may overlap), and re-check after it reconnects.
 
-**If MCP is unreachable:** Proceed with planning based on conversation context. Note in the plan that MCP state could not be verified — existing work may overlap. Re-check after MCP reconnects.
+## Step 1: Check existing MCP state
 
-## Step 1: Check Existing MCP State
+Resolve the scope from the SessionStart context: a `## Project Scope` section carries a project rootId (scopes reads); a `## Personal Scope` section carries a personal root (anchors only, reads stay unscoped). With no session context, read `project.rootId` from `.taskorchestrator/config.yaml` (a file read).
 
-Resolve the scope first from the SessionStart context. A `## Project Scope` section carries a **project rootId** (scopes reads and anchors); a `## Personal Scope` section carries a **personal root** (anchors only; reads stay unscoped). Without session context, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call), which yields a project rootId only.
+Health check, scoped to the project when a rootId is known (omit `ancestorId` otherwise):
 
-Call the health check to see what's already tracked:
-
-```
-get_context()
+```to-call
+{"tool": "items_read", "select": "context", "args": {"ancestorId": "9f3a1c22"}}
 ```
 
-When a project rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. In personal scope, or when no rootId is known, call unscoped exactly as shown — this is the same behavior as before project scoping existed.
+`data` is `{active, blocked, stalled, claimSummary}`; `stalled` lists active items with unfilled required notes (`missing[]`, `guidanceKey`, `skillPointer`). If active, blocked or stalled items relate to the request, avoid planning duplicate work and inspect each one:
 
-**If active or stalled items exist:**
-- Identify items related to the current request — avoid planning work that duplicates what's already tracked
-- For each relevant active item, call `get_context(itemId=...)` to inspect:
-  - **Note schema** — which notes are expected for this item's tags
-  - **Gate status** — which required notes are filled vs. missing, and whether the item can advance
-  - **Guidance key** — `guidanceKey` names the first unfilled required note; resolve its authoring guidance via `query_items(operation="schema", itemId=...)`
-
-**If no items exist (clean slate):**
-- The definition floor is simply "no existing MCP state to account for"
-- Proceed with planning, but still check Step 2 for schema awareness
-
-## Step 2: Discover Note Schema Requirements
-
-Read the file named by the session context's `Config:` line when there is one, otherwise `.taskorchestrator/config.yaml` in the project root (this is a file read, not an MCP call):
-
-- If the file exists, list the discovered schemas and their required notes per phase
-- Schemas are defined under `work_item_schemas:` (preferred) or `note_schemas:` (legacy)
-- Each schema key (e.g., `feature-implementation`, `bug-fix`) is a **type identifier** — set it as the item's `type` field to activate gate enforcement. Tags can be used for additional categorization but are no longer the primary schema activator.
-- Required queue-phase notes define what documentation must exist before work starts
-- Required work-phase notes define what must be captured during implementation
-- Use `guidanceKey` from `get_context(itemId=...)`, resolved via `query_items(operation="schema", itemId=...)`, to understand how to author each note
-
-If no config file exists, the project has no note schemas — items will be schema-free with no gate enforcement. Proceed with planning normally.
-
-**Minimal config example:**
-
-```yaml
-work_item_schemas:
-  feature-task:
-    notes:
-      - key: task-scope
-        role: queue
-        required: true
-      - key: implementation-notes
-        role: work
-        required: true
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "4b7d0e19"}}
 ```
 
-**Use schemas to inform the plan:** When a schema applies, each planned task should:
-- Note which schema type will be applied at materialization (e.g., `type: "feature-task"`)
-- Account for required notes — plan sections should naturally produce content that maps to required note keys
-- Respect dependency ordering — which tasks block others (these become `BLOCKS` edges)
+Read `schema[]` (each note's `exists` and `filled`), `gateStatus` (`canAdvance`, `missing`, `blockedBy`) and `guidanceKey`; resolve the authoring guidance with `items_read` `schema` and `fields: ["guidance"]`. With nothing tracked, the floor is simply "no existing state"; still do Step 2.
 
-## Step 3: Plan with MCP Awareness
+## Step 2: Discover declared schemas
 
-Structure the plan knowing it will be materialized into MCP items after approval:
+Read the resolved config, not the file:
 
-- Each planned task should map to **one work item** with clear boundaries — a single unit of work a subagent can own
-- Account for **dependency ordering** — which tasks block others (these become `BLOCKS` edges)
-- Consider the **hierarchy** — a root container item with child task items is the standard pattern
+```to-call
+{"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
+```
 
-## Continue with Plan Mode
+`data.types` lists the declared types, `data.schemas` their notes per phase (required queue notes must exist before work starts; required work notes are captured during implementation), and `data.traits` the declared traits. Each type key is what an item sets as `type`; a create must pass a declared `type`. If the config tool is unavailable, read `.taskorchestrator/config.yaml` as an offline fallback (types are the keys under `work_item_schemas:`). With no declared schemas, items are schema-free and nothing is gated.
 
-The prerequisite is complete. Now proceed with plan mode's normal workflow — explore the codebase, understand existing patterns, and design your implementation approach. Use the definition floor from Steps 1-3 to inform your plan.
+Use the result to inform the plan. Each planned task should:
 
-Once the plan is approved, the post-plan hook will guide you through materialization and implementation dispatch. Do not materialize before approval.
+- name the declared `type` it will be created with (for example `feature-task`);
+- produce content that maps onto that type's required note keys;
+- list its dependencies by reason, so post-plan can wire only the semantic ones (see post-plan-workflow, "Dependencies").
+
+## Step 3: Plan with MCP awareness
+
+Structure the plan knowing it will be materialized after approval:
+
+- each task maps to one work item with clear boundaries, a unit one subagent can own;
+- a root container item with child task items is the standard shape;
+- order tasks by real dependency, not by file overlap.
+
+## Continue with plan mode
+
+The prerequisite is done. Proceed with plan mode's normal workflow: explore, design, write the plan. Once it is approved the post-plan hook guides materialization. Do not materialize before approval.
