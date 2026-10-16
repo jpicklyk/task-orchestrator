@@ -555,12 +555,15 @@ async function main() {
   // 2) validate, then push (expectedVersion = the head's version). At most one of each per run;
   //    a rejection is never retried.
   if (configLine === undefined) {
-    const val = outcomeOf(await deadline.call('config', { ops: [{ op: 'validate', rootId, configYaml }] }));
+    const valRes = await deadline.call('config', { ops: [{ op: 'validate', rootId, configYaml }] });
+    const val = outcomeOf(valRes);
     if (val === null) return;
     if (!val.ok) {
       if (val.code === 'payload_too_large') {
         rejected = true;
         configLine = formatRejection(rootId, rejectionEntries(null, val.error?.message ?? val.code));
+      } else if (deadline.isDeadlineResult(valRes)) {
+        configLine = `Task Orchestrator: config sync deferred - ${val.reason}; will retry next session.`;
       } else {
         configLine = `Task Orchestrator: config sync failed - validate ${failedReason(val, 'read')}.`;
       }
