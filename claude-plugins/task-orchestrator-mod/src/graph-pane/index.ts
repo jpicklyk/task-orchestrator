@@ -670,11 +670,11 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
     if (detail !== null) {
       // The detail is its own bordered panel: title line bold, then facts, then a row of actions.
+      const uuid = detail.uuid ?? detail.itemId
       const facts = [
         ...detail.lines.map((line, i) => h(Text, { key: `detail-${i}`, ...(i === 0 ? { bold: true } : {}) }, line)),
         h(Text, { key: 'detail-uuid', dimColor: true }, `uuid: ${uuid}`),
       ]
-      const uuid = detail.uuid ?? detail.itemId
       const working = (activity.working[detail.itemId] ?? []).map(w =>
         h(Text, { key: `working-${w.agentId}` }, `working: ${w.seat}${w.model !== undefined ? ` · ${w.model}` : ''} · ${w.agentId === 'main' ? 'main loop' : id8(w.agentId)}`),
       )

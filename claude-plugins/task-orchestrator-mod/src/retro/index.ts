@@ -8,13 +8,14 @@
 //
 //   tool.call (runs_write)   a successful close: in a subagent or without a project rootId, record it;
 //                            else evaluate the root's closed, unmarked runs (runs_read list + frontier,
-//                            runs_write mark) and add the one-line "queued" notice or a nudge to the
+//                            REST runs_write mark) and add the one-line "queued" notice or a nudge to the
 //                            result's context
 //   classic.PostToolUse      forward `to_mod_retro` so retro-trigger.mjs steps aside
 //   classic.Stop             spawn the queued retrospective once nothing runs in the background; else
 //                            evaluate again (rootId) or nudge once from recorded closes (no rootId)
-// Reads and the mark go through the engine's own MCP connection; the mod's own calls are skipped by every
-// mod hook (own origin), so its mark never re-enters this feature.
+// Reads go through the engine's own MCP connection (the mod's own calls are skipped by every mod hook, own
+// origin); the mark is REST only on the server, so it is a curl POST to /api/v1/ops/runs_write, and a failed
+// mark (no API URL, curl error, bad body, error envelope) nudges, never dispatches unmarked.
 //
 // Ownership: the mod owns retro handling only when the session is not a headless iteration AND the
 // cwd config is readable (the mod cannot see AGENT_CONFIG_DIR fallbacks such as the main-checkout or user
@@ -30,6 +31,7 @@ import type { RetroState } from '../../types'
 import { CONFIG_PATH } from '../shared/config.ts'
 import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
+import { resolveApiUrl } from '../graph-data/live.ts'
 import { readSection, scalar } from '../lib/yaml-lite.mjs'
 import {
   QUEUED_NOTICE,
@@ -38,6 +40,7 @@ import {
   buildSpawnPrompt,
   evaluateRuns,
   holdsForTasks,
+  markRequest,
   normalizeState,
   parseRetrospectiveConfig,
   recordCloses,
@@ -97,9 +100,35 @@ async function save($: EngineInterface, state: RetroState, ifVersion?: number): 
   return res.isSet
 }
 
-/** A TO call over the engine's MCP connection, returning the envelope `data` (rejects on an error envelope). */
+/**
+ * A TO call returning the envelope `data` (rejects on an error envelope). Reads go over the engine's MCP
+ * connection; the one write, `runs_write` `mark`, is REST only on the server, so it is POSTed with curl
+ * (markRequest: the token rides curl's stdin, never argv, and never enters an error string).
+ */
 function toCall($: EngineInterface): RetroCall {
-  return async (tool, args) => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
+  return async (tool, args) => {
+    if (tool !== 'runs_write') return parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
+    const base = await resolveApiUrl({
+      envApiUrl: () => $.env.get('TASK_ORCHESTRATOR_API_URL'),
+      readFile: p => $.fs.read(p),
+      homeDir: async () => (await $.env.get('TASK_ORCHESTRATOR_HOME')) || (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')),
+    })
+    if (base === null) throw new Error('runs_write: no REST API')
+    const ops = (args as { ops?: { runId?: unknown }[] }).ops
+    const runId = Array.isArray(ops) && typeof ops[0]?.runId === 'string' ? ops[0].runId : ''
+    const token = await $.env.get('TASK_ORCHESTRATOR_API_TOKEN')
+    const { argv, input } = markRequest(base, runId, token)
+    const ran = await $.process.run(argv, { stdin: input, timeoutMs: 3000 })
+    if (ran.exitCode !== 0) throw new Error(`runs_write: curl exit ${ran.exitCode}`)
+    let body: unknown
+    try {
+      body = JSON.parse(ran.stdout)
+    } catch {
+      throw new Error('runs_write: unparsable response')
+    }
+
+    return parseToResult<unknown>('runs_write', body)
+  }
 }
 
 /** True for a retrospective agent the mod spawned and for any agent it descends from one. */

@@ -179,8 +179,50 @@ export const QUEUED_NOTICE =
 
 const union = (a: readonly string[] | undefined, b: readonly string[]): string[] => [...new Set([...(a ?? []), ...b])]
 
+const strings = (v: unknown[]): string[] => v.filter((x): x is string => typeof x === 'string')
+
+/**
+ * The stored state, member by member (as retro-lib.mjs readSessionState): run-id lists keep string entries only,
+ * flags only booleans, `dispatched` only with a `runs` array, `pendingDispatch` also as null. Absent or invalid
+ * members are omitted.
+ */
 export function normalizeState(raw: unknown): RetroState {
-  return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as RetroState) : {}
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const r = raw as Record<string, unknown>
+  const out: RetroState = {}
+  if (Array.isArray(r.closes)) out.closes = strings(r.closes)
+  if (typeof r.sawClose === 'boolean') out.sawClose = r.sawClose
+  if (Array.isArray(r.nudged)) out.nudged = strings(r.nudged)
+  if (typeof r.backstopNudged === 'boolean') out.backstopNudged = r.backstopNudged
+  // null is the stored "dispatch taken" value (RetroState allows it), kept as is.
+  if (Array.isArray(r.pendingDispatch)) out.pendingDispatch = strings(r.pendingDispatch)
+  else if (r.pendingDispatch === null) out.pendingDispatch = null
+  const d = r.dispatched
+  if (d !== null && typeof d === 'object' && !Array.isArray(d) && Array.isArray((d as { runs?: unknown }).runs)) {
+    const dd = d as { runs: unknown[]; agentId?: unknown; at?: unknown }
+    out.dispatched = {
+      ...(typeof dd.agentId === 'string' ? { agentId: dd.agentId } : {}),
+      runs: strings(dd.runs),
+      ...(typeof dd.at === 'number' && Number.isFinite(dd.at) ? { at: dd.at } : {}),
+    } as RetroState['dispatched']
+  }
+  if (Array.isArray(r.retroAgents)) out.retroAgents = strings(r.retroAgents)
+
+  return out
+}
+
+/**
+ * The curl request for the one write retro makes: `runs_write` `mark` (key `retro`) POSTed to the REST API (the
+ * server serves `mark` over REST only). The bearer header goes to curl's stdin config (`-K -`), so the token never
+ * enters argv; a token with CR/LF is dropped. No `-f`: an error body is an envelope to read.
+ */
+export function markRequest(base: string, runId: string, token: string | undefined): { argv: string[]; input?: string } {
+  const argv = ['curl', '-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-raw', JSON.stringify({ ops: [{ op: 'mark', runId, key: 'retro' }] })]
+  const url = `${base}/api/v1/ops/runs_write`
+  if (!token || /[\r\n]/.test(token)) return { argv: [...argv, url] }
+  const quoted = `Authorization: Bearer ${token}`.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+  return { argv: [...argv, '-K', '-', url], input: `header = "${quoted}"\n` }
 }
 
 /** Records closes this session saw but did not evaluate (a subagent, or no project rootId): the backstop reads them. */

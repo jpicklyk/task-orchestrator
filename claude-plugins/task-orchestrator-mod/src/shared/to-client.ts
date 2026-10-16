@@ -6,8 +6,8 @@
 // partly failed batch is `isError: true` with `data.results`. Read the envelope, never the text.
 //
 // A `$.mcp.call` raises `tool.call` and `classic.PostToolUse` like a model's call does, so the TO command
-// hooks run on it too. The mod's calls are read-only, except retro's one `runs_write` `mark`; every hook
-// that reacts to TO tool calls skips dispatches whose `next.origin.plugin` is PLUGIN.
+// hooks run on it too. The mod's MCP calls are read-only; retro's one write, `runs_write` `mark`, goes over
+// REST. Every hook that reacts to TO tool calls skips dispatches whose `next.origin.plugin` is PLUGIN.
 
 export interface ToError {
   code?: string

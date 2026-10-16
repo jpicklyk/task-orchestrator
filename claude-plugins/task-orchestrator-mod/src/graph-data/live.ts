@@ -77,7 +77,7 @@ export function isLoopbackApiUrl(base: string): boolean {
   }
 }
 
-async function readClientApiUrl(io: GraphIo, path: string): Promise<string | null> {
+async function readClientApiUrl(io: Pick<GraphIo, 'readFile'>, path: string): Promise<string | null> {
   try {
     let text = await io.readFile(path)
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
@@ -96,7 +96,7 @@ async function readClientApiUrl(io: GraphIo, path: string): Promise<string | nul
  * when a bare loopback origin, so a repo file cannot redirect the token); else the user-level
  * client.json. Null when none yields one.
  */
-export async function resolveApiUrl(io: GraphIo): Promise<string | null> {
+export async function resolveApiUrl(io: Pick<GraphIo, 'envApiUrl' | 'readFile' | 'homeDir'>): Promise<string | null> {
   const fromEnv = await io.envApiUrl()
   if (fromEnv) return fromEnv.replace(/\/+$/, '')
   const project = await readClientApiUrl(io, '.taskorchestrator/client.json')

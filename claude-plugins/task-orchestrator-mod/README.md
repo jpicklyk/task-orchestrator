@@ -105,7 +105,7 @@ A change made by another session, seen over the live stream outside a short wind
 
 The mod offers the session retrospective itself, by spawning the retrospective agent, when the session is not headless, a config is readable (at `AGENT_CONFIG_DIR` or the working directory) and `extensions.claude-code.retrospective.mode` is not `off`. It follows run marks, like the command hooks: a retrospective is owed per closed run on the project root that is not marked `retro`. On a successful `runs_write` `close` (and again at Stop) it lists the root's closed, unmarked runs of the last 24 hours, reads each run's terminal count, and in `dispatch` mode at or above `dispatchThreshold` tries to win the run's `retro` mark (first write wins, so two sessions never both dispatch) before spawning one agent for `/session-retrospective --run <runId>`; otherwise it nudges. In a subagent, or without a project `rootId`, the close is recorded and the Stop nudges once. Test-kit verified, not live-verified.
 
-Known gap: the server serves the `runs_write` `mark` op over REST only, so the mod's `mark` call (made over the MCP connection) fails and every dispatch-eligible run is nudged instead of dispatched until that is resolved.
+The `mark` goes over the REST API (the server serves `runs_write` `mark` over REST only): it needs the server's REST API enabled (`API_ENABLED=true`), `curl` on PATH, and the same API URL and token resolution as live updates. The token is passed to curl on stdin, never on the command line. Without the REST API, or when the mark fails, every dispatch-eligible run is nudged instead of dispatched.
 
 ### Phase guard
 

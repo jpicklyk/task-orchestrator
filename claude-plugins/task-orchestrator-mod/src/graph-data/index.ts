@@ -10,7 +10,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
-import { parseToResult } from '../shared/to-client.ts'
+import { envelopeOf, parseToResult } from '../shared/to-client.ts'
 import type { GraphDecision, GraphRun, GraphSnapshot, GraphStatus } from '../../types'
 import { touchedIds } from '../graph-pane/activity.ts'
 import { snapshotEvents, toastLines } from './events.ts'
@@ -169,8 +169,16 @@ function graphIo($: EngineInterface): GraphIo {
   }
 }
 
-/** A local write clears the remote marks of every item it named or that its result names (cascades included). Advisory. */
+/**
+ * A local write clears the remote marks of every item it named or that its result names (cascades included),
+ * only when its result has an envelope that is ok or carries `data.results` (a partial batch). No envelope, or
+ * a whole-call refusal, clears nothing. Advisory.
+ */
 async function clearLocalMarks($: EngineInterface, e: unknown, ran: unknown): Promise<void> {
+  const env = envelopeOf(ran)
+  if (env === null) return
+  const results = (env.data as { results?: unknown } | undefined)?.results
+  if (env.ok !== true && !Array.isArray(results)) return
   const ids = [...touchedIds(e).map(t => t.id), ...resultItemIds(ran)]
   if (ids.length === 0) return
   try {
