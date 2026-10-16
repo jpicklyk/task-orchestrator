@@ -426,6 +426,13 @@ export function next(core, doc, state) {
       }
     }
 
+    // declaration coverage: a test-author dispatch naming a module the extractor never covered is refused
+    const gap = core.declarationGap(plan, item, stage, outsBySeat(item, state))
+    if (gap) {
+      settled.push({ item: item.short, status: gap.status, reason: gap.reason })
+      continue
+    }
+
     // lock gating
     const keys = core.lockKeysFor(item, stage, outsBySeat(item, state), plan)
     // D3: a key contends with any held key it may overlap (directory/glob bases, worktree: keys).

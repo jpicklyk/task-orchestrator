@@ -72,6 +72,12 @@ than filling the gap silently.
 A criterion that only yields a happy-path scenario has not been fully partitioned — go back and
 ask what could violate it or sit at its boundary before treating it as covered.
 
+**Name the modules the scenarios touch.** Give `test-plan` a `declarationModules:` line (a
+comma-separated list of repo-relative paths) covering every module a scenario's oracle or harness
+depends on, including modules the implementer will not edit. The declarations extractor covers the
+union of this list and the implementer's changed files; a test-author dispatch naming a module the
+extractor did not cover is refused with `missingDeclaration:`.
+
 **Stable S-ids.** Number scenarios `S1, S2, S3…` in the `test-plan` note and never renumber once
 written test code refers to them — the `test-manifest`'s S-id→test mapping is only auditable if
 the ids are stable across the plan/manifest boundary. If a scenario is dropped, mark it
