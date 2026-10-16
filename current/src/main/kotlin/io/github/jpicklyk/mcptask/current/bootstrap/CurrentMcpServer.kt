@@ -2,11 +2,11 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
@@ -89,7 +89,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Current (v3) MCP Server implementation for the Task Orchestrator.
+ * Current (4.0) MCP Server implementation for the Task Orchestrator.
  *
  * Initializes database, configures MCP SDK server, registers tools, and starts the transport.
  * Transport is selected via the MCP_TRANSPORT environment variable:
@@ -152,7 +152,7 @@ class CurrentMcpServer(
      */
     private fun runServer(): StartupOutcome =
         runBlocking {
-            logger.info("Initializing Current (v3) MCP server...")
+            logger.info("Initializing Current (4.0) MCP server...")
 
             // Readiness marker: written only once the server is actually serving (inside the
             // transport runners below, after the transport confirms it started), and cleared on
@@ -448,7 +448,7 @@ class CurrentMcpServer(
         // Serving: only now start background work a failed start must not leave running (the retention pruner).
         onReady()
 
-        logger.info("Current (v3) MCP server running as '$serverName' v$version over stdio")
+        logger.info("Current (4.0) MCP server running as '$serverName' v$version over stdio")
         try {
             done.join()
         } catch (e: Exception) {
@@ -590,7 +590,7 @@ class CurrentMcpServer(
         onReady()
 
         logger.info(
-            "Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge, /mcp/director)"
+            "Current (4.0) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp (+ /mcp/knowledge, /mcp/director)"
         )
         try {
             done.join()

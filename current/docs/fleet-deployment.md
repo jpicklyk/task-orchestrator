@@ -575,6 +575,66 @@ and the hook is re-pointed in the plugin work, so until then it fails open again
 
 ---
 
+## Environment Variable Reference
+
+One row per operator-facing environment variable the server reads. This table is the single reference: `server.json` lists exactly these names, and a guard test keeps both in step with the source. Client-side `TASK_ORCHESTRATOR_*` variables and refusal-only legacy variables (`USE_FLYWAY`, `DEGRADED_MODE_POLICY`) are deliberately not listed.
+
+| Variable | Default | Documented in |
+|----------|---------|---------------|
+| `AGENT_CONFIG_DIR` | working dir | this table |
+| `API_ALLOW_QUERY_TOKEN_FOR_SSE` | `false` | [REST API env vars](#rest-api-env-vars) |
+| `API_ALLOW_UNAUTHENTICATED` | `false` | [REST API env vars](#rest-api-env-vars) |
+| `API_AUTH_MODE` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `API_ENABLED` | `false` | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_ALGORITHMS` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_ALLOW_INSECURE_URL` | `false` | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_AUDIENCE` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_CACHE_TTL_SECONDS` | `300` | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_ISSUER` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_MAX_STALE_SECONDS` | `max(3600, TTL)` | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` | `86400` | [REST API env vars](#rest-api-env-vars) |
+| `API_JWKS_URL` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `API_REDACT_NOTE_ATTRIBUTION` | `true` | [REST API env vars](#rest-api-env-vars) |
+| `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | `30` | [REST API env vars](#rest-api-env-vars) |
+| `API_SSE_BUFFER_SIZE` | `1000` | [REST API env vars](#rest-api-env-vars) |
+| `API_TOKENS_PATH` | `/run/secrets/api-tokens.yaml` | [REST API env vars](#rest-api-env-vars) |
+| `CORS_ALLOWED_HEADERS` | `Authorization,Content-Type,If-Match,X-Client-Host` | [REST API env vars](#rest-api-env-vars) |
+| `CORS_ALLOWED_METHODS` | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | [REST API env vars](#rest-api-env-vars) |
+| `CORS_ALLOWED_ORIGINS` | *(none)* | [REST API env vars](#rest-api-env-vars) |
+| `CORS_EXPOSE_HEADERS` | `ETag,Last-Event-ID,Retry-After,X-Req-Id` | [REST API env vars](#rest-api-env-vars) |
+| `CORS_MAX_AGE_SECONDS` | `3600` | [REST API env vars](#rest-api-env-vars) |
+| `DATABASE_BUSY_TIMEOUT_MS` | `5000` | [SQLite Tuning](#sqlite-tuning--connection-pools-database_max_connections-database_busy_timeout_ms) |
+| `DATABASE_MAX_CONNECTIONS` | `10` | [SQLite Tuning](#sqlite-tuning--connection-pools-database_max_connections-database_busy_timeout_ms) |
+| `DATABASE_PATH` | `data/current-tasks.db` | [Schema management](#schema-management-locking-and-startup-integrity) |
+| `DATABASE_SHOW_SQL` | `false` | this table |
+| `DB_COMPACT_ON_UPGRADE` | `true` | [Remediation](#remediation) |
+| `FLYWAY_REPAIR` | `false` | [Schema management](#schema-management-locking-and-startup-integrity) |
+| `FTS_INTEGRITY` | `startup` | [Schema management](#schema-management-locking-and-startup-integrity) |
+| `LOG_FILE` | unset | [Logging](#logging) |
+| `LOG_LEVEL` | `INFO` | [Logging](#logging) |
+| `MCP_ALLOWED_HOSTS` | *(empty)* | [REST API env vars](#rest-api-env-vars) |
+| `MCP_ALLOW_UNAUTHENTICATED` | `false` | [REST API env vars](#rest-api-env-vars) |
+| `MCP_HTTP_HOST` | `0.0.0.0` | this table |
+| `MCP_HTTP_PORT` | `3001` | this table |
+| `MCP_SERVER_NAME` | `mcp-task-orchestrator-current` | this table |
+| `MCP_TOOL_PROFILE` | `orchestration` | [Authentication](#mcp-authentication---read-first) |
+| `MCP_TRANSPORT` | `stdio` | [Authentication](#mcp-authentication---read-first) |
+| `READINESS_FILE` | `/tmp/mcp-task-orchestrator.ready` | [Startup, Readiness, and Health Checks](#startup-readiness-and-health-checks) |
+| `RESOURCE_LEASES_ENFORCED` | `true` | [REST API env vars](#rest-api-env-vars) |
+| `RETENTION_AUDIT_EVENTS_DAYS` | `0` | [Data Retention](#data-retention) |
+| `RETENTION_CALL_LOG_DAYS` | `90` | [Data Retention](#data-retention) |
+| `RETENTION_EVENTS_DAYS` | `180` | [Data Retention](#data-retention) |
+| `RETENTION_LEASE_HISTORY_DAYS` | `365` | [Data Retention](#data-retention) |
+| `SCHEMA_MODE` | `migrate` | [Schema management](#schema-management-locking-and-startup-integrity) |
+
+## Release Gates
+
+Three gates stand between a change and a published image, each independent of the others:
+
+1. **The Gradle suite** (the `workflow_call` test job in `.github/workflows/test.yml`) -- unit, integration and distribution-manifest tests, including the env-var parity guard over the table above.
+2. **The fresh-volume image smoke plus Trivy** -- `scripts/ci/smoke-test-image.sh <image>` boots the built image on an empty volume, waits for the readiness marker, performs the MCP stdio handshake and requires pure JSON-RPC on stdout; Trivy then scans for fixable CRITICAL findings.
+3. **The upgrade smoke from the 3.16 golden volume** -- `scripts/ci/smoke-test-image.sh --seed current/src/test/resources/upgrade/golden-v17-3.16.sqlite <image>` seeds the volume with the checked-in 3.16-format database, boots the image, then inspects the stopped volume with `sqlite3`: the once data steps are recorded (and no every-boot step is), Flyway is at the newest `V<N>` migration with no failed rows, the work item / note / dependency counts still match the golden manifest, and a second boot leaves every `data_steps.applied_at` unchanged. Both the PR image-smoke job and the release gate in `docker-publish.yml` run it before anything is pushed.
+
 ## Scope
 
 This guide covers **server-side configuration**: credentials and identity, capacity tuning, observability, and lifecycle. The **agent/client side** - calling the `advance` tool's `claim` op, presenting a credential (`Authorization: Bearer`) on every call, sequencing claim/heartbeat/release, retrying on `claim_held`, minting and rotating credentials with your identity provider, integrating with your audit infrastructure - is the implementer's responsibility.

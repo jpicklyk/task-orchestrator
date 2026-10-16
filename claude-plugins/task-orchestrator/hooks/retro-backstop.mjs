@@ -25,7 +25,8 @@
 // blocking path also clears `sawTerminal` and stamps `handledAt`, so the very next Stop (whether
 // it arrives via stop_hook_active or a fresh turn) is guaranteed to fall through to silent exit.
 
-import { readFileSync } from 'fs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitEmpty as writeEmpty, emitBlock as writeBlock } from './lib/emit.mjs';
 import {
   parseRetrospectiveConfig,
   retroMarkerKey,
@@ -38,29 +39,18 @@ import { locateConfig } from './config-locator.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 
 function emitEmpty() {
-  process.stdout.write('{}');
+  writeEmpty();
   process.exit(0);
 }
 
 function emitBlock(text) {
-  process.stdout.write(JSON.stringify({ decision: 'block', reason: text }));
+  writeBlock(text);
   process.exit(0);
 }
 
 try {
-  let raw = '';
-  try {
-    raw = readFileSync(0, 'utf-8');
-  } catch {
-    emitEmpty();
-  }
-
-  let hookInput;
-  try {
-    hookInput = JSON.parse(raw);
-  } catch {
-    emitEmpty();
-  }
+  const hookInput = readHookInput();
+  if (!hookInput) emitEmpty();
 
   // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
   // `to_mod_retro` on the event): step aside before any config or marker I/O.

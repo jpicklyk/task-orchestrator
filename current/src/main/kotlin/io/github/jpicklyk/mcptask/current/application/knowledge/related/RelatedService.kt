@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.related
 
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.RrfFusion
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.port.TextOp
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallHitSignals
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRelatedSignals

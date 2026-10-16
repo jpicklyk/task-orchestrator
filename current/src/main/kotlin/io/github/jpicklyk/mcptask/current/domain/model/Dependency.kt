@@ -69,4 +69,12 @@ data class Dependency(
 
     /** The item blocked by the other side, or null for RELATES_TO. See [blockingEdge]. */
     fun blockedId(): UUID? = blockingEdge()?.second
+
+    companion object {
+        /**
+         * The `invalid_request` field reason of a BLOCKS edge with a lifecycle-free endpoint. Telemetry matches it to
+         * count lifecycle-free rejections (`call_log.lifecycle_free_rejections`), so the text is a contract.
+         */
+        const val LIFECYCLE_FREE_ENDPOINT_REASON = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
+    }
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // PreToolUse EnterPlanMode — triggers the pre-plan-workflow skill
+import { emit } from "./lib/emit.mjs";
 const output = {
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
@@ -10,4 +11,4 @@ You MUST invoke the \`task-orchestrator:pre-plan-workflow\` skill BEFORE startin
 Do this now. Do not begin exploring, reading code, or drafting your plan until this prerequisite completes.`
   }
 };
-process.stdout.write(JSON.stringify(output));
+emit(output);

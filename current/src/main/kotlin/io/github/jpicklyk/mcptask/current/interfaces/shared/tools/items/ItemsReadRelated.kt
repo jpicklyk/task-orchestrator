@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedHit
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedSignal
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.EntityRef

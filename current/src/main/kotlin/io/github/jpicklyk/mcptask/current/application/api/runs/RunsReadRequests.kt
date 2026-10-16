@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.api.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

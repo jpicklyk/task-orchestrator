@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 
 /** One `[[...]]` reference found in a body. */

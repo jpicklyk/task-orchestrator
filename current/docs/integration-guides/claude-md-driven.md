@@ -21,6 +21,8 @@ Claude Code loads `CLAUDE.md` from your project root at the start of every sessi
 
 This means you can embed MCP workflow conventions once and have them apply to every session, for every team member.
 
+The snippets below name 4.0 tools, selects and ops. How a call is shaped (`select` for reads, `ops[]` for writes, the profile a client connects with, `describe: true`) is explained once in [Calling the tools](../workflow-guide.md#calling-the-tools); runs, seats and decisions are in [Workflow Guide section 12](../workflow-guide.md#12-runs-seats-and-decisions).
+
 ## Example CLAUDE.md Snippets
 
 ### Workflow Protocol
@@ -30,13 +32,14 @@ Add this block to your project's `CLAUDE.md`:
 ```markdown
 ## MCP Task Orchestrator Conventions
 
-- Use `create_work_tree` to create features with child items — never create items one at a time
-- Use `advance_item(trigger=...)` for all role transitions — never update role directly via manage_items
-- Call `get_context(itemId=...)` before starting work on any item to check gate status and expected notes
-- Call `get_context()` (no params) at session start to see active and stalled work
-- Use `get_next_item()` when uncertain what to work on next
-- Fill required notes with `manage_notes(operation="upsert")` before attempting to advance phases
-- Use `get_blocked_items()` to check for dependency blockers before starting an item
+- Use `items_write` with the `create_tree` op to create features with child items - never create items one at a time. Give every item a `type` declared in the project config
+- Use the `advance` tool's `transition` op for all role transitions - never change a role through `items_write` `update`
+- Read `items_read` with `select: "context"` and the item's `itemId` before starting work on it, to check gate status and expected notes
+- Read `items_read` with `select: "context"` and no `itemId` at session start to see active and stalled work
+- Use `items_read` with `select: "next"` when uncertain what to work on next
+- Fill required notes with `notes_write` (`op: "upsert"`) before attempting to advance phases
+- Use `items_read` with `select: "blocked"` to check for dependency blockers before starting an item
+- Send `{"describe": true}` to any tool when unsure of a field name
 ```
 
 ### Session Resume
@@ -44,8 +47,8 @@ Add this block to your project's `CLAUDE.md`:
 ```markdown
 ## Session Start
 
-At the beginning of each session, call `get_context()` to see what's active, blocked, or stalled.
-If resuming from a previous session, call `get_context(since="<last-session-timestamp>")` to see
+At the beginning of each session, read `items_read` with `select: "context"` (no `itemId`) to see what's active, blocked, or stalled.
+If resuming from a previous session, read `items_read` with `select: "history"` and `since: "<last-session-timestamp>"` to see
 recent transitions.
 ```
 
@@ -54,8 +57,8 @@ recent transitions.
 ```markdown
 ## Dependencies
 
-Before starting any item, check `get_blocked_items()` to confirm no upstream blockers.
-When completing an item, check the `unblockedItems` field in the advance_item response
+Before starting any item, read `items_read` with `select: "blocked"` to confirm no upstream blockers.
+When completing an item, check the `unblocked` field in the `advance` `transition` result
 to see what's now ready to start.
 ```
 

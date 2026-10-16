@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.EventPage
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.coroutineScope
@@ -146,9 +146,9 @@ class EventReplayLiveBoundaryTest {
                 coroutineScope {
                     val job = launch { flow.collect { got += it.id } }
                     while (got.size < expectedCount) {
-                        delay(10)
+                        delay(10) // settle-ok: poll interval waiting for the expected frame count
                     }
-                    delay(300) // grace window: a boundary duplicate would arrive here
+                    delay(300) // settle-ok: boundary grace window: a boundary duplicate would arrive here
                     job.cancel()
                 }
             }

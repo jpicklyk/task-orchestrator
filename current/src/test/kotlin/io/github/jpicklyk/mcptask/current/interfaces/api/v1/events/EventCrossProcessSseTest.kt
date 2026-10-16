@@ -68,9 +68,8 @@ class EventCrossProcessSseTest {
                 bus.startTailer(scope)
                 val rootId = UUID.randomUUID()
                 val itemId = UUID.randomUUID()
-                val flow = bus.subscribe("s14", emptySet(), lastEventId = null, resumeRequested = false)
+                val flow = bus.connect("s14", emptySet(), lastEventId = null, resumeRequested = false)
                 val received = async(Dispatchers.IO) { withTimeout(20.seconds) { flow.first() } }
-                delay(300)
 
                 val startedAt = System.nanoTime()
                 val appended =
@@ -103,7 +102,7 @@ class EventCrossProcessSseTest {
                 bus.startTailer(scope)
                 val mine = UUID.randomUUID()
                 val theirs = UUID.randomUUID()
-                val flow = bus.subscribe("s14b", setOf(mine), lastEventId = null, resumeRequested = false)
+                val flow = bus.connect("s14b", setOf(mine), lastEventId = null, resumeRequested = false)
                 val received =
                     async(Dispatchers.IO) {
                         withTimeout(20.seconds) {
@@ -114,13 +113,12 @@ class EventCrossProcessSseTest {
                             out
                         }
                     }
-                delay(300)
                 val store = DefaultRepositoryProvider(other, Clock.SYSTEM).eventStore()
                 val wanted1 = store.append(listOf(foreignRecord(mine, UUID.randomUUID()))).single()
                 store.append(listOf(foreignRecord(theirs, UUID.randomUUID())))
                 val wanted2 = store.append(listOf(foreignRecord(mine, UUID.randomUUID()))).single()
 
-                delay(4_000)
+                delay(4_000) // settle-ok: collect window; foreign rows are polled in by the tailer, no in-process signal to wait on
                 bus.unsubscribe("s14b")
                 val got = received.await()
 

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
-import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFact
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
@@ -99,7 +99,7 @@ class CompositionResult(
 )
 
 /**
- * Manual composition root for the Current (v3) MCP server.
+ * Manual composition root for the Current (4.0) MCP server.
  *
  * Builds the entire object graph (repositories, config services, REST/SSE wiring,
  * and the final [ToolExecutionContext]) from a single typed [AppConfig] snapshot and an already

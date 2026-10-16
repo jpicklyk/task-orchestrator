@@ -199,6 +199,7 @@ tasks.withType<Test>().configureEach {
             rootProject.file("docker-compose.yml"),
             rootProject.file("server.json"),
             rootProject.file("smithery.yaml"),
+            rootProject.file("current/docs/fleet-deployment.md"),
         ).withPropertyName("distributionManifestInputs")
 
     // KotlinLoggingBannerGuardTest reads the `kotlinLogging` version pin directly out of the

@@ -310,12 +310,12 @@ transitions).
   `create_tree`); every other item is created in `queue`.
 - **No transitions.** Every `advance` trigger on a lifecycle-free item fails `invalid_transition` (`fromRole: "none"`,
   no allowed triggers), as does `claim` (the item is never claimed and the caller's other claims are kept). Cascades
-  skip it. It never appears in `next` or `blocked`, a claim by selector never picks it, and `complete_tree` leaves
+  skip it. It never appears in `next` or `blocked`, a claim by selector never picks it, and `items_write` `complete_tree` leaves
   lifecycle-free descendants out (an explicitly targeted one fails as usual).
-- **Dependencies.** A lifecycle-free item cannot be an endpoint of a BLOCKS edge (an IS_BLOCKED_BY input normalizes
-  to one): the edge is rejected `invalid_request`. RELATES_TO edges are allowed.
+- **Dependencies.** A lifecycle-free item cannot be an endpoint of a `blocks` edge: the edge is rejected
+  `invalid_request`. `relates_to` edges are allowed.
 - **Telemetry.** The call log's `lifecycle_free_rejections` column counts the rejections in a call's response that a
-  lifecycle-free item caused (the `invalid_transition` with `fromRole: "none"` and the BLOCKS-endpoint
+  lifecycle-free item caused (the `invalid_transition` with `fromRole: "none"` and the `blocks`-edge endpoint
   `invalid_request` above); it is NULL when there were none.
 - **Counts.** Role counts (overview `childCounts`, anchored roll-ups, health counts) count lifecycle-free items under
   no role; they are not folded into `queue`. A parent whose only children are lifecycle-free has no children for the

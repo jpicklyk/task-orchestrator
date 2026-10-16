@@ -9,7 +9,8 @@
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
 // Fail-open: any throw yields `{}` and exit 0.
 
-import { readFileSync } from 'node:fs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emit } from './lib/emit.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
@@ -28,13 +29,8 @@ function hasModel(toolInput) {
 }
 
 function main() {
-  let input;
-  try {
-    input = JSON.parse(readFileSync(0, 'utf-8'));
-  } catch {
-    return {};
-  }
-  if (!input || typeof input !== 'object') return {};
+  const input = readHookInput();
+  if (!input) return {};
   if (input.tool_name !== 'Agent') return {};
   if (isHeadlessIteration(process.env)) return {};
   const loc = locateConfig({ cwd: process.cwd(), env: process.env });
@@ -57,5 +53,5 @@ try {
 } catch {
   out = {};
 }
-process.stdout.write(JSON.stringify(out));
+emit(out);
 process.exit(0);

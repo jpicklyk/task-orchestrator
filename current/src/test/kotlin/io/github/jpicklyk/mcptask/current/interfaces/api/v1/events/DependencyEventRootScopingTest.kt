@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -65,31 +64,13 @@ import kotlin.time.Duration.Companion.seconds
  * clause (O2/O3), per the test-plan's declared substitute for this shape.
  *
  * Every subscriber-visible scenario waits on the public [ApiEventBus.subscriberCount] gate
- * (`awaitSubscriberCount`) rather than a fixed sleep: this is the exact counter `resolveRoots`
+ * (`awaitSubscribers`) rather than a fixed sleep: this is the exact counter `resolveRoots`
  * itself checks (subscriberCount()==0 short-circuits to emptySet — the diagnosis's "performance
  * guard", unchanged by this fix), so waiting on it is a real condition, not a guess at timing.
  */
 class DependencyEventRootScopingTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    /**
-     * Polls the public [ApiEventBus.subscriberCount] until it reaches [expected], bounded by
-     * [timeoutMs]. Used instead of a fixed sleep: subscription registration timing is not
-     * observable from this test any other way, but the exact counter the fix's `resolveRoots`
-     * gates on is public and safe to poll.
-     */
-    private suspend fun awaitSubscriberCount(
-        bus: ApiEventBus,
-        expected: Int,
-        timeoutMs: Long = 2_000,
-    ) {
-        withTimeout(timeoutMs) {
-            while (bus.subscriberCount() < expected) {
-                delay(5)
-            }
-        }
-    }
 
     /** Root R (depth 0) plus two children A, B (depth 1), created with zero subscribers connected. */
     private suspend fun createRootAndChildren(
@@ -125,7 +106,7 @@ class DependencyEventRootScopingTest {
 
             val flowR = bus.subscribe("s1-sub-root", setOf(root.id), lastEventId = null)
             val received = async { withTimeout(5.seconds) { flowR.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
             provider.dependencyCommandService
                 .create(
@@ -165,7 +146,7 @@ class DependencyEventRootScopingTest {
 
             val flowR = bus.subscribe("s2-sub-root", setOf(root.id), lastEventId = null)
             val received = async { withTimeout(5.seconds) { flowR.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
             val deleted = provider.dependencyCommandService.deleteById(dep.id, caller = null).orThrow()
             assertTrue(deleted, "delete of an existing dependency must report success")
@@ -195,7 +176,7 @@ class DependencyEventRootScopingTest {
 
             val flowS = bus.subscribe("s3-sub-unrelated", setOf(unrelatedRoot.id), lastEventId = null)
             val received = async { withTimeoutOrNull(1.seconds) { flowS.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
             provider.dependencyCommandService
                 .create(
@@ -225,7 +206,7 @@ class DependencyEventRootScopingTest {
             // Unrestricted subscriber: entitled to everything, so a leaked event would still show here.
             val flowAll = bus.subscribe("s4-sub-all", emptySet(), lastEventId = null)
             val received = async { withTimeoutOrNull(1.seconds) { flowAll.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
             val depId = UUID.randomUUID()
             var caught: Throwable? = null
