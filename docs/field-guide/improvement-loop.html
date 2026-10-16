@@ -181,7 +181,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 
 <section>
   <h2>What starts a retrospective</h2>
-  <p>A plugin hook watches <code>advance_item</code> and <code>complete_tree</code>. A run counts as finished when a parent reaches terminal by cascade, or <code>complete_tree</code> completes at least one item. What happens next is set by <code>retrospective.mode</code> in the project config.</p>
+  <p>A plugin hook watches <code>advance</code> and <code>items_write</code> <code>complete_tree</code>. A run counts as finished when a parent reaches terminal by cascade, or a <code>complete_tree</code> op completes at least one item. What happens next is set by <code>retrospective.mode</code> in the project config.</p>
   <div class="grid3">
     <div class="rule"><h3><code>nudge</code>, the default</h3><p class="small">The session is told a retrospective is suggested and given the command to run. The user decides.</p></div>
     <div class="rule"><h3><code>dispatch</code></h3><p class="small">Once at least <code>dispatchThreshold</code> items (default 3) have reached terminal, the orchestrator launches one background retrospective agent at the next pause in the run. Smaller runs still get a nudge.</p></div>

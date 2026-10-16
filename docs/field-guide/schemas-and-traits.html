@@ -292,7 +292,7 @@ work_item_schemas:
 
 <section>
   <h2>Resource leases: a gate on shared things</h2>
-  <p>Some work needs something only one item can use at a time: a staging slot, a test database, a deploy window. A trait can declare that resource, and the server holds a lease on it for as long as the item is in work. There is no acquire or release call. The lease rides on <code>advance_item</code>.</p>
+  <p>Some work needs something only one item can use at a time: a staging slot, a test database, a deploy window. A trait can declare that resource, and the server holds a lease on it for as long as the item is in work. There is no acquire or release call. The lease rides on <code>advance</code>.</p>
   <figure>
     <div class="panel scroll">
       <svg class="d" viewBox="0 0 900 206" role="img" aria-label="Timeline of two items that both need the staging-db resource. Item A starts and holds the lease while in work. Item B's start during that time is rejected with resource_unavailable. After Item A completes and the lease is released, Item B's start succeeds.">

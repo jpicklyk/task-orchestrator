@@ -28,6 +28,10 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { readSection, scalar } from './yaml-lite.mjs';
 import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
+// readHookInput is fail-open: an unreadable or unparseable stdin (including no stdin at all, as when
+// this script is run manually) yields null, treated exactly like a SessionStart invocation.
+import { readHookInput } from './lib/stdin.mjs';
+import { emitContext, emitSystemMessage } from './lib/emit.mjs';
 import { locateConfig, isValidRootId } from './config-locator.mjs';
 
 // Mirrors RuleService.KEY_PATTERN (current/.../application/service/RuleService.kt) exactly — a rule
@@ -129,19 +133,6 @@ export function parseRootId(text) {
 }
 
 /**
- * Best-effort read of the hook's stdin JSON. Fail-open: an unreadable stream or unparseable
- * body (including no stdin at all, as when this script is run manually) yields null, and the
- * caller treats that exactly like a SessionStart invocation — proceed to the existing sync logic.
- */
-function readHookInput() {
-  try {
-    return JSON.parse(readFileSync(0, 'utf-8'));
-  } catch {
-    return null;
-  }
-}
-
-/**
  * True when `filePath` is (some path form of) this workspace's `.taskorchestrator/config.yaml`.
  * Normalizes `\` to `/` first since FileChanged on Windows reports native backslash paths.
  */
@@ -155,12 +146,10 @@ export function isTargetConfigPath(filePath) {
 // systemMessage. SessionStart output is unchanged.
 function emit(line, isFileChanged = false) {
   if (isFileChanged) {
-    process.stdout.write(JSON.stringify({ systemMessage: line }));
+    emitSystemMessage(line);
     return;
   }
-  process.stdout.write(
-    JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: line } }),
-  );
+  emitContext('SessionStart', line);
 }
 
 /**

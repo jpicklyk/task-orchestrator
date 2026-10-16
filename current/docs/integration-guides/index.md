@@ -1,7 +1,5 @@
 # Integration Guides
 
-> **4.0 notice.** The server contract changed in 4.0 (new tool names, call shapes and response envelope). These guides still show the 3.x call shapes and are being rewritten with the 4.0 plugin; the 4.0 contract is in the [API Reference](../api-reference.md).
-
 MCP Task Orchestrator can be integrated at different levels of sophistication. These guides are progressive — each tier builds on the previous. Start where you are, level up when you need more.
 
 ## Guide Overview

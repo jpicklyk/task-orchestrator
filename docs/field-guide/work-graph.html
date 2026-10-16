@@ -137,7 +137,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 
 <section>
   <h2>Run a feature through the graph</h2>
-  <p class="sub">Click an item to advance it: queue to work, work to terminal, terminal back to queue with reopen. Thick arrows are <code>BLOCKS</code> edges. The frame is the parent.</p>
+  <p class="sub">Click an item to advance it: queue to work, work to terminal, terminal back to queue with reopen. Thick arrows are <code>blocks</code> edges. The frame is the parent.</p>
   <div class="grid2" style="grid-template-columns:minmax(0,1fr)">
     <figure>
       <div class="panel scroll">
@@ -187,19 +187,19 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
     <div class="rule"><h3>Terminal cascade</h3><p class="small">When the last child reaches terminal, the parent reaches terminal too, and the check repeats up the ancestor chain.</p></div>
     <div class="rule"><h3>Reopen cascade</h3><p class="small">Reopening a child under a terminal parent sends that parent back to work. One level up only.</p></div>
   </div>
-  <p class="sub small">Each cascade is listed in the <code>cascadeEvents</code> of the response, with no actor, because the system made it. A schema's <code>lifecycle</code> tunes the terminal cascade: <code>AUTO</code> (default) cascades, <code>MANUAL</code> waits for an explicit completion, <code>PERMANENT</code> never auto-terminates.</p>
+  <p class="sub small">Each cascade is listed in the <code>cascades</code> of the result and recorded as a system-made transition (<code>origin: cascade</code> in the history), attributed to the principal whose write set it off. A schema's <code>lifecycle</code> tunes the terminal cascade: <code>AUTO</code> (default) cascades, <code>MANUAL</code> waits for an explicit completion, <code>PERMANENT</code> never auto-terminates.</p>
 </section>
 
 <section>
   <h2>Build the whole tree in one call</h2>
   <div class="grid2">
-    <pre>create_work_tree(
-  root={ "title": "User Authentication" },
+    <pre>items_write(op="create_tree",
+  root={ "title": "User Authentication", "type": "feature" },
   children=[
-    { "ref": "schema", "title": "Database schema" },
-    { "ref": "api",    "title": "Login API" },
-    { "ref": "tokens", "title": "Session tokens" },
-    { "ref": "tests",  "title": "Integration tests" }
+    { "ref": "schema", "title": "Database schema", "type": "task" },
+    { "ref": "api",    "title": "Login API", "type": "task" },
+    { "ref": "tokens", "title": "Session tokens", "type": "task" },
+    { "ref": "tests",  "title": "Integration tests", "type": "task" }
   ],
   deps=[
     { "from": "schema", "to": "api" },
@@ -209,13 +209,12 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   ]
 )</pre>
     <div style="display:grid;gap:12px;align-content:start">
-      <p>The hierarchy and its edges are created atomically, so agents never work against a half-built plan. <code>complete_tree</code> is the mirror image: it completes a root and its descendants in topological order.</p>
+      <p>The hierarchy and its edges are created atomically, so agents never work against a half-built plan. <code>items_write</code> <code>complete_tree</code> is the mirror image: it completes a root and its descendants in topological order.</p>
       <div class="tscroll"><table>
         <thead><tr><th>Edge type</th><th>Meaning</th></tr></thead>
         <tbody>
-          <tr><td><code>BLOCKS</code></td><td>The target cannot start until the source reaches the threshold. The default.</td></tr>
-          <tr><td><code>IS_BLOCKED_BY</code></td><td>The same ordering, written from the other end.</td></tr>
-          <tr><td><code>RELATES_TO</code></td><td>A link with no ordering constraint.</td></tr>
+          <tr><td><code>blocks</code></td><td>The target cannot start until the source reaches the threshold. The default. The blocker is always the <code>from</code> end.</td></tr>
+          <tr><td><code>relates_to</code></td><td>A link with no ordering constraint.</td></tr>
         </tbody>
       </table></div>
     </div>
@@ -233,8 +232,8 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>linear</h3>
-      <pre>pattern="linear"
-itemIds=[A, B, C]</pre>
+      <pre>deps_write op="linear"
+ids=[A, B, C]</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-out pattern: A blocks B, C and D.">
@@ -245,8 +244,8 @@ itemIds=[A, B, C]</pre>
         <circle cx="190" cy="82" r="16" class="dot"/><text x="190" y="87" text-anchor="middle" class="b">D</text>
       </svg>
       <h3>fan-out</h3>
-      <pre>pattern="fan-out"
-fromItemId=A, toItemIds=[B, C, D]</pre>
+      <pre>deps_write op="fan_out"
+from=A, toIds=[B, C, D]</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-in pattern: A and B both block C.">
@@ -256,8 +255,8 @@ fromItemId=A, toItemIds=[B, C, D]</pre>
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>fan-in</h3>
-      <pre>pattern="fan-in"
-fromItemIds=[A, B], toItemId=C</pre>
+      <pre>deps_write op="fan_in"
+fromIds=[A, B], to=C</pre>
     </figure>
   </div>
   <div class="tscroll"><table>
@@ -296,24 +295,24 @@ fromItemIds=[A, B], toItemId=C</pre>
   function finish(id){
     role[id]='terminal';
     var un=ORDER.filter(function(k){return N[k].deps.indexOf(id)>-1&&role[k]==='queue'&&waiting(k).length===0;});
-    if(un.length)log('sys','unblockedItems: '+un.map(function(k){return N[k].t;}).join(', '));
-    if(allDone()&&parent!=='terminal'){log('sys','cascadeEvents: '+PARENT+' '+parent+' → terminal');parent='terminal';}
+    if(un.length)log('sys','unblocked: '+un.map(function(k){return N[k].t;}).join(', '));
+    if(allDone()&&parent!=='terminal'){log('sys','cascades: '+PARENT+' '+parent+' → terminal');parent='terminal';}
   }
   function click(id){
     var r=role[id],t=N[id].t,w;
     if(r==='queue'){
-      log('call','advance_item(item="'+t+'", trigger="start")');
+      log('call','advance(op="transition", itemId="'+t+'", trigger="start")');
       w=waiting(id);
       if(w.length){log('err','✗ blocked by: '+w.map(function(k){return N[k].t;}).join(', '));return;}
       role[id]='work';log('ok','✓ queue → work');
-      if(parent==='queue'){parent='work';log('sys','cascadeEvents: '+PARENT+' queue → work');}
+      if(parent==='queue'){parent='work';log('sys','cascades: '+PARENT+' queue → work');}
     }else if(r==='work'){
-      log('call','advance_item(item="'+t+'", trigger="complete")');
+      log('call','advance(op="transition", itemId="'+t+'", trigger="complete")');
       log('ok','✓ work → terminal');finish(id);
     }else{
-      log('call','advance_item(item="'+t+'", trigger="reopen")');
+      log('call','advance(op="transition", itemId="'+t+'", trigger="reopen")');
       role[id]='queue';log('ok','✓ terminal → queue');
-      if(parent==='terminal'){parent='work';log('sys','cascadeEvents: '+PARENT+' terminal → work');}
+      if(parent==='terminal'){parent='work';log('sys','cascades: '+PARENT+' terminal → work');}
     }
     render();
   }
@@ -340,7 +339,7 @@ fromItemIds=[A, B], toItemId=C</pre>
     g.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();click(id);}});
   });
   $('ctree').addEventListener('click',function(){
-    log('call','complete_tree(root="'+PARENT+'")');
+    log('call','items_write(op="complete_tree", rootId="'+PARENT+'")');
     var did=ORDER.filter(function(k){return role[k]!=='terminal';});
     if(!did.length&&parent==='terminal'){log('ok','✓ nothing left to complete');return;}
     did.forEach(function(k){role[k]='terminal';});

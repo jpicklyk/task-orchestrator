@@ -14,10 +14,11 @@
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
 //                                absent, requests are sent with no Authorization header.
 
-import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { locateConfig } from './config-locator.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitContext } from './lib/emit.mjs';
 import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
 
 const MAX_SLUG_LENGTH = 64;
@@ -44,27 +45,14 @@ function deriveSlug(planText) {
 }
 
 function emit(line) {
-  process.stdout.write(
-    JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: line } }),
-  );
+  emitContext('PostToolUse', line);
 }
 
 async function main() {
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
 
-  let raw = '';
-  try {
-    raw = readFileSync(0, 'utf-8');
-  } catch {
-    return;
-  }
-
-  let hookInput;
-  try {
-    hookInput = JSON.parse(raw);
-  } catch {
-    return;
-  }
+  const hookInput = readHookInput();
+  if (!hookInput) return;
 
   const planText = hookInput?.tool_input?.plan;
   if (typeof planText !== 'string' || planText.trim() === '') return; // nothing to stash

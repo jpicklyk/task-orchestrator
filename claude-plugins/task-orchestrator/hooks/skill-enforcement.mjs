@@ -8,25 +8,14 @@
 // discipline below — so a concise-by-design note that keeps getting re-upserted does not
 // re-trigger the same suggestion forever.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import os from 'os';
 import { locateConfig } from './config-locator.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emit } from './lib/emit.mjs';
+import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 
 // Read hook input from stdin
-let input = '';
-try {
-  input = readFileSync(0, 'utf-8');
-} catch {
-  process.exit(0);
-}
-
-let hookInput;
-try {
-  hookInput = JSON.parse(input);
-} catch {
-  process.exit(0);
-}
+const hookInput = readHookInput();
+if (!hookInput) process.exit(0);
 
 const toolInput = hookInput.tool_input;
 if (!toolInput || toolInput.operation !== 'upsert' || !Array.isArray(toolInput.notes)) {
@@ -34,38 +23,11 @@ if (!toolInput || toolInput.operation !== 'upsert' || !Array.isArray(toolInput.n
 }
 
 // --- Once-per-(session, item, key) marker -----------------------------------------------
-// Fail-open discipline mirrors retro-lib.mjs's readMarker/writeMarker (implemented locally
-// here per scope — this hook does not import retro-lib.mjs). Any I/O error is treated as
-// "no marker" / "write silently dropped"; a marker failure must never crash the hook.
+// Fail-open discipline lives in lib/markers.mjs: any I/O error is treated as "no marker" /
+// "write silently dropped"; a marker failure must never crash the hook. The file is
+// <tmp>/task-orchestrator/<session>/skill-enforce.json.
 
-function sanitizeForFilename(value) {
-  return String(value).replace(/[^a-zA-Z0-9-]/g, '_');
-}
-
-function markerPath(sessionId) {
-  const key = sessionId ? sanitizeForFilename(sessionId) : 'unknown';
-  return join(os.tmpdir(), 'task-orchestrator', `skill-enforce-${key}.json`);
-}
-
-function readMarker(path) {
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf-8'));
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeMarker(path, obj) {
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(obj));
-  } catch {
-    // swallow all errors — a marker write must never crash a hook
-  }
-}
-
-const marker = markerPath(hookInput.session_id);
+const marker = sessionMarkerPath(hookInput.session_id, 'skill-enforce');
 const warnedPairs = readMarker(marker);
 
 const configContent = locateConfig().text;
@@ -198,4 +160,4 @@ const output = {
   }
 };
 
-process.stdout.write(JSON.stringify(output));
+emit(output);
