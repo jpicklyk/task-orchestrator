@@ -28,6 +28,17 @@ act on them.
 the phase's other required notes to their own seats — the schema's list of required queue notes is
 the phase's total, not your assignment.
 
+**Carry-ins.** A carry-in key is a note key on the item that starts `carry-in-`, except
+`carry-in-dispositions`, which is the record itself. Take the keys from the CARRY-INS block of your
+dispatch prompt; without one, list the item's notes with `includeBody:false` and filter by that
+rule. Read each carry-in note, then write one line per key, `<key>: in scope (AC n) | deferred to
+<item-id> | rejected because <reason>`, ending with a `N of N` count line. The record goes in
+`carry-in-dispositions` when your notes include it, otherwise in a `## Carry-in dispositions`
+section of your own queue note. A line disposes a key only when it starts with the exact `<key>:`
+(a list marker or backticks around the key are fine). An item whose schema lists
+`carry-in-dispositions` but whose dispatch names no carry-in keys is flagged in your note for the
+orchestrator, never guessed at.
+
 Fetch rule text by key rather than guessing at it: pull `protocol.in-phase-seat` via `query_rules`
 plus every key your dispatch prompt names, and follow what comes back instead of restating it from
 memory or copying it into your own note.
