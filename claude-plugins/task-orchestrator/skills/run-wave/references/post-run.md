@@ -287,8 +287,8 @@ process requires:
   `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
   --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
   from the side that made it, and when both sides changed the same bullet differently the base
-  branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`. A merge conflict on any other
-  `appendOnlyFiles` file is resolved by keeping both sides' added lines.
+  branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
+  A merge conflict on any other `appendOnlyFiles` file is resolved by keeping both sides' added lines.
   Exit 0 resolved, 1 duplicate heading (`DUPLICATE <kind> <name>`; fix by hand), 2 invalid input
   (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
   merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the

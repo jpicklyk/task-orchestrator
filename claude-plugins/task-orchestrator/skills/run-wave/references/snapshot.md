@@ -45,7 +45,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 ## `validateSnapshot` errors this shape introduces
 
-Two structural checks beyond the ones already documented in the helper's own doc comment:
+Structural checks beyond the ones already documented in the helper's own doc comment:
 
 - `git.repoRoot must be a non-empty string` — fires when `git` is missing entirely, or
   `git.repoRoot` is missing, empty, or not a string.

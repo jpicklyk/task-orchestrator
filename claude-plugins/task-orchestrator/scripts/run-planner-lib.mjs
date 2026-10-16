@@ -51,18 +51,17 @@ export function isCarryInDisposed(record, key) {
   return false;
 }
 
+// Canonicalises exactly as appendOnlyMatch in workflows/implement-wave.js does (backslash to '/',
+// leading './' removed, repeated '/' collapsed), so the planner and the core agree on each entry.
+function canonAppendOnly(raw) {
+  return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
  * every candidate has a `schemas` entry. Duplicate ids across sources are never an error.
  */
-function canonAppendOnly(raw) {
-  const t = String(raw).replace(/\\/g, '/');
-  const m = /^[a-zA-Z]:\//.exec(t) || /^\//.exec(t);
-  const prefix = m ? m[0] : '';
-  return prefix + t.slice(prefix.length).split('/').filter((g) => g !== '' && g !== '.').join('/');
-}
-
 export function validateSnapshot(snap) {
   const errors = [];
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
@@ -153,7 +152,7 @@ export function validateSnapshot(snap) {
       for (const raw of aof) {
         const c = canonAppendOnly(raw);
         const segs = c.split('/');
-        if (c === '' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
+        if (c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
           errors.push(`profile.appendOnlyFiles entry "${raw}" is not a repo-relative file pattern`);
         }
       }
