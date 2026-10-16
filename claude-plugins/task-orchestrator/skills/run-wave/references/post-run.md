@@ -342,3 +342,38 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
 6. **Remove the scratch worktree** (`git worktree remove --force <unique-tmp>`) and set
    `state.redProofs = "done"` on the run's state document so a resume does not repeat the step.
+
+---
+
+## Step 7b - Feature closure
+
+Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
+`feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
+pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
+on Step 7a. Not covered: a parent with one child (that child's review covers the range) and a
+parent whose schema has no review phase (it cascades to terminal; the gate checks only required
+notes, `GatePredicate.kt:64-75`).
+
+**Why every child first.** A review-role parent whose required notes are filled cascades to
+terminal when its last child completes (`CascadeDetector.kt:130-163`). A feature review written
+earlier can therefore close the parent before any finding is disposed.
+
+1. **Dispatch one feature reviewer.** The parent is in review. Dispatch one
+   `task-orchestrator:reviewer` with an explicit `model`: the model the parent's review dispatch
+   profile names, else `opus`. Range: shared mode `git -C <feature-worktree> diff <base>...HEAD`;
+   per-item mode, the base-branch range from the SHA before the first child merged to the merged
+   tip. Input: each child's `review-checklist` (`query_notes keys=["review-checklist"]`); list any
+   child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
+   never rewrites them.
+2. **On Fail**, run the Step 5 fix cycle against the parent. A blocking finding can only be
+   disposed `fixed`.
+3. **Dispose every finding.** In the parent's `orchestrator-confirmation` (role review, actor
+   `orchestrator:<session>`), one line per finding:
+   `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`, ending with
+   `<N> of <N> disposed`. A follow-up item must exist before its line is written
+   (`/task-orchestrator:create-item`).
+4. **Complete.** The orchestrator's explicit `complete` on the parent, only after N of N.
+
+**Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
+is optional and off-schema, so this is discipline, not enforcement. Under `review: "handoff"` the
+project's finalization applies the same rules (this repo: `/implement` Step 6 Parallel).
