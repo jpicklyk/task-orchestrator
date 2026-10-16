@@ -491,7 +491,7 @@ class PreUpgradeBackupTest {
         try {
             assertTrue(manager.initialize(UpgradeHarness.urlFor(db)))
             val outcome = manager.runPreUpgradeBackup()
-            assertEquals(BackupOutcome.SkippedNoMigration, outcome)
+            assertEquals(BackupOutcome.SkippedSchemaMode, outcome)
         } finally {
             manager.shutdown()
         }
@@ -505,8 +505,8 @@ class PreUpgradeBackupTest {
         val manager = DatabaseManager(appConfig = AppConfig.fromEnv { name -> if (name == "SCHEMA_MODE") "validate" else null })
         try {
             assertTrue(manager.initialize(UpgradeHarness.urlFor(db)))
-            // Frozen oracle (test-plan S14): SCHEMA_MODE=validate on an eligible file yields SkippedNoMigration.
-            assertEquals(BackupOutcome.SkippedNoMigration, manager.runPreUpgradeBackup())
+            // Amendment A1 oracle: SCHEMA_MODE=validate on an eligible file yields SkippedSchemaMode.
+            assertEquals(BackupOutcome.SkippedSchemaMode, manager.runPreUpgradeBackup())
         } finally {
             manager.shutdown()
         }
