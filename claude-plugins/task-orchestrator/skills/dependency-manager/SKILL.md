@@ -1,383 +1,189 @@
 ---
 name: dependency-manager
-description: "Visualizes, creates, and diagnoses dependencies between MCP work items. Use when a user says: what blocks this, add a dependency, show dependency graph, why can't this start, link these items, unblock this, remove dependency, or show blockers."
-argument-hint: "[optional: item UUID, title, or action like 'show blockers for X']"
+description: "Visualizes, creates, deletes and diagnoses dependencies between MCP work items; use when a user says: what blocks this, add a dependency, show dependency graph, why can't this start, link these items, unblock this, remove dependency, or show blockers."
+argument-hint: "[optional: item id, title, or action like 'show blockers for X']"
 ---
 
-# dependency-manager — Dependency Visualization, Creation, and Diagnosis
+# dependency-manager - Dependency Visualization, Creation and Diagnosis
 
-Manage BLOCKS, IS_BLOCKED_BY, and RELATES_TO edges between work items. Handles all four paths: view existing dependencies, create new edges, delete edges, and diagnose why items cannot start.
+Manage `blocks` and `relates_to` edges between work items: view them, create them, delete them and diagnose why an item cannot start. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`deps_read`, `deps_write`); semantics are in `current/docs/api-reference.md` ("deps_read", "deps_write"). Ids below are 8-hex shorts and any item id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
----
+## Step 1: Determine intent
 
-## Step 1: Determine Intent
+Resolve `$ARGUMENTS` to an item id with a search; if several match, show them via `AskUserQuestion`. An argument that is already an id defaults to VIEW.
 
-Classify the user request before making any tool calls.
+```to-call
+{"tool": "items_read", "select": "search", "args": {"query": "REST endpoints", "kinds": ["item"], "limit": 5}}
+```
 
-Resolve `$ARGUMENTS` to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`); if ambiguous, present matches via `AskUserQuestion`. If `$ARGUMENTS` is already a UUID, default intent to VIEW for that item.
-
-**If `$ARGUMENTS` is empty**, infer intent from the surrounding conversation. If intent is still unclear, ask via `AskUserQuestion`: "What would you like to do with dependencies? Options: view, create, delete, diagnose."
-
-**Compound requests** (e.g., "show what blocks this and remove the dependency"): handle the VIEW path first, then proceed to the second action using the results.
-
-**Intent signal words:**
+With no argument, infer the intent from the conversation, else ask: "What would you like to do with dependencies? view, create, delete or diagnose?" For a compound request (show what blocks this, then remove it) do VIEW first, then act on the result.
 
 | Signal words | Path |
 |---|---|
-| "show", "view", "graph", "what blocks", "what depends on", "visualize" | VIEW (Step 2) |
-| "add", "create", "link", "connect", "chain", "depend on" | CREATE (Step 3) |
-| "remove", "delete", "unlink", "disconnect" | DELETE (Step 4) |
-| "why can't this start", "why is this blocked", "diagnose", "show blockers", "unblock" | DIAGNOSE (Step 5) |
+| show, view, graph, what blocks, what depends on | VIEW (Step 2) |
+| add, create, link, connect, chain, depend on | CREATE (Step 3) |
+| remove, delete, unlink, disconnect | DELETE (Step 4) |
+| why can't this start, why is this blocked, diagnose, show blockers, unblock | DIAGNOSE (Step 5) |
 
----
+## Step 2: View dependencies
 
-## Step 2: View Dependencies
-
-Once you have an item ID and intent is VIEW, query its dependency edges:
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
+```to-call
+{"tool": "deps_read", "select": "list", "args": {"item": "4b7d0e19", "direction": "all"}}
 ```
 
-Format the result as an ASCII tree:
+`data.items[]` is `{id, from, to, type, unblockAt?}` with full UUIDs; `from` blocks `to`. `incoming` is the edges whose `to` is the item (what blocks it), `outgoing` those whose `from` is the item. `type` filters to `blocks` or `relates_to`. Titles and roles are not in the edge: read the other ends with `items_read` `get` (or `list`). Draw a tree:
 
 ```
-◉ Design API schema (work)
-  ↳ BLOCKS → ○ Implement data models (queue)
-  ↳ BLOCKS → ○ Build REST endpoints (queue)
-  ← BLOCKED BY → ◉ Finalize data contract (work)
+* Design API schema (work)
+  |-- blocks --> o Implement data models (queue)
+  |-- blocks --> o Build REST endpoints (queue)
+  `-- blocked by <-- * Finalize data contract (work)
 ```
 
-Use the visual symbols to indicate role at a glance:
+Symbols: `v` terminal, `*` work or review, `o` queue, `x` blocked. For the whole chain around the item:
 
-| Symbol | Role |
+```to-call
+{"tool": "deps_read", "select": "graph", "args": {"item": "4b7d0e19"}}
+```
+
+`data.items[]` is `{id, level}` (blockers first; `level` 0 has no blocker) or `{id, cyclic: true}`; `blocks` edges only, `relates_to` is ignored. After the tree, offer DIAGNOSE for any blocked item.
+
+## Step 3: Create dependencies
+
+Pick the shape from what the user described:
+
+| Situation | Op | Fields |
+|---|---|---|
+| Two items | `create` | `from` (the blocker), `to`, `type?`, `unblockAt?` |
+| A sequence A then B then C | `linear` | `ids: [A, B, C]` |
+| One item blocks many | `fan_out` | `from`, `toIds` |
+| Many items block one | `fan_in` | `fromIds`, `to` |
+
+A pattern is one unit: all its edges are created or none (a duplicate or a cycle anywhere leaves nothing written). Confirm the derived edges first ("About to create A -> B -> C -> D as a chain. Proceed?"). `type` is lowercase `blocks` (default) or `relates_to`; the old `IS_BLOCKED_BY` alias is rejected, so name the blocker as `from`.
+
+```to-call
+{"tool": "deps_write", "op": "linear", "args": {"ids": ["4b7d0e19", "6e21c0aa", "9f3a1c22", "0b6d4e11"]}}
+```
+
+```to-call
+{"tool": "deps_write", "op": "create", "args": {"from": "4b7d0e19", "to": "6e21c0aa", "type": "blocks", "unblockAt": "review"}}
+```
+
+Several ops can share one `deps_write` call (`ops[]`); each commits on its own unless `atomic` is true. The answer is `{id, from, to, type, unblockAt?}` for `create` and `{created: [edge, ...]}` for a pattern. A `blocks` edge to or from a lifecycle-free item is `invalid_request`; `relates_to` is allowed. Report:
+
+```
+Created 3 edges: A blocks B, B blocks C, C blocks D
+```
+
+## Step 4: Delete dependencies
+
+List the edges first so the user can choose:
+
+```to-call
+{"tool": "deps_read", "select": "list", "args": {"item": "6e21c0aa", "direction": "all"}}
+```
+
+Show them with their `id`, confirm, then delete in one of three modes:
+
+| Mode | Fields | Use |
+|---|---|---|
+| By edge id | `id` (the full dependency UUID, not a prefix) | one specific edge |
+| By pair | `from`, `to`, optional `type` | the edge between two known items; without `type` it matches either type |
+| All for an item | `item` | every edge touching the item, either end |
+
+```to-call
+{"tool": "deps_write", "op": "delete", "args": {"from": "4b7d0e19", "to": "6e21c0aa", "type": "blocks"}}
+```
+
+The answer is `{deleted: n}`. An unknown `id` is `not_found`; a pair or item that matches nothing deletes 0.
+
+## Step 5: Diagnose blocked items
+
+**One item.** Read its incoming edges and its gate state:
+
+```to-call
+{"tool": "deps_read", "select": "list", "args": {"item": "4b7d0e19", "direction": "incoming"}}
+```
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "4b7d0e19"}}
+```
+
+`gateStatus.blockedBy` names the first failing gate (`table`, `dependency`, `note`, `lease`); for a dependency block `blockers[]` lists `{id, role?, threshold}` for the unsatisfied ones, and for a lease block `contended` lists the resource keys.
+
+**Broad view.** All blocked work, or one subtree:
+
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}
+```
+
+Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`.
+
+For each unsatisfied blocker decide what must happen:
+
+| Blocker role | `threshold` | Needed |
+|---|---|---|
+| queue | terminal | start and complete it |
+| work | terminal | complete it |
+| work | review | advance it to review |
+| review | terminal | advance it to terminal |
+| blocked | any | the blocker is itself stuck: diagnose it too |
+
+```
+x "Build REST endpoints" cannot start because:
+  Blocker 1: Design API schema (work)   must reach terminal
+  Blocker 2: Write OpenAPI spec (queue) must reach terminal
+```
+
+Not every "cannot start" is a dependency. A `resource_unavailable` failure (transient) on `start` means a shared resource the item's traits declare is held by another item; the item stays in its role and no edge exists. If no incoming edge explains the symptom, look at `context` `contended` and `resourceLeases` and treat it as contention, not a dependency problem.
+
+Then point to the fix: `/status-progression` on the blocker, or fill its missing notes with `notes_write`.
+
+## Reference
+
+| Type | Meaning |
 |---|---|
-| ✓ | terminal |
-| ◉ | work or review |
-| ○ | queue |
-| ⊘ | blocked |
+| `blocks` | `from` must reach `unblockAt` before `to` can proceed |
+| `relates_to` | informational; no blocking; `unblockAt` is rejected |
 
-**Direction parameter meanings:**
-
-| Value | Returns |
+| `unblockAt` | The dependent unblocks when the blocker |
 |---|---|
-| `outgoing` | Edges where this item is the source (things this item blocks) |
-| `incoming` | Edges where this item is the target (things that block this item) |
-| `all` | Both directions combined |
-
-For a full chain view (ancestors and descendants beyond immediate neighbors), add `neighborsOnly=false`:
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true, neighborsOnly=false)
-```
-
-This performs BFS traversal and returns the full dependency graph. Use it when the user asks to "show the full chain" or "trace all blockers."
-
-After displaying the tree, note any items in `⊘ blocked` state and offer to run DIAGNOSE (Step 5) on them.
-
----
-
-## Step 3: Create Dependencies
-
-Identify the structure from what the user described, then select the right creation pattern.
-
-**Decision tree:**
-
-```
-Two specific items to link → single edge (dependencies array)
-Three or more items in a sequence (A then B then C) → linear pattern
-One item that blocks many others → fan-out pattern
-Many items that all block one item → fan-in pattern
-```
-
-**Pattern reference:**
-
-| Pattern | Key parameter | When to use |
-|---|---|---|
-| Single edge | `dependencies=[{fromItemId, toItemId}]` | Link exactly two items |
-| `linear` | `itemIds=[A, B, C, D]` | Sequential chain: A→B→C→D |
-| `fan-out` | `fromItemId=A`, `toItemIds=[B, C, D]` | One item blocks many |
-| `fan-in` | `fromItemIds=[A, B, C]`, `toItemId=D` | Many items block one |
-
-Confirm the derived edges with the user before creating. Show them what you're about to create in a readable way, for example:
-
-```
-About to create: A → B → C → D as a linear chain. Proceed?
-```
-
-Adjust the format to fit the actual pattern (single edge, fan-out, fan-in, etc.).
-
-Then call `manage_dependencies(operation="create")` with the selected pattern:
-
-```
-manage_dependencies(
-  operation="create",
-  pattern="linear",
-  itemIds=["<uuid-a>", "<uuid-b>", "<uuid-c>", "<uuid-d>"]
-)
-```
-
-For a single edge or custom edges, use the `dependencies` array directly:
-
-```
-manage_dependencies(
-  operation="create",
-  dependencies=[
-    { fromItemId: "<uuid-a>", toItemId: "<uuid-b>", type: "BLOCKS" }
-  ]
-)
-```
-
-After creation, show the edges created:
-
-```
-✓ Created 3 dependency edges:
-  A → BLOCKS → B
-  B → BLOCKS → C
-  C → BLOCKS → D
-```
-
-To set a partial unblock threshold (so the blocked item unblocks before the blocker is terminal), include `unblockAt` in the dependency spec. See the `unblockAt` reference table below.
-
----
-
-## Step 4: Delete Dependencies
-
-Query existing edges first so the user knows what can be deleted:
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
-```
-
-Present the edges to the user:
-
-```
-Existing edges for "Implement data models":
-  [1] ◉ Design API schema → BLOCKS → this item  (dep-uuid-1)
-  [2] this item → BLOCKS → ○ Build REST endpoints  (dep-uuid-2)
-
-Which edge(s) would you like to remove?
-```
-
-Confirm before deleting. Then call `manage_dependencies(operation="delete")` using the appropriate mode:
-
-```
-manage_dependencies(operation="delete", dependencyId="<dep-uuid>")
-```
-
-**Delete parameter modes:**
-
-| Mode | Parameters | When to use |
-|---|---|---|
-| By dependency ID | `id="<dep-uuid>"` | Delete one specific edge (most precise) |
-| By relationship | `fromItemId="<uuid>", toItemId="<uuid>"` | Delete the edge between two known items |
-| By relationship + type | `fromItemId, toItemId, type="BLOCKS"` | When multiple edge types exist between same pair |
-| All edges for item | `fromItemId="<uuid>", deleteAll=true` | Remove all outgoing edges from an item |
-| All edges for item | `toItemId="<uuid>", deleteAll=true` | Remove all incoming edges to an item |
-
-After deletion, confirm:
-
-```
-✓ Removed: Design API schema → BLOCKS → Implement data models
-```
-
----
-
-## Step 5: Diagnose Blocked Items
-
-For DIAGNOSE intent, identify why a specific item cannot start or is stuck in blocked state.
-
-**Path A — User provided an item ID:**
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="incoming", includeItemInfo=true)
-```
-
-**Path B — User wants a broad view of all blocked work:**
-
-```
-get_blocked_items(includeDetails=true)
-```
-
-For each blocker returned, show:
-
-```
-⊘ "Build REST endpoints" cannot start because:
-
-  Blocker 1: ◉ Design API schema (work)
-    Must reach: terminal (unblockAt: terminal)
-    Action: advance Design API schema to terminal first
-
-  Blocker 2: ○ Write OpenAPI spec (queue)
-    Must reach: terminal (unblockAt: terminal)
-    Action: start and complete Write OpenAPI spec first
-```
-
-For each blocker, determine what must happen:
-
-| Blocker's current role | unblockAt threshold | What needs to happen |
-|---|---|---|
-| queue | terminal | Start and complete the blocker |
-| work | terminal | Complete the blocker (already started) |
-| work | review | Advance the blocker to review |
-| review | terminal | Advance the blocker to terminal |
-| blocked | any | The blocker itself is stuck — recurse diagnosis |
-
-If any blocker is itself blocked, offer to recurse: "The blocker is also blocked. Would you like to diagnose that item too?"
-
-**Not every "why can't this start" is a dependency.** This skill diagnoses `BLOCKED`-role items
-and unsatisfied `BLOCKS` edges only. A separate, unrelated cause can produce a similar symptom:
-`advance_item` rejecting a `start`/`resume` transition with `errorCode: "resource_unavailable"`
-(`errorKind: "transient"`) — a shared resource the item declares via a `resources:` trait is
-currently held by another item. That item's role does **not** change to `blocked`; it stays in
-its current role (typically `queue`) and the transition simply fails transiently. If
-`query_dependencies` shows no incoming edges yet the item still won't advance, suspect resource
-contention instead — check the `advance_item` error for `errorCode`/`contendedResources`, or
-inspect `get_context(itemId=...)` → `resourceLeases` for the item's declared/held keys. Do not
-treat this as a dependency problem; retrying the dependency diagnosis will not help.
-
-After the diagnosis, link to the resolution path:
-- To advance the blocking item: use `/status-progression` with its UUID
-- To fill missing notes on the blocker first: use `manage_notes(operation="upsert")` to fill required notes
-
----
-
-## Dependency Type Reference
-
-| Type | Meaning | Effect |
-|---|---|---|
-| `BLOCKS` | A must complete before B can proceed | B appears as blocked until A reaches its unblockAt threshold |
-| `IS_BLOCKED_BY` | Reverse of BLOCKS — same edge, opposite direction | Equivalent to creating BLOCKS from B to A |
-| `RELATES_TO` | Informational link only — no blocking behavior | Item appears in dependency queries but does not affect role transitions |
-
----
-
-## `unblockAt` Threshold Reference
-
-| Value | When the dependent item unblocks | Use case |
-|---|---|---|
-| `terminal` (default) | Blocker must finish entirely | Standard sequential dependency |
-| `review` | Unblocks when blocker enters review phase | Start next step while review is in progress |
-| `work` | Unblocks when blocker starts work | Parallel work that just needs the prior item started |
-| `queue` | Unblocks immediately (tracks ordering only) | Soft ordering constraint with no actual blocking |
-
----
+| `terminal` (default) | finishes entirely |
+| `review` | enters review |
+| `work` | starts work |
+| `queue` | exists (ordering only) |
 
 ## Troubleshooting
 
-**Problem: Cycle detection error when creating a dependency**
+**`cycle_detected` on create.** The edge or pattern would close a loop (`data.results[i].error.detail.path`). One edge is backwards: flip `from` and `to`.
 
-Cause: The proposed edge would create a circular dependency chain (A blocks B, B blocks C, C blocks A). The server detects this and rejects the entire batch atomically.
+**`duplicate`.** The edge exists already; list it instead.
 
-Solution: Review the dependency direction. One of the edges is backwards. Identify which item actually depends on the other, flip the `fromItemId` and `toItemId` on that edge, and retry.
+**Item is still blocked after the blocker finished.** Either `unblockAt` names a role the blocker has not reached, or other incoming edges remain. List incoming edges and check each blocker. If every blocker is satisfied and the item sits in the blocked role, an explicit `block` is the cause: `resume` it via `/status-progression`.
 
----
+**`not_found` on delete by `id`.** The edge is gone or the id is from elsewhere. List again and use an `id` from the fresh answer.
 
-**Problem: "dependency not found" error on delete**
-
-Cause: The dependency UUID or relationship does not exist. The edge may have already been deleted, or the IDs are from a different environment.
-
-Solution: Re-query to confirm current state:
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
-```
-
-Use a dependency UUID from the fresh query result for the delete call. If the edge is not present, it was already removed.
-
----
-
-**Problem: Item is still blocked after the blocker reached terminal**
-
-Cause: Either the `unblockAt` threshold is set to a role the blocker has not yet reached (e.g., `unblockAt: "review"` but the blocker went straight to terminal via `complete`), or there are additional incoming edges from other items that are not yet satisfied.
-
-Solution: Query incoming edges to check all blockers:
-
-```
-query_dependencies(operation="get", itemId="<uuid>", direction="incoming", includeItemInfo=true)
-```
-
-Check each blocker's `role`. If all blockers are terminal and the item is still in blocked role, use `advance_item(transitions=[{itemId: "<uuid>", trigger: "resume"}])` to manually return it to its previous role via `/status-progression`.
-
----
-
-**Problem: Pattern shortcut creates wrong edges**
-
-Cause: The wrong parameter name was used for the pattern. `linear` uses `itemIds` (an ordered array). `fan-out` uses `fromItemId` (single UUID) and `toItemIds` (array). `fan-in` uses `fromItemIds` (array) and `toItemId` (single UUID). Mixing these up creates edges in the wrong direction or fails silently.
-
-Solution: Double-check the parameter names against the pattern table in Step 3. Re-query the item after creation to verify edge direction, and delete any incorrect edges using Step 4.
-
----
+**Wrong pattern fields.** `linear` takes `ids`; `fan_out` takes `from` and `toIds`; `fan_in` takes `fromIds` and `to`. A wrong name is `unknown_parameter`. Re-list the item and delete incorrect edges with Step 4.
 
 ## Examples
 
-### Example 1: View dependencies for an item
+**View.** "Show me what blocks the REST endpoints task." Search gives `6e21c0aa`; list incoming edges, read the two blocker items, and draw: both blockers must reach terminal; use `/status-progression` on each.
 
-User: "Show me what blocks the REST endpoints task."
+**Chain.** "Set up A, B, C, D as a chain." Resolve the ids, confirm, send one `linear` op, report 3 edges.
 
-Search → one match `uuid-rest`. Query incoming deps:
+**Diagnose.** "Why can't Write integration tests start?" List incoming edges, read `context` for `blockers[]`, report the two unsatisfied blockers and recommend completing them.
 
-```
-query_dependencies(operation="get", itemId="uuid-rest", direction="incoming", includeItemInfo=true)
-```
-
-Display:
-```
-○ Build REST endpoints (queue)
-  ← BLOCKED BY ◉ Design API schema (work)
-  ← BLOCKED BY ○ Write OpenAPI spec (queue)
-
-Both blockers must reach terminal. Use /status-progression on each.
-```
-
----
-
-### Example 2: Create a linear chain
-
-User: "Set up A → B → C → D as a chain." Resolve UUIDs, confirm, then:
-
-```
-manage_dependencies(operation="create", pattern="linear",
-  itemIds=["uuid-a", "uuid-b", "uuid-c", "uuid-d"])
-```
-
-Result:
-```
-✓ Created 3 edges: A → B → C → D
-```
-
----
-
-### Example 3: Diagnose why an item cannot start
-
-User: "Why can't 'Write integration tests' start?" Search → `uuid-tests`. Query incoming:
-
-```
-query_dependencies(operation="get", itemId="uuid-tests", direction="incoming", includeItemInfo=true)
-```
-
-Display:
-```
-⊘ "Write integration tests" cannot start:
-  Blocker 1: ○ Build REST endpoints (queue) — must reach terminal
-  Blocker 2: ◉ Implement data models (work) — must reach terminal
-
-Recommended: complete both blockers via /status-progression
-```
-
----
-
-## Quick Decision Guide
+## Quick decision guide
 
 | Situation | Action |
 |---|---|
-| User asks what blocks an item | Step 2 — query incoming with `includeItemInfo=true` |
-| User asks what an item blocks | Step 2 — query outgoing with `includeItemInfo=true` |
-| User wants full chain visualization | Step 2 — add `neighborsOnly=false` |
-| User wants to link two items | Step 3 — single edge via `dependencies` array |
-| User has a sequential list of items | Step 3 — `pattern="linear"` with `itemIds` |
-| One item must precede many | Step 3 — `pattern="fan-out"` |
-| Many items must precede one | Step 3 — `pattern="fan-in"` |
-| User wants to remove a link | Step 4 — query first, confirm, delete by dep ID |
-| Item is stuck and user does not know why | Step 5 — diagnose incoming edges |
-| Blocker analysis complete, need to advance | Use `/status-progression` on the blocker |
+| What blocks an item | `deps_read list`, `direction: incoming` |
+| What an item blocks | `deps_read list`, `direction: outgoing` |
+| Full chain | `deps_read graph` |
+| Link two items | `deps_write create` |
+| Sequential list | `deps_write linear` |
+| One before many | `deps_write fan_out` |
+| Many before one | `deps_write fan_in` |
+| Remove a link | list, confirm, `deps_write delete` |
+| Stuck, cause unknown | Step 5 |
+| Need to advance a blocker | `/status-progression` on it |
