@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import kotlinx.serialization.Serializable
 
 /**

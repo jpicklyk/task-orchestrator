@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.mockk.mockk
 

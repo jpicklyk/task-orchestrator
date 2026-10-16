@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
+import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -35,7 +35,7 @@ private const val DOC_C = "c9bf9e57-1685-4c89-bafb-ff5af830be8a"
  * Oracle: the frozen task-scope item 1. The count is taken from the encoded envelope: when `data.results` is an array, each
  * element with `ok:false` is one candidate; otherwise the top-level `error` is the one candidate (never both). A candidate counts
  * when `code == invalid_transition` and `detail.fromRole == "none"`, or `code == invalid_request` with a `detail.fields[].reason`
- * equal to [DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON]. The result is null when nothing counts, never 0. The body
+ * equal to [Dependency.LIFECYCLE_FREE_ENDPOINT_REASON]. The result is null when nothing counts, never 0. The body
  * shapes follow api-reference.md "Batch answers" (`results[i]` is `{ok:true,...}` or `{ok:false, error}`) and the
  * `invalid_transition` / `invalid_request` details of the error catalog (`{itemId, fromRole, trigger, allowed}`; `fields[]` of
  * `{field, reason, received?}`).
@@ -80,8 +80,7 @@ class CallLogFieldsLifecycleFreeTest {
 
     private fun roleBearing(role: String = "terminal"): JsonObject = error("invalid_transition", transitionDetail(role))
 
-    private fun blocksEndpoint(): JsonObject =
-        error("invalid_request", fieldsDetail(DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON))
+    private fun blocksEndpoint(): JsonObject = error("invalid_request", fieldsDetail(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON))
 
     private fun failed(error: JsonObject): JsonObject =
         buildJsonObject {
@@ -123,7 +122,7 @@ class CallLogFieldsLifecycleFreeTest {
     fun `S11 the shared reason constant holds the documented text`() {
         assertEquals(
             "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO",
-            DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+            Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
         )
     }
 
@@ -202,7 +201,7 @@ class CallLogFieldsLifecycleFreeTest {
 
     @Test
     fun `S11 probe - the reason is matched exactly, not by prefix, suffix or case`() {
-        val text = DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+        val text = Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
         for (variant in listOf(text + " ", " $text", text + ".", text.uppercase(), text.substring(0, text.length - 1))) {
             assertNull(count(single(error("invalid_request", fieldsDetail(variant)))), "reason '$variant'")
         }
@@ -210,14 +209,14 @@ class CallLogFieldsLifecycleFreeTest {
 
     @Test
     fun `S11 any field of the detail may carry the reason and one rejection counts once however many fields repeat it`() {
-        val text = DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+        val text = Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
         assertEquals(1, count(single(error("invalid_request", fieldsDetail("must not be blank", text)))), "second field matches")
         assertEquals(1, count(single(error("invalid_request", fieldsDetail(text, text)))), "two fields, one rejection")
     }
 
     @Test
     fun `S11 the lifecycle-free reason under another code is not counted`() {
-        val text = DependencyCommandService.LIFECYCLE_FREE_ENDPOINT_REASON
+        val text = Dependency.LIFECYCLE_FREE_ENDPOINT_REASON
         assertNull(count(single(error("invalid_transition", fieldsDetail(text)))))
         assertNull(count(single(error("schema_violation", fieldsDetail(text)))))
     }

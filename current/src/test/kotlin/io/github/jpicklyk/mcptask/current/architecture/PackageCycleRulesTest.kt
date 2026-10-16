@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 /**
  * Self-tests of [PackageCycleRules] on synthetic input (test-plan scenarios S1-S12): the edge extractor and the
  * two-way ratchet are each proven on hand-built files and graphs, so a green [PackageCycleTest] means "no undeclared
- * cycle", not "a rule that never fires". S13 (the real tree against the 17-line baseline) is [PackageCycleTest]'s job.
+ * cycle", not "a rule that never fires". S13 (the real tree against the empty baseline) is [PackageCycleTest]'s job.
  *
  * Oracle for every expected value: the task-scope rule definition (an edge is an import or a code-line FQN from one
  * `application/<p>/` sub-package into another `application.<q>.<Type>`; an edge is unbaselined when it is not baselined

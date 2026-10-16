@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.application.config
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

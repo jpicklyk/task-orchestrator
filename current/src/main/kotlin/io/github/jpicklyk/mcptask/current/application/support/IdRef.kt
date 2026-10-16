@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.api
+package io.github.jpicklyk.mcptask.current.application.support
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -33,7 +33,7 @@ value class IdRef(
     /** Strings on the wire; a malformed id fails decoding (the request decoder reports it as `invalid_request`). */
     object Serializer : KSerializer<IdRef> {
         override val descriptor: SerialDescriptor =
-            PrimitiveSerialDescriptor("io.github.jpicklyk.mcptask.current.application.api.IdRef", PrimitiveKind.STRING)
+            PrimitiveSerialDescriptor("io.github.jpicklyk.mcptask.current.application.support.IdRef", PrimitiveKind.STRING)
 
         override fun serialize(
             encoder: Encoder,

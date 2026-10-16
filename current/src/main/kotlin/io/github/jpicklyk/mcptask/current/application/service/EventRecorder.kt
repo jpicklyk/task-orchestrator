@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.EventCommitListener
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
-import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -18,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.proofWire
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -155,21 +153,6 @@ private suspend fun appendDetached(
         EventRecorder.logRejectionFailure(event.type, e)
     }
 }
-
-/**
- * The root an item's events belong to: its denormalized `rootId`, else the depth-0 ancestor found through
- * [hierarchy], else the item's own id (a root, or an orphan whose chain cannot be resolved). Never null.
- */
-suspend fun eventRootOf(
-    item: WorkItem,
-    hierarchy: HierarchyStore
-): UUID = item.rootId ?: eventRootOf(item.id, hierarchy)
-
-/** [eventRootOf] for an item known only by id: the first id of its ancestor chain, else the id itself. */
-suspend fun eventRootOf(
-    itemId: UUID,
-    hierarchy: HierarchyStore
-): UUID = hierarchy.findAncestorChains(setOf(itemId))[itemId]?.firstOrNull()?.id ?: itemId
 
 /**
  * Appends [event] (a `*.rejected` row) so that it survives the caller's transaction. Outside any unit it is its OWN

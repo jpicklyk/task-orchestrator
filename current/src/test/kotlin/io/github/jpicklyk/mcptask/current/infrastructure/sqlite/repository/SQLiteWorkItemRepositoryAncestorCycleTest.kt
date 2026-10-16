@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
