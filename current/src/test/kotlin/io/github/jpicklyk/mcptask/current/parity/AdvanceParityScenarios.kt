@@ -608,8 +608,12 @@ work_item_schemas:
                 seedReviewParentTwoChildren,
                 contains =
                     reviewPendingEntry +
-                        listOf("\"ok\":true,\"itemId\":\"$rc1\"", "\"ok\":true,\"itemId\":\"$rc2\""),
-                absent = listOf("\"applied\":true", "\"missing\"")
+                        listOf(
+                            "\"ok\":true,\"itemId\":\"$rc1\"",
+                            // the first element ends right before the second: a string-valued tail, never a cascades array
+                            "\"},{\"ok\":true,\"itemId\":\"$rc2\""
+                        ),
+                absent = listOf("\"applied\":true", "\"missing\"", "]},{\"ok\":true,\"itemId\":\"$rc2\"")
             ),
             reviewCascade(
                 "advance transition 7cb8a3df S10 probe the permuted completion order reports the same suppression on the other child",
@@ -617,8 +621,12 @@ work_item_schemas:
                 seedReviewParentTwoChildren,
                 contains =
                     reviewPendingEntry +
-                        listOf("\"ok\":true,\"itemId\":\"$rc2\"", "\"ok\":true,\"itemId\":\"$rc1\""),
-                absent = listOf("\"applied\":true", "\"missing\"")
+                        listOf(
+                            "\"ok\":true,\"itemId\":\"$rc2\"",
+                            // the first element ends right before the second: a string-valued tail, never a cascades array
+                            "\"},{\"ok\":true,\"itemId\":\"$rc1\""
+                        ),
+                absent = listOf("\"applied\":true", "\"missing\"", "]},{\"ok\":true,\"itemId\":\"$rc1\"")
             ),
             // S11: only the REVIEW parent is reported; the WORK grandparent above it is neither reported nor moved (an applied
             // cascade is what climbs).
@@ -645,7 +653,12 @@ work_item_schemas:
                 seedReviewParent,
                 contains =
                     reviewPendingEntry +
-                        listOf("\"trigger\":\"reopen\"},{\"ok\":true,\"itemId\":\"$rc1\""),
+                        listOf(
+                            // first completion suppressed, reopen reports nothing, second completion suppressed again (two entries in all)
+                            "\"reason\":\"review-pending\"}]},{\"ok\":true,\"itemId\":\"$rc1\"",
+                            "\"trigger\":\"reopen\"},{\"ok\":true,\"itemId\":\"$rc1\"",
+                            "\"reason\":\"review-pending\"}]}]"
+                        ),
                 absent = listOf("\"applied\":true", "\"missing\"")
             ),
             // S15 (author addition, D4): the cancel-origin note-gate skip is unchanged for a parent that is not in review.
