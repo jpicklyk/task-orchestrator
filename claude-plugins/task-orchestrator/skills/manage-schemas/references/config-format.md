@@ -465,6 +465,10 @@ also honors the usual per-root-before-global order (see "Per-root layering" belo
 per trait as the traits are walked in order**, not only for whichever trait ends up winning the
 phase.
 
+Per-seat overrides are the one exception to "first in order wins": a model-selecting override from
+a seat-only trait outranks other overrides for the same `(phase, seat)` whatever the order (see
+"Seats" merge rule 6).
+
 ### Per-root layering — no per-role fall-through within a trait
 
 Same as `resources:` trait declarations (not the `resources:` *registry*, which layers the other
@@ -662,7 +666,8 @@ above):
 6. **Per-seat dispatch overrides resolve item-traits-first, then `default_traits`** — the *opposite*
    order from note merging, matching the existing dispatch-profile precedence rule (see "Dispatch
    (Trait Dimension)" → "Precedence" above). For a given `(phase, seat)` pair, the first trait in
-   that order that declares an override for it wins outright; its fields overlay the phase's
+   that order that declares an override for it wins outright, except that a **model-selecting**
+   override outranks the rest regardless of order (see below); its fields overlay the phase's
    already-resolved dispatch profile (`agent`/`model`/`effort` field-by-field, an explicit `null`
    clearing that field). The result is always **filtered to the seats present in the resolved
    schema's merged seats for that phase** — an override naming a seat the item's schema doesn't
@@ -670,6 +675,19 @@ above):
    the phase's already-resolved default dispatch profile as-is** (the same profile `dispatch.<phase>`
    reports); it is omitted only when that phase has neither a default profile nor an override for
    it (`LayeredConfig.mergeDispatchBySeat`).
+
+   **Model-selecting overrides win regardless of trait order.** A *seat-only* trait is one whose
+   declaring layer has no phase-level `dispatch.<phase>` profile in any phase (only `seats:`
+   entries), such as `complex-implementation` or `high-stakes`. An override from a seat-only trait
+   is *model-selecting* when it sets `model` and neither sets nor clears `agent`. For a
+   `(phase, seat)` pair the first model-selecting override in trait order wins; when there is none,
+   the first override in trait order wins as before. The winner replaces the others whole (no
+   field merge), so `[delegated, complex-implementation]` resolves the implementer to opus exactly
+   like `[complex-implementation, delegated]`. Known limitation: a seat-only model override for a
+   seat that `delegated` gives `agent: null` (such as `test-author`) drops that `agent: null`,
+   the same as the old `[model-trait, delegated]` order. The config validator WARNs on a
+   `default_traits` list that places a seat-only model-selecting trait after another trait that
+   also sets the same seat's model; the warning is a migration aid and does not reject a push.
 
 ### Per-root layering
 
