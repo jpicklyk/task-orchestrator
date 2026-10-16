@@ -1013,6 +1013,9 @@ class ParityHarness(
             buildSet {
                 for (rows in rawBefore.values) for (row in rows) for (cell in row.values) addAll(uuidsIn(cell))
                 addAll(UUID_TEXT.findAll(arguments).map { it.value.lowercase() })
+                // a seeded config_versions id is generated afresh per leg (like config_heads.version_id), so it is never a shared, known id:
+                // a pin or event naming it is tokenized by position on both legs instead of surfacing as a different raw value on each
+                rawBefore["config_versions"]?.forEach { row -> uuidsIn(row["id"]).forEach { remove(it) } }
             }
 
         /**

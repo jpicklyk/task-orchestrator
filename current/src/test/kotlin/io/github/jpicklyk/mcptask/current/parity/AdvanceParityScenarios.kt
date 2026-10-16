@@ -600,15 +600,15 @@ work_item_schemas:
                 contains = reviewPendingEntry + listOf("\"trigger\":\"cancel\""),
                 absent = listOf("\"applied\":true", "\"missing\"")
             ),
-            // S10 + probe (completion order): with two work children the first completion reports no cascade at all (its element
-            // ends right after the trigger, before the next element), the second reports the suppression.
+            // S10 + probe (completion order): with two work children both elements report ok with their own itemId and the review-pending entry is reported (neighbouring fields of an element
+            // are not pinned).
             reviewCascade(
                 "advance transition 7cb8a3df S10 the first of two child completions reports no cascade and the second reports review-pending",
                 ops(completeOp(rc1), completeOp(rc2)),
                 seedReviewParentTwoChildren,
                 contains =
                     reviewPendingEntry +
-                        listOf("\"trigger\":\"complete\"},{\"ok\":true,\"itemId\":\"$rc2\""),
+                        listOf("\"ok\":true,\"itemId\":\"$rc1\"", "\"ok\":true,\"itemId\":\"$rc2\""),
                 absent = listOf("\"applied\":true", "\"missing\"")
             ),
             reviewCascade(
@@ -617,7 +617,7 @@ work_item_schemas:
                 seedReviewParentTwoChildren,
                 contains =
                     reviewPendingEntry +
-                        listOf("\"trigger\":\"complete\"},{\"ok\":true,\"itemId\":\"$rc1\""),
+                        listOf("\"ok\":true,\"itemId\":\"$rc2\"", "\"ok\":true,\"itemId\":\"$rc1\""),
                 absent = listOf("\"applied\":true", "\"missing\"")
             ),
             // S11: only the REVIEW parent is reported; the WORK grandparent above it is neither reported nor moved (an applied
