@@ -25,7 +25,6 @@ const ORCHESTRATION_TOOLS = readdirSync(GOLDEN_DIR)
 // AC3 matcher table: hook script -> tools it is registered on.
 const EXPECTED = {
   'skill-enforcement.mjs': ['notes_write'],
-  'enforce-actor-attribution.mjs': ['advance', 'notes_write'],
   'retro-trigger.mjs': ['advance', 'items_write', 'runs_write'],
   'phase-guard-record.mjs': ['advance'],
   'dispatch-hint.mjs': ['advance'],

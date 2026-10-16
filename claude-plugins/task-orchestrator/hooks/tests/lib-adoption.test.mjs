@@ -24,7 +24,7 @@ const topLevelHookFiles = () => readdirSync(HOOKS_DIR).filter((f) => f.endsWith(
 const LIB_MODULES = ['stdin', 'emit', 'markers', 'envelope', 'ops', 'api-client', 'server-compat', 'tool-names'];
 
 const STDIN_READERS = [
-  'config-sync', 'dispatch-hint', 'dispatch-model-guard', 'enforce-actor-attribution', 'phase-guard-record',
+  'config-sync', 'dispatch-hint', 'dispatch-model-guard', 'phase-guard-record',
   'phase-guard', 'plan-capture', 'retro-backstop', 'retro-trigger', 'skill-enforcement', 'subagent-start',
 ];
 const AC2_EMITTERS = [...STDIN_READERS, 'session-start', 'orchestration-context', 'pre-plan', 'post-plan'];
