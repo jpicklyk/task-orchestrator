@@ -1,16 +1,22 @@
 # Profile — Schema-Free Tracking
 
 **Recommend when:** the user wants plain status/dependency tracking — kanban semantics, no
-gates. Also the per-root fence for a gate-free project on a shared server.
+gates.
 
 ```yaml
 work_item_schemas:
-  default:
+  task:
     lifecycle: auto             # or manual/permanent for standing-workflow boards
+    notes: []
+  container:
+    lifecycle: permanent
+    notes: []
+  default:                      # optional: items typed `default`, or whose type is dropped later
     notes: []
 ```
 
-**Rationale to present:** every item advances freely; the value is ordering (`get_next_item`),
-dependency blocking (`get_blocked_items`), and hierarchy. On a shared server, pushing this
-per-root fences off the global config entirely (per-root resolution is whole-algorithm-first —
-this root's `default` beats even a global exact-type match).
+**Rationale to present:** every item advances freely; the value is ordering (`items_read` `next`),
+dependency blocking (`items_read` `blocked`), and hierarchy. A create must name a declared type (root
+plus server; when nothing is declared anywhere, any type is accepted), so an empty `default` alone
+admits nothing new: declare each type the project uses with `notes: []`. A server-declared type keeps
+the server schema unless the root declares the same type.

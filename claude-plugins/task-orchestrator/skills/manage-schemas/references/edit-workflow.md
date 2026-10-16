@@ -51,7 +51,7 @@ When writing guidance for the new note, apply these generation rules:
 - If adding a `session-tracking` note, offer the standard structured guidance: `"This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: from plan or diagnosis. **Friction**: tool errors, unexpected roundtrips, API confusion — include type and description. **Test results**: pass/fail counts, new tests added."`
 
 ### Remove a Note
-Show numbered list, ask which to remove. Warn: "Existing notes on items under this key will become orphaned ad-hoc notes — they won't be deleted but will no longer be schema-enforced."
+Show numbered list, ask which to remove. Warn: "Existing notes on items under this key will become orphaned ad-hoc notes — they won't be deleted but will no longer be schema-enforced for items that resolve the new schema. An in-flight item keeps its pinned schema, and so its gate, until it is repinned."
 Remove the entry from the YAML list.
 
 ### Toggle Required
@@ -95,7 +95,7 @@ Require explicit confirmation before applying.
 
 ## Write Back
 
-**Preserve all other top-level keys verbatim.** Only the schema being edited may change — carry through `project`, `actor_authentication`, `note_limits`, `traits`, `resources`, and any other top-level key exactly as read. Do not regenerate the whole file from a parsed-and-reserialized model; splice the edited schema back into the existing text rather than reconstructing the file from scratch.
+**Preserve all other top-level keys verbatim.** Only the schema being edited may change — carry through `project`, `extensions`, `note_limits`, `traits`, `resources`, `runs`, `decision_classes`, and any other top-level key exactly as read. Do not regenerate the whole file from a parsed-and-reserialized model; splice the edited schema back into the existing text rather than reconstructing the file from scratch. Never write `actor_authentication`, `schema_resolution` or a top-level `orchestration:`/`retrospective:`/`actor_attribution:`; flag one already in the file (manage-schemas skill, Step 2).
 
 Write the modified config back to `.taskorchestrator/config.yaml`. Show a diff-style summary of what changed:
 
@@ -105,4 +105,4 @@ Write the modified config back to `.taskorchestrator/config.yaml`. Show a diff-s
   Gate impact: work phase now requires 3 notes (was 2)
 ```
 
-Remind: **MCP reconnect required** (`/mcp`) for changes to take effect.
+Then validate and push (manage-schemas skill, Step 4: `config` `validate`, `config` `get`, `config` `push` with `expectedVersion`) when the file has a `project.rootId`; show `validate`'s diff and `affectedInFlight`, and offer `items_write` `repin` for the listed in-flight items, because they keep the schema they were pinned to until repinned. Without a root only the local file changes; a server file (`AGENT_CONFIG_DIR`) is imported at boot, so it needs a restart (stdio: `/mcp` reconnect starts a new process).

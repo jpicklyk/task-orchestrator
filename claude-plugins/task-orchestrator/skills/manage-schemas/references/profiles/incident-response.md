@@ -42,4 +42,4 @@ traits:
 
 **Rationale to present:** the review phase here is not code review — it's "the incident is not
 closed until the postmortem exists." Advisory resources give the credential audit trail without
-locking. Map priority to severity so `get_next_item` surfaces the hottest incident.
+locking. Map priority to severity so `items_read` `next` surfaces the hottest incident.

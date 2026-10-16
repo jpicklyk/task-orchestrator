@@ -49,8 +49,8 @@ test('readSection: inline {} form with a trailing comment still matches (fix M2)
 });
 
 test('readSection: inline {} form with trailing content, non-retrospective key (fix M2)', () => {
-  const content = 'actor_authentication: { enabled: true } # trailing\n';
-  const section = readSection(content, 'actor_authentication');
+  const content = 'sample_block: { enabled: true } # trailing\n';
+  const section = readSection(content, 'sample_block');
   assert.ok(section);
   assert.equal(inlineScalar(section.inline, 'enabled'), 'true');
 });
@@ -82,8 +82,8 @@ test('readSection: blockOnly ignores an inline form for that key', () => {
 });
 
 test('readSection: non-blockOnly still matches the block form', () => {
-  const content = 'actor_authentication:\n  enabled: true\n';
-  const section = readSection(content, 'actor_authentication');
+  const content = 'sample_block:\n  enabled: true\n';
+  const section = readSection(content, 'sample_block');
   assert.ok(section);
   assert.equal(section.inline, null);
   assert.equal(scalar(section.lines, 'enabled'), 'true');

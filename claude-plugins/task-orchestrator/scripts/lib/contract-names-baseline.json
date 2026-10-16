@@ -1,42 +1,6 @@
 {
   "pendingPort": [
     {
-      "file": "hooks/dispatch-hint.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/dispatch-model-guard.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
-      "file": "hooks/enforce-actor-attribution.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/orchestration-context.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
-      "file": "hooks/phase-guard-record.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/phase-guard.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/session-start.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
-      "file": "hooks/skill-enforcement.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/subagent-start.mjs",
-      "owner": "0bbdc4cc"
-    },
-    {
       "file": "scripts/ralph-lib.mjs",
       "owner": "cae5d141"
     },
@@ -93,90 +57,6 @@
       "owner": "c6740063"
     },
     {
-      "file": "skills/adopt-project-scope/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/batch-complete/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/create-item/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/dependency-manager/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/init/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/SKILL.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/companion-template.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/config-format.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/create-workflow.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/delete-workflow.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/content-production.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/incident-response.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/multi-project.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/schema-free.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/profiles/support-triage.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/manage-schemas/references/workflow-patterns.md",
-      "owner": "a28fa715"
-    },
-    {
-      "file": "skills/orchestrate/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/post-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/pre-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/quick-start/SKILL.md",
-      "owner": "6018d76a"
-    },
-    {
       "file": "skills/ralph/SKILL.md",
       "owner": "cae5d141"
     },
@@ -187,10 +67,6 @@
     {
       "file": "skills/ralph/iteration-system-prompt.md",
       "owner": "cae5d141"
-    },
-    {
-      "file": "skills/review-proposals/SKILL.md",
-      "owner": "6018d76a"
     },
     {
       "file": "skills/run-wave/SKILL.md",
@@ -207,26 +83,6 @@
     {
       "file": "skills/run-wave/references/snapshot.md",
       "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/schema-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/session-retrospective/SKILL.md",
-      "owner": "6018d76a"
-    },
-    {
-      "file": "skills/session-retrospective/references/github-feedback.md",
-      "owner": "6018d76a"
-    },
-    {
-      "file": "skills/status-progression/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/work-summary/SKILL.md",
-      "owner": "6018d76a"
     }
   ],
   "proseExceptions": []

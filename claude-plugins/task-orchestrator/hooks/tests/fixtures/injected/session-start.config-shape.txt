@@ -1,0 +1,18 @@
+## Task Orchestrator — Session Context
+
+- Move items between phases with `advance` op `transition`, never raw status edits. Ids accept a full UUID or a hex prefix of 8 or more characters.
+- Resume or inspect with `items_read` select `context` (no arguments lists active and stalled items; pass `itemId` for one item's gate status). Find the next work with `items_read` select `next`.
+- Hierarchy: items have parentId and depth; trees nest to any depth. `items_write` op `create` requires `type`.
+- These are orchestration-profile tools (the `profiles` entry in the tool catalog); a server running another profile may not expose them.
+
+## Project Scope
+
+Active project: Snapshot (`11111111-1111-1111-1111-111111111111`)
+Config: <DIR>/.taskorchestrator/config.yaml
+
+- Pass `ancestorId: "11111111-1111-1111-1111-111111111111"` on `items_read` selects `list`, `search`, `context`, `next` and `blocked` to scope results to this project.
+- Anchor new root-level items under this project by setting `parentId: "11111111-1111-1111-1111-111111111111"`.
+
+## Config Shape
+
+The top-level `orchestration:` and `retrospective:` sections are ignored in <DIR>/.taskorchestrator/config.yaml: move them under `extensions.claude-code`.

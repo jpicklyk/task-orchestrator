@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // SubagentStop — re-checks the phase gate for every item this subagent recorded via
-// phase-guard-record.mjs (PostToolUse:advance_item) and, when required notes are still missing
+// phase-guard-record.mjs (PostToolUse:advance) and, when required notes are still missing
 // for a work/review-phase item, blocks the subagent's stop so it gets sent back with the missing
 // keys named. This implements a harness-level backstop for a subagent that ends its turn with a
 // progress report instead of finished work: treat the early stop as a report, check the external
 // checklist (the item's gate status), and send a capped continuation naming what's still open.
 //
 // Entered-role gating: phase-guard-record.mjs now also records, per item, the ROLE this agent
-// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `previousRole` on the
+// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `error.detail.role` on the
 // already-in-phase gate_blocked case, which is the item's CURRENT role at the time of the blocked
 // transition — see phase-guard-record.mjs's extractEnteredRoles). When a role was recorded for an
 // item, this hook blocks on
@@ -29,9 +29,9 @@
 // surfaces them only when that first key survives the test-author filter.
 //
 // Known limitation (non-goal, not addressed here): the guard only engages for subagents that
-// enter their phase with `advance_item(start)` — the plugin's agent-owned-phase protocol. A
+// enter their phase with an `advance` transition (`start`) — the plugin's agent-owned-phase protocol. A
 // subagent dispatched under an orchestrator-owns-transitions contract (never calling
-// advance_item itself) has nothing recorded by phase-guard-record.mjs, so the guard stays inert
+// advance itself) has nothing recorded by phase-guard-record.mjs, so the guard stays inert
 // for it.
 //
 // Fail-open everywhere: no REST API configured, no state file for this agent (also covers
@@ -40,11 +40,14 @@
 // (403 — token without READ, 404) all result in that item never blocking. A silent `{}` on
 // stdout and exit 0 is always the floor.
 //
+// The gate is read with items_read select "context" over POST /api/v1/ops/items_read; with no API
+// URL the hook says so once per session (a systemMessage) and then stays silent.
+//
 // A2 independence-attestation violations: `gate.gateStatus.violations` (present only when
 // independence mode is not OFF and the resolved schema declares `independent_of` somewhere;
 // absent otherwise, in which case this hook behaves exactly as before A2). This hook honours a
 // REJECT-mode block the same way it honours missing required notes: it never re-derives
-// `blocksAdvance` itself, it trusts the gate route's own `canAdvance` (already false when a
+// `blocksAdvance` itself, it trusts the context view's own `gateStatus.canAdvance` (already false when a
 // non-waived violation blocks) and only ever names the stopping agent's OWN seat's non-waived
 // violations, mirroring the seat-only note-missing filter above. A `warn`-mode item never trips
 // this (its `canAdvance` stays true), and a waived violation never blocks in any mode.
@@ -52,9 +55,11 @@
 import { unlinkSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { apiBaseUrl, authHeader, fetchWithTimeout } from './lib/api-client.mjs';
+import { apiBaseUrl, callOp } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
-import { emitEmpty as writeEmpty, emitBlock as writeBlock } from './lib/emit.mjs';
+import { emitEmpty as writeEmpty, emitBlock as writeBlock, emitSystemMessage } from './lib/emit.mjs';
+import { createMarkerOnce, sessionMarkerPath } from './lib/markers.mjs';
+import { locateConfig } from './config-locator.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
 import { isHeadlessIteration, phaseOwnerSeat, isTestAuthorAgentType } from './execution-mode.mjs';
 
@@ -88,18 +93,35 @@ function missingKey(entry) {
   return typeof entry === 'string' ? entry : entry?.key;
 }
 
-async function fetchGate(base, itemId) {
+/**
+ * The gate for one marker item, read with `items_read` `select: "context"` over POST
+ * /api/v1/ops/items_read. Keyed by the marker id it was requested for (not the compact id the view
+ * returns). Any non-ok envelope (not_found, forbidden, unauthenticated, unavailable, client_error)
+ * or null yields null, which never blocks that item.
+ */
+async function fetchGate(itemId) {
   try {
-    const res = await fetchWithTimeout(`${base}/api/v1/items/${itemId}/gate`, { headers: authHeader() }, GATE_TIMEOUT_MS);
-    if (res.status !== 200) return null;
-    return await res.json();
+    const res = await callOp('items_read', { select: 'context', itemId }, { timeoutMs: GATE_TIMEOUT_MS });
+    if (!res || res.ok !== true || !res.data || typeof res.data !== 'object') return null;
+    const d = res.data;
+    return {
+      itemId,
+      title: typeof d.item?.title === 'string' ? d.item.title : '',
+      role: d.item?.role,
+      gateStatus: d.gateStatus,
+      guidanceKey: d.guidanceKey,
+      skillPointer: d.skillPointer,
+    };
   } catch {
     return null;
   }
 }
 
+export const INERT_MESSAGE =
+  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
+
 /** Renders one A2 violation as `key (constraint)`, e.g. `test-manifest (same_actor)` — never an
- * actor id, proof, or claim (the gate route's `violations` array is already actor-free). */
+ * actor id, proof, or claim (the context view's `violations` array is already actor-free). */
 function formatViolation(v) {
   return `${v.key} (${v.constraint})`;
 }
@@ -122,7 +144,7 @@ function buildReason(blockers) {
     return `Item ${uuid8} "${gate.title}" is in ${gate.role} with ${segments.join(' and ')}.${hint}`;
   });
   return (
-    `${parts.join(' ')} Fill them via manage_notes(upsert) before returning. ` +
+    `${parts.join(' ')} Fill them via notes_write (op "upsert") before returning. ` +
     `If something blocks you, say what blocks you and stop.`
   );
 }
@@ -141,8 +163,19 @@ async function main() {
     // trip explicitly rather than relying on that always holding.
     if (isHeadlessIteration()) emitEmpty();
 
+    // Workflow seats follow their own script-driven transition logic and are never blocked here.
+    if (hookInput.agent_type === 'workflow-subagent') emitEmpty();
+
     const base = apiBaseUrl();
-    if (!base) emitEmpty();
+    if (!base) {
+      // A located config with no API URL: say so once per session, then stay silent.
+      const loc = locateConfig();
+      if (loc && loc.scope !== 'none' && createMarkerOnce(sessionMarkerPath(hookInput.session_id, 'inert-phase-guard'))) {
+        emitSystemMessage(INERT_MESSAGE);
+        process.exit(0);
+      }
+      emitEmpty();
+    }
 
     const path = phaseGuardMarkerPath(hookInput.session_id, hookInput.agent_id);
     const marker = readPhaseGuardMarker(path);
@@ -153,7 +186,7 @@ async function main() {
       emitEmpty();
     }
 
-    const gates = await Promise.all(marker.items.map((itemId) => fetchGate(base, itemId)));
+    const gates = await Promise.all(marker.items.map((itemId) => fetchGate(itemId)));
 
     const seat = phaseOwnerSeat(hookInput.agent_type);
     const isTestAuthor = isTestAuthorAgentType(hookInput.agent_type);
