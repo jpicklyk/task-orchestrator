@@ -21,6 +21,16 @@ const SEAT_LINE =
 const PRE_ENTERED_LINE =
   'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; else entry {"applied":false,"alreadyInPhase":false} and status "stopped".'
 
+
+// 58facb39: the TOOLS: line names 4.0 tools as mcp__mcp-task-orchestrator__<tool>. Parse the tool part of every
+// entry so assertions compare exact entries (a bare includes() of 'advance' or '...advance_item' is vacuous).
+const MCP_TOOL_PREFIX_UNDER_TEST = 'mcp__mcp-task-orchestrator__'
+function toolsEntriesOf(prompt) {
+  const line = prompt.split(String.fromCharCode(10)).find((l) => l.trim().startsWith('TOOLS:'))
+  assert.ok(line, 'prompt must contain a TOOLS: line')
+  return line.split(MCP_TOOL_PREFIX_UNDER_TEST).slice(1).map((s) => (s.match(/^[a-z_]+/) || ['*'])[0])
+}
+
 function item(short, stageList) {
   return itemFixture({ short, stages: stageList, traits: ['delegated'] })
 }
@@ -101,7 +111,8 @@ test('S9: pre-entered implementer prompt carries the D2 pre-entered line, not th
   assert.ok(impl.includes(PRE_ENTERED_LINE), 'pre-entered implementer prompt must contain the D2 pre-entered line verbatim')
   assert.ok(!impl.includes(SEAT_LINE))
   assert.ok(!impl.includes('copy the advance_item result into entry'))
-  assert.ok(!impl.includes('mcp__mcp-task-orchestrator__advance_item'))
+  assert.ok(!toolsEntriesOf(impl).includes('advance'), 'pre-entered implementer TOOLS: must have no exact advance entry')
+  assert.ok(!toolsEntriesOf(impl).includes('advance_item'), 'pre-entered implementer TOOLS: must have no retired advance_item entry')
 })
 
 // ---- D3: no fabricated entry ----

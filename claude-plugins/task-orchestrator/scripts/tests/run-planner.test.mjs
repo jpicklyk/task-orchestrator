@@ -1784,3 +1784,38 @@ test("(3) <ownedTests> is left literal in both modes (substituted per seat at pr
         assert.equal(v.ownedTestsPattern, "\\.test\\.mjs$");
     }
 });
+
+// ---- S13 (58facb39): probeFrom allow.mcp accepts any orchestrator server key ----
+// Oracle: task-scope AC4 - allow.mcp is true for any permissions.allow entry mcp__<key>__* whose <key> contains
+// the server-segment token 'task-orchestrator' (isOrchestratorServerKey); any other server key is false.
+
+function allowMcpFor(entries) {
+    return probeFrom({
+        pluginRoot: "/plugin", pluginJsonText: PLUGIN_JSON_380,
+        ...BOTH_MARKERS, configYamlText: "",
+        settings: [JSON.stringify({ permissions: { allow: entries } }), "{}", "{}"],
+    }).allow.mcp;
+}
+
+test("S13: probeFrom — mcp__mcp-task-orchestrator-http__* sets allow.mcp true", () => {
+    assert.equal(allowMcpFor(["mcp__mcp-task-orchestrator-http__*"]), true);
+});
+
+test("S13: probeFrom — mcp__mcp-task-orchestrator__* (stdio key) still sets allow.mcp true", () => {
+    assert.equal(allowMcpFor(["mcp__mcp-task-orchestrator__*"]), true);
+});
+
+test("S13: probeFrom — a plugin-qualified orchestrator key and the bare key set allow.mcp true", () => {
+    assert.equal(allowMcpFor(["mcp__plugin_task-orchestrator_task-orchestrator__*"]), true);
+    assert.equal(allowMcpFor(["mcp__task-orchestrator__*"]), true);
+});
+
+test("S13: probeFrom — a non-orchestrator server key leaves allow.mcp false", () => {
+    assert.equal(allowMcpFor(["mcp__other__*"]), false);
+    assert.equal(allowMcpFor(["mcp__tasks__*"]), false);
+});
+
+test("S13: probeFrom — an orchestrator entry among unrelated entries is found; unrelated entries alone are not", () => {
+    assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "mcp__mcp-task-orchestrator-http__*"]), true);
+    assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "Workflow(task-orchestrator:implement-wave)"]), false);
+});

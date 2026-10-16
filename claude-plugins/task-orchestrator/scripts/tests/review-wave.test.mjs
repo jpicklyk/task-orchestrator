@@ -1070,26 +1070,46 @@ function toolsLineOf(prompt) {
   return line
 }
 
+
+// 58facb39: the TOOLS: line names 4.0 tools as mcp__mcp-task-orchestrator__<tool>. Parse the tool part of every
+// entry so assertions compare exact entries (a bare includes() of 'advance' or '...advance_item' is vacuous).
+const MCP_TOOL_PREFIX_UNDER_TEST = 'mcp__mcp-task-orchestrator__'
+function toolsEntriesOf(prompt) {
+  const line = prompt.split(String.fromCharCode(10)).find((l) => l.trim().startsWith('TOOLS:'))
+  assert.ok(line, 'prompt must contain a TOOLS: line')
+  return line.split(MCP_TOOL_PREFIX_UNDER_TEST).slice(1).map((s) => (s.match(/^[a-z_]+/) || ['*'])[0])
+}
+
 test('S9: the review-v1 TOOLS: select list never names advance_item or manage_items as an available tool (the prompt separately and correctly PROHIBITS advance_item by name elsewhere, in its ENTRY section — verified not to be a false positive: "Never call advance_item." is present outside the TOOLS: line)', () => {
   const { prompt } = promptFor(() => {})
   const toolsLine = toolsLineOf(prompt)
   assert.equal(toolsLine.includes('advance_item'), false)
   assert.equal(toolsLine.includes('manage_items'), false)
+  assert.ok(!toolsEntriesOf(prompt).includes('advance'), 'no exact advance entry in TOOLS:')
   assert.equal(prompt.includes('manage_items'), false, 'manage_items must not appear anywhere in the prompt')
   assert.ok(prompt.includes('Never call advance_item.'), 'the prompt explicitly prohibits advance_item by name outside the tool list')
 })
 
-test('S9: a review-v1 lane with non-empty notes includes manage_notes in its tool list', () => {
+test('S9: a review-v1 lane with non-empty notes includes notes_write in its TOOLS: list', () => {
   const { prompt } = promptFor(() => {})
-  assert.ok(prompt.includes('manage_notes'))
+  assert.ok(toolsEntriesOf(prompt).includes('notes_write'), toolsLineOf(prompt))
+})
+
+test('S9 (58facb39 AC4): exact TOOLS: entries - notes-owning lane is items_read, notes_read, config, notes_write; notes-less lane drops notes_write', () => {
+  const owning = toolsEntriesOf(promptFor(() => {}).prompt)
+  assert.deepEqual([...owning].sort(), ['config', 'items_read', 'notes_read', 'notes_write'])
+  const notesLess = toolsEntriesOf(promptFor(() => {}, 0).prompt)
+  assert.deepEqual([...notesLess].sort(), ['config', 'items_read', 'notes_read'])
 })
 
 test('S9: the simplify lane prompt forbids invoking /simplify, has no manage_notes in its TOOLS: list, and its TOOLS: list never names advance_item/manage_items', () => {
   const { prompt } = promptFor(() => {}, 0)
   assert.ok(prompt.includes('Do not invoke /simplify'))
   const toolsLine = toolsLineOf(prompt)
+  assert.ok(!toolsEntriesOf(prompt).includes('notes_write'), 'notes-less lane TOOLS: must not list notes_write')
   assert.equal(toolsLine.includes('manage_notes'), false)
   assert.equal(toolsLine.includes('advance_item'), false)
+  assert.ok(!toolsEntriesOf(prompt).includes('advance'), 'no exact advance entry in TOOLS:')
   assert.equal(toolsLine.includes('manage_items'), false)
   assert.equal(prompt.includes('manage_notes'), false, 'manage_notes must not appear anywhere in a notes-less lane prompt')
   assert.equal(prompt.includes('manage_items'), false, 'manage_items must not appear anywhere in the prompt')
