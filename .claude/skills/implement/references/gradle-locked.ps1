@@ -1,6 +1,7 @@
 # gradle-locked.ps1 - the ONLY gradle entry point for dispatched seats.
 #
-# Copied verbatim into the session scratchpad at /implement Step 2 (never hand-written per wave).
+# Tracked in the repo; run it from the worktree it builds (run-profile.json and the dispatch contract reference
+# <worktree>\.claude\skills\implement\references\gradle-locked.ps1). Never copy or hand-write it per wave.
 # Serializes gradle across seats with a directory lock, prints EXIT=<n> as its final line, and
 # enforces the dispatch contract's "Who runs gradle" table:
 #
@@ -9,14 +10,14 @@
 #   - :current:test, :current:ktlintCheck, bare test/check/build, and --rerun-tasks are
 #     orchestrator-only. They are refused (EXIT=98) unless TO_GRADLE_OWNER=orchestrator is set in
 #     the calling process. The orchestrator sets it inline on its own call and nowhere else:
-#         $env:TO_GRADLE_OWNER='orchestrator'; & "<scratchpad>\gradle-locked.ps1" -Worktree ... -Tasks ":current:test",":current:ktlintCheck"
+#         $env:TO_GRADLE_OWNER='orchestrator'; & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree ... -Tasks ":current:test",":current:ktlintCheck"
 #   - --rerun-tasks is accepted from the orchestrator with a warning: it is for the run after a
 #     dependency or Gradle upgrade, never a routine verification.
 #
 # Usage (seat, compile self-check):
-#   & "<scratchpad>\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
+#   & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
 # Usage (seat, scoped run of its own test classes; paths under src/test/kotlin map to --tests FQCNs):
-#   & "<scratchpad>\gradle-locked.ps1" -Worktree "<wt>" -TestFiles "current/src/test/kotlin/.../FooTest.kt current/src/test/kotlin/.../BarTest.kt"
+#   & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -TestFiles "current/src/test/kotlin/.../FooTest.kt current/src/test/kotlin/.../BarTest.kt"
 param(
   [Parameter(Mandatory=$true)][string]$Worktree,
   [string[]]$Tasks = @(),
