@@ -419,7 +419,7 @@ export function next(core, doc, state) {
         return { short: earlier.short, output, roots: itemRootsOf(plan, earlier) }
       })
       const mine = { short: item.short, output: outsBySeat(item, state)[plannerStage.seat], roots: itemRootsOf(plan, item) }
-      const overlap = core.overlapDeferral(mine, higher, plan.worktreeMode)
+      const overlap = core.overlapDeferral(mine, higher, plan.worktreeMode, (plan.project && plan.project.appendOnlyFiles) || [])
       if (overlap) {
         settled.push({ item: item.short, status: 'deferred', reason: overlap.reason })
         continue

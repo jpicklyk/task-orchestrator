@@ -56,6 +56,13 @@ export function isCarryInDisposed(record, key) {
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
  * every candidate has a `schemas` entry. Duplicate ids across sources are never an error.
  */
+function canonAppendOnly(raw) {
+  const t = String(raw).replace(/\\/g, '/');
+  const m = /^[a-zA-Z]:\//.exec(t) || /^\//.exec(t);
+  const prefix = m ? m[0] : '';
+  return prefix + t.slice(prefix.length).split('/').filter((g) => g !== '' && g !== '.').join('/');
+}
+
 export function validateSnapshot(snap) {
   const errors = [];
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
@@ -137,6 +144,20 @@ export function validateSnapshot(snap) {
   }
   if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
     errors.push('profile must be an object');
+  }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile) && 'appendOnlyFiles' in snap.profile) {
+    const aof = snap.profile.appendOnlyFiles;
+    if (!Array.isArray(aof) || aof.some((e) => typeof e !== 'string' || e === '')) {
+      errors.push('profile.appendOnlyFiles must be an array of strings');
+    } else {
+      for (const raw of aof) {
+        const c = canonAppendOnly(raw);
+        const segs = c.split('/');
+        if (c === '' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
+          errors.push(`profile.appendOnlyFiles entry "${raw}" is not a repo-relative file pattern`);
+        }
+      }
+    }
   }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
@@ -984,6 +1005,7 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
