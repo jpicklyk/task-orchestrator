@@ -128,6 +128,30 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  if (snap.scopes !== undefined) {
+    const sc = snap.scopes;
+    if (sc === null || typeof sc !== 'object' || Array.isArray(sc)) {
+      errors.push('scopes must be an object');
+    } else {
+      const candidateIds = new Set(candidates.map((c) => c && c.id));
+      for (const [id, entry] of Object.entries(sc)) {
+        if (!candidateIds.has(id)) {
+          errors.push(`scopes ${id}: not a candidate`);
+          continue;
+        }
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errors.push(`scopes ${id}: entry must be an object`);
+          continue;
+        }
+        if (!Array.isArray(entry.files) || entry.files.some((k) => typeof k !== 'string')) {
+          errors.push(`scopes ${id}: files must be an array of strings`);
+        }
+        if (entry.dependsOn !== undefined && (!Array.isArray(entry.dependsOn) || entry.dependsOn.some((k) => typeof k !== 'string'))) {
+          errors.push(`scopes ${id}: dependsOn must be an array of strings`);
+        }
+      }
+    }
+  }
   // E1 (blocker B1): git.repoRoot and profile are load-bearing for assembleArgs (worktree paths,
   // <scratchpad>/<worktree> substitution) but were never validated, so a snapshot missing either
   // passed silently and produced broken paths downstream.
@@ -866,6 +890,63 @@ function shortFromId(id) {
   return String(id || '').replace(/-/g, '').slice(0, 8);
 }
 
+// Canonical form of a scope file for exact-equality comparison; '' means "not a plain file path".
+function canonicalScopeFile(p, repoRoot) {
+  if (typeof p !== 'string') return '';
+  let out = p.trim().replace(/\\/g, '/');
+  if (/[*?]/.test(out)) return '';
+  const drive = /^([A-Za-z]):\//.test(out);
+  const segs = out.split('/').filter((x) => x !== '' && x !== '.');
+  const lead = out.startsWith('/') ? '/' : '';
+  out = lead + segs.join('/');
+  if (drive) out = out[0].toLowerCase() + out.slice(1);
+  if (typeof repoRoot === 'string' && repoRoot.trim() !== '') {
+    let root = repoRoot.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    if (/^[A-Za-z]:/.test(root)) root = root[0].toLowerCase() + root.slice(1);
+    const cmp = drive || /^[a-z]:/.test(root);
+    const a = cmp ? out.toLowerCase() : out;
+    const b = cmp ? root.toLowerCase() : root;
+    if (a.startsWith(b + '/')) out = out.slice(root.length + 1);
+  }
+  return out;
+}
+
+/**
+ * sharedFileEdgeWarnings(snap, mode) -> string[]
+ * Advisory only. In shared mode, per-file locks already serialize two items that declare one file,
+ * so a dependency edge between same-parent candidates whose scopes share a file, and whose
+ * dependent states no dependency on the blocker, costs a run for nothing.
+ */
+export function sharedFileEdgeWarnings(snap, mode) {
+  if (mode !== 'shared') return [];
+  const scopes = (snap && snap.scopes) || {};
+  const candById = new Map(((snap && snap.candidates) || []).map((c) => [c.id, c]));
+  const repoRoot = snap && snap.git && snap.git.repoRoot;
+  const canon = (id) => new Set(((scopes[id] && scopes[id].files) || []).map((f) => canonicalScopeFile(f, repoRoot)).filter((f) => f !== ''));
+  const out = [];
+  for (const b of (snap && snap.blocked) || []) {
+    if (b.blockType !== 'dependency') continue;
+    const dep = candById.get(b.itemId);
+    if (!dep || dep.hasChildren || !scopes[b.itemId]) continue;
+    for (const bb of b.blockedBy || []) {
+      if (bb.satisfied) continue;
+      const blk = candById.get(bb.itemId);
+      if (!blk || blk.hasChildren || !scopes[bb.itemId]) continue;
+      if (dep.parentId == null || dep.parentId !== blk.parentId) continue;
+      const declared = ((scopes[b.itemId].dependsOn) || []).map((d) => String(d).toLowerCase());
+      if (declared.includes(String(bb.itemId).toLowerCase()) || declared.includes(shortFromId(bb.itemId).toLowerCase())) continue;
+      const a = canon(b.itemId);
+      const shared = [...canon(bb.itemId)].filter((f) => a.has(f));
+      if (!shared.length) continue;
+      const files = [...new Set(shared)].sort().join(', ');
+      const bs = shortFromId(bb.itemId);
+      const ds = shortFromId(b.itemId);
+      out.push(`shared-file edge ${bs} -> ${ds}: same feature, both scopes name ${files}, and ${ds} states no dependency on ${bs} - per-file locks already serialize a shared file in one run; drop the edge unless it is a semantic dependency (record it as "Depends on ${bs}: <reason>")`);
+    }
+  }
+  return out;
+}
+
 function normalizePath(p) {
   if (typeof p !== 'string') return p;
   let out = p.replace(/\\/g, '/');
@@ -1061,6 +1142,7 @@ export function buildPlanDoc(snap, opts = {}) {
 
   const mode = chooseMode(snap, modeReq);
   const entryMode = chooseEntry(probe, entryReq);
+  const sharedFileWarnings = sharedFileEdgeWarnings(snap, mode);
 
   const guardErrors = [];
   if (entryReq === 'seat' && !probe.phase0Hooks) {
@@ -1163,7 +1245,7 @@ export function buildPlanDoc(snap, opts = {}) {
         worktreesToCreate: [],
         excluded,
         deferred: allDeferred,
-        warnings: zeroRunWarnings,
+        warnings: [...zeroRunWarnings, ...sharedFileWarnings],
         estAgents: 0,
         sizeGuideline: probe.workflowSizeGuideline ?? null,
         degradations,
@@ -1201,6 +1283,8 @@ export function buildPlanDoc(snap, opts = {}) {
     const w = (derivedById[ex.id] && derivedById[ex.id].warnings) || [];
     warnings.push(...w);
   }
+
+  warnings.push(...sharedFileWarnings);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);
   const worktreesToCreate = buildWorktreesToCreate(snap, args, mode);
@@ -1268,6 +1352,9 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
+  if ((meta.warnings || []).length) {
+    lines.push(`Warnings: ${meta.warnings.join('; ')}`);
+  }
   if ((meta.lateCarryIns || []).length) {
     lines.push(`Late carry-ins: ${meta.lateCarryIns.map((l) => `${l.short}:${l.key}`).join(', ')}`);
   }

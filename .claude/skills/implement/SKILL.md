@@ -313,7 +313,7 @@ fills the File ownership and Planning seat return template slots for the rest of
 |---|---|
 | `diagnosis-corrections` | What the diagnosis/task-scope got wrong or missed, with current `file:line` — or `none`. |
 | `defect-class-siblings` | Every other site sharing the root-cause pattern (same cast/fallback idiom, same predicate, same wildcard or character class, same error-classification path, other readers or writers of the field), found by a named sweep (command + scope + hit count). Mark each one `frozen as D#` or `deferred: <reason>`, or return `none (sweep: <command>)` (proposal `bb191508`). |
-| `cross-stream-file-overlaps` | Files this stream must write that another stream in the same wave also touches — drives wave sequencing (serialize the overlap, parallelize the rest) — or `none`. |
+| `cross-stream-file-overlaps` | Files this stream must write that another stream in the same wave also touches, or `none`. In one shared worktree a shared file is lock-serialized and is never by itself a reason for a BLOCKS edge. |
 | `missing-api-or-seam` | A surface the fix needs that does not exist yet, with the exact proposed NEW signature — or `none`. |
 | `test-plan-status` | Whether `test-plan` is filled and frozen (`filled (<n> chars)`) or still open, and why. |
 | `main-files` | The stream's production files (`src/main`), comma-separated. |
@@ -443,7 +443,7 @@ formats, UUID inclusion). The key decisions at this step are:
   **shared feature worktree** created in Step 2. Each agent receives the worktree path
   and branch name. Do **not** use `isolation: "worktree"` on the Agent tool — that would
   spawn a separate worktree per dispatch, which is the deprecated per-child PR pattern.
-- **Multiple child tasks, dependent:** dispatch sequentially into the shared feature
+- **Multiple child tasks, dependent** (a semantic dependency; sharing a file alone is not one): dispatch sequentially into the shared feature
   worktree. Wait for each agent's commit to land before dispatching the next.
 
 **Under `/task-orchestrator:run-wave`, both bullets above are executed by the run plan** (Method A
@@ -501,8 +501,7 @@ the Commit discipline slot is the only safe form (#301).
 
 **File-edit overlap discipline:** Parallel agents in a shared worktree must operate on
 non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
-(per MEMORY.md §"Parallel File-Edit Delegation"). When inherent overlap exists, dispatch
-sequentially.
+(per MEMORY.md §"Parallel File-Edit Delegation"). When inherent overlap exists, under run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`) and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
 
 **Contract-change sweep discipline.** When a child task tightens a contract — making a
 parameter required, adding `validate()` invariants, narrowing a sealed-class arm, or

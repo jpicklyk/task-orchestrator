@@ -67,7 +67,7 @@ waves. The orchestrator must enforce file scope per agent — overlapping files 
 shared worktree cause "second agent reads the file after first agent committed" mid-flight
 confusion.
 
-**Sequential dispatch:** when children share files, dispatch sequentially; dependency edges are
+**Sequential dispatch:** when children share files, dispatch sequentially without a BLOCKS edge (under run-wave, per-file locks serialize them; declare `Shared file, lock-serialized: <path>` in both scopes); BLOCKS edges are for semantic dependencies, and dependency edges are
 classified by `run-wave` (in-run vs cross-run).
 
 ### Committing in a shared worktree

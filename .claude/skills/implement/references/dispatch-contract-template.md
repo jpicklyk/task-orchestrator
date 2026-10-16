@@ -196,7 +196,7 @@ edit on exact text (`old_string`), never on line numbers; an instruction that lo
 for an agent quotes the text, not a line range.
 
 Declared cross-stream overlaps: `<file → the streams that both write, and the serialization or
-arbitration rule that applies — or "none (explicitly verified by all planners)">`.
+arbitration rule that applies (`lock-serialized (no BLOCKS edge)` for a file shared in one worktree) — or "none (explicitly verified by all planners)">`.
 Untouched by implementers: `<files no stream may write — wiring/entry points, shared harnesses,
 and all docs>`.
 Scope decisions (orchestrator): `<in/out-of-scope calls a reader would otherwise re-litigate,
@@ -309,3 +309,4 @@ Red-proof run rules (every red-proof run and any red-proof runner prompt; propos
 3. The scratch red-proof worktree uses its own `--project-cache-dir`, and the runner runs
    `gradlew --stop` for its own daemon before returning.
 4. Tests touching run loops or blocking IO carry `@Timeout`.
+| `1f635007` (#416) | per-file locks, not BLOCKS edges, for files shared in one worktree | **File ownership** - the Declared cross-stream overlaps line; materialization rule in `post-plan-workflow` step 2, advisory `shared-file edge` warning in `run-planner plan` |
