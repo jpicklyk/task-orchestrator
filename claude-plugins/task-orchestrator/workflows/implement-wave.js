@@ -5,6 +5,24 @@ export const meta = {
   phases: [{ title: 'Queue' }, { title: 'Work' }],
 }
 // @core-begin
+// @generated:tool-names-begin (scripts/gen-call-shapes.mjs; do not edit, run it to refresh)
+const TOOL_NAMES = Object.freeze({
+  ADVANCE: 'advance',
+  CONFIG: 'config',
+  DEPS_READ: 'deps_read',
+  DEPS_WRITE: 'deps_write',
+  DOCS_READ: 'docs_read',
+  DOCS_WRITE: 'docs_write',
+  ITEMS_READ: 'items_read',
+  ITEMS_WRITE: 'items_write',
+  NOTES_READ: 'notes_read',
+  NOTES_WRITE: 'notes_write',
+  REPORT: 'report',
+  RUNS_READ: 'runs_read',
+  RUNS_WRITE: 'runs_write',
+})
+// @generated:tool-names-end
+const MCP_TOOL_PREFIX = 'mcp__mcp-task-orchestrator__'
 const ENVELOPE_VERSION = 'envelope-v1'
 
 /** Output schema catalog, keyed by output-schema id (versioned seat contracts, never item types). */
@@ -811,16 +829,10 @@ function promptScope(plan, item) {
 
 /** Part 3: tool selection. Pre-entered mode never advances, so advance_item is withheld. */
 function promptTools(plan, stage) {
-  const names = [
-    'mcp__mcp-task-orchestrator__query_items',
-    'mcp__mcp-task-orchestrator__query_notes',
-    'mcp__mcp-task-orchestrator__query_dependencies',
-    'mcp__mcp-task-orchestrator__get_context',
-    'mcp__mcp-task-orchestrator__query_rules',
-  ]
-  if (!isReadOnlyStage(stage)) names.push('mcp__mcp-task-orchestrator__manage_notes')
-  if (stage.enters && plan.entryMode !== 'pre-entered') names.push('mcp__mcp-task-orchestrator__advance_item')
-  return `TOOLS: load with ToolSearch select:${names.join(',')}`
+  const names = [TOOL_NAMES.ITEMS_READ, TOOL_NAMES.NOTES_READ, TOOL_NAMES.DEPS_READ, TOOL_NAMES.CONFIG]
+  if (!isReadOnlyStage(stage)) names.push(TOOL_NAMES.NOTES_WRITE)
+  if (stage.enters && plan.entryMode !== 'pre-entered') names.push(TOOL_NAMES.ADVANCE)
+  return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
 }
 
 /** Part 4: actor. */

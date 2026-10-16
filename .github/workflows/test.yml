@@ -81,6 +81,9 @@ jobs:
       with:
         node-version: '22'
 
+    - name: Check generated call shapes are fresh
+      run: node claude-plugins/task-orchestrator/scripts/gen-call-shapes.mjs --check
+
     - name: Run plugin hook tests
       run: |
         set -o pipefail

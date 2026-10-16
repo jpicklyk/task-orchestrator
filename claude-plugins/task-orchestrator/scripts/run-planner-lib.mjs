@@ -9,6 +9,8 @@
 //
 // Contract: run-wave/snapshot-v1 in, implement-wave/args-v1 + run-wave/plan-doc-v1 out.
 
+import { isOrchestratorServerKey } from '../hooks/registration.mjs';
+
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
 export const ARGS_CONTRACT = 'implement-wave/args-v1';
@@ -147,7 +149,8 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
     if (Array.isArray(list)) {
       for (const entry of list) {
         if (entry === 'Workflow' || entry === 'Workflow(task-orchestrator:implement-wave)') allow.workflow = true;
-        if (entry === 'mcp__mcp-task-orchestrator__*') allow.mcp = true;
+        const mcpWildcard = /^mcp__(.+)__\*$/.exec(entry);
+        if (mcpWildcard && isOrchestratorServerKey(mcpWildcard[1])) allow.mcp = true;
         if (entry === 'Bash(git:*)') allow.bashGit = true;
         if (entry === 'Bash(node:*)') allow.bashNode = true;
       }

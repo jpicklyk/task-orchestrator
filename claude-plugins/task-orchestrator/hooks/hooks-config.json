@@ -46,7 +46,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__manage_notes$",
+        "matcher": "^mcp__.*task-orchestrator.*__notes_write$",
         "hooks": [
           {
             "type": "command",
@@ -56,7 +56,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|manage_notes)$",
+        "matcher": "^mcp__.*task-orchestrator.*__(advance|notes_write)$",
         "hooks": [
           {
             "type": "command",
@@ -93,7 +93,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|complete_tree)$",
+        "matcher": "^mcp__.*task-orchestrator.*__(advance|items_write|runs_write)$",
         "hooks": [
           {
             "type": "command",
@@ -103,7 +103,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "matcher": "^mcp__.*task-orchestrator.*__advance$",
         "hooks": [
           {
             "type": "command",
@@ -113,7 +113,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "matcher": "^mcp__.*task-orchestrator.*__advance$",
         "hooks": [
           {
             "type": "command",

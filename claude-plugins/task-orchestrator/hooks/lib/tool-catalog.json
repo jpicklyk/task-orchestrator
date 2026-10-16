@@ -1,0 +1,3502 @@
+{
+  "tools": {
+    "advance": {
+      "kind": "ops",
+      "profiles": [
+        "orchestration"
+      ],
+      "entries": {
+        "transition": {
+          "anchor": "advance-transition",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "advance",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "trigger": {
+              "type": "string: start | complete | block | hold | resume | cancel | reopen",
+              "required": true
+            },
+            "summary": {
+              "type": "string",
+              "required": false
+            },
+            "credentialRefs": {
+              "type": "array of string",
+              "required": false
+            },
+            "reason": {
+              "type": "string: awaiting_decision | dependency | resource | manual",
+              "required": false
+            },
+            "decisionId": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "dependency_unmet",
+            "forbidden",
+            "gate_blocked",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "resource_unavailable",
+            "run_paused",
+            "seat_forbidden",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "claim": {
+          "anchor": "advance-claim",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "advance",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "select": {
+              "type": "object",
+              "required": false
+            },
+            "select.role": {
+              "type": "string: queue | work | review | blocked | terminal",
+              "required": false
+            },
+            "select.parentId": {
+              "type": "string",
+              "required": false
+            },
+            "select.tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "select.priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "select.type": {
+              "type": "string",
+              "required": false
+            },
+            "select.complexityMax": {
+              "type": "integer",
+              "required": false
+            },
+            "select.createdAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "select.createdBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "select.roleChangedAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "select.roleChangedBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "select.orderBy": {
+              "type": "string: priority | oldest | newest",
+              "required": false
+            },
+            "ttlSeconds": {
+              "type": "integer",
+              "required": false
+            },
+            "claimRef": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "claim_held",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "release": {
+          "anchor": "advance-release",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "advance",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "heartbeat": {
+          "anchor": "advance-heartbeat",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "advance",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "ttlSeconds": {
+              "type": "integer",
+              "required": false
+            },
+            "usage": {
+              "type": "object",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "config": {
+      "kind": "ops",
+      "profiles": [
+        "orchestration"
+      ],
+      "entries": {
+        "get": {
+          "anchor": "config-get",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "version": {
+              "type": "integer",
+              "required": false
+            },
+            "fingerprint": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "history": {
+          "anchor": "config-history",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "before": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "push": {
+          "anchor": "config-push",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "write-config",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "configYaml": {
+              "type": "string",
+              "required": true
+            },
+            "force": {
+              "type": "boolean",
+              "required": false
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "config_invalid",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "payload_too_large",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "validate": {
+          "anchor": "config-validate",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "configYaml": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "config_invalid",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "payload_too_large",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "rollback": {
+          "anchor": "config-rollback",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "write-config",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "version": {
+              "type": "integer",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "reset": {
+          "anchor": "config-reset",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "write-config",
+          "destructive": true,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "effective": {
+          "anchor": "config-effective",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "config_invalid",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "rules": {
+          "anchor": "config-rules",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "key": {
+              "type": "string",
+              "required": false
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "noteKey": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "config_invalid",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "deps_read": {
+      "kind": "select",
+      "profiles": [
+        "director",
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "list": {
+          "anchor": "deps_read-list",
+          "profiles": [
+            "director",
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "item": {
+              "type": "string",
+              "required": true
+            },
+            "direction": {
+              "type": "string: incoming | outgoing | all",
+              "required": false
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "graph": {
+          "anchor": "deps_read-graph",
+          "profiles": [
+            "director",
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "item": {
+              "type": "string",
+              "required": true
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "deps_write": {
+      "kind": "ops",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "create": {
+          "anchor": "deps_write-create",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "manage-dependencies",
+          "destructive": false,
+          "fields": {
+            "from": {
+              "type": "string",
+              "required": true
+            },
+            "to": {
+              "type": "string",
+              "required": true
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "unblockAt": {
+              "type": "string: queue | work | review | terminal",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "delete": {
+          "anchor": "deps_write-delete",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "manage-dependencies",
+          "destructive": true,
+          "fields": {
+            "id": {
+              "type": "string",
+              "required": false
+            },
+            "from": {
+              "type": "string",
+              "required": false
+            },
+            "to": {
+              "type": "string",
+              "required": false
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "item": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "linear": {
+          "anchor": "deps_write-linear",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "manage-dependencies",
+          "destructive": false,
+          "fields": {
+            "ids": {
+              "type": "array of string",
+              "required": true
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "unblockAt": {
+              "type": "string: queue | work | review | terminal",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "fan_out": {
+          "anchor": "deps_write-fan_out",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "manage-dependencies",
+          "destructive": false,
+          "fields": {
+            "from": {
+              "type": "string",
+              "required": true
+            },
+            "toIds": {
+              "type": "array of string",
+              "required": true
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "unblockAt": {
+              "type": "string: queue | work | review | terminal",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "fan_in": {
+          "anchor": "deps_write-fan_in",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "manage-dependencies",
+          "destructive": false,
+          "fields": {
+            "fromIds": {
+              "type": "array of string",
+              "required": true
+            },
+            "to": {
+              "type": "string",
+              "required": true
+            },
+            "type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "unblockAt": {
+              "type": "string: queue | work | review | terminal",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "docs_read": {
+      "kind": "select",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "get": {
+          "anchor": "docs_read-get",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "version": {
+              "type": "integer",
+              "required": false
+            },
+            "ifVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "list": {
+          "anchor": "docs_read-list",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": false
+            },
+            "includeArchived": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "history": {
+          "anchor": "docs_read-history",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "links": {
+          "anchor": "docs_read-links",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "direction": {
+              "type": "string: outgoing | incoming | all",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "docs_write": {
+      "kind": "ops",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "upsert": {
+          "anchor": "docs_write-upsert",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "body": {
+              "type": "string",
+              "required": false
+            },
+            "bodyFromFile": {
+              "type": "string",
+              "required": false
+            },
+            "title": {
+              "type": "string",
+              "required": false
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "payload_too_large",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "archive": {
+          "anchor": "docs_write-archive",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "unarchive": {
+          "anchor": "docs_write-unarchive",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "delete": {
+          "anchor": "docs_write-delete",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": true,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "attach": {
+          "anchor": "docs_write-attach",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "detach": {
+          "anchor": "docs_write-detach",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-docs",
+          "destructive": true,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "kind": {
+              "type": "string: plan | rule | page",
+              "required": true
+            },
+            "slug": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "items_read": {
+      "kind": "select",
+      "profiles": [
+        "director",
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "get": {
+          "anchor": "items_read-get",
+          "profiles": [
+            "director",
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            },
+            "ifVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "list": {
+          "anchor": "items_read-list",
+          "profiles": [
+            "director",
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "depth": {
+              "type": "integer",
+              "required": false
+            },
+            "role": {
+              "type": "string: queue | work | review | blocked | terminal",
+              "required": false
+            },
+            "priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "type": {
+              "type": "string",
+              "required": false
+            },
+            "claimStatus": {
+              "type": "string: claimed | unclaimed | expired",
+              "required": false
+            },
+            "createdAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "createdBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "modifiedAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "modifiedBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "roleChangedAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "roleChangedBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "sort": {
+              "type": "string: title | priority | complexity | createdAt | modifiedAt",
+              "required": false
+            },
+            "order": {
+              "type": "string: asc | desc",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "schema": {
+          "anchor": "items_read-schema",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "type": {
+              "type": "string",
+              "required": false
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "search": {
+          "anchor": "items_read-search",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "query": {
+              "type": "string",
+              "required": true
+            },
+            "kinds": {
+              "type": "array of string: item | note | document",
+              "required": false
+            },
+            "matchMode": {
+              "type": "string: auto | substring | text",
+              "required": false
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "role": {
+              "type": "string: queue | work | review | blocked | terminal",
+              "required": false
+            },
+            "tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "snippet": {
+              "type": "boolean",
+              "required": false
+            },
+            "explain": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "overview": {
+          "anchor": "items_read-overview",
+          "profiles": [
+            "director",
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "anchorId": {
+              "type": "string",
+              "required": false
+            },
+            "excludeTerminal": {
+              "type": "boolean",
+              "required": false
+            },
+            "includeChildren": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "related": {
+          "anchor": "items_read-related",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "acrossRoots": {
+              "type": "boolean",
+              "required": false
+            },
+            "explain": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "context": {
+          "anchor": "items_read-context",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "next": {
+          "anchor": "items_read-next",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "role": {
+              "type": "string: queue | work | review | blocked | terminal",
+              "required": false
+            },
+            "priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "type": {
+              "type": "string",
+              "required": false
+            },
+            "complexityMax": {
+              "type": "integer",
+              "required": false
+            },
+            "createdAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "createdBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "modifiedAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "modifiedBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "roleChangedAfter": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "roleChangedBefore": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "orderBy": {
+              "type": "string: priority | oldest | newest",
+              "required": false
+            },
+            "includeClaimed": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "blocked": {
+          "anchor": "items_read-blocked",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            },
+            "fields": {
+              "type": "array of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "history": {
+          "anchor": "items_read-history",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "until": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "items_write": {
+      "kind": "ops",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "create": {
+          "anchor": "items_write-create",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-items",
+          "destructive": false,
+          "fields": {
+            "title": {
+              "type": "string",
+              "required": true
+            },
+            "type": {
+              "type": "string",
+              "required": true
+            },
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "description": {
+              "type": "string",
+              "required": false
+            },
+            "summary": {
+              "type": "string",
+              "required": false
+            },
+            "statusLabel": {
+              "type": "string",
+              "required": false
+            },
+            "priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "complexity": {
+              "type": "integer",
+              "required": false
+            },
+            "requiresVerification": {
+              "type": "boolean",
+              "required": false
+            },
+            "metadata": {
+              "type": "string",
+              "required": false
+            },
+            "tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "properties": {
+              "type": "object",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_found",
+            "partial_failure",
+            "schema_violation",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "update": {
+          "anchor": "items_write-update",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-items",
+          "destructive": false,
+          "fields": {
+            "id": {
+              "type": "string",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            },
+            "title": {
+              "type": "string",
+              "required": false
+            },
+            "type": {
+              "type": "string",
+              "required": false
+            },
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "description": {
+              "type": "string",
+              "required": false
+            },
+            "summary": {
+              "type": "string",
+              "required": false
+            },
+            "statusLabel": {
+              "type": "string",
+              "required": false
+            },
+            "priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "complexity": {
+              "type": "integer",
+              "required": false
+            },
+            "requiresVerification": {
+              "type": "boolean",
+              "required": false
+            },
+            "metadata": {
+              "type": "string",
+              "required": false
+            },
+            "tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "properties": {
+              "type": "object",
+              "required": false
+            },
+            "clear": {
+              "type": "array of string: description | statusLabel | metadata | complexity | properties | parentId",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "schema_violation",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "delete": {
+          "anchor": "items_write-delete",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-items",
+          "destructive": true,
+          "fields": {
+            "id": {
+              "type": "string",
+              "required": true
+            },
+            "recursive": {
+              "type": "boolean",
+              "required": false
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "create_tree": {
+          "anchor": "items_write-create_tree",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "write-items",
+          "destructive": false,
+          "fields": {
+            "root": {
+              "type": "object",
+              "required": true
+            },
+            "root.id": {
+              "type": "string",
+              "required": false
+            },
+            "root.title": {
+              "type": "string",
+              "required": false
+            },
+            "root.type": {
+              "type": "string",
+              "required": false
+            },
+            "root.priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "root.tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "root.traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "root.summary": {
+              "type": "string",
+              "required": false
+            },
+            "root.description": {
+              "type": "string",
+              "required": false
+            },
+            "root.statusLabel": {
+              "type": "string",
+              "required": false
+            },
+            "root.complexity": {
+              "type": "integer",
+              "required": false
+            },
+            "root.requiresVerification": {
+              "type": "boolean",
+              "required": false
+            },
+            "root.metadata": {
+              "type": "string",
+              "required": false
+            },
+            "root.properties": {
+              "type": "object",
+              "required": false
+            },
+            "root.noteAnchors": {
+              "type": "array of object",
+              "required": false
+            },
+            "root.noteAnchors[].noteKey": {
+              "type": "string",
+              "required": true
+            },
+            "root.noteAnchors[].role": {
+              "type": "string: queue | work | review",
+              "required": true
+            },
+            "root.noteAnchors[].anchor": {
+              "type": "string",
+              "required": true
+            },
+            "parentId": {
+              "type": "string",
+              "required": false
+            },
+            "children": {
+              "type": "array of object",
+              "required": false
+            },
+            "children[].ref": {
+              "type": "string",
+              "required": true
+            },
+            "children[].title": {
+              "type": "string",
+              "required": true
+            },
+            "children[].type": {
+              "type": "string",
+              "required": true
+            },
+            "children[].parentRef": {
+              "type": "string",
+              "required": false
+            },
+            "children[].priority": {
+              "type": "string: high | medium | low",
+              "required": false
+            },
+            "children[].tags": {
+              "type": "array of string",
+              "required": false
+            },
+            "children[].traits": {
+              "type": "array of string",
+              "required": false
+            },
+            "children[].summary": {
+              "type": "string",
+              "required": false
+            },
+            "children[].description": {
+              "type": "string",
+              "required": false
+            },
+            "children[].statusLabel": {
+              "type": "string",
+              "required": false
+            },
+            "children[].complexity": {
+              "type": "integer",
+              "required": false
+            },
+            "children[].requiresVerification": {
+              "type": "boolean",
+              "required": false
+            },
+            "children[].metadata": {
+              "type": "string",
+              "required": false
+            },
+            "children[].properties": {
+              "type": "object",
+              "required": false
+            },
+            "children[].noteAnchors": {
+              "type": "array of object",
+              "required": false
+            },
+            "children[].noteAnchors[].noteKey": {
+              "type": "string",
+              "required": true
+            },
+            "children[].noteAnchors[].role": {
+              "type": "string: queue | work | review",
+              "required": true
+            },
+            "children[].noteAnchors[].anchor": {
+              "type": "string",
+              "required": true
+            },
+            "deps": {
+              "type": "array of object",
+              "required": false
+            },
+            "deps[].from": {
+              "type": "string",
+              "required": true
+            },
+            "deps[].to": {
+              "type": "string",
+              "required": true
+            },
+            "deps[].type": {
+              "type": "string: blocks | relates_to",
+              "required": false
+            },
+            "deps[].unblockAt": {
+              "type": "string: queue | work | review | terminal",
+              "required": false
+            },
+            "notes": {
+              "type": "array of object",
+              "required": false
+            },
+            "notes[].itemRef": {
+              "type": "string",
+              "required": true
+            },
+            "notes[].key": {
+              "type": "string",
+              "required": true
+            },
+            "notes[].role": {
+              "type": "string: queue | work | review",
+              "required": true
+            },
+            "notes[].body": {
+              "type": "string",
+              "required": false
+            },
+            "createNotes": {
+              "type": "boolean",
+              "required": false
+            },
+            "docRef": {
+              "type": "object",
+              "required": false
+            },
+            "docRef.slug": {
+              "type": "string",
+              "required": true
+            },
+            "docRef.rootId": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "cycle_detected",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "note_too_long",
+            "partial_failure",
+            "payload_too_large",
+            "schema_violation",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "complete_tree": {
+          "anchor": "items_write-complete_tree",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "advance",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "itemIds": {
+              "type": "array of string",
+              "required": false
+            },
+            "trigger": {
+              "type": "string: complete | cancel",
+              "required": false
+            },
+            "includeRoot": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "repin": {
+          "anchor": "items_write-repin",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "write-items",
+          "destructive": false,
+          "fields": {
+            "id": {
+              "type": "string",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        }
+      }
+    },
+    "notes_read": {
+      "kind": "select",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "get": {
+          "anchor": "notes_read-get",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "key": {
+              "type": "string",
+              "required": true
+            },
+            "ifVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "list": {
+          "anchor": "notes_read-list",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "role": {
+              "type": "string",
+              "required": false
+            },
+            "keys": {
+              "type": "array of string",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "notes_write": {
+      "kind": "ops",
+      "profiles": [
+        "knowledge",
+        "orchestration"
+      ],
+      "entries": {
+        "upsert": {
+          "anchor": "notes_write-upsert",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-notes",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "key": {
+              "type": "string",
+              "required": true
+            },
+            "role": {
+              "type": "string",
+              "required": true
+            },
+            "body": {
+              "type": "string",
+              "required": false
+            },
+            "bodyFromFile": {
+              "type": "string",
+              "required": false
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            },
+            "takeover": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "note_owned_by_other",
+            "note_too_long",
+            "partial_failure",
+            "payload_too_large",
+            "schema_pinned_conflict",
+            "schema_violation",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "delete": {
+          "anchor": "notes_write-delete",
+          "profiles": [
+            "knowledge",
+            "orchestration"
+          ],
+          "capability": "write-notes",
+          "destructive": true,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "key": {
+              "type": "string",
+              "required": true
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_claim_holder",
+            "not_found",
+            "note_owned_by_other",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        }
+      }
+    },
+    "report": {
+      "kind": "select",
+      "profiles": [
+        "director"
+      ],
+      "entries": {
+        "usage": {
+          "anchor": "report-usage",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            },
+            "groupBy": {
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "gates": {
+          "anchor": "report-gates",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            },
+            "groupBy": {
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "contention": {
+          "anchor": "report-contention",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            },
+            "groupBy": {
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "waste": {
+          "anchor": "report-waste",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "rollup": {
+          "anchor": "report-rollup",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "anchorId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            },
+            "runId": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "runs_read": {
+      "kind": "select",
+      "profiles": [
+        "director",
+        "orchestration"
+      ],
+      "entries": {
+        "get": {
+          "anchor": "runs_read-get",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "list": {
+          "anchor": "runs_read-list",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "status": {
+              "type": "string: open | paused | closed",
+              "required": false
+            },
+            "endedSince": {
+              "type": "string (date-time)",
+              "required": false
+            },
+            "unmarked": {
+              "type": "string",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "seats": {
+          "anchor": "runs_read-seats",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "ended": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "frontier": {
+          "anchor": "runs_read-frontier",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "decisions": {
+          "anchor": "runs_read-decisions",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": false
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "overdue": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "decision": {
+          "anchor": "runs_read-decision",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "runs_write": {
+      "kind": "ops",
+      "profiles": [
+        "director",
+        "orchestration"
+      ],
+      "entries": {
+        "open": {
+          "anchor": "runs_write-open",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": true
+            },
+            "items": {
+              "type": "array of string",
+              "required": false
+            },
+            "scopeId": {
+              "type": "string",
+              "required": false
+            },
+            "label": {
+              "type": "string",
+              "required": false
+            },
+            "title": {
+              "type": "string",
+              "required": false
+            },
+            "budget": {
+              "type": "object",
+              "required": false
+            },
+            "budget.tokens": {
+              "type": "integer",
+              "required": false
+            },
+            "budget.costUsd": {
+              "type": "number",
+              "required": false
+            },
+            "budget.attemptsPerSeat": {
+              "type": "integer",
+              "required": false
+            },
+            "budget.maxActiveSeats": {
+              "type": "integer",
+              "required": false
+            },
+            "stallAfterSeconds": {
+              "type": "integer",
+              "required": false
+            },
+            "hints": {
+              "type": "map of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "update": {
+          "anchor": "runs_write-update",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            },
+            "addItems": {
+              "type": "array of string",
+              "required": false
+            },
+            "removeItems": {
+              "type": "array of string",
+              "required": false
+            },
+            "budget": {
+              "type": "object",
+              "required": false
+            },
+            "budget.tokens": {
+              "type": "integer",
+              "required": false
+            },
+            "budget.costUsd": {
+              "type": "number",
+              "required": false
+            },
+            "budget.attemptsPerSeat": {
+              "type": "integer",
+              "required": false
+            },
+            "budget.maxActiveSeats": {
+              "type": "integer",
+              "required": false
+            },
+            "hints": {
+              "type": "map of string",
+              "required": false
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "duplicate",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "run_closed",
+            "run_paused",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "close": {
+          "anchor": "runs_write-close",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": true,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            },
+            "reason": {
+              "type": "string: completed | cancelled | failed | abandoned",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_run_state",
+            "not_found",
+            "partial_failure",
+            "run_closed",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "pause": {
+          "anchor": "runs_write-pause",
+          "profiles": [
+            "director"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_run_state",
+            "not_found",
+            "partial_failure",
+            "run_closed",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "resume": {
+          "anchor": "runs_write-resume",
+          "profiles": [
+            "director"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_run_state",
+            "not_found",
+            "partial_failure",
+            "run_closed",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "mark": {
+          "anchor": "runs_write-mark",
+          "profiles": [],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            },
+            "key": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "assign": {
+          "anchor": "runs_write-assign",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": true
+            },
+            "seat": {
+              "type": "string",
+              "required": true
+            },
+            "hints": {
+              "type": "map of string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "run_at_capacity",
+            "run_closed",
+            "run_paused",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "end_seat": {
+          "anchor": "runs_write-end_seat",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "outcome": {
+              "type": "string: done | failed | abandoned",
+              "required": true
+            },
+            "summary": {
+              "type": "string",
+              "required": false
+            },
+            "links": {
+              "type": "array of object",
+              "required": false
+            }
+          },
+          "errors": [
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "raise": {
+          "anchor": "runs_write-raise",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "class": {
+              "type": "string",
+              "required": true
+            },
+            "question": {
+              "type": "string",
+              "required": true
+            },
+            "options": {
+              "type": "array of object",
+              "required": true
+            },
+            "recommended": {
+              "type": "string",
+              "required": false
+            },
+            "links": {
+              "type": "array of object",
+              "required": false
+            },
+            "context": {
+              "type": "string",
+              "required": false
+            },
+            "dedupeKey": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "runId": {
+              "type": "string",
+              "required": false
+            },
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "severity": {
+              "type": "string: high | normal | low",
+              "required": false
+            },
+            "block": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "payload_too_large",
+            "seat_forbidden",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "ack": {
+          "anchor": "runs_write-ack",
+          "profiles": [
+            "director"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "answer": {
+          "anchor": "runs_write-answer",
+          "profiles": [
+            "director"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            },
+            "option": {
+              "type": "string",
+              "required": false
+            },
+            "text": {
+              "type": "string",
+              "required": false
+            },
+            "rationale": {
+              "type": "string",
+              "required": false
+            },
+            "amount": {
+              "type": "number",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "withdraw": {
+          "anchor": "runs_write-withdraw",
+          "profiles": [
+            "director"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        }
+      }
+    }
+  },
+  "errors": {
+    "ambiguous_id": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "claim_held": {
+      "kind": "transient",
+      "http": 409
+    },
+    "config_invalid": {
+      "kind": "permanent",
+      "http": 422
+    },
+    "cycle_detected": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "decision_closed": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "dependency_unmet": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "duplicate": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "forbidden": {
+      "kind": "permanent",
+      "http": 403
+    },
+    "gate_blocked": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "idempotency_mismatch": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "internal": {
+      "kind": "transient",
+      "http": 500
+    },
+    "invalid_cursor": {
+      "kind": "permanent",
+      "http": 400
+    },
+    "invalid_request": {
+      "kind": "permanent",
+      "http": 400
+    },
+    "invalid_run_state": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "invalid_transition": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "not_claim_holder": {
+      "kind": "permanent",
+      "http": 403
+    },
+    "not_found": {
+      "kind": "permanent",
+      "http": 404
+    },
+    "note_owned_by_other": {
+      "kind": "permanent",
+      "http": 403
+    },
+    "note_too_long": {
+      "kind": "permanent",
+      "http": 413
+    },
+    "partial_failure": {
+      "kind": "permanent",
+      "http": 207
+    },
+    "payload_too_large": {
+      "kind": "permanent",
+      "http": 413
+    },
+    "resource_unavailable": {
+      "kind": "transient",
+      "http": 409
+    },
+    "run_at_capacity": {
+      "kind": "transient",
+      "http": 409
+    },
+    "run_closed": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "run_paused": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "schema_pinned_conflict": {
+      "kind": "permanent",
+      "http": 409
+    },
+    "schema_violation": {
+      "kind": "permanent",
+      "http": 422
+    },
+    "seat_forbidden": {
+      "kind": "permanent",
+      "http": 403
+    },
+    "unauthenticated": {
+      "kind": "permanent",
+      "http": 401
+    },
+    "unavailable": {
+      "kind": "shedding",
+      "http": 503
+    },
+    "unknown_parameter": {
+      "kind": "permanent",
+      "http": 400
+    },
+    "version_conflict": {
+      "kind": "permanent",
+      "http": 409
+    }
+  }
+}
