@@ -794,6 +794,6 @@ test('T-skill-followups: session-retrospective names plan-to-execution, --deep i
   assert.match(text, /`<dimension>` is one of [^\n]*plan-to-execution/)
   assert.match(text, /\*\*Audit sweep\.\*\*[^\n]*only after they confirm/)
   assert.match(text, /stats\.unmatchedShards[^\n]*targetIds/)
-  assert.match(text, /tags="session-retrospective", sortBy="createdAt", sortOrder="desc", limit=10/)
+  assert.match(text, /"tags": \["session-retrospective"\], "sort": "createdAt", "order": "desc", "limit": 10/)
   assert.equal((text.match(/task-orchestrator:retro-analysis/g) || []).length, 1)
 })

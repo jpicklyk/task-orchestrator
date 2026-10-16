@@ -1,37 +1,35 @@
 ---
 name: work-summary
 description: "Generates a project dashboard from MCP work items. Default is a lean, attention-first view: what's in flight, what's blocked, what to do next, what's queued. Use when the user says: project status, what's active, show me the dashboard, work summary, what should I work on, project health, what's blocked, where did I leave off, show items, what's in the backlog, overview, or any request to see or review the current state of work items. Also use at session start when gathering current project context."
-argument-hint: "[full | container UUID or title to scope the summary]"
+argument-hint: "[full | all | container UUID or title to scope the summary]"
 ---
 
-# Work Summary — Current (v3)
+# Work Summary
 
-Attention-first project dashboard. The default (lean) mode answers four questions — what's moving, what's stuck, what's next, what's queued — in a bounded view (~45 lines) regardless of workspace size. The exhaustive inventory is available as an explicit mode, not the default: mature workspaces accumulate hundreds of terminal items, and rendering them all buries the actionable content.
+Attention-first project dashboard. The default (lean) mode answers four questions - what's moving, what's stuck, what's next, what's queued - in a bounded view (~45 lines) regardless of workspace size. The exhaustive inventory is an explicit mode: mature workspaces accumulate hundreds of terminal items, and rendering them all buries the actionable content.
 
-Supplement the data with brief observations only when there is a genuine anomaly or actionable insight.
+Every call below is a 4.0 tool call. Shapes are in [`../_generated/call-shapes.md`](../_generated/call-shapes.md) and are not restated here. Every answer is the response envelope: read `ok`, then `data`; on `ok: false` read `error.code` (an unknown field is `unknown_parameter`, so a typo fails loudly rather than being ignored). All calls here are reads, so there is no per-element write envelope to check.
+
+Supplement the data with brief observations only for a genuine anomaly or actionable insight.
 
 ---
 
-## Step 0 — Mode Selection
+## Step 0 - Mode Selection
 
 | `$ARGUMENTS` | Mode |
 |--------------|------|
 | empty | **Lean** (default) |
 | the literal word `full` | **Full Inventory** |
-| the literal word `all` | **Multi-Project** — one condensed section per known project root |
-| anything else | **Scoped** — resolve to a UUID via `query_items(operation="search", query=$ARGUMENTS, limit=5)`; prefer the best-matching root or container item; if ambiguous, present matches via `AskUserQuestion` |
+| the literal word `all` | **Multi-Project** - one condensed section per known project root |
+| anything else | **Scoped** - resolve to a UUID with `items_read` `search` (`query: $ARGUMENTS`, `limit: 5`, `kinds: ["item"]`); prefer the best-matching root or container; if ambiguous, present matches via `AskUserQuestion` |
 
----
+## Step 0.5 - Project Scope Resolution
 
-## Step 0.5 — Project Scope Resolution
+- Check the SessionStart context. A `## Project Scope` section carries a **project rootId**, which scopes reads (`ancestorId` / `anchorId`). A `## Personal Scope` section carries a **personal root**, which only anchors new items: in personal scope every call runs unscoped and the header says `personal scope - whole database`.
+- Otherwise read the top-level `project.rootId` of `.taskorchestrator/config.yaml` (a file read).
+- With no rootId from either path, every call runs unscoped: drop `ancestorId` / `anchorId` / `rootId` from the examples below.
 
-Before running Lean, Full, or Multi-Project mode, resolve the scope:
-
-- Check session context from the SessionStart hook. A `## Project Scope` section carries a **project rootId**, which scopes reads (`ancestorId`/`anchorId`) and anchors. A `## Personal Scope` section carries a **personal root**, which only anchors new items: in personal scope every call below runs unscoped (whole database) and the header says `personal scope — whole database`.
-- Otherwise, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` field (a file read, not an MCP call).
-- **If no rootId is found by either path, behavior is exactly as before this feature existed** — every call below runs unscoped (whole-DB), and no `ancestorId`/`anchorId` param is passed. This is the common case for single-project workspaces.
-
-When a project rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId>"` — except the `overview` calls, which use `anchorId="<rootId>"` (all noted inline below). Scoped mode is unaffected — it already resolves its own scope UUID per invocation via FTS.
+Below, `"<rootId>"` marks a field you include only when a project rootId is known. Scoped mode resolves its own scope per invocation and ignores the project rootId.
 
 ---
 
@@ -39,23 +37,82 @@ When a project rootId is known, Lean and Full mode calls pass it as `ancestorId=
 
 ### Data collection (all parallel)
 
-1. `query_items(operation="overview", excludeTerminal=true)` — non-terminal roots with their `childCounts` role roll-ups only. `includeChildren` is deliberately omitted: it is a **no-op on the anchored (project-scoped) path** — the anchored overview never returns per-child arrays, only `childCounts` — and unnecessary on the global path, since the step-5 queue-list is the canonical source for individual children. Add `anchorId="<rootId>"` when a rootId is known, to anchor the overview to this project. **Detecting an older server:** MCP servers **silently ignore** unknown parameters (they return `200` with the full unfiltered payload) rather than rejecting them — so a server predating `excludeTerminal` will *not* error. Detect the no-op by inspecting the payload: **if any returned root has `role: "terminal"` AND its `childCounts` show only terminal descendants (no `queue`/`work`/`review`/`blocked`), the filter was not applied.** Note the qualifier: a current server intentionally *retains* a terminal-role root that still has non-terminal descendants (it is active work parked under a done container), so a terminal root **with** open descendants is expected, not evidence of an old server. When the no-op is detected, (a) drop client-side only those terminal roots whose `childCounts` show no open descendants during enrichment, and (b) if the response is also `truncated: true`, re-issue with `limit=<total>` (still passing `anchorId` if known) so non-terminal roots in the tail (e.g. active containers) are not silently dropped — a truncated *unfiltered* payload can hide real workstreams. Headline counts never come from this payload regardless (see the role-total queries below), so correctness holds either way; this only recovers the workstream/backlog completeness the filter was meant to guarantee.
-2. `get_context()` — health-check: active items, blocked items, stalled items, claim summary. Add `ancestorId="<rootId>"` when known.
-3. `get_context(mode="session-resume", since="<now minus 48h, ISO 8601>")` — recent role transitions (the "where did I leave off" signal). Add `ancestorId="<rootId>"` when known — but note the **known limitation**: `recentTransitions` is NOT scoped by `ancestorId` even when passed; it always reflects the whole tree, not just this project.
-4. `get_next_item(limit=5, includeDetails=true)` — ranked recommendations with parentId/tags. Add `ancestorId="<rootId>"` when known.
-5. `query_items(operation="search", role="queue", limit=100)` — **the canonical source for queue children.** Group its rows by `parentId` to get each workstream's "next up" (the queue children the anchored overview omits); each row carries `parentId`, `depth`, `priority`, and `type`/tags. `total` gives the true queued count. Add `ancestorId="<rootId>"` when known. **Exclude shelves from the headline:** subtract rows whose `type` or tag is `container` or `project` — a freshly-created container/anchor sits in `queue` role until its first advance and would otherwise inflate `N queued`. If `total` exceeds the returned page (queue backlog >100), note the headline count is approximate.
-6. `query_items(operation="search", role="terminal", limit=1)` — read `total` for the true terminal count. Add `ancestorId="<rootId>"` when known.
+1. Non-terminal roots with `childCounts` roll-ups ([`items_read-overview`](../_generated/call-shapes.md#items_read-overview)). `excludeTerminal` keeps a terminal root that still has open descendants (active work parked under a done container) and drops the rest; `page.truncated` / `page.next` page it.
 
-**Headline counts must come from these sources, never from eyeballing the overview payload** — overview covers the roots set with `childCounts` roll-ups only and may be truncated.
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"excludeTerminal": true, "anchorId": "<rootId>"}}
+```
+
+2. Health: `data.active.items` (work and review, longest in the role first), `data.blocked.items`, `data.stalled`, `data.claimSummary` ([`items_read-context`](../_generated/call-shapes.md#items_read-context)). `blocked` holds explicit blocks (`blockType: "explicit"`, with `reason` and, for `awaiting_decision`, `decisionId`) AND open items with an unsatisfied dependency (`blockType: "dependency"`). Each `stalled` entry is `{id, title, role, missing[], guidanceKey?, skillPointer?}`.
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>", "limit": 100, "fields": ["ancestors"]}}
+```
+
+3. Recent transitions (the "where did I leave off" signal). The `history` select has no `ancestorId`: with no `itemId` it covers every item the caller may see, so the line is whole-tree even inside a project.
+
+```to-call
+{"tool": "items_read", "select": "history", "args": {"since": "<now minus 48h, ISO 8601>", "limit": 20}}
+```
+
+4. Ranked recommendations (the default `limit` is 1, so ask for 5). `fields: ["ancestors"]` supplies the Container column.
+
+```to-call
+{"tool": "items_read", "select": "next", "args": {"limit": 5, "ancestorId": "<rootId>", "fields": ["ancestors"]}}
+```
+
+5. The canonical source for queue children. Group rows by `parentId`; `page.total` is the true queued count. Subtract rows whose `type` or tag is `container` or `project` (a fresh container sits in `queue` until its first advance and would inflate `N queued`). When `page.truncated`, the headline count is approximate.
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"role": "queue", "limit": 200, "ancestorId": "<rootId>"}}
+```
+
+6. The true terminal count is `data.page.total`.
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"role": "terminal", "limit": 1, "ancestorId": "<rootId>"}}
+```
+
+**Headline counts come from these sources**, never from the overview payload (it covers the roots set only and may be truncated).
+
+### Runs (only when runs exist)
+
+Issue both reads in parallel and render the section only when either returns a run. A run is a bounded, budgeted pass over a set of items.
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "<rootId>", "status": "open"}}
+```
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "<rootId>", "status": "paused"}}
+```
+
+For each run (cap 5, newest first) read its frontier:
+
+```to-call
+{"tool": "runs_read", "select": "frontier", "args": {"runId": "<run UUID>"}}
+```
+
+`data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the blocked members with a `reason` (`manual` or `dependency`), and `stalled` the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N stalled), waiting.
+
+### Blocked-item decisions
+
+For each health `blocked` entry with `blockType: "explicit"` (cap 10), read the item's context. Its `item.blockedReason` repeats the block reason and `decisions[]` lists the decisions raised on it as `{id, class, status, option?}` (withdrawn ones left out). The question text is not in this view: it is a director-profile read (`runs_read` `decision`), so show the decision class and status instead.
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "<blocked item id>"}}
+```
+
+An `awaiting_decision` item is **resumable** when `decisions[]` holds none with `status` `open` or `acknowledged`: answering a decision never resumes its item, so flag it and point at `advance` op `transition` with `trigger: "resume"`.
 
 ### Enrichment
 
-- **Containers are shelves, not work.** Items with tag or `type` = `container` never count as active; exclude them from the active/In Flight lists.
-- **Active** = health-check `activeItems` minus containers. **Blocked/stalled** = health-check lists as-is.
-- **Workstreams** = non-terminal roots with children. Progress fraction = `terminal / total` from `childCounts`, rendered `N/M terminal` (not `done` — the `terminal` bucket includes cancelled items, so labeling it "done" overstates completion); "next up" = the highest-priority queue row from the step-5 queue-list whose `parentId` is that root.
-- **Standalone queue roots** group by kind: the `type` field if set; else the first tag *not* in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
-- **Rollup threshold:** any group with more than 5 items renders as a count line broken down by kind, listing individual items only when priority ≥ medium or tagged `action-item`.
-- **Hygiene candidates:** empty non-terminal containers; evident test artifacts (probe/smoke/depth-test titles, `mtest-*` tags).
+- **Containers are shelves, not work.** Items with tag or `type` = `container` never count as active; exclude them from the In Flight list.
+- **Active** = health `active.items` minus containers. **Blocked / stalled** = the health lists as they are.
+- **Workstreams** = non-terminal roots with children. Progress = `terminal / total` from `childCounts`, rendered `N/M terminal` (not `done`: the terminal bucket includes cancelled items). "Next up" = the highest-priority queue row from step 5 whose `parentId` is that root.
+- **Standalone queue roots** group by kind: the `type` if set; else the first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
+- **Rollup threshold:** a group of more than 5 renders as a count line by kind, listing items only when priority is medium or higher or tagged `action-item`.
+- **Hygiene candidates:** empty non-terminal containers; evident test artifacts (probe/smoke titles, `mtest-*` tags).
 
 ### Dashboard format
 
@@ -73,37 +130,43 @@ Render in this order; omit any section with no data.
 |----|------|-----------|--------|-----|
 | `xxxxxxxx` | <title> | <parent title or —> | ◉ work | high |
 
-↳ Recent: <up to 3 one-line transition summaries from session-resume, newest first — omit line if none in 48h>
+↳ Recent: <up to 3 one-line transitions from history, newest first; omit if none in 48h>
 
 ### ⊘ Attention Required
 | ID | Item | Container | Issue |
 |----|------|-----------|-------|
 | `xxxxxxxx` | <title> | <parent or —> | Blocked by: `<blocker-id>` <blocker-title> |
-| `yyyyyyyy` | <title> | <parent or —> | Stalled: missing `<note-key>` (trait: <trait-name> if applicable) |
+| `yyyyyyyy` | <title> | <parent or —> | Blocked (awaiting_decision): <class> <status>; resumable |
+| `zzzzzzzz` | <title> | <parent or —> | Stalled: missing `<note-key>` |
 
 ### ▸ Recommended Next
 | ID | Title | Container | Pri |
 |----|-------|-----------|-----|
 
+### ⟳ Runs
+| Run | Status | Terminal / total | Ready | In flight | Waiting |
+|-----|--------|------------------|-------|-----------|---------|
+
 ### ○ Backlog
 **Workstreams**
 | ID | Workstream | Progress | Next up | Pri |
 |----|-----------|----------|---------|-----|
-| `xxxxxxxx` | <root title> | 2/5 terminal | <queue child title> | high |
 
-**<Kind>** (N): `id` <title> (pri) · `id` <title> (pri) · ...        ← groups of ≤5
-**<Kind>** (N): X bug · Y optimization · Z friction — highest: `id` <title> (pri)   ← groups of >5
+**<Kind>** (N): `id` <title> (pri) · ...           ← groups of 5 or fewer
+**<Kind>** (N): X bug · Y optimization — highest: `id` <title> (pri)   ← groups of more than 5
 
-### ✓ Terminal — N terminal items
+### ✓ Terminal - N terminal items
 
-↳ Hygiene: <N> test artifacts, <N> empty containers — candidates for /batch-complete
+↳ Hygiene: <N> test artifacts, <N> empty containers - candidates for /batch-complete
 ```
 
+**Naming a dependency blocker.** `items_read` `blocked` (`ancestorId`, `fields: ["ancestors"]`) returns EVERY blocking dependency of each item as `blockers[{id, title?, role?, threshold, satisfied}]`; call it only when the health entries are not enough to name the blocker. **For an explicit block** the Issue text is `Blocked (<reason>)` with the reason read above.
+
 **Lean-mode rules:**
-- Total output target is ~45 lines; rollups are how you hold that budget.
-- The Terminal section is a single line (count from the role-total query). No titles, no done/cancelled split in lean mode — the terminal statusLabels aren't fetched. Use `full` mode for the breakdown.
+- Target ~45 lines; rollups hold the budget.
+- The Terminal section is one line (the step 6 count). No titles and no done/cancelled split; use `full` mode for that.
 - The Hygiene line appears only when candidates exist.
-- If all of In Flight / Attention / Recommended Next are empty, say so in the health sentence ("Quiet board — nothing in flight...") rather than rendering empty sections.
+- If In Flight, Attention and Recommended Next are all empty, say so in the health sentence ("Quiet board - nothing in flight...") instead of rendering empty sections.
 
 ---
 
@@ -113,20 +176,26 @@ Everything lean mode shows, plus the complete per-container inventory.
 
 ### Data collection
 
-1. `query_items(operation="overview", limit=<total>)` — the compact roots list, **without** `includeChildren`. Add `anchorId="<rootId>"` when a rootId is known, to anchor the roots list to this project. It carries each root's role, `statusLabel`, `childCounts`, tags, and type but pulls **no** subtree, so it stays under the tool-result token ceiling even on mature workspaces. If the first call reports `truncated: true`, re-issue once with `limit=<total>`.
-2. **Per active container** (a non-terminal root whose `childCounts` show non-terminal children), in parallel: `query_items(operation="overview", itemId="<root-id>", excludeTerminal=true)` — returns that container plus its **open children, plus any terminal-role child that itself still has non-terminal descendants** (scoped `excludeTerminal` filters the children array by role but retains done-labeled sub-containers holding open work; `childCounts` stays full). Each call is bounded to one container's open work. These are already `itemId`-scoped and need no `ancestorId`.
-3. `get_context()` — health-check. Add `ancestorId="<rootId>"` when known.
-4. `get_next_item(limit=5, includeDetails=true)`. Add `ancestorId="<rootId>"` when known.
-5. Role-total queries as in lean mode: the terminal count via `limit=1`; the queued headline via the `role="queue"` list with `container`/`project` exclusion (lean step 5). Same `ancestorId` rule.
+1. The compact roots list, **without** `includeChildren`; page with `cursor` (`page.next`) while `page.truncated`. Each root carries role, `statusLabel`, `childCounts`, tags and type but no subtree.
 
-**Never fetch every root's children in one call** (`overview includeChildren=true` across the whole tree). On a mature workspace the combined terminal subtrees exceed the tool-result token ceiling — the per-container scoped fetch in step 2 is what keeps full mode bounded. Terminal children are **counted, not enumerated**: the `✓ N terminal` footer comes from `childCounts`, never from pulling the terminal subtree. To see a specific container's completed items, run Scoped mode on that container (one bounded subtree).
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"limit": 200, "anchorId": "<rootId>"}}
+```
+
+2. **Per active container** (a non-terminal root whose `childCounts` show open children), in parallel, a scoped overview. It returns the container, its open children, and any terminal child that still holds open work; `childCounts` stays full. Each call is bounded to one container.
+
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"itemId": "<root-id>", "excludeTerminal": true}}
+```
+
+3. Health, recommendations and the two role totals exactly as in lean steps 2, 4, 5 and 6.
+
+**Never fetch every root's children in one call** (`includeChildren: true` across the whole tree): on a mature workspace the terminal subtrees exceed the tool-result ceiling. Terminal children are counted from `childCounts`, never enumerated; to see one container's completed items use Scoped mode on it.
 
 ### Sections, in order
 
-1. **Health Headline** — same as lean mode; counts from health-check + role-total queries, containers excluded from active.
-2. **Attention Required** — same as lean mode.
-3. **Recommended Next** — same as lean mode (deliberately above the inventory).
-4. **Project Inventory** — for each **active container** (root with non-terminal children), rendered from its step-2 scoped fetch:
+1. **Health Headline**, **Attention Required**, **Recommended Next**: as in lean mode.
+2. **Project Inventory** - per active container, from its step-2 fetch:
 
    ```
    #### <Container Title> `<8-char-id>`
@@ -135,77 +204,71 @@ Everything lean mode shows, plus the complete per-container inventory.
    | ID | Title | Status | Pri | Tags | Children |
    |----|-------|--------|-----|------|----------|
 
-   ✓ N terminal — terminal children are counted (from childCounts), not listed
+   ✓ N terminal - counted from childCounts, not listed
    ```
 
-   - The table lists only the container's **open** children (queue/work/review/blocked) — the step-2 scoped `excludeTerminal` fetch returns exactly these. Sort: ◉ active first, then ⊘ blocked, then ○ queue.
-   - `<N open>` = queue + work + review + blocked from `childCounts`; `<N terminal>` = terminal from `childCounts`. Terminal children are never fetched — run Scoped mode on this container to see them.
-   - **Children column** = compact role summary `N○ N◉ N⊘ N✓` built from the child's own `childCounts` in the scoped payload (omit zero roles; `—` if childless).
-   - **Tags column** = tag value or `—`; traits append with `▸` prefix, `needs-` stripped (`feature-task ▸migration-review`).
-   - If the container itself is work/review role, prefix its header with the role symbol.
-5. **Standalone Items** — non-terminal childless roots, grouped by the shared grouping key (below). One tag group → flat table with Tags column; multiple groups → subheading per group, Tags column omitted.
-6. **Terminal** — header `### ✓ Terminal — N terminal` (N from the terminal role-total query). Split **root-level** terminal items by their `statusLabel` (present in the step-1 roots list): `**Completed containers:** <title> (N children) · ...`, `**Completed standalone:** <title> · ... (+N more if >5)`, and `**Cancelled:** <title> · ...`. **Cancelled roots are listed separately — never presented as completed work.** Child-level terminal items are accounted by count via `childCounts` (not enumerated); their done/cancelled split is available through Scoped mode on the owning container.
-7. **Empty containers** — `**Empty (no items):** <title>, <title>` at the end of the inventory if any exist.
+   - The table lists only **open** children (queue / work / review / blocked), sorted ◉ active, then ⊘ blocked, then ○ queue.
+   - `<N open>` = queue + work + review + blocked from `childCounts`; `<N terminal>` = terminal.
+   - **Children** = compact role summary `N○ N◉ N⊘ N✓` from the child's own `childCounts` (omit zero roles; `—` if childless).
+   - **Tags** = the tags or `—`; traits append with a `▸` prefix, `needs-` stripped.
+3. **Standalone Items** - non-terminal childless roots, grouped by the grouping key below.
+4. **Terminal** - `### ✓ Terminal - N terminal` (N from the step 6 count). Split root-level terminal items by `statusLabel`: `**Completed containers:**`, `**Completed standalone:**` (+N more if over 5), and `**Cancelled:**` listed separately, never as completed work.
+5. **Empty containers** - `**Empty (no items):** <title>, ...` at the end if any.
 
 ---
 
 ## Scoped Mode (`$ARGUMENTS` = UUID or title)
 
-Unchanged by project scoping — already resolves its own scope UUID per invocation, independent of any project rootId.
+Use the resolved UUID as the scope for a full-inventory-style rendering of one subtree.
 
-Use the resolved UUID as the scope for full-inventory-style rendering of one subtree:
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"itemId": "<parentId>"}}
+```
 
-1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview.
-2. `get_context()` — global; filter to the scope during enrichment.
-3. `get_next_item(limit=5, parentId="<parentId>", includeDetails=true)` — scoped recommendations.
-
-Render the Full Inventory sections for that subtree only. All shared rules apply.
+Health runs with `ancestorId: "<parentId>"`; recommendations use `parentId: "<parentId>"` (direct children) or `ancestorId` (the whole subtree). Render the Full Inventory sections for that subtree only.
 
 ---
 
 ## Multi-Project Mode (`$ARGUMENTS` = `all`)
 
-Enumerate every known project anchor and render one condensed section per project — for workspaces where multiple project roots share the same database.
+One condensed section per project anchor, for workspaces where several project roots share one database.
 
-1. `query_items(operation="search", type="project", depth=0)` — list all depth-0 items typed `project` (the anchors created by `/task-orchestrator:init`, `/adopt-project-scope`, or by hand). An anchor tagged `personal-root` is the personal root; label it `(personal)` in its section header.
-2. If none are found, say so and stop: "No project anchors found — run `/task-orchestrator:init` to bootstrap one, or use `/work-summary` (no arguments) for the whole-DB view."
-3. For each anchor found, in parallel:
-   - `query_items(operation="overview", anchorId="<anchor-id>", excludeTerminal=true)`
-   - `get_context(ancestorId="<anchor-id>")`
-   - `get_next_item(limit=3, includeDetails=true, ancestorId="<anchor-id>")`
+```to-call
+{"tool": "items_read", "select": "list", "args": {"type": "project", "depth": 0}}
+```
 
-Render, per project, with a clear per-project header:
+1. These are the anchors created by `/task-orchestrator:init`, `/adopt-project-scope` or by hand. An anchor tagged `personal-root` is the personal root; label it `(personal)`.
+2. If none are found, say so and stop: "No project anchors found - run `/task-orchestrator:init` to bootstrap one, or use `/work-summary` (no arguments) for the whole-DB view."
+3. For each anchor, in parallel: the anchored overview (`anchorId`, `excludeTerminal: true`), health with `ancestorId`, and `next` with `limit: 3` and `ancestorId`.
 
 ```
 ### ◆ <Project Name> (`<8-char-id>`)
 N active · N blocked · N queued
 
 **Attention:** <up to 2 blocked/stalled items, or "none">
-**Next up:** <top get_next_item result, or "nothing queued">
+**Next up:** <top next result, or "nothing queued">
 ```
 
-Keep each section condensed — this mode is a cross-project scan, not a per-project deep dive. Point the user at `/work-summary` (unscoped, or with that project's rootId once resolved) for the full dashboard on any one project.
+Keep each section condensed - a cross-project scan, not a deep dive. Point at `/work-summary` for the full dashboard on any one project.
 
 ---
 
 ## Shared Rendering Rules
 
-**Status symbols:** `✓` terminal · `◉` work/review · `⊘` blocked/stalled · `○` queue
+**Status symbols:** `✓` terminal · `◉` work/review · `⊘` blocked/stalled · `○` queue.
 
-**Short IDs:** first 8 chars of the UUID in backticks: `` `af21ed9a` ``. Use `—` for empty values, not `0` or blank. Priority renders as `high` / `med` / `low`.
+**Short IDs:** compact views already carry 8-hex ids; render them in backticks. Truncate full UUIDs (run ids, history `itemId`) to their first 8 characters. Use `—` for empty values, not `0`. Priority renders `high` / `med` / `low`.
 
-**Grouping key** (standalone items, all modes): `type` field if set; else first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized". The generic tag is never the group — the specific one is.
+**Grouping key** (standalone items, all modes): `type` if set; else the first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
 
-**Containers** (tag or type `container`) are never counted as active work in any headline or In Flight list, regardless of their role.
+**statusLabel:** the role drives the symbol. Print the label only for a non-terminal item whose label differs from the role default; never on terminal items.
 
-**statusLabel:** the item's *role* drives the status symbol. Print the statusLabel text only when the item is non-terminal AND the label differs from the role's default. Never print statusLabels on terminal items — stale `in-progress` labels on terminal items are a known artifact (bug `100da214`).
+**Cancelled is not done:** wherever terminal items are broken down, count `statusLabel: "cancelled"` separately.
 
-**Cancelled ≠ done:** wherever terminal items are broken down, count `statusLabel: "cancelled"` separately.
+**Truncation:** if any response had `page.truncated` that paging could not resolve, end the dashboard with `⚠ showing X of Y` - never silently drop data.
 
-**Truncation:** if any data-collection response had `truncated: true` that you could not resolve by re-fetching, end the dashboard with `⚠ showing X of Y root items` — never silently drop data.
+**Observations:** sparingly. A healthy project needs zero.
 
-**Observations:** write them sparingly — only for a genuine anomaly, bottleneck, or actionable insight. A healthy project needs zero observations.
+### Internal: short ID to full UUID
 
-### Internal: Short ID → Full UUID Mapping
-
-Do NOT render a UUID reference table. Retain the short→full UUID mapping as internal context; when the user references a short ID in a follow-up (e.g., "start `0499a6aa`"), resolve it silently for the MCP call from the data already collected.
+Do NOT render a UUID table. Keep the short-to-full mapping as internal context; when the user cites a short id ("start `0499a6aa`"), resolve it silently from the data already collected (every id field accepts 8 hex characters; an ambiguous prefix is `ambiguous_id`).

@@ -4,13 +4,34 @@ description: Interactive onboarding for the MCP Task Orchestrator. Detects empty
 argument-hint: "[optional: describe what you want to track, e.g. 'a web app project']"
 ---
 
-# Quick Start — MCP Task Orchestrator
+# Quick Start - MCP Task Orchestrator
 
-Interactive onboarding that teaches by doing. Detects your workspace state and adapts.
+Interactive onboarding that teaches by doing. Detects your workspace state and adapts. Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`).
+
+## Step 0: Learn Your Tools First
+
+Teach this before anything else. The server shows a client only the tools of its **profile**:
+
+| Profile | Where | What it is for |
+|---|---|---|
+| `orchestration` (the default) | `/mcp`, and stdio unless `MCP_TOOL_PROFILE` says otherwise | every tool: read and write items, notes, dependencies, `advance`, `config`, runs |
+| `director` | `/mcp/director`, or `MCP_TOOL_PROFILE=director` | oversight: reads and reports, no note or document bodies, a few run writes |
+| `knowledge` | `/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` | items, notes, dependencies and documents only (no `advance`) |
+
+`/task-orchestrator:init` sets up the registration for you. A client sees only its own profile's selects and ops; a hidden one looks absent.
+
+Any tool answers `describe: true` with its own parameters and errors instead of running. When unsure about a field, ask the tool:
+
+```json
+{ "describe": true }
+{ "select": "overview", "describe": true }
+```
+
+The first form works on any tool; the second asks a select tool about one select. The same data is rendered in [`../_generated/call-shapes.md`](../_generated/call-shapes.md).
 
 ## Step 1: Detect Workspace State
 
-Resolve the scope first. Check session context for the SessionStart hook's output: a `## Project Scope` section carries a **project rootId** (it scopes reads and anchors new items); a `## Personal Scope` section carries a **personal root** (it only anchors new items; reads stay unscoped).
+Resolve the scope first. Check the SessionStart context: a `## Project Scope` section carries a **project rootId** (it scopes reads and anchors new items); a `## Personal Scope` section carries a **personal root** (it only anchors new items; reads stay unscoped).
 
 Without session context, ask the config locator, not a cwd-relative file read. Resolve `<plugin root>` as init Step 0 does, then:
 
@@ -20,203 +41,173 @@ node --input-type=module -e "const m = await import('file:///<plugin root>/hooks
 
 (forward slashes only; the drive-letter form on Windows). Scope `project` with a `rootId` is a project rootId; scope `user` with a `rootId` is the personal root.
 
-Call the health check to determine which path to follow:
+Health check; pass `ancestorId` only when a **project** rootId is known (personal scope, or a truly fresh workspace, calls it unscoped):
 
+```to-call
+{"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>"}}
 ```
-get_context()
-```
 
-When a **project** rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. In personal scope, or when no rootId is known (a truly fresh workspace), call unscoped exactly as shown.
-
-**If no active or stalled items exist** — follow the **Fresh-Start Path** (Steps 2-8).
-**If active items exist** — follow the **Orientation Path** (Steps A-C).
+**If `data.active` and `data.stalled` are both empty**, follow the **Fresh-Start Path** (Steps 2-8). **Otherwise** follow the **Orientation Path** (Steps A-C).
 
 ---
 
 ## Step 1.5: Project Setup (delegated to init)
 
-Before following either path, check whether this workspace has a project anchor yet. Use the scope resolved in Step 1: if either kind of root (project or personal) is known, the workspace is set up and nothing more is needed here.
+Check whether this workspace has a project anchor yet: if either kind of root (project or personal) is known from Step 1, it is set up.
 
-If no root is known, offer setup via `AskUserQuestion`: *"This workspace isn't set up for Task Orchestrator yet. Run `/task-orchestrator:init` to create a project anchor (or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory)?"* `/task-orchestrator:init` owns the anchor, the `config.yaml` `project:` block, the server push and the bundled-rule seeding; this skill does none of that itself. If the user accepts, run it (or tell them to) and then continue here.
-
-If the user declines, proceed unscoped. Nothing else in this skill requires an anchor.
+If no root is known, offer setup via `AskUserQuestion`: *"This workspace isn't set up for Task Orchestrator yet. Run `/task-orchestrator:init` to create a project anchor (or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory)?"* `/task-orchestrator:init` owns the anchor, the `config.yaml` `project:` block, the server push and the bundled-rule seeding; this skill does none of that. If the user declines, proceed unscoped; nothing else here requires an anchor.
 
 ---
 
 # Fresh-Start Path
 
-## Step 2: Welcome — The Big Picture
+## Step 2: Welcome - The Big Picture
 
 Explain briefly:
 
-- When you ask Claude to build something non-trivial, it enters **plan mode** — exploring the codebase and writing a plan saved as a **persistent markdown file**
-- The MCP Task Orchestrator **complements** the plan file by tracking **execution state** — what's been started, what's blocked, what's done, and what's next
-- Think of it this way: the **plan file** is your design document (the *what* and *how*), while the **MCP** is your project board (the *progress* and *status*)
-- The MCP also helps **during planning** — Claude automatically checks for existing tracked work and schema requirements before planning, setting a **definition floor** so the plan accounts for documentation gates and doesn't duplicate what's already in progress
-- Together, they give you full continuity across sessions — the plan tells you the approach, the MCP tells you where you left off
+- For anything non-trivial Claude enters **plan mode**: it explores the codebase and writes a plan to a **persistent markdown file**.
+- The MCP Task Orchestrator **complements** the plan by tracking **execution state**: what is started, blocked, done, and next.
+- The **plan file** is your design document (the *what* and *how*); the **MCP** is your project board (*progress* and *status*).
+- The MCP also helps **during planning**: Claude checks for existing tracked work and schema requirements first, setting a **definition floor** so the plan accounts for documentation gates and does not duplicate work in progress.
+- Together they give continuity across sessions: the plan tells you the approach, the MCP tells you where you left off.
 
 ---
 
 ## Step 3: The Plan Mode Pipeline
 
-Show how plan mode and the MCP work together. This is the workflow users will experience:
-
 ```
 You describe what you want
-        │
-        ▼
-  EnterPlanMode              ← Claude explores the codebase
-        │
-  pre-plan hook fires        ← Plugin sets the definition floor: existing work, schemas, gate requirements
-        │
-        ▼
-  Plan written to disk       ← Persistent markdown file — your design document
-        │
+        |
+        v
+  EnterPlanMode              <- Claude explores the codebase
+        |
+  pre-plan hook fires        <- sets the definition floor: existing work, schemas, gates
+        |
+        v
+  Plan written to disk       <- persistent markdown file: your design document
+        |
   Plan approved (ExitPlanMode)
-        │
-  post-plan hook fires       ← Plugin tells Claude to materialize before implementing
-        │
-        ▼
-  Materialize                ← Claude creates MCP items from the plan
-        │                       Items, dependencies, notes — execution tracking
-        ▼
-  Implement                  ← Subagents work, each transitioning their MCP item
-        │                       advance_item(start) → work → advance_item(complete)
-        ▼
-  Health check               ← get_context() shows what completed and what didn't
+        |
+  post-plan hook fires       <- tells Claude to materialize before implementing
+        |
+        v
+  Materialize                <- Claude creates MCP items from the plan
+        |                       items, dependencies, notes: execution tracking
+        v
+  Implement                  <- subagents work, each moving its own item
+        |                       advance transition: start -> work -> complete
+        v
+  Health check               <- items_read context shows what completed and what did not
 ```
 
-**Reinforce to the user:**
-- The **plan file** and **MCP items** are not duplicates — they serve different roles
-- MCP items track individual units of work through a lifecycle: who's working on what, what's blocked, and what's done
-- The plugin hooks inject guidance automatically so Claude follows this pipeline — you don't need to ask for it
+Reinforce: the **plan file** and **MCP items** are not duplicates, they serve different roles; MCP items track each unit of work through a lifecycle (who is on it, what is blocked, what is done); the plugin hooks inject this guidance automatically.
 
 ---
 
-## Step 4: Hands-On — Create Your First Items
+## Step 4: Hands-On - Create Your First Items
 
-Now let's create some MCP items to see how the execution tracking works.
+**Determine the topic:** use `$ARGUMENTS` if given; otherwise ask via `AskUserQuestion` with options like "A web app feature", "A bug fix workflow", "A documentation project", or Other.
 
-**Determine the project topic:**
-- If `$ARGUMENTS` is provided, use it as the project topic
-- Otherwise, ask via `AskUserQuestion` with options like "A web app feature", "A bug fix workflow", "A documentation project", or Other
+**Read the declared types first.** The server rejects an undeclared `type` with `schema_violation` whenever it declares any, so ask which exist (pass `rootId` when a root is known):
 
-Create a container with child items and dependencies in one atomic call:
-
-```
-create_work_tree(
-  root: {
-    title: "<Project Name> — Tutorial",
-    summary: "Quick-start tutorial project to learn MCP Task Orchestrator",
-    type: "container",
-    priority: "medium"
-  },
-  children: [
-    { ref: "design", title: "Design <topic>", summary: "Define requirements and approach", type: "feature-task", priority: "high" },
-    { ref: "implement", title: "Implement <topic>", summary: "Build the solution", type: "feature-task", priority: "high" },
-    { ref: "test", title: "Test <topic>", summary: "Verify the implementation", type: "feature-task", priority: "medium" }
-  ],
-  deps: [
-    { from: "design", to: "implement", type: "BLOCKS" },
-    { from: "implement", to: "test", type: "BLOCKS" }
-  ]
-)
+```to-call
+{"tool": "config", "op": "effective", "args": {"rootId": "<rootId>"}}
 ```
 
-**Explain to the user:**
-- `create_work_tree` creates everything atomically — the container, three child items, and two dependency edges
-- In a real workflow, **Claude creates these automatically** after a plan is approved — the post-plan hook triggers this
-- The `BLOCKS` dependency means: implement cannot start until design completes, test cannot start until implement completes
-- The `ref` names ("design", "implement", "test") are local aliases used only within this call
+`data.types` lists the declared types and `data.schemas` their resolved schemas. Use the root `type: "container"` when it is declared (or any declared type, or any name when the server declares none); give the children a declared non-container type, shown below as `<task-type>`. If the list is long, ask the user which type fits a task.
 
-Show the structure:
+Create the container, three children and two dependencies as ONE atomic unit. With a project or personal root known, add `parentId` so the tree hangs under it.
 
-```
-<Project Name> — Tutorial (container)
-  ├── Design <topic>          ← actionable (no blockers)
-  ├── Implement <topic>       ← blocked by Design
-  └── Test <topic>            ← blocked by Implement
+```to-call
+{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "<Project Name> - Tutorial", "summary": "Quick-start tutorial project to learn MCP Task Orchestrator", "type": "container", "priority": "medium"}, "children": [{"ref": "design", "title": "Design <topic>", "summary": "Define requirements and approach", "type": "<task-type>", "priority": "high"}, {"ref": "implement", "title": "Implement <topic>", "summary": "Build the solution", "type": "<task-type>", "priority": "high"}, {"ref": "test", "title": "Test <topic>", "summary": "Verify the implementation", "type": "<task-type>", "priority": "medium"}], "deps": [{"from": "design", "to": "implement", "type": "blocks"}, {"from": "implement", "to": "test", "type": "blocks"}]}}
 ```
 
-This is **the project board side** — these items track progress. The plan file (if this were a real feature) would contain the *design decisions* behind each of these tasks.
+Read the envelope: `ok`, then `data.results[0].ok`; on success `data.results[0].items` is `[{ref, id, depth}]` (keep the ids) and on failure `error.code` (`schema_violation` carries `detail.availableTypes`).
 
-**Fill required notes (gate prerequisite):** `feature-task` items require a `task-scope` note (queue, required) before `advance_item(trigger="start")` will succeed, and a `complete` trigger checks ALL required notes across every phase the *resolved* schema declares — not just the current phase, and not just the base schema's own notes. Traits merge in too: a `session-tracked` default trait adds a required `session-tracking` work note, for example, while review-phase notes like `review-checklist` are typically opt-in per item via a trait (e.g. `needs-task-review`), not a base requirement. Call `get_context(itemId="<design-UUID>")` to see the exact resolved note list before filling — schemas vary per project. `create_work_tree` above created the children with no notes — its `createNotes` option only auto-fills blank bodies, which don't count as "filled" for gate purposes — so fill every required note the resolved schema lists on the design item now, before Step 5a, so both the `start` and `complete` calls succeed. For a `feature-task` schema with the common `task-scope` + `implementation-notes` base plus a `session-tracked` default trait:
+**Explain:**
+- `create_tree` creates everything atomically: the container, three children and two edges. In a real workflow **Claude does this after a plan is approved**.
+- A `blocks` edge means the target cannot start until the source completes.
+- `ref` names are local aliases used only within this call.
 
 ```
-manage_notes(
-  operation="upsert",
-  notes=[
-    { itemId: "<design-UUID>", key: "task-scope", role: "queue", body: "Define requirements and approach for <topic>." },
-    { itemId: "<design-UUID>", key: "implementation-notes", role: "work", body: "Design work completed for <topic>." },
-    { itemId: "<design-UUID>", key: "session-tracking", role: "work", body: "Design phase completed this session." }
-  ]
-)
+<Project Name> - Tutorial (container)
+  |- Design <topic>          <- actionable (no blockers)
+  |- Implement <topic>       <- blocked by Design
+  '- Test <topic>            <- blocked by Implement
 ```
 
-**Explain to the user:** in a real workflow, subagents fill these notes as work actually happens, phase by phase. Here we're pre-filling all of them up front purely so the tutorial's Step 5b `complete` call isn't gate-blocked — note bodies don't need to match the item's current role to be saved, only to satisfy the gate check at advance time. If `get_context` shows additional required notes (e.g. a `review-checklist` from an opted-in review trait), fill those too before advancing.
+These items are **the project board side**; the plan file would hold the design decisions behind each.
+
+**Fill the required notes (gate prerequisite).** `start` needs the current phase's required notes filled, and `complete` needs every required note across all phases of the *resolved* schema, including notes traits add. Read the exact list for the design item; `schema[]` shows each key with `required` and `filled`:
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "<design-id>"}}
+```
+
+Fill each missing required key (one `upsert` element per key; the first shown, other keys the same way):
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<design-id>", "key": "<note-key>", "role": "<queue|work|review>", "body": "Define requirements and approach for <topic>."}}
+```
+
+Check `ok`, `data.results[i].ok` and `error.code` for the whole call. Tell the user: in a real workflow subagents fill these notes as work happens, phase by phase; here we pre-fill them only so the `complete` call in Step 5 is not gate-blocked.
 
 ---
 
 ## Step 5: The Role Lifecycle
 
-Items move queue → work → review → terminal via `advance_item` triggers — see the `advance_item` tool description for full trigger semantics.
+Items move queue, work, review, terminal through `advance` `transition` triggers.
 
 **5a. Start the design task:**
 
-```
-advance_item(transitions=[{ itemId: "<design-UUID>", trigger: "start" }])
+```to-call
+{"tool": "advance", "op": "transition", "args": {"itemId": "<design-id>", "trigger": "start"}}
 ```
 
-Point out in the response: `cascadeEvents` shows the container cascading `queue` → `work` (first child started). In a real workflow, **each subagent calls this** when it begins its assigned item.
+Check `ok`, `data.results[0].newRole` and `error.code` (`gate_blocked` names the missing note). Point out `cascades`: the container cascades `queue` to `work` because its first child started. In a real workflow **each subagent calls this** when it begins its item.
 
 **5b. Complete the design task:**
 
-```
-advance_item(transitions=[{ itemId: "<design-UUID>", trigger: "complete" }])
-```
-
-Point out in the response: `unblockedItems` shows implement is now unblocked; the container stays in `work` because siblings are still active.
-
-**5c. Confirm what's next:**
-
-```
-get_next_item(limit=3, includeDetails=true)
+```to-call
+{"tool": "advance", "op": "transition", "args": {"itemId": "<design-id>", "trigger": "complete"}}
 ```
 
-Point out: the implement task is now recommended — it was unblocked when design completed. This is how the MCP answers "what should I work on next?" across sessions.
+Point out `unblocked`: implement is now unblocked; the container stays in `work` while siblings are active.
+
+**5c. Confirm what is next:**
+
+```to-call
+{"tool": "items_read", "select": "next", "args": {"limit": 3}}
+```
+
+Implement is now recommended: it was unblocked when design completed. This is how the MCP answers "what should I work on next?" across sessions.
 
 ---
 
 ## Step 6: Cross-Session Continuity
 
-This is where the plan file and MCP complement each other most visibly. Explain:
+- **If a session ends mid-work**, the next session can read `items_read` `context` or run `/work-summary` to see what is in progress, blocked and done.
+- **The plan file** is still on disk, so Claude can re-read the approach.
+- **The MCP items** show execution state, so nothing completed needs re-explaining.
 
-- **If a session ends mid-work**, the next session can call `get_context()` or `/work-summary` to see exactly which items are in progress, which are blocked, and which are done
-- **The plan file** is still on disk — Claude can re-read it to recall the design approach
-- **The MCP items** show execution state — no need to re-explain what's been completed
-- Together: *"Read the plan to remember the approach. Check the MCP to see where you left off."*
-
-This is the difference between having a plan document alone vs. having a plan document **plus** a live project board. The plan doesn't change as work progresses — the MCP does.
+*"Read the plan to remember the approach. Check the MCP to see where you left off."* The plan does not change as work progresses; the MCP does.
 
 ---
 
 ## Step 7: Note Schemas (Optional Power Feature)
 
-Briefly mention that MCP items can have **required notes** that act as documentation gates:
+MCP items can have **required notes** that act as documentation gates:
 
-- A `.taskorchestrator/config.yaml` file defines schemas under `work_item_schemas:` — which notes must be filled before an item can advance
-- Items match schemas via their `type` field (e.g., `type: "feature-implementation"` activates that schema's notes and gates)
-- Example: the `feature-implementation` schema requires a `feature-summary` note before work can start, and a `review-checklist` note before completion
-- Each schema can set a **lifecycle mode** (auto, manual, permanent) controlling cascade behavior
-- Notes can carry a `guidance` field (authoring hints) and a `skill` field (structured evaluation framework to invoke before filling)
-- **Composable traits** add additional note requirements per-item — e.g., `traits: "needs-security-review"` adds a `security-assessment` note at the review phase
-- Run `/manage-schemas` to set one up interactively — it can also generate a companion lifecycle skill for your schema
+- `.taskorchestrator/config.yaml` defines schemas under `work_item_schemas:`: which notes must be filled before an item advances. `type` is required on every item and selects the schema (`type: "feature-implementation"` activates that schema's notes and gates).
+- Example: a `feature-implementation` schema can require a `feature-summary` note before work starts and a `review-checklist` note before completion.
+- Each schema sets a **lifecycle**: `auto`, `manual`, `permanent` or `none` (lifecycle-free: no roles, no transitions).
+- Notes can carry `guidance` (authoring hints) and `skill` (an evaluation framework to run before filling).
+- **Composable traits** add note requirements per item. `traits` is always an array: `"traits": ["needs-security-review"]` adds a `security-assessment` note at the review phase.
+- Run `/manage-schemas` to set one up interactively.
 
 ---
 
 ## Step 8: What's Next
-
-Present this capabilities table:
 
 | Want to... | Skill | What it does |
 |---|---|---|
@@ -227,11 +218,13 @@ Present this capabilities table:
 | Advance an item through gates | `/status-progression` | Shows current role, gate status, correct trigger |
 | Change how the server runs (HTTP, REST API, config-sync) | `/configure-server` | Transport, REST API mode, port publishing, config mount |
 
-**Offer cleanup:** Ask via `AskUserQuestion` whether to keep the tutorial items for reference or delete them. If delete, use the container UUID returned in Step 4 above:
+**Offer cleanup.** Ask via `AskUserQuestion` whether to keep the tutorial items or delete them. To delete, use the container id from `create_tree`:
 
+```to-call
+{"tool": "items_write", "op": "delete", "args": {"id": "<container-id>", "recursive": true}}
 ```
-manage_items(operation="delete", itemIds=["<container-UUID>"], recursive=true)
-```
+
+Check `ok`, `data.results[0].ok` (`data.results[0].deleted` counts the removed subtree) and `error.code`.
 
 ---
 
@@ -241,51 +234,54 @@ For users with an existing populated workspace.
 
 ## Step A: Health Check Dashboard
 
-Run two calls in parallel:
+Run three reads in parallel; add `ancestorId` / `anchorId` only when a **project** rootId is known (Step 1), which keeps the dashboard scoped to this project:
 
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"excludeTerminal": true, "anchorId": "<rootId>"}}
 ```
-get_context()
-query_items(operation="overview", includeChildren=true)
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>"}}
 ```
 
-Add `ancestorId="<rootId>"` to both when a **project** rootId is known (resolved in Step 1) — this keeps the orientation dashboard scoped to the current project in multi-project workspaces. Call unscoped exactly as shown in personal scope or when no rootId is known.
+```to-call
+{"tool": "items_read", "select": "next", "args": {"limit": 3, "ancestorId": "<rootId>"}}
+```
 
-Present a condensed dashboard with these sections:
+Present a condensed dashboard:
 
-- **Active Work** (role=work or review): items currently in progress — show title, role, and ancestor path
-- **Blocked / Stalled**: items that cannot advance — either dependency-blocked or missing required notes
-- **Containers**: root items with child counts by role
-- **Recommendations**: from `get_next_item(limit=3, includeDetails=true)` — add `ancestorId="<rootId>"` when a project rootId is known
+- **Active Work** (`data.active`): items in `work` or `review`: title, role, ancestor path.
+- **Blocked / Stalled** (`data.blocked`, `data.stalled`): explicit blocks, items waiting on a dependency, and items missing required notes.
+- **Containers**: the overview's root items with `childCounts` by role.
+- **Recommendations**: the `next` result.
 
-Use status symbols: `◉` in-progress, `⊘` blocked, `○` pending, `✓` completed
+Symbols: `◉` in progress, `⊘` blocked, `○` pending, `✓` completed.
 
 ---
 
 ## Step B: Explain What You're Seeing
 
-For each section of the dashboard, add a brief annotation:
+- **Active items** are in `work` or `review`: being worked on now.
+- **Blocked items** are explicit blocks (`blockType: "explicit"`, with a `reason`) or open items with an unsatisfied dependency (`blockType: "dependency"`).
+- **Stalled items** have required notes not yet filled: read `items_read` `context` with the `itemId`, then fill the missing keys with `notes_write` `upsert`.
+- **Containers at depth 0** organize work hierarchically; items nest to any depth.
 
-- **Active items** are in `work` or `review` role — these are things being worked on right now
-- **Blocked items** have unsatisfied dependencies (another item must complete first) or are missing required notes that gate advancement
-- **Stalled items** have required notes that haven't been filled — use `get_context(itemId=...)` to see which notes are missing, then `manage_notes(upsert)` to fill them
-- **Containers at depth 0** organize your work hierarchically — items can nest to any depth
+If blocked items exist: *"Run `/status-progression` on a blocked item to see exactly what is needed to unblock it."*
 
-If blocked items exist, explain: *"Run `/status-progression` on a blocked item to see exactly what's needed to unblock it."*
-
-**Explain the plan mode connection:** These MCP items are the **execution tracking side** of your work. When Claude enters plan mode, it writes a persistent plan file (your design document). When the plan is approved, the plugin hooks tell Claude to create MCP items like these to track implementation progress. The plan file and MCP items are complementary — the plan captures *what and how*, the MCP tracks *progress and status*.
+**Plan mode connection:** these items are the **execution tracking side** of your work. In plan mode Claude writes a plan file; when it is approved the plugin hooks tell Claude to create MCP items like these. The plan captures *what and how*, the MCP tracks *progress and status*.
 
 ---
 
 ## Step C: Suggested Next Action
 
-Based on the dashboard, recommend one concrete action:
+Recommend one concrete action:
 
 | Situation | Recommendation |
 |---|---|
-| Stalled items with missing notes | Fill the required notes — show the exact `manage_notes` call |
-| Blocked items with satisfied deps | Advance with `advance_item(trigger="start")` |
+| Stalled items with missing notes | Fill the required notes: show the exact `notes_write` call |
+| Blocked items with satisfied deps | Advance with `advance` `transition`, `trigger: "start"` |
 | No active work, queue items exist | Start the highest-priority queue item |
 | Empty workspace | Switch to the Fresh-Start path (Step 2) |
 | Everything terminal | Suggest creating new work with `/create-item` |
 
-End with: *"Run `/work-summary` anytime to see this dashboard. When you're ready to build something, just describe it — Claude will enter plan mode, write a plan file, and create MCP items to track the work automatically."*
+End with: *"Run `/work-summary` anytime to see this dashboard. When you are ready to build something, just describe it: Claude will enter plan mode, write a plan file, and create MCP items to track the work automatically."*
