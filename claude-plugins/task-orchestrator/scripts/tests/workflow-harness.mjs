@@ -51,6 +51,7 @@ const CORE_EXPORT_NAMES = [
   'makeMilestones', 'makeLocks', 'lockKeysFor', 'overlapDeferral', 'envelopeSchema',
   'mapEntry', 'mapStageResult', 'seatActor', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
   'scanDeclarations', 'relativizePath', 'lockKeysConflict',
+  'declarationGap',
 ]
 
 export function loadCore(path) {

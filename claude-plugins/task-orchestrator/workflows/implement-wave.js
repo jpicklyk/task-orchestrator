@@ -35,6 +35,7 @@ const OUTPUT_SCHEMAS = {
         },
       },
       redProofShape: { type: 'string' },
+      declarationModules: { type: 'array', items: { type: 'string' } },
     },
   },
   'implementer-v1': {
@@ -72,6 +73,7 @@ const OUTPUT_SCHEMAS = {
       declarations: { type: 'string' },
       harnessPointers: { type: 'string' },
       gaps: { type: 'string' },
+      modules: { type: 'array', items: { type: 'string' } },
     },
   },
   'test-author-v1': {
@@ -1036,12 +1038,55 @@ function promptVerify(plan, item, stage, outsByOutput) {
   return lines.join('\n')
 }
 
+/** Items of the declarations extraction union, each relativized against roots (default: as given). */
+function extractUnion(outs, roots) {
+  const i = outs['implementer-v1'] || {}
+  const p = outs['planner-v1'] || {}
+  return dedupePaths([].concat(i.mainFilesChanged || [], p.mainFiles || [], p.declarationModules || []), roots)
+}
+
+/** Relativize, then dedupe case-insensitively keeping the first spelling. */
+function dedupePaths(list, roots) {
+  const seen = new Set()
+  const out = []
+  for (const raw of list) {
+    const rel = relativizePath(raw, roots)
+    if (!rel) continue
+    const k = rel.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(rel)
+  }
+  return out
+}
+
 /**
- * handoff(stage, outs, item?) -> string
+ * declarationGap(plan, item, stage, outs) -> null | {status:'stopped', reason}
+ * outs is keyed by seat. Non-null only for a test-author-v1 stage on an item that also has a
+ * declarations-v1 stage, when the planner declared a non-empty declarationModules list and the
+ * extractor's output.modules lacks one of its entries (relativized, case-insensitive).
+ */
+function declarationGap(plan, item, stage, outs) {
+  if (!stage || stage.output !== 'test-author-v1') return null
+  if (!item.stages.some((s) => s.output === 'declarations-v1')) return null
+  const byOutput = reKeyOutsByOutputId(item, outs || {})
+  const planner = byOutput['planner-v1']
+  const declared = planner && planner.declarationModules
+  if (!Array.isArray(declared) || declared.length === 0) return null
+  const roots = itemRoots(plan, item)
+  const ext = byOutput['declarations-v1']
+  const have = new Set(((ext && ext.modules) || []).map((m) => relativizePath(m, roots).toLowerCase()))
+  const missing = dedupePaths(declared, roots).filter((m) => !have.has(m.toLowerCase()))
+  if (missing.length === 0) return null
+  return { status: 'stopped', reason: 'missingDeclaration: ' + missing.join(', ') }
+}
+
+/**
+ * handoff(stage, outs, roots?, item?) -> string
  * outs is keyed by OUTPUT-SCHEMA id (not seat name). Builds the hand-off block for
  * stage.output from its declared upstream outputs; empty string when none apply.
  */
-function handoff(stage, outs, item) {
+function handoff(stage, outs, roots, item) {
   const lines = []
   if (stage.output === 'implementer-v1') {
     const p = outs['planner-v1']
@@ -1072,6 +1117,9 @@ function handoff(stage, outs, item) {
       lines.push(`mainFilesChanged: ${(i.mainFilesChanged || []).join(', ') || 'none'}`)
       lines.push(`docFilesChanged: ${(i.docFilesChanged || []).join(', ') || 'none'}`)
     }
+    const pl = outs['planner-v1']
+    lines.push(`declarationModules: ${((pl && pl.declarationModules) || []).join(', ') || 'none'}`)
+    lines.push(`extractFrom: ${extractUnion(outs, roots).join(', ') || 'none'}`)
   } else if (stage.output === 'test-author-v1') {
     const d = outs['declarations-v1']
     const p = outs['planner-v1']
@@ -1139,10 +1187,22 @@ function promptRerunAndEntry(plan, item, stage, actor) {
 }
 
 /** Part 14: return contract. */
-function promptReturn(stage) {
+function promptReturn(stage, item) {
   const lines = [`RETURN: return the structured envelope (${stage.output}); notes are the report.`]
   if (stage.output === 'planner-v1') {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
+    if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
+      lines.push(
+        'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +
+          'depends on, mirroring the declarationModules line of the test-plan note.'
+      )
+    }
+  }
+  if (stage.output === 'declarations-v1') {
+    lines.push(
+      'modules: list the repo-relative paths you actually extracted declarations for, one entry per module ' +
+        '(the extractFrom paths, plus any further module you needed).'
+    )
   }
   if (stage.output === 'test-author-v1') {
     lines.push(
@@ -1192,9 +1252,9 @@ function seatPrompt(plan, item, stage, outs) {
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
-    handoff(stage, outsByOutput, item),
+    handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage, actor),
-    promptReturn(stage),
+    promptReturn(stage, item),
   ]
   return parts.filter((p) => p && p.length > 0).join('\n\n')
 }
@@ -1297,6 +1357,19 @@ async function runItem(plan, item, deps) {
     for (let i = 0; i < item.stages.length; i++) {
       currentIndex = i
       const stage = item.stages[i]
+      const gap = declarationGap(plan, item, stage, outs)
+      if (gap) {
+        stages.push({
+          seat: stage.seat, status: gap.status, reason: gap.reason, modelReported: '',
+          agentTypeUsed: null, agentTypeFallback: false, notes: [],
+          commits: { pre: '', post: '' }, files: [],
+        })
+        deps.milestones.settle(item.id, stage.seat, { status: gap.status, reason: gap.reason, output: null })
+        result.status = gap.status
+        result.reason = gap.reason
+        deps.milestones.releaseFrom(item, i + 1)
+        return result
+      }
       const keys = lockKeysFor(item, stage, outs, plan)
       const stageResult = await deps.locks.withLocks(keys, () => callSeat(plan, item, stage, outs, deps))
       const env = stageResult.env

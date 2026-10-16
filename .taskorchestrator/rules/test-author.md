@@ -8,7 +8,9 @@ that keep authorship independent, the scenario-labelling discipline, and the tes
 ## 1. Two seats, two phases
 
 - **The plan seat**, before implementation starts, writes the scenarios, their oracle sources, and
-  a probe list, frozen before any implementation exists. This is the structural lever: an oracle
+  a probe list, frozen before any implementation exists. It also records a `declarationModules:`
+  line in the test-plan note, listing each repo-relative module that any scenario touches, so the
+  extractor's coverage can be checked before the author is dispatched. This is the structural lever: an oracle
   written before code exists cannot be derived from that code, no matter who writes it later.
 - **The test-author seat**, after implementation lands, writes the actual test files -- compiling
   against the real, now-existing signatures, but without reading the implementation's reasoning or
