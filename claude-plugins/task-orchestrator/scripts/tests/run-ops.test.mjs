@@ -592,9 +592,14 @@ function has(text, needle) {
 test('AC3: no run-wave text persists the plan or state as a document - no docs_write, manage_plan_documents or planDocSlug in SKILL.md, method-b.md, post-run.md or snapshot.md', () => {
   for (const rel of ['SKILL.md', 'references/method-b.md', 'references/post-run.md', 'references/snapshot.md']) {
     const text = skillText(rel)
-    for (const retired of ['docs_write', 'manage_plan_documents', 'planDocSlug']) {
+    for (const retired of ['manage_plan_documents', 'planDocSlug', 'slug:"run/', 'kind:"plan"']) {
       assert.ok(!has(text, retired), `${rel} still contains ${retired}`)
     }
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (has(line, 'docs_write')) {
+        assert.ok(has(line, 'kind:"rule"'), `${rel}:${i + 1} has docs_write without kind:"rule" (only rule seeding may use it)`)
+      }
+    })
   }
 })
 
