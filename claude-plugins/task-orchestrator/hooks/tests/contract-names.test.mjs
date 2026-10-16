@@ -113,7 +113,7 @@ test('S9: an unlisted bare retired name is a violation carrying file, 1-based li
   assert.equal(v.file, 'hooks/x.mjs');
   assert.equal(v.line, 2);
   assert.equal(v.name, 'query_items');
-  assert.equal(typeof v.reason, 'string');
+  assert.equal(v.reason, 'retired 3.x tool name');
   assert.deepEqual(r.stale, []);
 });
 
@@ -128,6 +128,78 @@ test('S9: every retired name except complete_tree is detected bare; complete_tre
 
 test('S9: bare names are matched on word boundaries (an identifier that merely contains one is not a hit)', () => {
   assert.deepEqual(scan({ 'hooks/x.mjs': 'const xquery_items = 1; const query_itemsfoo = 2\n' }).violations, []);
+});
+
+const BARE_REASON = 'retired 3.x tool name';
+const QUALIFIED_REASON = 'qualified tool name is not a 4.0 tool';
+
+// Amendment A2 / review B1. Oracle: task-scope A2 scan contract - a bare retired name counts when not
+// preceded by [A-Za-z0-9] and not followed by [A-Za-z0-9_]; the qualified-literal server segment also
+// admits the regex metacharacters * + ?.
+test('S9 (A2): a retired name behind a _ or __ prefix counts as a bare retired name', () => {
+  const r = scan({
+    'hooks/suffix.mjs': "const ok = name.endsWith('__advance_item')\n",
+    'hooks/single.mjs': 'const f = _query_items\n',
+  });
+  assert.equal(r.violations.length, 2, JSON.stringify(r.violations));
+  const byFile = Object.fromEntries(r.violations.map((v) => [v.file, v]));
+  assert.deepEqual(Object.keys(byFile).sort(), ['hooks/single.mjs', 'hooks/suffix.mjs']);
+  assert.equal(byFile['hooks/suffix.mjs'].name, 'advance_item');
+  assert.equal(byFile['hooks/suffix.mjs'].reason, BARE_REASON);
+  assert.equal(byFile['hooks/suffix.mjs'].line, 1);
+  assert.equal(byFile['hooks/single.mjs'].name, 'query_items');
+  assert.equal(byFile['hooks/single.mjs'].reason, BARE_REASON);
+});
+
+test('S9 (A2): a retired name inside a regex literal or an endsWith() call counts', () => {
+  const regex = scan({ 'hooks/re.mjs': 'if (/__advance_item$/.test(tool)) return {}\n' });
+  assert.equal(regex.violations.length, 1, JSON.stringify(regex.violations));
+  assert.equal(regex.violations[0].name, 'advance_item');
+  assert.equal(regex.violations[0].reason, BARE_REASON);
+
+  const ends = scan({ 'hooks/ends.mjs': "const w = tool.endsWith('__manage_notes')\n" });
+  assert.equal(ends.violations.length, 1, JSON.stringify(ends.violations));
+  assert.equal(ends.violations[0].name, 'manage_notes');
+  assert.equal(ends.violations[0].reason, BARE_REASON);
+});
+
+test('S9 (A2): a retired name followed by a letter, digit or underscore, or preceded by a letter or digit, is not a hit', () => {
+  for (const text of [
+    'const a = advance_items\n',
+    'const b = xadvance_item\n',
+    'const c = advance_item_v2\n',
+    'const d = advance_item2\n',
+    'const e = 9advance_item\n',
+  ]) {
+    assert.deepEqual(scan({ 'hooks/near.mjs': text }).violations, [], text);
+  }
+});
+
+test('S9 (A2): a mcp__.*task-orchestrator.*__<retired> regex literal is a qualified violation even in a pendingPort file', () => {
+  const files = { 'hooks/q.mjs': 'const re = /^mcp__.*task-orchestrator.*__manage_notes$/\n' };
+  const listed = scan(files, { pendingPort: [{ file: 'hooks/q.mjs', owner: 'deadbeef' }], proseExceptions: [] });
+  assert.equal(listed.violations.length, 1, JSON.stringify(listed.violations));
+  assert.equal(listed.violations[0].file, 'hooks/q.mjs');
+  assert.equal(listed.violations[0].line, 1);
+  assert.ok(String(listed.violations[0].name).includes('manage_notes'), String(listed.violations[0].name));
+  assert.equal(listed.violations[0].reason, QUALIFIED_REASON);
+
+  const unlisted = scan(files);
+  assert.ok(unlisted.violations.some((v) => v.reason === QUALIFIED_REASON), JSON.stringify(unlisted.violations));
+});
+
+test('S9 (A2): a mcp__.*task-orchestrator.*__<4.0 tool> regex literal is not a violation', () => {
+  const r = scan({ 'hooks/ok.mjs': 'const re = /^mcp__.*task-orchestrator.*__notes_write$/\n' });
+  assert.deepEqual(r.violations, []);
+});
+
+test('S9 (A2): a pendingPort file whose only retired name sits behind a __ prefix is not stale', () => {
+  const r = scan(
+    { 'hooks/p.mjs': 'if (/__advance_item$/.test(tool)) return {}\n' },
+    { pendingPort: [{ file: 'hooks/p.mjs', owner: 'deadbeef' }], proseExceptions: [] },
+  );
+  assert.deepEqual(r.violations, []);
+  assert.deepEqual(r.stale, []);
 });
 
 test('S9: a pendingPort file is excused for bare retired names; one without any retired name is stale', () => {
@@ -195,6 +267,7 @@ test('S9: a qualified literal with an unknown tool is a violation everywhere, ev
   assert.equal(r.violations[0].file, 'hooks/a.mjs');
   assert.equal(r.violations[0].line, 1);
   assert.ok(String(r.violations[0].name).includes('notes_writes'));
+  assert.equal(r.violations[0].reason, 'qualified tool name is not a 4.0 tool');
 });
 
 test('S9: qualified literals - every 4.0 tool passes; other server-segment spellings are checked; the __* wildcard is not a name', () => {
