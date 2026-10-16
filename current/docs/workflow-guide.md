@@ -1,8 +1,8 @@
-# v3 MCP Task Orchestrator — Workflow Guide
+# MCP Task Orchestrator — Workflow Guide
 
 > **4.0 notice.** The server contract changed in 4.0 (new tool names, call shapes and response envelope). The call examples in this guide still show the 3.x shapes and are being rewritten with the 4.0 plugin; the 4.0 contract is in the [API Reference](./api-reference.md).
 
-This guide covers the role-based workflow, note schema system, dependency blocking, and efficient query patterns for v3 MCP Task Orchestrator.
+This guide covers the role-based workflow, note schema system, dependency blocking, and efficient query patterns for the MCP Task Orchestrator.
 
 ---
 

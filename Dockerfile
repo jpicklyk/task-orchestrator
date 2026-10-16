@@ -26,7 +26,8 @@ RUN ./gradlew :current:jar --no-daemon -x test
 # --- Runtime base stage (shared configuration for all runtime targets) ---
 FROM amazoncorretto:25-al2023-headless AS runtime-base
 
-# Amazon Corretto 25 on AL2023 addresses high severity CVEs present in eclipse-temurin:23
+# Bases: the builder stage is eclipse-temurin:21-jdk; the runtime is Amazon Corretto 25 on AL2023 (headless),
+# which addresses high severity CVEs seen in earlier Temurin runtime images.
 # Using headless variant (runtime-only, no GUI libraries) for optimal production container size
 
 LABEL org.opencontainers.image.title="MCP Task Orchestrator" \
@@ -82,7 +83,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
 #   JvmTimezone.enforceUtc() in CurrentMain, which overrides a non-UTC default with a WARN.
 CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "-Duser.timezone=UTC", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
 
-# --- runtime-current target (v3 Current — active) ---
+# --- runtime-current target (4.0 Current - active) ---
 FROM runtime-base AS runtime-current
 COPY --from=builder --chown=appuser:appgroup /app/current/build/libs/mcp-task-orchestrator-current-*.jar /app/orchestrator.jar
 ENV DATABASE_PATH=data/current-tasks.db
