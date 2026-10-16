@@ -872,7 +872,9 @@ paths:
         whose pinned schema declares `seats`, a `transition` is also checked against the caller's seat: a caller that
         may not send the trigger to that item is `403 seat_forbidden` (`detail`: `itemId`, `seat` (omitted without a
         token), `action`, `allowedSeats`), nothing is applied, and a human credential is exempt. A cascade into such a
-        member the caller could not advance directly is not applied and is reported with `blocked: seat`. A `claim` that takes
+        member the caller could not advance directly is not applied and is reported with `blocked: seat`.
+        A terminal cascade never moves a parent in `review`: it is reported with `blocked: gate` and
+        `reason: review-pending` (no `missing`). A `claim` that takes
         an item over another holder pair's lapsed claim adds `displaced: {assignmentId?, expiredAt, principal?}`
         to its result (`principal` only for a caller that may see principals) and records the table-only
         `claim.expired` row with `reason: "displaced"` and `displacedBy` (the new holder's assignment id, or

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
 /**
@@ -435,5 +436,246 @@ work_item_schemas:
             )
         )
 
-    val all: List<ParityScenario> = core + seatEnforcement
+    // 7cb8a3df: a terminal cascade never moves a REVIEW parent. Oracles: proposal 4b2ac588 (a parent leaves REVIEW only by an
+    // explicit advance), the frozen task-scope D1-D6 and the api-reference Cascades bullets (terminal, Not reported, Suppressed).
+    // Each scenario runs over MCP and REST and must answer the same bytes and leave the same database. The tree has no schema
+    // unless a config is seeded, and a schema-free item is AUTO. A suppressed cascade reads
+    // `{itemId, previousRole: review, targetRole: terminal, applied: false, blocked: "gate", reason: "review-pending"}` with no
+    // `missing`. Every scenario here is OTHER, so the per-tool UNAUTHENTICATED row stays derived from the HAPPY scenario above.
+    private val rp: UUID = UUID.fromString("a0000010-0000-4000-8000-000000000010")
+    private val rc1: UUID = UUID.fromString("a0000011-0000-4000-8000-000000000011")
+    private val rc2: UUID = UUID.fromString("a0000012-0000-4000-8000-000000000012")
+    private val rgp: UUID = UUID.fromString("a0000013-0000-4000-8000-000000000013")
+
+    /** Every item under the root requires a review-phase note nothing fills; only a cancel (which skips notes) can finish a child. */
+    private const val GATED_PARENT_YAML = """
+work_item_schemas:
+  default:
+    notes:
+      - key: review-notes
+        role: review
+        required: true
+"""
+
+    /** The parent's only note is optional, so no required note is outstanding at the cascade. */
+    private const val NOTED_PARENT_YAML = """
+work_item_schemas:
+  default:
+    notes:
+      - key: review-notes
+        role: review
+        required: false
+"""
+
+    private const val MANUAL_PARENT_YAML = """
+work_item_schemas:
+  default:
+    lifecycle: manual
+    notes:
+      - key: review-notes
+        role: review
+        required: false
+"""
+
+    private val seedReviewParent: suspend ParitySeeder.() -> Unit = {
+        item(rp, "Review parent", role = Role.REVIEW)
+        item(rc1, "Work child", parent = rp, role = Role.WORK)
+    }
+
+    private val seedReviewParentTwoChildren: suspend ParitySeeder.() -> Unit = {
+        item(rp, "Review parent", role = Role.REVIEW)
+        item(rc1, "Work child one", parent = rp, role = Role.WORK)
+        item(rc2, "Work child two", parent = rp, role = Role.WORK)
+    }
+
+    private val seedReviewParentTerminalChild: suspend ParitySeeder.() -> Unit = {
+        item(rp, "Review parent", role = Role.REVIEW)
+        item(rc1, "Done child", parent = rp, role = Role.TERMINAL)
+    }
+
+    private val seedWorkParent: suspend ParitySeeder.() -> Unit = {
+        item(rp, "Work parent", role = Role.WORK)
+        item(rc1, "Work child", parent = rp, role = Role.WORK)
+    }
+
+    private val seedReviewParentUnderWorkGrandparent: suspend ParitySeeder.() -> Unit = {
+        item(rgp, "Work grandparent", role = Role.WORK)
+        item(rp, "Review parent", parent = rgp, role = Role.REVIEW)
+        item(rc1, "Work child", parent = rp, role = Role.WORK)
+    }
+
+    /**
+     * A parent in [parentRole] over one work child, with [yaml] pushed as the root's config. The seeder stamps no item type, so only
+     * the `default` schema applies, to the parent and the child alike.
+     */
+    private fun seedConfiguredParent(
+        yaml: String,
+        parentRole: Role
+    ): suspend ParitySeeder.() -> Unit =
+        {
+            item(rp, "Configured parent", role = parentRole)
+            item(rc1, "Work child", parent = rp, role = Role.WORK)
+            config(rp, yaml)
+        }
+
+    private fun completeOp(id: UUID) = transitionOf(id, "complete")
+
+    /** The suppressed-cascade entry for the parent [rp]; each member is checked on its own so the member order is not pinned. */
+    private val reviewPendingEntry =
+        listOf(
+            "\"itemId\":\"$rp\"",
+            "\"previousRole\":\"review\"",
+            "\"targetRole\":\"terminal\"",
+            "\"applied\":false",
+            "\"blocked\":\"gate\"",
+            "\"reason\":\"review-pending\""
+        )
+
+    private fun reviewCascade(
+        name: String,
+        arguments: String,
+        seed: suspend ParitySeeder.() -> Unit,
+        contains: List<String>,
+        absent: List<String>,
+        changed: Boolean = true
+    ) = scenario(
+        name,
+        "transition",
+        ParityKind.OTHER,
+        agent,
+        arguments,
+        200,
+        expectContains = contains,
+        expectAbsent = absent,
+        expectDbChanged = changed,
+        seed = seed
+    )
+
+    private val reviewCascades: List<ParityScenario> =
+        listOf(
+            // S1: the last child completes under a REVIEW parent; the parent stays in review and the child's result reports why.
+            reviewCascade(
+                "advance transition 7cb8a3df S1 the last child completing leaves a REVIEW parent in review with a review-pending entry",
+                ops(completeOp(rc1)),
+                seedReviewParent,
+                contains = reviewPendingEntry + listOf("\"itemId\":\"$rc1\"", "\"newRole\":\"terminal\""),
+                absent = listOf("\"applied\":true", "\"missing\"", "\"blockers\"", "\"error\"")
+            ),
+            // S2 (variant): no required note is outstanding on the parent (its only note is optional), so the note gate would pass;
+            // the suppression is the same. ParitySeeder seeds no notes, so a filled required note cannot be fixtured here.
+            reviewCascade(
+                "advance transition 7cb8a3df S2 a REVIEW parent with no required note outstanding is suppressed the same way",
+                ops(completeOp(rc1)),
+                seedConfiguredParent(NOTED_PARENT_YAML, Role.REVIEW),
+                contains = reviewPendingEntry,
+                absent = listOf("\"applied\":true", "\"missing\"")
+            ),
+            // S3: a WORK parent still cascades to terminal and its entry carries neither blocked nor reason.
+            reviewCascade(
+                "advance transition 7cb8a3df S3 a WORK parent still cascades to terminal with no blocked or reason member",
+                ops(completeOp(rc1)),
+                seedWorkParent,
+                contains =
+                    listOf(
+                        "\"itemId\":\"$rp\"",
+                        "\"previousRole\":\"work\"",
+                        "\"targetRole\":\"terminal\"",
+                        "\"applied\":true"
+                    ),
+                absent = listOf("\"blocked\"", "\"reason\"", "review-pending", "\"missing\"")
+            ),
+            // S4: an explicit complete of the REVIEW parent (its only child is already terminal) moves it to terminal.
+            reviewCascade(
+                "advance transition 7cb8a3df S4 an explicit complete moves a REVIEW parent to terminal",
+                ops(completeOp(rp)),
+                seedReviewParentTerminalChild,
+                contains = listOf("\"itemId\":\"$rp\"", "\"previousRole\":\"review\"", "\"newRole\":\"terminal\""),
+                absent = listOf("review-pending", "\"cascades\"", "\"blocked\"")
+            ),
+            // S5 / D4: a cancel-origin chain is suppressed at a REVIEW parent too.
+            reviewCascade(
+                "advance transition 7cb8a3df S5 a child cancel under a REVIEW parent is suppressed the same way",
+                ops(transitionOf(rc1, "cancel")),
+                seedReviewParent,
+                contains = reviewPendingEntry + listOf("\"trigger\":\"cancel\""),
+                absent = listOf("\"applied\":true", "\"missing\"")
+            ),
+            // S10 + probe (completion order): with two work children both elements report ok with their own itemId and the review-pending entry is reported (neighbouring fields of an element
+            // are not pinned).
+            reviewCascade(
+                "advance transition 7cb8a3df S10 the first of two child completions reports no cascade and the second reports review-pending",
+                ops(completeOp(rc1), completeOp(rc2)),
+                seedReviewParentTwoChildren,
+                contains =
+                    reviewPendingEntry +
+                        listOf(
+                            "\"ok\":true,\"itemId\":\"$rc1\"",
+                            // the first element ends right before the second: a string-valued tail, never a cascades array
+                            "\"},{\"ok\":true,\"itemId\":\"$rc2\""
+                        ),
+                absent = listOf("\"applied\":true", "\"missing\"", "]},{\"ok\":true,\"itemId\":\"$rc2\"")
+            ),
+            reviewCascade(
+                "advance transition 7cb8a3df S10 probe the permuted completion order reports the same suppression on the other child",
+                ops(completeOp(rc2), completeOp(rc1)),
+                seedReviewParentTwoChildren,
+                contains =
+                    reviewPendingEntry +
+                        listOf(
+                            "\"ok\":true,\"itemId\":\"$rc2\"",
+                            // the first element ends right before the second: a string-valued tail, never a cascades array
+                            "\"},{\"ok\":true,\"itemId\":\"$rc1\""
+                        ),
+                absent = listOf("\"applied\":true", "\"missing\"", "]},{\"ok\":true,\"itemId\":\"$rc1\"")
+            ),
+            // S11: only the REVIEW parent is reported; the WORK grandparent above it is neither reported nor moved (an applied
+            // cascade is what climbs).
+            reviewCascade(
+                "advance transition 7cb8a3df S11 the chain stops at the REVIEW parent and never reaches the grandparent",
+                ops(completeOp(rc1)),
+                seedReviewParentUnderWorkGrandparent,
+                contains = reviewPendingEntry,
+                absent = listOf("\"itemId\":\"$rgp\"", "\"applied\":true")
+            ),
+            // S12: a manual-lifecycle parent in review is left alone and nothing is reported.
+            reviewCascade(
+                "advance transition 7cb8a3df S12 a manual REVIEW parent produces no cascade entry",
+                ops(completeOp(rc1)),
+                seedConfiguredParent(MANUAL_PARENT_YAML, Role.REVIEW),
+                contains = listOf("\"itemId\":\"$rc1\"", "\"newRole\":\"terminal\""),
+                absent = listOf("\"cascades\"", "review-pending", "\"applied\"")
+            ),
+            // Probe (replay): complete, reopen, complete the same child in one call. Both completions are suppressed, the reopen
+            // element ends right after its trigger (a REVIEW parent is not a terminal parent, so a reopen cascade reports nothing).
+            reviewCascade(
+                "advance transition 7cb8a3df probe replay complete then reopen then complete is suppressed again",
+                ops(completeOp(rc1), transitionOf(rc1, "reopen"), completeOp(rc1)),
+                seedReviewParent,
+                contains =
+                    reviewPendingEntry +
+                        listOf(
+                            // first completion suppressed, reopen reports nothing, second completion suppressed again (two entries in all)
+                            "\"reason\":\"review-pending\"}]},{\"ok\":true,\"itemId\":\"$rc1\"",
+                            "\"trigger\":\"reopen\"},{\"ok\":true,\"itemId\":\"$rc1\"",
+                            "\"reason\":\"review-pending\"}]}]"
+                        ),
+                absent = listOf("\"applied\":true", "\"missing\"")
+            ),
+            // S15 (author addition, D4): the cancel-origin note-gate skip is unchanged for a parent that is not in review.
+            reviewCascade(
+                "advance transition 7cb8a3df S15 a child cancel under a WORK parent with unfilled notes still cascades",
+                ops(transitionOf(rc1, "cancel")),
+                seedConfiguredParent(GATED_PARENT_YAML, Role.WORK),
+                contains =
+                    listOf(
+                        "\"itemId\":\"$rp\"",
+                        "\"previousRole\":\"work\"",
+                        "\"targetRole\":\"terminal\"",
+                        "\"applied\":true"
+                    ),
+                absent = listOf("\"blocked\"", "\"reason\"", "\"missing\"", "review-pending")
+            )
+        )
+
+    val all: List<ParityScenario> = core + seatEnforcement + reviewCascades
 }

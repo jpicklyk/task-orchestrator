@@ -88,6 +88,7 @@ internal object TransitionJson {
                     else -> null
                 }
             blocked?.let { put("blocked", it) }
+            if (event.gateBlocked) event.gateReason?.let { put("reason", it) }
             if (event.gateBlocked && event.gateMissingNotes.isNotEmpty()) {
                 put(
                     "missing",

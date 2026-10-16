@@ -187,6 +187,35 @@ object StandardGates {
             }
         }
 
+    /**
+     * A Complete cascade never moves a parent out of REVIEW: the parent leaves review only by an explicit advance (a
+     * reviewer's verdict). Whatever the origin, cancel-origin included. Runs after WARRANT, so an unwarranted cascade
+     * stays silent; carries no missing notes.
+     */
+    val REVIEW_PENDING: TransitionGate =
+        TransitionGate { input ->
+            if (input.trigger is Cascade.Complete && input.from == Role.REVIEW) {
+                val id = input.snapshot.item.id
+                Decision.Reject(
+                    GateId.REVIEW_PENDING,
+                    DomainError(
+                        code = ErrorCode.GATE_BLOCKED,
+                        message = "Item $id is in review; a cascade does not complete it.",
+                        detail =
+                            ErrorDetail.GateBlocked(
+                                id,
+                                Role.REVIEW.wire(),
+                                emptyList(),
+                                listOf(GateViolation("review-pending", "a cascade does not complete an item in review"))
+                            ),
+                        fixArgs = mapOf("itemId" to id.toString())
+                    )
+                )
+            } else {
+                null
+            }
+        }
+
     /** Entry into WORK, REVIEW or TERMINAL (except by `cancel`) needs every blocker satisfied. */
     val DEPENDENCY: TransitionGate =
         TransitionGate { input ->
@@ -470,7 +499,7 @@ class TransitionPolicy(
         }
 
     companion object {
-        /** OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> DEPENDENCY -> NOTE -> LEASE. */
+        /** OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> REVIEW_PENDING -> DEPENDENCY -> NOTE -> LEASE. */
         val DEFAULT_GATES: List<TransitionGate> =
             listOf(
                 StandardGates.OWNERSHIP,
@@ -478,6 +507,7 @@ class TransitionPolicy(
                 StandardGates.TABLE,
                 StandardGates.WARRANT,
                 StandardGates.HOLD,
+                StandardGates.REVIEW_PENDING,
                 StandardGates.DEPENDENCY,
                 StandardGates.NOTE,
                 StandardGates.LEASE
