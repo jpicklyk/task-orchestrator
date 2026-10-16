@@ -274,6 +274,7 @@ class PreUpgradeBackupTest {
         val outcome = run(UpgradeHarness.urlFor(db))
 
         assertTrue(outcome is BackupOutcome.Failed, "expected Failed, got $outcome")
+        assertTrue(outcome.detail.contains("already exists"), "the detail names the collision: ${outcome.detail}")
         assertTrue(bakPath.isDirectory, "the directory is untouched")
         assertEquals(0, bakPath.list()?.size, "and still empty")
     }
@@ -288,6 +289,7 @@ class PreUpgradeBackupTest {
         val outcome = run(UpgradeHarness.urlFor(db))
 
         assertTrue(outcome is BackupOutcome.Failed, "expected Failed, got $outcome")
+        assertTrue(outcome.detail.contains("already exists"), "the detail names the collision: ${outcome.detail}")
         assertTrue(precious.contentEquals(bakPath.readBytes()), "the pre-existing file is byte-for-byte unchanged")
         assertEquals(1, baks(db).size, "no second bak appears")
     }
@@ -590,6 +592,7 @@ class PreUpgradeBackupTest {
 
         assertTrue(first is BackupOutcome.Copied, "got $first")
         assertTrue(second is BackupOutcome.Failed, "a name collision must fail, never overwrite; got $second")
+        assertTrue(second.detail.contains("already exists"), "the detail names the collision: ${second.detail}")
         val bak = baks(db).single()
         assertEquals(before, dumpOf(bak), "the first bak is still the verified copy")
     }
