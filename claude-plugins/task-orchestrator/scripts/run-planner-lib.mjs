@@ -17,6 +17,40 @@ export const PLAN_DOC_MAX_BYTES = 61440;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLE_ENUM = new Set(['queue', 'work', 'review', 'blocked', 'terminal']);
 
+const CARRY_IN_PREFIX = 'carry-in-';
+const CARRY_IN_RECORD_KEY = 'carry-in-dispositions';
+
+/**
+ * carryInKeys(keys) -> string[]
+ * The carry-in key set: note keys starting 'carry-in-', minus the record note itself
+ * ('carry-in-dispositions'), de-duplicated, input order kept.
+ */
+export function carryInKeys(keys) {
+  const out = [];
+  for (const k of Array.isArray(keys) ? keys : []) {
+    if (typeof k !== 'string' || !k.startsWith(CARRY_IN_PREFIX) || k === CARRY_IN_RECORD_KEY) continue;
+    if (!out.includes(k)) out.push(k);
+  }
+  return out;
+}
+
+/**
+ * isCarryInDisposed(record, key) -> boolean
+ * A key is disposed iff some line of the record, after leading whitespace, an optional list marker
+ * (-, *, + or N.) and optional backticks around the key, starts with exactly '<key>:'
+ * (case-sensitive). A null or non-string record disposes nothing.
+ */
+export function isCarryInDisposed(record, key) {
+  if (typeof record !== 'string') return false;
+  for (const line of record.split(/\r?\n/)) {
+    let rest = line.replace(/^\s+/, '');
+    rest = rest.replace(/^(?:[-*+]|\d+\.)\s+/, '');
+    if (rest.startsWith('`')) rest = rest.slice(1);
+    if (rest.startsWith(key + ':') || rest.startsWith(key + '`:')) return true;
+  }
+  return false;
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
@@ -67,6 +101,30 @@ export function validateSnapshot(snap) {
     for (const note of (schema && schema.notes) || []) {
       if (note.seat !== undefined && note.seat !== null && typeof note.seat !== 'string') {
         errors.push(`item ${id}: note ${note.key} has a non-string seat`);
+      }
+    }
+  }
+  if (snap.carryIns !== undefined) {
+    const ci = snap.carryIns;
+    if (ci === null || typeof ci !== 'object' || Array.isArray(ci)) {
+      errors.push('carryIns must be an object');
+    } else {
+      const candidateIds = new Set(candidates.map((c) => c && c.id));
+      for (const [id, entry] of Object.entries(ci)) {
+        if (!candidateIds.has(id)) {
+          errors.push(`carryIns ${id}: not a candidate`);
+          continue;
+        }
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errors.push(`carryIns ${id}: entry must be an object`);
+          continue;
+        }
+        if (!Array.isArray(entry.keys) || entry.keys.some((k) => typeof k !== 'string')) {
+          errors.push(`carryIns ${id}: keys must be an array of strings`);
+        }
+        if (entry.dispositions !== undefined && entry.dispositions !== null && typeof entry.dispositions !== 'string') {
+          errors.push(`carryIns ${id}: dispositions must be a string or null`);
+        }
       }
     }
   }
@@ -860,6 +918,10 @@ export function assembleArgs(snap, planned, opts) {
       branch = `${branchPrefixPerItem}${cand.short}`;
     }
     const schema = (snap.schemas && snap.schemas[id]) || {};
+    const ciEntry = (snap.carryIns && snap.carryIns[id]) || null;
+    const ciKeys = carryInKeys(ciEntry && ciEntry.keys);
+    const hasPlannerStage = (derived.stages || []).some((s) => s.output === 'planner-v1');
+    const lateKeys = hasPlannerStage ? [] : ciKeys.filter((k) => !isCarryInDisposed(ciEntry && ciEntry.dispositions, k));
     return {
       id,
       short: cand.short,
@@ -876,6 +938,8 @@ export function assembleArgs(snap, planned, opts) {
       stages: derived.stages || [],
       orchestratorNotes: derived.orchestratorNotes || [],
       unownedRequired: derived.unownedRequired || [],
+      carryIns: ciKeys,
+      lateCarryIns: lateKeys,
       waitsFor: entryMode === 'pre-entered' ? [] : ((planned.waitsFor && planned.waitsFor[id]) || [])
     };
   });
@@ -1159,7 +1223,8 @@ export function buildPlanDoc(snap, opts = {}) {
       sizeGuideline: probe.workflowSizeGuideline ?? null,
       degradations,
       inRunEdges,
-      advisoryResources: resourceResult.advisory
+      advisoryResources: resourceResult.advisory,
+      lateCarryIns: args.items.flatMap((it) => (it.lateCarryIns || []).map((key) => ({ id: it.id, short: it.short, key })))
     }
   };
 
@@ -1203,6 +1268,9 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
+  if ((meta.lateCarryIns || []).length) {
+    lines.push(`Late carry-ins: ${meta.lateCarryIns.map((l) => `${l.short}:${l.key}`).join(', ')}`);
+  }
   return lines.join('\n');
 }
 
