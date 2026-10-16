@@ -2,11 +2,11 @@
 
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
-import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
+import io.github.jpicklyk.mcptask.current.application.support.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode

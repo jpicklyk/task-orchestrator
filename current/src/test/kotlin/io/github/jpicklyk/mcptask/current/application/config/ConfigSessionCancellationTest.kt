@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking

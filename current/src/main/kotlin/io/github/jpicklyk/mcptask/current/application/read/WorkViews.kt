@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.api.ListPage
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role

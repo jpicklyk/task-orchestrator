@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.test.liftTestActor
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testAccess

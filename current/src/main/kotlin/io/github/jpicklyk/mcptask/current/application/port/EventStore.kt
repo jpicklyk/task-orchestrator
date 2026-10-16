@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import java.time.Instant
 import java.util.UUID
 

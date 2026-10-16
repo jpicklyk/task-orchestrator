@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.api
+package io.github.jpicklyk.mcptask.current.application.support
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository

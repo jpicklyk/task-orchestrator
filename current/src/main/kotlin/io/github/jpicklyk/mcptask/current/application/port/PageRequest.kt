@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.support
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
