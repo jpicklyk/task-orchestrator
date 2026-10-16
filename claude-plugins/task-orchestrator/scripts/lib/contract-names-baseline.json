@@ -1,18 +1,6 @@
 {
   "pendingPort": [
     {
-      "file": "hooks/dispatch-model-guard.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
-      "file": "hooks/orchestration-context.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
-      "file": "hooks/session-start.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
       "file": "scripts/ralph-lib.mjs",
       "owner": "cae5d141"
     },

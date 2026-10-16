@@ -180,7 +180,7 @@ test('S4 probe: results absent, null or [] -> {}', () => {
 test('no dispatch key -> agent=none and mode-aware model fallback', () => {
   const wf = ctx(run(BASE, call([ok(A, 'work')])));
   assert.match(wf, /agent=none model=table default - pass model explicitly$/);
-  const sc = ctx(run(`${BASE}orchestration:\n  mode: schema\n`, call([ok(A, 'work')])));
+  const sc = ctx(run(`${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: schema\n`, call([ok(A, 'work')])));
   assert.match(sc, /agent=none model=unset - pass model explicitly$/);
   assert.ok(!sc.includes('table default'));
 });
@@ -194,7 +194,7 @@ test('effort token only when present', () => {
 
 test('mode off, headless, no config -> {}', () => {
   const c = call([ok(A, 'work')]);
-  assert.deepEqual(run(`${BASE}orchestration:\n  mode: off\n`, c), {});
+  assert.deepEqual(run(`${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: off\n`, c), {});
   assert.deepEqual(run(BASE, c, { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }), {});
   assert.deepEqual(run(null, c), {});
 });

@@ -28,4 +28,37 @@ item's `items_read` `schema` view per op. The attribution hook is removed. With 
 URL, `phase-guard` and `skill-enforcement` emit one `systemMessage` per session saying so (gate state and schema
 facts come from the server) and then stay silent; `phase-guard-record` is always silent.
 
+## Mode gating
+
+Plugin keys live under `extensions.claude-code` in `.taskorchestrator/config.yaml` (for example
+`extensions.claude-code.orchestration.mode`). Top-level 3.x keys such as `orchestration:` are ignored; a 4.0 server
+rejects them on push, and `session-start` prints a `## Config Shape` line when it finds one.
+
+`execution-mode.suppressionReason(hookInput, env)` is the shared gate for the four injecting context hooks. It returns
+`headless` (`TASK_ORCHESTRATOR_MODE=headless-iteration`), then `subagent` (a non-empty `agent_id`), then `director` (a
+file exists at `directorMarkerPath(session_id)`; nothing writes it until director mode lands), or `null`.
+
+The table lists one row per script registered in `hooks-config.json` and what it does at this version. "Not gated" means
+the hook has no check for that column; "non-injecting" means it adds no context.
+
+| Script | Headless iteration | Subagent (`agent_id`) | `orchestration.mode` | Director session |
+|--------|--------------------|-----------------------|----------------------|------------------|
+| `session-start.mjs` | Guidance omitted; diagnostics kept | Guidance omitted; diagnostics kept | Not read | Guidance omitted; diagnostics kept |
+| `orchestration-context.mjs` | `{}` | `{}` | `off` gives `{}`; `workflow` and `schema` pick the variant | `{}` |
+| `config-sync.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
+| `pre-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
+| `post-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
+| `plan-capture.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
+| `skill-enforcement.mjs` | Not gated | Not gated | Not read | Not gated |
+| `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
+| `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
+| `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+| `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded | Not read | Not gated |
+| `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
+| `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
+| `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+
+Every row was re-derived from the hook sources at the P10/P12/P13 merge. A change that alters a hook's gating
+updates that hook's row in the same PR.
+
 Run the tests by glob: `node --test "claude-plugins/task-orchestrator/hooks/tests/*.test.mjs"`.
