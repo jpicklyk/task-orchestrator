@@ -213,8 +213,8 @@ The root is the empty string. A key containing `/` or `~` is escaped as `~1` and
 (`a/b~c` becomes `a~1b~0c`). An unknown key is reported at the key itself.
 
 Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
-likely), a required note that no declared seat owns, and a `default_traits` list that puts a trait without a
-model-selecting seat override ahead of one that has it (see "Seat dispatch precedence").
+likely), a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
+trait after another trait that also sets the same seat's model (see "Seat dispatch precedence").
 
 How a rejection reaches you:
 
