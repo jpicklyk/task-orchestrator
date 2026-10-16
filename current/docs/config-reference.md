@@ -214,7 +214,7 @@ The root is the empty string. A key containing `/` or `~` is escaped as `~1` and
 
 Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
 likely), a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
-trait after another trait that also sets the same seat's model (see "Seat dispatch precedence").
+trait after an earlier trait that overrides the same seat without selecting a model (see "Seat dispatch precedence").
 
 How a rejection reaches you:
 

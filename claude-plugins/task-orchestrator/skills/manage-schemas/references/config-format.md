@@ -686,8 +686,8 @@ above):
    like `[complex-implementation, delegated]`. Known limitation: a seat-only model override for a
    seat that `delegated` gives `agent: null` (such as `test-author`) drops that `agent: null`,
    the same as the old `[model-trait, delegated]` order. The config validator WARNs on a
-   `default_traits` list that places a seat-only model-selecting trait after another trait that
-   also sets the same seat's model; the warning is a migration aid and does not reject a push.
+   `default_traits` list that places a seat-only model-selecting trait after an earlier trait
+   that overrides the same seat without selecting a model; the warning is a migration aid and does not reject a push.
 
 ### Per-root layering
 
