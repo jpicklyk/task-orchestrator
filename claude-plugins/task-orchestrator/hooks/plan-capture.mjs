@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// PostToolUse:ExitPlanMode — stashes the just-approved plan as a plan_document via the REST API,
+// PostToolUse:ExitPlanMode — stashes the just-approved plan as a plan document (docs_write upsert,
+// kind plan) over the REST API,
 // so post-plan-workflow can materialize items from a stored docRef instead of the model re-typing
 // the plan body into note text.
 //
@@ -8,8 +9,9 @@
 // for stdio/local setups (no API env vars set), mirroring config-sync.mjs's discipline exactly.
 //
 // Requires (all optional — absent = no-op):
-//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001
-//   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the WRITE_CONFIG capability, scoped to this root.
+//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001 (no URL = "no REST
+//                                API configured": a silent no-op)
+//   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the write-docs capability, scoped to this root.
 //                                Optional: an unauthenticated server (API_AUTH_MODE=none +
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
 //                                absent, requests are sent with no Authorization header.
@@ -19,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { locateConfig } from './config-locator.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitContext } from './lib/emit.mjs';
-import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
+import { callOp } from './lib/api-client.mjs';
 
 const MAX_SLUG_LENGTH = 64;
 
@@ -62,32 +64,24 @@ async function main() {
   const rootId = loc.rootId;
   if (!rootId) return; // not project-scoped → no root to stash under
 
-  const base = apiBaseUrl();
-  if (!base) return; // stdio/local setups: no REST API to stash to — silent no-op
-
-  // Token is optional — an unauthenticated server (API_AUTH_MODE=none +
-  // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
-  const auth = buildAuthHeader();
-
   const slug = deriveSlug(planText);
-  const endpoint = `${base}/api/v1/roots/${rootId}/plans/${slug}`;
 
+  // One unconditional upsert (as the 3.x PUT was). callOp resolves null when no REST API is
+  // configured (stdio/local setups) and never rejects; every failure stays silent.
   try {
-    const res = await fetchWithTimeout(endpoint, {
-      method: 'PUT',
-      headers: { ...auth, 'Content-Type': 'text/plain' },
-      body: planText,
+    const res = await callOp('docs_write', {
+      ops: [{ op: 'upsert', rootId, kind: 'plan', slug, body: planText }],
     });
-    if (res.status >= 200 && res.status < 300) {
+    if (res && res.results[0] && res.results[0].ok === true) {
       emit(
         `Task Orchestrator: plan stashed as plan document '${slug}' (root ${rootId}). ` +
           `Prefer referencing this docRef during materialization instead of re-authoring note bodies.`,
       );
     }
-    // Any non-2xx (404 not_found, 409 adopted_conflict, 413 payload_too_large, 422 validation_error,
-    // etc.) is fail-open: stay completely silent, never block plan approval.
+    // Any failure (unauthenticated, forbidden, not_found, duplicate for an adopted plan,
+    // payload_too_large, ...) is fail-open: stay completely silent, never block plan approval.
   } catch {
-    // Unreachable API, timeout, or network error — fail-open, stay silent.
+    // fail-open, stay silent.
   }
 }
 

@@ -95,9 +95,9 @@ manage_project_config(operation="push", rootId="<anchor-uuid>", configYaml="<ful
 
 So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config (and, in a linked worktree, the one in the main checkout), then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
 
-1. Run `apiBaseUrl()` (and, below, `isLoopbackApiUrl()`) from `<plugin root>/hooks/api-client.mjs` with a one-liner like Step 0:
+1. Run `apiBaseUrl()` (and, below, `isLoopbackApiUrl()`) from `<plugin root>/hooks/lib/api-client.mjs` with a one-liner like Step 0:
    ```bash
-   node --input-type=module -e "const m = await import('file:///<plugin root>/hooks/api-client.mjs'); console.log(JSON.stringify(m.apiBaseUrl({cwd: '<main>'})))"
+   node --input-type=module -e "const m = await import('file:///<plugin root>/hooks/lib/api-client.mjs'); console.log(JSON.stringify(m.apiBaseUrl({cwd: '<main>'})))"
    ```
    A URL resolves: skip, with one line naming it.
 2. Otherwise find the registered http MCP entry and derive and health-check `<base>` exactly as U4 steps 1-3. Stdio or an unhealthy server: skip with one line.
