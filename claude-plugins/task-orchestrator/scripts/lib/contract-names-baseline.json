@@ -57,30 +57,6 @@
       "owner": "c6740063"
     },
     {
-      "file": "skills/batch-complete/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/create-item/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/dependency-manager/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/orchestrate/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/post-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/pre-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
       "file": "skills/quick-start/SKILL.md",
       "owner": "6018d76a"
     },
@@ -117,20 +93,12 @@
       "owner": "cac1bffa"
     },
     {
-      "file": "skills/schema-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
       "file": "skills/session-retrospective/SKILL.md",
       "owner": "6018d76a"
     },
     {
       "file": "skills/session-retrospective/references/github-feedback.md",
       "owner": "6018d76a"
-    },
-    {
-      "file": "skills/status-progression/SKILL.md",
-      "owner": "facd8579"
     },
     {
       "file": "skills/work-summary/SKILL.md",

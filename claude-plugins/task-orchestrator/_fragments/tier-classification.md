@@ -12,4 +12,4 @@
 
 **Force-DOWN signals:**
 - User says "just fix it" / "quick" → Direct (unless complexity contradicts)
-- Schema tag is `default` or absent → eligible for Direct
+- The item's type resolves to the `default` schema, or the item is schema-free -> eligible for Direct

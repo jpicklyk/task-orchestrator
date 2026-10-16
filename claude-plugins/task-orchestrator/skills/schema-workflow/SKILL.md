@@ -6,232 +6,140 @@ user-invocable: false
 
 # Schema Workflow
 
-Drive any schema-tagged MCP work item through its gate-enforced lifecycle. This skill is
-schema-driven — it reads note requirements and authoring guidance from the item's tag schema
-at runtime, never hardcoding what notes should contain.
+Drive a work item through its gate-enforced lifecycle. The skill is schema-driven: note requirements and authoring guidance are read from the item's resolved schema at runtime, never assumed. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts (a full UUID is also accepted). Read every answer through the envelope: `ok`, then `data.results[0]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[0].error`. A read (`select`) call reports its failure in the call-level `error`.
 
-**When this skill applies:** Any item whose `type` field matches a schema defined in
-`work_item_schemas:` in `.taskorchestrator/config.yaml`, or whose tags match a schema in
-`note_schemas:` (legacy). Items without a matching type or tags advance freely (no gates).
+**Applies to** any item whose `type` resolves to a schema under its pin (`config` `effective` lists the declared types). An item whose type resolves to no schema is schema-free and advances without gates.
 
----
+## Entry point
 
-## Entry Point
-
-Start by loading the item's context:
-
-```
-get_context(itemId="<uuid>")
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "4b7d0e19"}}
 ```
 
-The response tells you everything needed to proceed:
+| Field | Meaning |
+|---|---|
+| `item.role` | queue, work, review, blocked or terminal. Absent for a lifecycle-free item |
+| `schema[]` | every schema note: `key`, `role`, `required`, `exists`, `filled`, and `seat` when the schema is seat-aware (keys only) |
+| `gateStatus.canAdvance` | whether `start` would pass right now (claim ownership excluded) |
+| `gateStatus.missing` / `missingBySeat` | required notes of the current phase not yet filled, and by whom |
+| `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note` or `lease`; present only when `canAdvance` is false |
+| `guidanceKey` | first unfilled required note; resolve its text with the schema read below |
+| `skillPointer` | skill named by that note; invoke it before filling |
+| `dispatch` | `{agent?, model?, effort?}` for the item's current role |
+| `transitions` | each allowed trigger and the role it leads to |
 
-| Field | What it means |
-|-------|--------------|
-| `currentRole` | Which phase the item is in (queue, work, review, terminal) |
-| `canAdvance` | Whether the gate is satisfied for the next `start` trigger |
-| `missing` | Required notes not yet filled for the current phase |
-| `expectedNotes` | All notes defined by the schema, with `exists` and `filled` status (keys-only — no description/guidance/skill) |
-| `guidanceKey` | Key of the first unfilled required note with guidance; resolve its text via `query_items(operation="schema", itemId=...)` |
-| `noteSchema` | The full schema definition matching the item's tags |
+- `item.role` of `terminal`: nothing to do. `blocked`: use `/status-progression`.
+- **Schema-free:** the schema read answers `{schemaFree: true}`. Tell the user "No schema for this item's type; use `/manage-schemas` to configure gates". The item still advances freely.
+- **Lifecycle-free** (role absent): never advanced; its notes are optional. Any `advance` trigger fails `invalid_transition` with `fromRole: none`.
 
-If `currentRole` is `terminal`, the item is already complete — nothing to do.
+Resolve authoring text (guidance, description, skill) for the notes:
 
-If `noteSchema` is null or empty, no schema matches the item. This means either:
-- `.taskorchestrator/config.yaml` doesn't exist or has no `work_item_schemas` or `note_schemas` section
-- The item's `type` field doesn't match any configured schema key in `work_item_schemas`
-- The item's tags don't match any configured schema key in `note_schemas` (legacy fallback)
-- No `default` schema exists as a fallback
-
-Inform the user: "No schema found for this item's type/tags. Use `/manage-schemas` to configure gate workflows." The item can still advance freely — this is non-blocking, but gate enforcement won't apply.
-
----
-
-## Phase Progression Loop
-
-Each phase follows the same pattern: **fill required notes, then advance.**
-
-### Step 1 — Identify missing notes
-
-From `get_context`, check the `missing` array. These are the required notes that must be
-filled before the gate allows advancement.
-
-If `missing` is empty and `canAdvance` is true, skip to Step 3.
-
-### Step 2 — Fill notes using guidanceKey
-
-For each missing note, `guidanceKey` names the note with authoring guidance; resolve its text via
-`query_items(operation="schema", itemId=...)` and follow it.
-
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "<note-key>",
-    role: "<note-role>",
-    body: "<content following the resolved guidance>"
-  }]
-)
-```
-Keep the body distilled prose; route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` instead of pasting them inline.
-
-**How guidanceKey works:**
-- `get_context` returns `guidanceKey` (a note key) for the first unfilled required note
-- After filling that note, call `get_context` again to get the key for the next one
-- Resolve the key's `guidance` text via `query_items(operation="schema", itemId=...)`
-- If `guidanceKey` is null, no unfilled required note has guidance — use the note's `description` (also from the schema op) as a general guide
-
-**Skill-assisted note filling:**
-- If the `get_context` response includes `skillPointer` (a non-null string), invoke that skill via the Skill tool before filling the note
-- The skill provides a structured evaluation workflow — follow its steps, then use the output to fill the note
-- `skillPointer` is derived from the first unfilled required note's `skill` field in the schema
-- If `skillPointer` is null, use the resolved `guidanceKey` text as the authoring guide
-- `description`/`guidance`/`skill` are not in `expectedNotes` (keys-only) — fetch them via `query_items(operation="schema", itemId=...)`
-
-**Batch filling:** If you already know the content for multiple notes (e.g., from a completed
-plan or implementation), fill them all in one `manage_notes` call. You only need to re-check
-`get_context` between notes when you need the next `guidanceKey` for authoring direction.
-
-### Step 3 — Advance to the next phase
-
-```
-advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
+```to-call
+{"tool": "items_read", "select": "schema", "args": {"itemId": "4b7d0e19", "fields": ["guidance"]}}
 ```
 
-The response confirms the transition:
+## Phase progression loop
+
+Each phase: **fill the required notes, then advance.**
+
+### Step 1 - Find the missing notes
+
+Read `gateStatus.missing`. If it is empty and `canAdvance` is true, go to Step 3.
+
+### Step 2 - Fill the notes
+
+For the note named by `guidanceKey`, follow its resolved `guidance`; if `skillPointer` is set, invoke that skill first and use its output. If `guidanceKey` is absent, use the note's `description`. Write the body as distilled prose; route verbatim artifacts (test output, diffs, logs) through `bodyFromFile`.
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "implementation-notes", "role": "work", "body": "Added the retry policy; one deviation, see below."}}
+```
+
+When you already know several bodies, send them in one `notes_write` call (an `upsert` element each). Re-read `context` only when you need the next `guidanceKey`. A note whose `role` differs from the schema's role fails `schema_violation`. A `schema_pinned_conflict` means the item's pin lacks a key the current config requires: `repin` it (`items_write` `repin`), then retry.
+
+### Step 3 - Advance
+
+```to-call
+{"tool": "advance", "op": "transition", "args": {"itemId": "4b7d0e19", "trigger": "start"}}
+```
+
+Read `data.results[0]`:
 
 | Field | Check |
-|-------|-------|
-| `applied` | Must be `true` — if `false`, the gate rejected (notes still missing) |
-| `newRole` | Phase you moved to (`previousRole` is omitted from success results) |
-| `expectedNotes` | Notes required for the new phase (fill these next) |
-| `unblockedItems` | Other items that were waiting on this one |
+|---|---|
+| `newRole` | the phase entered (`previousRole` is also present) |
+| `cascades` | parents re-evaluated: `{itemId, previousRole, targetRole, applied, blocked?}`; when blocked, `reason` and `missing[]` (gate), `contended[]` (resource) or `blockers[]` (dependency) |
+| `unblocked` | items that were waiting on this one |
+| `expectedNotes` | note keys the new phase expects; fill these next |
+| `dispatch` | the profile for `newRole` |
 
-**If the gate rejects:** The response lists which notes are missing. Fill them (Step 2),
-then retry. Do not call `get_context` first — `advance_item` already told you what's needed.
+A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 
-**If the response instead has `applied: false` with `errorCode: "resource_unavailable"`
-(`errorKind: "transient"`):** this is NOT a note-gate rejection — do not fill more notes and
-do not retry the same call. A shared resource this item declares via a `resources:` trait is
-currently held by another item entering WORK. Report the contended `contendedResources` key(s)
-(and `retryAfterMs` if present) back to the orchestrator/user rather than spin-retrying; see
-`/status-progression` → "resource_unavailable" for the full recovery pattern.
+- `gate_blocked`: `data.results[0].error.detail.missing[]` names the notes still unfilled. Fill them (Step 2) and retry; no need to re-read first. For an independence block `missing` is empty and `detail.violations` (inside that same error) explains.
+- `resource_unavailable` (`data.results[0].error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs` and see `/status-progression`.
+- `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
+- `not_claim_holder`: someone else holds the claim; only the holder can transition.
 
-### Step 4 — Repeat or finish
+### Step 4 - Repeat or finish
 
-After advancing, check whether the new phase has its own required notes:
-- If `expectedNotes` in the advance response shows unfilled required notes → loop back to Step 2
-- If `newRole` is `terminal` → the item is complete
-- Otherwise, continue work in the new phase and fill notes as progress is made
+If `expectedNotes` lists unfilled required notes, go back to Step 2. If `newRole` is `terminal` the item is complete. Otherwise keep working and fill notes as progress is made.
 
----
+## Phase-specific guidance
 
-## Phase-Specific Guidance
+| Phase | Typical purpose | Filled |
+|---|---|---|
+| queue | requirements, design, reproduction steps | during planning, before work |
+| work | implementation notes, test results | during or after implementation |
+| review | verdicts, deploy or verification notes | after implementation |
 
-The schema defines which notes belong to which phase. Common patterns:
+Keys vary per schema; take them from `schema[]`, never from assumption.
 
-| Phase | Typical purpose | When notes get filled |
-|-------|----------------|----------------------|
-| queue | Requirements, design, reproduction steps | During planning, before implementation starts |
-| work | Implementation notes, test results, fix summaries | During or after implementation |
-| review | Deploy notes, verification results | After implementation, during validation |
+## Orchestrator and subagent responsibility
 
-The actual note keys and content requirements vary per schema — always check `expectedNotes`
-rather than assuming specific keys exist.
+**Protocol injection is agent-type gated.** The `subagent-start` hook injects the Agent-Owned-Phase Protocol only when the dispatched `agent_type` resolves to `implementer` or `reviewer` (bare or plugin-qualified, for example `task-orchestrator:implementer`). Any other agent type gets no injected protocol: dispatch the phase owner as `task-orchestrator:implementer` or `task-orchestrator:reviewer`, or paste the protocol text into the prompt. The hook is also silent for a headless ralph iteration (`TASK_ORCHESTRATOR_MODE=headless-iteration`).
 
----
+**Orchestrator:**
+- fills queue notes during planning and dispatches with the item id;
+- reads the profile for the phase being dispatched INTO: the `dispatch` of the `advance` result once the transition is made, or `items_read` `schema` (`dispatch`, `dispatchBySeat`) when the agent will enter the phase itself; `items_read` `context` returns only the current role's profile. Pass `subagent_type = dispatch.agent` when set, and always pass `model` explicitly;
+- after agents return, advances with `start` and checks `newRole`: `review` means dispatch reviewers or review inline, `terminal` means a schema without review notes;
+- performs the review-to-terminal transition after the verdict.
 
-## Orchestrator vs Subagent Responsibility
+**Implementer (entry seat):** the seat the schema marks `enters` calls `start` once to enter work, fills work notes with the loop above, returns, and never calls `advance` again.
 
-**Protocol auto-injection is agent-type gated.** The `subagent-start` hook injects the
-Agent-Owned-Phase Protocol only when the dispatched subagent's `agent_type` resolves to
-`implementer` or `reviewer` (bare, or plugin-qualified like `task-orchestrator:implementer`) — see
-`current/docs/integration-guides/plugin-skills-hooks.md` → "Execution modes". Dispatching any other
-agent type (`general-purpose`, `Explore`, `Plan`, a project-local research agent, etc.) for a
-work/review phase gets NO auto-injected protocol. When `dispatch.agent` is unset (see the
-dispatch-profile note below), prefer dispatching the phase owner explicitly as
-`task-orchestrator:implementer` (work) / `task-orchestrator:reviewer` (review) so the protocol is
-injected automatically; if a different agent type is genuinely required, include the
-Agent-Owned-Phase Protocol text directly in that dispatch's prompt instead of relying on injection.
-The hook is also silent for the entire duration of a headless ralph iteration
-(`TASK_ORCHESTRATOR_MODE=headless-iteration`), which never dispatches subagents in the first place.
+**Reviewer and other non-entry seats:** a reviewer is dispatched into an item already in review. It must NOT call `start` (from review that lands terminal). It reads `items_read` `context`, fills the review notes, reports the verdict and returns. Test authors, extractors and read-only seats never call `advance`.
 
-**Orchestrator** (this skill's primary user):
-- Fills queue-phase notes (requirements, design) during planning
-- Dispatches implementation agents with the item UUID
-- When dispatching the phase owner (implementer on work, reviewer on review), reads the profile
-  for the phase being dispatched INTO — `advance_item`'s `dispatch` for `newRole` once the
-  transition is already made, or `query_items(operation="schema", itemId=...)` → `dispatch.<phase>`
-  when the agent will enter the phase itself (agent-owned-phase protocol, item still in queue at
-  dispatch; `get_context` only returns the CURRENT role's profile, the wrong one in that case) —
-  and honors it: `subagent_type = dispatch.agent` when set, and ALWAYS still passes `model`
-  explicitly (`dispatch.model` if set, else its own model policy) regardless of whether `agent` is
-  set, since `effort` has no Agent-tool parameter and is advisory unless `agent` names a definition
-  carrying that `effort`
-- After implementation agents return, advances the item via `advance_item(start)` and inspects `newRole`:
-  - If `review`: dispatches review agents or performs inline review
-  - If `terminal`: item completed through a lightweight lifecycle (no review-phase notes in schema)
-- Performs the final terminal transition (review→terminal) after the review verdict
-- Uses this skill for queue-phase note filling and terminal advancement
+**Invariant:** agents own only their phase entry; the orchestrator owns every other transition.
 
-**Implementation agents** (agent-owned-phase model):
-- Receive the full phase-aware protocol automatically via the `subagent-start` hook
-- Call `advance_item(start)` once to enter work phase (queue→work)
-- Fill work-phase notes using the JIT progression loop (guidanceKey + skillPointer)
-- Return to the orchestrator — do NOT call `advance_item` again
-- The orchestrator advances the item to the next phase and handles all further routing
+### Pre-dispatch recipe: a seat at a parent
 
-**Review agents** (dispatched into an item already in review):
-- Receive the `subagent-start` hook, which tells them to call `advance_item(start)`
-- Since the item is already in review, `advance_item` returns `applied: false` — this is expected
-- The hook's fallback applies: call `get_context(itemId=...)` to get guidance instead
-- Fill review-phase notes (e.g., review-checklist), report verdict, return
-- Do NOT call `advance_item` again — the orchestrator handles the terminal transition
+Before dispatching a seat (a feature reviewer, a closing step) at a parent, read the parent and branch on its role:
 
-**Key invariant:** Agents own phase entry (one `advance_item(start)` call to enter their assigned phase). When a run plan assigns several seats to one phase (`run-wave`), only that phase's entry seat makes this call; in-phase seats (test author, declarations extractor) and read-only seats never call `advance_item`; the orchestrator owns every later transition. The orchestrator owns all phase-to-phase transitions — advancing the item, inspecting the schema to determine the next phase (review or terminal), and dispatching phase-appropriate agents. Review agents fill review-phase notes and return — they do not advance items.
-
----
-
-## Creating a New Schema Item
-
-When creating a new item with a schema, set the `type` field to the schema key:
-
-```
-manage_items(
-  operation="create",
-  items=[{ title: "...", type: "<schema-key>", priority: "medium" }]
-)
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "98d452e9"}}
 ```
 
-The `type` field is the primary schema selector — it maps directly to a key in `work_item_schemas:`.
-Tags can still be used for additional categorization and as a legacy schema fallback, but `type`
-takes precedence.
+| Parent role | Action |
+|---|---|
+| queue | run the parent's own check; `start` it when `canAdvance` |
+| work, `canAdvance` true | `start` to move it to review, then dispatch |
+| work, `canAdvance` false | fill the orchestrator-owned missing notes; surface the seat-owned ones (`missingBySeat`) to their seats |
+| review | dispatch |
+| no review phase in its schema | never `start`: it lands terminal. Decide whether the parent needs a seat at all |
 
-Check `expectedNotes` in the response — it lists all notes the schema requires across all
-phases. Begin filling queue-phase notes immediately, then follow the progression loop above.
+Never dispatch a reviewer at a work-role parent. Note that the terminal cascade from the last child into a review-role parent is suppressed (`cascades[]` shows `applied: false`, review-pending), so a review parent needs an explicit `complete`, or its review and then `start`.
 
----
+## Creating a schema item
 
-## Error Recovery
+Set `type` to a declared schema key (`config` `effective` `types`; a wrong one fails `schema_violation` with `data.results[0].error.detail.availableTypes`):
 
-**Gate rejection:** `advance_item` returns `applied: false` with the missing note keys.
-Fill them and retry — no need for a separate `get_context` call.
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "Add retry layer", "type": "feature-task", "priority": "medium", "traits": ["needs-docs-accuracy-review"]}}
+```
 
-**Resource-lease contention:** `advance_item` returns `applied: false` with
-`errorCode: "resource_unavailable"` and `errorKind: "transient"` instead of missing notes —
-distinct from a gate rejection. Do not fill notes in response to this; it means another item
-currently holds a resource this item's traits declare. Wait (`retryAfterMs` is a hint) or work
-a different item; never spin-retry the same `advance_item` call.
+The answer is `{ok, id, version}`; read `items_read` `schema` for the notes and start filling queue notes, then follow the loop. See `/create-item` for anchoring.
 
-**Wrong phase notes:** If you try to upsert a note with a `role` that doesn't match the
-item's current role, the note is still created (notes are not phase-locked), but it won't
-satisfy a gate for a different phase. Always match the note's `role` to the schema definition.
+## Error recovery
 
-**Blocked items:** If `advance_item` fails because the item is blocked by a dependency,
-resolve the blocking item first. Use `get_blocked_items` or `query_dependencies` to diagnose.
-
-**No schema match:** Items whose `type` doesn't match any schema in `work_item_schemas` and
-whose tags don't match any schema in `note_schemas` have no gate enforcement. `advance_item`
-will succeed without notes. This is by design — only typed or tagged items require structured
-note workflows.
+- **Gate rejection:** `gate_blocked` lists the missing keys; fill and retry.
+- **Resource contention:** `resource_unavailable` is transient and distinct from a gate; wait (`retryAfterMs` is a hint) or work another item.
+- **Blocked by dependency:** `dependency_unmet`; use `items_read` `blocked` or `deps_read` `list` to find the blocker.
+- **Stale pin:** an item keeps the schema it was pinned to. `items_read` `get` shows `stale: true` after a later config push; `repin` adopts the push. Changing `type` or `traits` is itself a pin point.
