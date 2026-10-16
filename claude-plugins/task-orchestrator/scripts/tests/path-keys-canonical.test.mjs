@@ -214,14 +214,14 @@ function higherWith(files) {
 test('S8: an unrooted higher entry (., "", absolute outside roots, "..") overlaps every entry of mine (D6)', () => {
   const core = loadCore(SCRIPT_PATH)
   for (const h of [['.'], [''], ['/elsewhere/x.js'], ['src/../y.js']]) {
-    assert.deepEqual(core.overlapDeferral(mineWith(['src/x.js']), higherWith(h), 'per-item'), { reason: 'overlap a' }, `higher ${JSON.stringify(h)}`)
+    assert.deepEqual(core.overlapDeferral(mineWith(['src/x.js']), higherWith(h), 'per-item'), { reason: 'overlap a on src/x.js' }, `higher ${JSON.stringify(h)}`)
   }
 })
 
 test('S8: an unrooted entry on mine\'s side overlaps every higher entry (D6)', () => {
   const core = loadCore(SCRIPT_PATH)
-  assert.deepEqual(core.overlapDeferral(mineWith(['.']), higherWith(['docs/a.md']), 'per-item'), { reason: 'overlap a' })
-  assert.deepEqual(core.overlapDeferral(mineWith(['/elsewhere/y']), higherWith(['.']), 'per-item'), { reason: 'overlap a' })
+  assert.deepEqual(core.overlapDeferral(mineWith(['.']), higherWith(['docs/a.md']), 'per-item'), { reason: 'overlap a on **' })
+  assert.deepEqual(core.overlapDeferral(mineWith(['/elsewhere/y']), higherWith(['.']), 'per-item'), { reason: 'overlap a on **' })
 })
 
 test('S12 (guard): an empty higher set, disjoint literals, and shared mode never defer', () => {

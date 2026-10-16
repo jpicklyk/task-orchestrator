@@ -258,7 +258,7 @@ test('S4: per-item mode defers a lower-priority item whose planner output overla
   const settled = r.settled.find((s) => s.item === 'bbbbbbbb')
   assert.ok(settled)
   assert.equal(settled.status, 'deferred')
-  assert.equal(settled.reason, 'overlap aaaaaaaa')
+  assert.equal(settled.reason, 'overlap aaaaaaaa on src/shared.js')
   assert.ok(r.dispatch.some((d) => d.item === 'aaaaaaaa' && d.seat === 'implementer'))
 })
 

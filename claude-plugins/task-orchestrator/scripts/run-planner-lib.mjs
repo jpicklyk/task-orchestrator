@@ -51,6 +51,12 @@ export function isCarryInDisposed(record, key) {
   return false;
 }
 
+// Canonicalises exactly as appendOnlyMatch in workflows/implement-wave.js does (backslash to '/',
+// leading './' removed, repeated '/' collapsed), so the planner and the core agree on each entry.
+function canonAppendOnly(raw) {
+  return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
@@ -161,6 +167,20 @@ export function validateSnapshot(snap) {
   }
   if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
     errors.push('profile must be an object');
+  }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile) && 'appendOnlyFiles' in snap.profile) {
+    const aof = snap.profile.appendOnlyFiles;
+    if (!Array.isArray(aof) || aof.some((e) => typeof e !== 'string' || e === '')) {
+      errors.push('profile.appendOnlyFiles must be an array of strings');
+    } else {
+      for (const raw of aof) {
+        const c = canonAppendOnly(raw);
+        const segs = c.split('/');
+        if (c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..') || segs.every((g) => g === '*' || g === '**')) {
+          errors.push(`profile.appendOnlyFiles entry "${raw}" is not a repo-relative file pattern`);
+        }
+      }
+    }
   }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
@@ -1066,6 +1086,7 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
