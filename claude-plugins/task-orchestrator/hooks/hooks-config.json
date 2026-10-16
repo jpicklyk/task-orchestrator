@@ -83,7 +83,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance|items_write|runs_write)$",
+        "matcher": "^mcp__.*task-orchestrator.*__runs_write$",
         "hooks": [
           {
             "type": "command",

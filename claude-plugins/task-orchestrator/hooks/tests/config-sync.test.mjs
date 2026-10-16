@@ -1,16 +1,21 @@
-// Direct unit coverage for config-sync.mjs's parseRootId — previously only inferable through
-// session-start.mjs's subprocess tests (the two parsers are textually identical). Importing the
-// module must NOT trigger a live config sync as a side effect — config-sync.mjs guards its
-// `main()` invocation behind an entrypoint check (`process.argv[1] === this file`) specifically
-// so importing `parseRootId` here stays side-effect free.
+// config-sync.mjs on the 4.0 ops (eb262d39): config get/validate/push, docs_read list, docs_write upsert.
+// Oracle for every wire shape: current/docs/api-reference.md (config, docs_read, docs_write, Response
+// envelope, List data, error catalog) and the frozen task-scope AC1-AC10 / test-plan S1-S18 of item eb262d39;
+// none of it is derived from the hook's output. The hook is spawned as a subprocess against an in-process
+// stub that speaks POST /api/v1/ops/<tool> with API envelopes (a batch answer is data.results[i]; a failed
+// element of a non-atomic call is HTTP 207, ok:false, partial_failure). Importing the module must NOT trigger
+// a live sync (config-sync.mjs guards main() behind an entrypoint check).
+//
+// Hermeticity recipe: every spawn pins TASK_ORCHESTRATOR_HOME to its OWN empty temp dir, drops inherited
+// AGENT_CONFIG_DIR / API URL / token, and runs with cwd = a fixture dir (never the repo).
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as configSyncModule from '../config-sync.mjs';
@@ -26,29 +31,63 @@ import {
 } from '../config-sync.mjs';
 
 const HOOK = fileURLToPath(new URL('../config-sync.mjs', import.meta.url));
+const HOOKS_SRC = fileURLToPath(new URL('..', import.meta.url));
+const PLUGIN_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
 
 // Shared with the Kotlin side (ConfigFingerprintTest) so both implementations are proven
-// byte-for-byte identical against the same vectors — see current/src/test/resources/fixtures/.
+// byte-for-byte identical against the same vectors - see current/src/test/resources/fixtures/.
 const FIXTURE_URL = new URL(
   '../../../../current/src/test/resources/fixtures/config-fingerprint-vectors.json',
   import.meta.url,
 );
 const fingerprintVectors = JSON.parse(readFileSync(FIXTURE_URL, 'utf-8'));
 
+// ---- generic helpers -------------------------------------------------------------------------------
+
+const temps = [];
+after(() => {
+  for (const d of temps) rmSync(d, { recursive: true, force: true });
+});
+function mkTemp(prefix = 'to-config-sync-') {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(d);
+  return d;
+}
+const tmpConfigDir = () => mkTemp('to-config-sync-');
+
+function sha256Hex(buf) {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
 function writeConfig(dir, content) {
   const cfgDir = join(dir, '.taskorchestrator');
   mkdirSync(cfgDir, { recursive: true });
-  writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
+  writeFileSync(join(cfgDir, 'config.yaml'), content);
 }
+
+function writeRuleFile(dir, filename, content) {
+  const rulesDir = join(dir, '.taskorchestrator', 'rules');
+  mkdirSync(rulesDir, { recursive: true });
+  writeFileSync(join(rulesDir, filename), content);
+}
+
+// Independent oracle for the normalization every byte on the wire must use: ONE leading BOM stripped,
+// CRLF -> LF, a lone CR kept (config-fingerprint-vectors.json S1-S8).
+function expectedNormalized(text) {
+  const noBom = text.startsWith('\ufeff') ? text.slice(1) : text;
+  return noBom.split('\r\n').join('\n');
+}
+const fpOf = (text) => sha256Hex(Buffer.from(expectedNormalized(text), 'utf8'));
 
 // Status line of an emitted hook output: SessionStart carries it in hookSpecificOutput.additionalContext,
 // FileChanged (which has no documented additionalContext channel) in a top-level systemMessage.
 function statusLine(out) {
   return out.systemMessage ?? out.hookSpecificOutput?.additionalContext;
 }
+const lineOf = (res) => statusLine(JSON.parse(res.stdout));
 
 // Invariant for every emitted stdout JSON: hookSpecificOutput is absent or names the firing event.
-// Returns the parsed output so callers can keep asserting on the status line.
 function assertEventContract(res, hookEventName) {
   const out = JSON.parse(res.stdout);
   if (out.hookSpecificOutput !== undefined) {
@@ -61,23 +100,15 @@ function assertEventContract(res, hookEventName) {
   return out;
 }
 
-function tmpConfigDir() {
-  return mkdtempSync(join(tmpdir(), 'to-config-sync-'));
-}
-
-// A local, unroutable-in-practice URL so `fetch` fails fast (connection refused) instead of
-// hitting a real server — lets tests observe "did main() attempt the sync" without a live API.
+// A local, unroutable-in-practice URL so the call fails fast (connection refused).
 const UNREACHABLE_API_URL = 'http://127.0.0.1:1';
 
-// Hermetic env for a spawned hook (decision.md Ruling 2): TASK_ORCHESTRATOR_HOME pinned to its OWN
-// fresh empty temp dir (never the fixture dir), inherited AGENT_CONFIG_DIR / API URL / token
-// scrubbed, then only what the case needs set back. Returns { env, home } — the caller removes home.
 function hermeticEnv(extra) {
-  const home = mkdtempSync(join(tmpdir(), 'to-config-sync-home-'));
+  const home = mkTemp('to-config-sync-home-');
   const env = { ...process.env };
-  delete env.AGENT_CONFIG_DIR;
-  delete env.TASK_ORCHESTRATOR_API_URL;
-  delete env.TASK_ORCHESTRATOR_API_TOKEN;
+  for (const k of ['AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_API_URL', 'TASK_ORCHESTRATOR_API_TOKEN', 'TASK_ORCHESTRATOR_CEILING']) {
+    delete env[k];
+  }
   return { env: { ...env, TASK_ORCHESTRATOR_HOME: home, ...extra }, home };
 }
 
@@ -85,18 +116,271 @@ function spawnHook(dir, { stdin, hookEventName, filePath } = {}) {
   const input = stdin !== undefined
     ? stdin
     : JSON.stringify(hookEventName ? { hook_event_name: hookEventName, file_path: filePath } : {});
-  const { env, home } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: UNREACHABLE_API_URL });
-  try {
-    return spawnSync(process.execPath, [HOOK], {
-      input,
-      env,
-      encoding: 'utf-8',
-      cwd: dir, // avoid the cwd-walk fallback finding this repo's real config.yaml
+  const { env } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: UNREACHABLE_API_URL });
+  return spawnSync(process.execPath, [HOOK], { input, env, encoding: 'utf-8', cwd: dir });
+}
+
+// MUST use async spawn (not spawnSync): the stub runs in THIS process, so a blocked event loop could never
+// answer the child and every test would false-green on "unreachable" without the stub being hit.
+function runScript(script, { cwd, env, input, killMs = 15000 }) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const started = Date.now();
+    const child = spawn(process.execPath, [script], { env, cwd });
+    let killed = false;
+    const killTimer = setTimeout(() => {
+      killed = true;
+      child.kill('SIGKILL');
+    }, killMs);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('error', (err) => { clearTimeout(killTimer); rejectPromise(err); });
+    child.on('close', (status) => {
+      clearTimeout(killTimer);
+      resolvePromise({ status, stdout, stderr, killed, wall: Date.now() - started, started });
     });
+    child.stdin.end(input);
+  });
+}
+
+function eventInput(hookEventName, filePath) {
+  return JSON.stringify(hookEventName === 'FileChanged' ? { hook_event_name: hookEventName, file_path: filePath } : { hook_event_name: hookEventName });
+}
+
+/** Project scope: config (and rules/) live in `dir`, found through AGENT_CONFIG_DIR and cwd. */
+function runHook(dir, apiUrl, { event = 'SessionStart', token, script = HOOK, killMs } = {}) {
+  const extra = { AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: apiUrl };
+  if (token) extra.TASK_ORCHESTRATOR_API_TOKEN = token;
+  const { env } = hermeticEnv(extra);
+  const filePath = join(dir, '.taskorchestrator', 'config.yaml');
+  return runScript(script, { cwd: dir, env, input: eventInput(event, filePath), killMs });
+}
+
+/** User scope: config lives under the pinned home; cwd is an empty fixture dir. */
+function runUserScope(home, cwd, apiUrl, { event = 'SessionStart' } = {}) {
+  const env = { ...process.env };
+  for (const k of ['AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_API_TOKEN', 'TASK_ORCHESTRATOR_CEILING']) delete env[k];
+  env.TASK_ORCHESTRATOR_HOME = home;
+  env.TASK_ORCHESTRATOR_API_URL = apiUrl;
+  const filePath = join(home, '.taskorchestrator', 'config.yaml');
+  return runScript(HOOK, { cwd, env, input: eventInput(event, filePath) });
+}
+
+const projectConfigText = (rootId, extra = '') => `project:\n  rootId: "${rootId}"\n${extra}`;
+
+/** A project fixture dir with a config.yaml; returns { dir, text, normalized, fp }. */
+function makeProject(rootId, { extra = '', text } = {}) {
+  const dir = tmpConfigDir();
+  const body = text ?? projectConfigText(rootId, extra);
+  writeConfig(dir, body);
+  return { dir, text: body, normalized: expectedNormalized(body), fp: fpOf(body) };
+}
+
+// ---- the bundled rules, listed at their current server hash --------------------------------------------
+
+const BUNDLED_KEYS = [
+  'protocol.entry-seat',
+  'protocol.in-phase-seat',
+  'protocol.read-only-agent',
+  'commit-discipline',
+  'review-scoping',
+];
+const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
+function bundledNormalizedBytes(key) {
+  return normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)));
+}
+function bundledAtCurrentHash() {
+  const manifest = JSON.parse(readFileSync(join(BUNDLED_DIR, 'manifest.json'), 'utf-8'));
+  return Object.keys(manifest).map((key) => ({ key, hash: sha256Hex(bundledNormalizedBytes(key)) }));
+}
+
+// ---- API envelope builders (api-reference.md "Response envelope") ----------------------------------------
+
+const META = { reqId: 'k7f3q9ab' };
+const okEl = (fields = {}) => ({ ok: true, ...fields });
+const errEl = (code, detail, message = code) => ({
+  ok: false,
+  error: { code, kind: 'permanent', message, ...(detail === undefined ? {} : { detail }) },
+});
+function batch(elements) {
+  const failed = elements.filter((e) => !e.ok).length;
+  const data = { results: elements, summary: { ok: elements.length - failed, failed } };
+  if (failed === 0) return { status: 200, json: { ok: true, data, meta: META } };
+  return {
+    status: 207,
+    json: { ok: false, error: { code: 'partial_failure', kind: 'permanent', message: `${failed} of ${elements.length} failed` }, data, meta: META },
+  };
+}
+const topError = (status, code, message = code, detail) => ({
+  status,
+  json: { ok: false, error: { code, kind: 'permanent', message, ...(detail === undefined ? {} : { detail }) }, meta: META },
+});
+const listAnswer = (items, page = {}) => ({
+  status: 200,
+  json: { ok: true, data: { items, page: { total: items.length, truncated: false, ...page } }, meta: META },
+});
+
+// ---- the stateful stub API ---------------------------------------------------------------------------------
+//
+// opts.config   { version, fingerprint, createdAt, history?: [fingerprints once held] } | undefined (no config yet)
+// opts.docs     { slug: { hash, version } } rule documents the server holds (bundled rules at their current
+//               hash are seeded first unless opts.seedBundled === false)
+// opts.pageSize page size of the docs_read list (default: everything on one page)
+// opts.override (call, state) => reply | undefined; a reply is { status, json | raw, delayMs, stall }
+// Writes follow the documented semantics: upsert expectedVersion omitted = unconditional, 0 = must not exist,
+// n = current version must be n (else version_conflict); a config push compares expectedVersion with the head.
+
+function startStub(opts = {}) {
+  const calls = [];
+  const state = {
+    config: opts.config ? { history: [], createdAt: '2026-01-01T00:00:00Z', ...opts.config } : null,
+    docs: new Map(),
+  };
+  if (opts.seedBundled !== false) {
+    for (const { key, hash } of bundledAtCurrentHash()) state.docs.set(key, { hash, version: 1 });
+  }
+  for (const [slug, v] of Object.entries(opts.docs ?? {})) state.docs.set(slug, { version: 1, ...v });
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  function route(call) {
+    const { tool, body } = call;
+    if (tool === 'config') {
+      if (!Array.isArray(body.ops) || body.ops.length !== 1) return topError(400, 'invalid_request', 'expected exactly one op');
+      const el = body.ops[0];
+      if (el.op === 'get') {
+        if (!state.config) return batch([errEl('not_found', { kind: 'config', id: el.rootId })]);
+        const result = {
+          rootId: el.rootId,
+          version: state.config.version,
+          fingerprint: state.config.fingerprint,
+          source: 'push',
+          createdAt: state.config.createdAt,
+          configYaml: 'project: {}\n',
+        };
+        if (el.fingerprint !== undefined) {
+          result.relation = el.fingerprint === state.config.fingerprint
+            ? 'current'
+            : state.config.history.includes(el.fingerprint) ? 'superseded' : 'unknown';
+        }
+        return batch([okEl(result)]);
+      }
+      if (el.op === 'validate') {
+        return batch([okEl({ rootId: el.rootId, valid: true, errors: [], warnings: [], diff: { types: { added: [], removed: [], changed: [] }, traits: { added: [], removed: [], changed: [] }, settings: { added: [], removed: [], changed: [] } }, affectedInFlight: { count: 0, sample: [] } })]);
+      }
+      if (el.op === 'push') {
+        if (state.config && typeof el.expectedVersion === 'number' && el.expectedVersion !== state.config.version) {
+          return batch([errEl('version_conflict', { kind: 'config', id: el.rootId, expected: el.expectedVersion, actual: state.config.version })]);
+        }
+        const fp = sha256Hex(Buffer.from(el.configYaml, 'utf8'));
+        const appended = !state.config || state.config.fingerprint !== fp;
+        if (appended) {
+          const history = state.config ? [...state.config.history, state.config.fingerprint] : [];
+          state.config = { version: (state.config?.version ?? 0) + 1, fingerprint: fp, createdAt: '2026-02-02T00:00:00Z', history };
+        }
+        return batch([okEl({ rootId: el.rootId, version: state.config.version, fingerprint: fp, appended, createdAt: state.config.createdAt })]);
+      }
+      return topError(400, 'invalid_request', `unexpected config op ${el.op}`);
+    }
+    if (tool === 'docs_read') {
+      if (body.select !== 'list') return topError(400, 'invalid_request', 'only list is expected');
+      const slugs = [...state.docs.keys()].sort();
+      const pageSize = opts.pageSize ?? 100000;
+      let offset = 0;
+      if (body.cursor !== undefined) {
+        offset = Number(body.cursor);
+        if (!Number.isInteger(offset) || offset < 0) return topError(400, 'invalid_cursor', 'bad cursor');
+      }
+      const slice = slugs.slice(offset, offset + pageSize);
+      const items = slice.map((slug) => ({
+        id: `00000000-0000-4000-8000-${String(slugs.indexOf(slug)).padStart(12, '0')}`,
+        kind: 'rule',
+        slug,
+        contentHash: state.docs.get(slug).hash,
+        version: state.docs.get(slug).version,
+        createdAt: '2026-01-01T00:00:00Z',
+        modifiedAt: '2026-01-01T00:00:00Z',
+      }));
+      const truncated = offset + pageSize < slugs.length;
+      return listAnswer(items, { total: slugs.length, truncated, ...(truncated ? { next: String(offset + pageSize) } : {}) });
+    }
+    if (tool === 'docs_write') {
+      if (!Array.isArray(body.ops) || body.ops.length !== 1) return topError(400, 'invalid_request', 'expected exactly one op');
+      const el = body.ops[0];
+      if (el.op !== 'upsert') return topError(400, 'invalid_request', `unexpected docs_write op ${el.op}`);
+      const cur = state.docs.get(el.slug);
+      if (el.expectedVersion !== undefined) {
+        const have = cur ? cur.version : 0;
+        if (el.expectedVersion !== have) {
+          return batch([errEl('version_conflict', { kind: 'document', id: `rule/${el.slug}`, expected: el.expectedVersion, actual: have })]);
+        }
+      }
+      const hash = sha256Hex(Buffer.from(String(el.body).split('\r\n').join('\n'), 'utf8'));
+      const version = (cur?.version ?? 0) + 1;
+      state.docs.set(el.slug, { hash, version });
+      return batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: el.kind, slug: el.slug, version, contentHash: hash, created: !cur })]);
+    }
+    return topError(404, 'not_found', 'no such tool');
+  }
+
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      const m = /^\/api\/v1\/ops\/([a-z_]+)$/.exec(req.url.split('?')[0]);
+      let body = null;
+      try { body = JSON.parse(raw.toString('utf8')); } catch { /* leaves null */ }
+      const call = {
+        method: req.method, url: req.url, tool: m ? m[1] : null, body, raw, auth: req.headers.authorization,
+        contentType: req.headers['content-type'], headers: req.headers, at: Date.now(),
+      };
+      calls.push(call);
+      const isWrite = call.tool === 'docs_write';
+      if (isWrite) { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); }
+      res.on('close', () => { if (isWrite) inFlight -= 1; });
+      let reply;
+      if (!m || req.method !== 'POST' || body === null) reply = topError(404, 'not_found', 'no route');
+      else reply = (opts.override && opts.override(call, state)) || route(call);
+      setTimeout(() => {
+        if (reply.stall) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.write('{"ok":true,"data":{"items":[');
+          return;
+        }
+        res.writeHead(reply.status ?? 200, { 'Content-Type': 'application/json' });
+        res.end(reply.raw !== undefined ? reply.raw : JSON.stringify(reply.json));
+      }, reply.delayMs || 0);
+    });
+  });
+  return new Promise((resolveListen) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolveListen({
+        url: `http://127.0.0.1:${server.address().port}`,
+        calls,
+        state,
+        tools: () => calls.map((c) => c.tool),
+        ofTool: (t) => calls.filter((c) => c.tool === t),
+        configOps: () => calls.filter((c) => c.tool === 'config').map((c) => c.body.ops[0]),
+        upserts: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]),
+        maxInFlight: () => maxInFlight,
+        close: () => new Promise((r) => { if (typeof server.closeAllConnections === 'function') server.closeAllConnections(); server.close(r); }),
+      });
+    });
+  });
+}
+
+async function withStub(opts, fn) {
+  const stub = await startStub(opts);
+  try {
+    return await fn(stub);
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    await stub.close();
   }
 }
+
+// ---- retained pure-function and gating coverage (unchanged contracts) ------------------------------------------
 
 test('isValidRuleKey: accepts the server grammar, rejects spaces/uppercase/leading dot', () => {
   assert.ok(isValidRuleKey('commit-discipline'));
@@ -161,287 +445,6 @@ test('formatRuleSyncSummary: composes pushed/in-sync/skipped/failed clauses', ()
 // ─── Rule-sync tests (T1–T7) ────────────────────────────────────────────────
 //
 // A local `node:http` fake API (same technique as api-client.test.mjs), spawned per test on an
-// ephemeral port, that answers the config GET with `{relation: 'current'}` (so the config phase
-// always reaches "already-in-sync" without needing to exercise the PUT path) and lets each test
-// script the rules GET/PUT behavior it needs. Requests are recorded (method, raw url, body bytes)
-// so tests can assert on the exact literal request shape (e.g. the `%2F`-encoded plan path).
-
-function sha256Hex(buf) {
-  return createHash('sha256').update(buf).digest('hex');
-}
-
-// The plugin's bundled rules (bundled-rules/manifest.json keys), listed at their current hash —
-// merged into a server listing so a test's PUT count covers only its workspace rules.
-const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
-function bundledAtCurrentHash() {
-  const manifest = JSON.parse(readFileSync(join(BUNDLED_DIR, 'manifest.json'), 'utf-8'));
-  return Object.keys(manifest).map((key) => ({
-    key,
-    rulesVersion: sha256Hex(normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)))),
-  }));
-}
-
-function writeRuleFile(dir, filename, content) {
-  const rulesDir = join(dir, '.taskorchestrator', 'rules');
-  mkdirSync(rulesDir, { recursive: true });
-  writeFileSync(join(rulesDir, filename), content);
-}
-
-function startFakeServer(handler) {
-  return new Promise((resolveListen) => {
-    const server = createServer((req, res) => {
-      const chunks = [];
-      req.on('data', (chunk) => chunks.push(chunk));
-      req.on('end', () => {
-        req.rawBody = Buffer.concat(chunks);
-        handler(req, res);
-      });
-    });
-    server.listen(0, '127.0.0.1', () => resolveListen(server));
-  });
-}
-
-function stopServer(server) {
-  return new Promise((res) => server.close(res));
-}
-
-/** Routes every request into `requests` and dispatches to `rulesGet`/`rulesPut`; config GET always answers "current". */
-function makeFakeApiHandler({ requests, rulesGetStatus = 200, rulesBody = { rules: [] }, putStatus = () => 200 }) {
-  return (req, res) => {
-    requests.push({ method: req.method, url: req.url, body: req.rawBody });
-    if (req.method === 'GET' && req.url.startsWith('/api/v1/roots/') && req.url.includes('/config')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ relation: 'current' }));
-      return;
-    }
-    if (req.method === 'GET' && req.url.endsWith('/rules')) {
-      res.writeHead(rulesGetStatus, { 'Content-Type': 'application/json' });
-      res.end(rulesGetStatus === 200 ? JSON.stringify(rulesBody) : '');
-      return;
-    }
-    if (req.method === 'PUT' && req.url.includes('/plans/')) {
-      const status = putStatus(req.url);
-      res.writeHead(status);
-      res.end();
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  };
-}
-
-// MUST use async `spawn` (not `spawnSync`): spawnSync blocks THIS process's event loop for the
-// duration of the child, so the fake API server — which runs in this same process — could never
-// accept or answer a connection from the child (see phase-guard.test.mjs's identical note). The
-// child's fetch would simply hang until its own 2s timeout and every T-test would false-green on
-// "API unreachable" without the fake server ever actually being hit.
-function spawnHookAgainst(dir, apiUrl, { stdin, hookEventName, filePath } = {}) {
-  const input = stdin !== undefined
-    ? stdin
-    : JSON.stringify(hookEventName ? { hook_event_name: hookEventName, file_path: filePath } : {});
-  const { env, home } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: apiUrl });
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [HOOK], { env, cwd: dir });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => {
-      stdout += d;
-    });
-    child.stderr.on('data', (d) => {
-      stderr += d;
-    });
-    child.on('error', (err) => {
-      rmSync(home, { recursive: true, force: true });
-      rejectPromise(err);
-    });
-    child.on('close', (status) => {
-      rmSync(home, { recursive: true, force: true });
-      resolvePromise({ status, stdout, stderr });
-    });
-    child.stdin.end(input);
-  });
-}
-
-test('T1: steady state — every local rule already matches the server, zero PUTs', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  const bodies = { 'alpha.md': 'Alpha rule.\n', 'beta.md': 'Beta rule.\n' };
-  for (const [filename, content] of Object.entries(bodies)) writeRuleFile(dir, filename, content);
-  writeConfig(dir, 'project:\n  rootId: "root-t1"\n');
-  const rules = Object.entries(bodies).map(([filename, content]) => ({
-    key: filename.slice(0, -3),
-    rulesVersion: sha256Hex(normalizeForFingerprint(Buffer.from(content))),
-  }));
-  rules.push(...bundledAtCurrentHash());
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = assertEventContract(res, 'SessionStart');
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('already in sync for root root-t1'));
-    assert.ok(line.includes('Rules: 7 in sync.')); // 2 workspace + 5 bundled
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T2: changed + missing rule — exactly two PUTs to the %2F-encoded plan path with matching bytes', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'changed.md', 'New changed content.\n');
-  writeRuleFile(dir, 'missing.md', 'Brand new rule.\n');
-  writeRuleFile(dir, 'unchanged.md', 'Steady rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-t2"\n');
-  const rules = [
-    { key: 'changed', rulesVersion: 'stale-hash-does-not-match' },
-    { key: 'unchanged', rulesVersion: sha256Hex(normalizeForFingerprint(Buffer.from('Steady rule.\n'))) },
-    // 'missing' intentionally absent from the server listing
-    ...bundledAtCurrentHash(),
-  ];
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('changed') && line.includes('missing'));
-
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 2);
-    const putKeys = puts.map((p) => decodeURIComponent(p.url.split('/plans/')[1]));
-    assert.deepEqual(new Set(putKeys), new Set(['rule/changed', 'rule/missing']));
-    for (const p of puts) {
-      assert.ok(p.url.includes('%2F'), `expected literal %2F in ${p.url}`);
-    }
-    const changedPut = puts.find((p) => p.url.includes('changed'));
-    assert.deepEqual(changedPut.body, normalizeForFingerprint(Buffer.from('New changed content.\n')));
-    const missingPut = puts.find((p) => p.url.includes('missing'));
-    assert.deepEqual(missingPut.body, normalizeForFingerprint(Buffer.from('Brand new rule.\n')));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T3: invalid key and oversized body are both skipped client-side, valid siblings still sync', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'Bad Key.md', 'Has spaces in the filename.\n');
-  writeRuleFile(dir, 'toobig.md', 'x'.repeat(16385));
-  writeRuleFile(dir, 'valid-key.md', 'Fine.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-t3"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('Bad Key') || line.includes('invalid key'));
-    assert.ok(line.includes('toobig') && line.includes('16384 bytes'));
-
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 1);
-    assert.ok(decodeURIComponent(puts[0].url).includes('rule/valid-key'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T4: CRLF body normalizes to LF before hashing and PUTting', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  const crlfContent = 'Line one.\r\nLine two.\r\n';
-  writeRuleFile(dir, 'crlf.md', crlfContent);
-  writeConfig(dir, 'project:\n  rootId: "root-t4"\n');
-  const lfHash = sha256Hex(normalizeForFingerprint(Buffer.from(crlfContent)));
-  // Server already has the LF-normalized hash on file — expect NO PUT, proving the hook compares
-  // (and would send) the same normalized bytes it hashes.
-  const rules = [{ key: 'crlf', rulesVersion: lfHash }, ...bundledAtCurrentHash()];
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('6 in sync.')); // 1 workspace + 5 bundled
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T5: GET rules returns 404 — no PUTs, skip line present, config line still present', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'onlyone.md', 'content\n');
-  writeConfig(dir, 'project:\n  rootId: "root-t5"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesGetStatus: 404 }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('already in sync for root root-t5'));
-    assert.ok(line.includes('Rules:'));
-    assert.ok(line.includes('Rules: not synced — this server has no rules API.'), line);
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T6: no rules/ dir on SessionStart — bundled rules still listed; all current, zero PUTs', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-t6"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.equal(line, 'Task Orchestrator: project config already in sync for root root-t6. Rules: 5 in sync.');
-    assert.equal(requests.filter((r) => r.method === 'GET' && r.url.endsWith('/rules')).length, 1);
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('T7: a PUT returning 409 is reported as failed, exit code stays 0', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'conflict.md', 'content\n');
-  writeConfig(dir, 'project:\n  rootId: "root-t7"\n');
-  const server = await startFakeServer(
-    makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() }, putStatus: () => 409 }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    const line = out.hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('failed'));
-    assert.ok(line.includes('conflict'));
-    assert.ok(line.includes('409'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('parseRootId: resolves rootId from a project: block', () => {
   const content = 'project:\n  rootId: "abc-123"\n  name: "X"\n';
@@ -511,7 +514,7 @@ test('FileChanged for the real config.yaml (forward-slash path) proceeds through
     const res = spawnHook(dir, { hookEventName: 'FileChanged', filePath });
     assert.equal(res.status, 0);
     const out = assertEventContract(res, 'FileChanged');
-    assert.ok(statusLine(out).includes('API unreachable'));
+    assert.ok(statusLine(out).includes('config sync skipped'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -525,7 +528,7 @@ test('FileChanged for the real config.yaml (backslash path) proceeds through syn
     const res = spawnHook(dir, { hookEventName: 'FileChanged', filePath });
     assert.equal(res.status, 0);
     const out = assertEventContract(res, 'FileChanged');
-    assert.ok(statusLine(out).includes('API unreachable'));
+    assert.ok(statusLine(out).includes('config sync skipped'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -539,7 +542,7 @@ test('SessionStart invocations proceed through sync logic unchanged', () => {
     assert.equal(res.status, 0);
     const out = assertEventContract(res, 'SessionStart');
     assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('config sync skipped'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -552,7 +555,7 @@ test('fail-open: missing/garbage stdin still behaves like today (proceeds throug
     const res = spawnHook(dir, { stdin: '{not valid json' });
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('config sync skipped'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -565,7 +568,7 @@ test('fail-open: empty stdin still behaves like today (proceeds through sync log
     const res = spawnHook(dir, { stdin: '' });
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('config sync skipped'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -596,367 +599,6 @@ test('normalizeForFingerprint: does not mutate its input Buffer', () => {
 // trips the server's SQLITE_BUSY_SNAPSHOT (D1). Oracle: the brief's D2 text, not the hook's
 // current Promise.all implementation. Red-proof: today's Promise.all fan-out gives max in-flight
 // 3 for three rules; the fix must bring it down to 1 while still completing all three PUTs.
-
-test('S3: rule PUTs are sent one at a time \u2014 max in-flight is 1, all three still succeed', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'r1.md', 'Rule one.\n');
-  writeRuleFile(dir, 'r2.md', 'Rule two.\n');
-  writeRuleFile(dir, 'r3.md', 'Rule three.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-s3"\n');
-
-  let inFlight = 0;
-  let maxInFlight = 0;
-  const server = await startFakeServer((req, res) => {
-    requests.push({ method: req.method, url: req.url, body: req.rawBody });
-    if (req.method === 'GET' && req.url.startsWith('/api/v1/roots/') && req.url.includes('/config')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ relation: 'current' }));
-      return;
-    }
-    if (req.method === 'GET' && req.url.endsWith('/rules')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ rules: bundledAtCurrentHash() }));
-      return;
-    }
-    if (req.method === 'PUT' && req.url.includes('/plans/')) {
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      setTimeout(() => {
-        inFlight -= 1;
-        res.writeHead(200);
-        res.end();
-      }, 30);
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 3, 'all three rule PUTs must still happen');
-    assert.equal(
-      maxInFlight,
-      1,
-      `rule PUTs must be sent one at a time (serialized), got max in-flight ${maxInFlight}`,
-    );
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-// ─── 19bbe0b7: user scope, bundled rules + manifest policy, shared deadline, 404 wording ──────────
-//
-// Oracles are the frozen test-plan scenarios (S1..S15, labelled in each title) and task-scope
-// sections TS1-TS5; none is derived from the hook's current output.
-
-const BUNDLED_KEYS = [
-  'protocol.entry-seat',
-  'protocol.in-phase-seat',
-  'protocol.read-only-agent',
-  'commit-discipline',
-  'review-scoping',
-];
-const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
-
-function bundledNormalizedBytes(key) {
-  return normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)));
-}
-
-function putKey(url) {
-  return decodeURIComponent(url.split('/plans/')[1]);
-}
-
-function stopServerNow(server) {
-  if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
-  return stopServer(server);
-}
-
-/** Scripted fake API: config GET answers "current"; rules GET answers `rules`; each PUT answers 200 after `putDelayMs`. */
-function makeScriptedHandler({ requests, rules = [], putDelayMs = 0 }) {
-  return (req, res) => {
-    requests.push({ method: req.method, url: req.url, body: req.rawBody });
-    if (req.method === 'GET' && req.url.includes('/config')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ relation: 'current' }));
-      return;
-    }
-    if (req.method === 'GET' && req.url.endsWith('/rules')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ rules }));
-      return;
-    }
-    if (req.method === 'PUT' && req.url.includes('/plans/')) {
-      setTimeout(() => {
-        res.writeHead(200);
-        res.end();
-      }, putDelayMs);
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  };
-}
-
-/** User-scope spawn (decision.md Ruling 2): config lives under the pinned home; cwd is an empty fixture dir. */
-function spawnUserScope(home, cwd, apiUrl, { hookEventName = 'SessionStart' } = {}) {
-  const env = { ...process.env };
-  delete env.AGENT_CONFIG_DIR;
-  delete env.TASK_ORCHESTRATOR_API_TOKEN;
-  env.TASK_ORCHESTRATOR_HOME = home;
-  env.TASK_ORCHESTRATOR_API_URL = apiUrl;
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [HOOK], { env, cwd });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => {
-      stdout += d;
-    });
-    child.stderr.on('data', (d) => {
-      stderr += d;
-    });
-    child.on('error', rejectPromise);
-    child.on('close', (status) => resolvePromise({ status, stdout, stderr }));
-    child.stdin.end(JSON.stringify({ hook_event_name: hookEventName }));
-  });
-}
-
-test('S1: user scope — config under the pinned home syncs and the line says "user config"', async () => {
-  const home = tmpConfigDir();
-  const cwd = tmpConfigDir(); // empty: nothing to find by walk-up
-  const requests = [];
-  writeConfig(home, 'project:\n  rootId: "u1"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests, rules: bundledAtCurrentHash() }));
-  try {
-    const { port } = server.address();
-    const res = await spawnUserScope(home, cwd, `http://127.0.0.1:${port}`);
-    assert.equal(res.status, 0);
-    assert.ok(requests.some((r) => r.method === 'GET' && r.url.startsWith('/api/v1/roots/u1/config')));
-    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
-    assert.ok(line.includes('root u1'), line);
-    assert.ok(line.includes('user config'), line);
-    assert.ok(!line.includes('project config'), line);
-  } finally {
-    await stopServer(server);
-    rmSync(home, { recursive: true, force: true });
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test('S13: user config without a rootId — silent exit, no requests', async () => {
-  const home = tmpConfigDir();
-  const cwd = tmpConfigDir();
-  const requests = [];
-  writeConfig(home, 'retrospective:\n  mode: nudge\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests }));
-  try {
-    const { port } = server.address();
-    const res = await spawnUserScope(home, cwd, `http://127.0.0.1:${port}`);
-    assert.equal(res.status, 0);
-    assert.equal(res.stdout, '');
-    assert.equal(requests.length, 0);
-  } finally {
-    await stopServer(server);
-    rmSync(home, { recursive: true, force: true });
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test('S2: no workspace rules, none on server — all five bundled rules pushed with normalized bundled bytes', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-s2"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 5);
-    assert.deepEqual(new Set(puts.map((p) => putKey(p.url))), new Set(BUNDLED_KEYS.map((k) => `rule/${k}`)));
-    for (const p of puts) {
-      const key = putKey(p.url).slice('rule/'.length);
-      assert.deepEqual(p.body, bundledNormalizedBytes(key), `body for ${key}`);
-    }
-    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
-    for (const k of BUNDLED_KEYS) assert.ok(line.includes(k), `pushed list names ${k}: ${line}`);
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S5: a workspace rule with a bundled key wins — workspace bytes are PUT even when the server holds the bundled hash', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  const content = 'Workspace override of the entry seat.\n';
-  writeRuleFile(dir, 'protocol.entry-seat.md', content);
-  writeConfig(dir, 'project:\n  rootId: "root-s5"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests, rules: bundledAtCurrentHash() }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 1);
-    assert.equal(putKey(puts[0].url), 'rule/protocol.entry-seat');
-    assert.deepEqual(puts[0].body, normalizeForFingerprint(Buffer.from(content)));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S6: server holds an unknown hash for a bundled key — never overwritten; the other four are pushed', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-s6"\n');
-  const server = await startFakeServer(
-    makeScriptedHandler({ requests, rules: [{ key: 'commit-discipline', rulesVersion: 'a'.repeat(64) }] }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const keys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
-    assert.equal(keys.length, 4);
-    assert.ok(!keys.includes('rule/commit-discipline'));
-    assert.deepEqual(
-      new Set(keys),
-      new Set(BUNDLED_KEYS.filter((k) => k !== 'commit-discipline').map((k) => `rule/${k}`)),
-    );
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S8: rules list 404 with no workspace rules — "root <id> not found on this server", zero PUTs', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-s8"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesGetStatus: 404 }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
-    assert.equal(line, 'Task Orchestrator: project config already in sync for root root-s8.');
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S9: SessionStart shared deadline — protocol keys first, wall time bounded, deferrals reported', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  for (let i = 1; i <= 8; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
-  writeConfig(dir, 'project:\n  rootId: "root-s9"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests, putDelayMs: 1500 }));
-  try {
-    const { port } = server.address();
-    const started = Date.now();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    const wall = Date.now() - started;
-    assert.equal(res.status, 0);
-    assert.ok(wall < 9500, `wall time ${wall}ms must stay under the 8000ms budget plus margin`);
-    const putKeys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
-    const received = putKeys.length;
-    assert.ok(received >= 3, `received ${received} PUTs`);
-    assert.deepEqual(
-      new Set(putKeys.slice(0, 3)),
-      new Set(PROTOCOL_BUNDLED_KEYS.map((k) => `rule/${k}`)),
-      'first three PUTs are the protocol.* keys',
-    );
-    const line = statusLine(assertEventContract(res, 'SessionStart'));
-    const m = line.match(/(\d+) deferred to next session/);
-    assert.ok(m, `deferral clause missing: ${line}`);
-    const n = Number(m[1]);
-    assert.ok(n >= 13 - received && n <= 13 - received + 1, `deferred ${n} with ${received} of 13 PUTs received`);
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S10: FileChanged deadline (3500ms) — bounded wall time, deferrals reported, no bundled PUTs', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  for (let i = 1; i <= 4; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
-  writeConfig(dir, 'project:\n  rootId: "root-s10"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests, putDelayMs: 1500 }));
-  try {
-    const { port } = server.address();
-    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
-    const started = Date.now();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
-    const wall = Date.now() - started;
-    assert.equal(res.status, 0);
-    assert.ok(wall < 5000, `wall time ${wall}ms must stay under the 3500ms budget plus margin`);
-    const putKeys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
-    for (const k of BUNDLED_KEYS) assert.ok(!putKeys.includes(`rule/${k}`), `no bundled PUT on FileChanged: ${k}`);
-    const line = statusLine(assertEventContract(res, 'FileChanged'));
-    const m = line.match(/(\d+) deferred to next session/);
-    assert.ok(m, `deferral clause missing: ${line}`);
-    assert.ok(Number(m[1]) >= 1);
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S11: request order — config GET, rules GET, then protocol.* PUTs before every other key', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'aaa.md', 'Alphabetically first workspace rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-s11"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.equal(requests[0].method, 'GET');
-    assert.ok(requests[0].url.includes('/config'), requests[0].url);
-    assert.equal(requests[1].method, 'GET');
-    assert.ok(requests[1].url.endsWith('/rules'), requests[1].url);
-    const putKeys = requests.slice(2).map((r) => {
-      assert.equal(r.method, 'PUT');
-      return putKey(r.url);
-    });
-    assert.equal(putKeys.length, 6);
-    assert.deepEqual(new Set(putKeys.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS.map((k) => `rule/${k}`)));
-    assert.deepEqual(new Set(putKeys.slice(3)), new Set(['rule/aaa', 'rule/commit-discipline', 'rule/review-scoping']));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('S12: FileChanged pushes workspace rules only — no bundled sync', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-s12"\n');
-  const server = await startFakeServer(makeScriptedHandler({ requests }));
-  try {
-    const { port } = server.address();
-    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
-    assert.equal(res.status, 0);
-    const puts = requests.filter((r) => r.method === 'PUT');
-    assert.equal(puts.length, 1);
-    assert.equal(putKey(puts[0].url), 'rule/only');
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('S4: planBundledSync classifies absent / known-old / current by the manifest', () => {
   const curA = Buffer.from('current a\n');
@@ -1032,713 +674,1040 @@ test('formatRuleSyncSummary: deferredCount 0 changes nothing; a positive count n
   assert.ok(formatRuleSyncSummary({ ...base, deferredCount: 3 }).includes('3 deferred to next session'));
 });
 
-test('probe: replay against a stateful server — the second run pushes nothing', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  const store = new Map();
-  writeRuleFile(dir, 'aaa.md', 'Replay rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-replay"\n');
-  const server = await startFakeServer((req, res) => {
-    requests.push({ method: req.method, url: req.url });
-    if (req.method === 'GET' && req.url.includes('/config')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ relation: 'current' }));
-    } else if (req.method === 'GET' && req.url.endsWith('/rules')) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ rules: [...store].map(([key, rulesVersion]) => ({ key, rulesVersion })) }));
-    } else if (req.method === 'PUT' && req.url.includes('/plans/')) {
-      store.set(putKey(req.url).slice('rule/'.length), sha256Hex(req.rawBody));
-      res.writeHead(200);
-      res.end();
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
+// ---- outcomeOf / formatRejection / makeDeadline units ---------------------------------------------------------
+
+test('outcomeOf: null stays null; a legacy answer is code legacy', () => {
+  assert.equal(configSyncModule.outcomeOf(null), null);
+  const o = configSyncModule.outcomeOf({ ok: false, legacy: true, data: null, error: null, results: [], summary: null, reqId: null, httpStatus: 404 });
+  assert.equal(o.ok, false);
+  assert.equal(o.code, 'legacy');
+});
+
+test('outcomeOf: results[0] wins over the top-level partial_failure; with no results the top-level error is the outcome', () => {
+  const failedEl = errEl('not_found', { kind: 'config', id: 'r' });
+  const partial = configSyncModule.outcomeOf({
+    ok: false, legacy: false, data: { results: [failedEl] }, error: { code: 'partial_failure', kind: 'permanent', message: 'x' },
+    results: [failedEl], summary: { ok: 0, failed: 1 }, reqId: 'k7f3q9ab', httpStatus: 207,
   });
-  try {
-    const { port } = server.address();
-    const url = `http://127.0.0.1:${port}`;
-    await spawnHookAgainst(dir, url, { hookEventName: 'SessionStart' });
-    assert.equal(requests.filter((r) => r.method === 'PUT').length, 6);
-    requests.length = 0;
-    const second = await spawnHookAgainst(dir, url, { hookEventName: 'SessionStart' });
-    assert.equal(second.status, 0);
-    assert.equal(requests.filter((r) => r.method === 'PUT').length, 0);
-    assert.ok(JSON.parse(second.stdout).hookSpecificOutput.additionalContext.includes('Rules: 6 in sync.'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+  assert.equal(partial.ok, false);
+  assert.equal(partial.code, 'not_found');
+  const top = configSyncModule.outcomeOf({
+    ok: false, legacy: false, data: null, error: { code: 'unauthenticated', kind: 'permanent', message: 'no' },
+    results: [], summary: null, reqId: null, httpStatus: 401,
+  });
+  assert.equal(top.ok, false);
+  assert.equal(top.code, 'unauthenticated');
+  const good = configSyncModule.outcomeOf({
+    ok: true, legacy: false, data: { results: [okEl({ version: 3 })] }, error: null,
+    results: [okEl({ version: 3 })], summary: { ok: 1, failed: 0 }, reqId: 'k7f3q9ab', httpStatus: 200,
+  });
+  assert.equal(good.ok, true);
+  assert.equal(good.data.version, 3);
 });
 
-test('probe: duplicate server listing entries at the current hash — no PUT for bundled keys', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-dup"\n');
-  const listing = [...bundledAtCurrentHash(), ...bundledAtCurrentHash()];
-  const server = await startFakeServer(makeScriptedHandler({ requests, rules: listing }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('formatRejection (AC4, Amendment A1): four entries show the first three joined by "; " then " (+1 more)"', () => {
+  const entries = ['/a: first reason', '/b: second reason', '(document): third reason', '/d: fourth reason'];
+  const line = configSyncModule.formatRejection('root-fr4', entries);
+  assert.equal(typeof line, 'string');
+  assert.ok(line.includes('config sync rejected for root root-fr4'), line);
+  assert.ok(line.includes('/a: first reason; /b: second reason; (document): third reason'), line);
+  assert.ok(line.includes('(+1 more)'), line);
+  assert.ok(!line.includes('fourth reason'), line);
 });
 
-test('probe: CRLF workspace rule with a bundled key, server at the LF hash — no PUT, counted in sync', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'commit-discipline.md', 'Line one.\r\nLine two.\r\n');
-  writeConfig(dir, 'project:\n  rootId: "root-crlf-bundled"\n');
-  const lfHash = sha256Hex(Buffer.from('Line one.\nLine two.\n'));
-  const rules = [
-    ...bundledAtCurrentHash().filter((r) => r.key !== 'commit-discipline'),
-    { key: 'commit-discipline', rulesVersion: lfHash },
-  ];
-  const server = await startFakeServer(makeScriptedHandler({ requests, rules }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(!requests.some((r) => r.method === 'PUT'));
-    assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Rules: 5 in sync.'));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('formatRejection (AC4, Amendment A1): two entries are both shown and there is no "(+" suffix', () => {
+  const line = configSyncModule.formatRejection('root-fr2', ['/a: first reason', '/b: second reason']);
+  assert.ok(line.includes('config sync rejected for root root-fr2'), line);
+  assert.ok(line.includes('/a: first reason; /b: second reason'), line);
+  assert.ok(!line.includes('(+'), line);
 });
 
-// ─── 75f0e354: config-sync hardening (O2 404 wording, O3 unusable listing, O4 stalled body, O5/O6 deadline, O8, O13) ───
-//
-// Oracles are the frozen test-plan scenarios (S1..S19 of item 75f0e354, labelled "75f0e354 Sn") and task-scope TS1-TS7;
-// none is derived from the hook's current output. makeDeadline is reached through the namespace import so a
-// pre-fix tree fails these tests individually instead of failing module linking for the whole file.
+const BUDGET_MS = 8000;
+const timeoutResult = () => ({
+  ok: false, legacy: false, data: null,
+  error: { code: 'client_error', kind: 'transient', message: 'client_error: timeout', retryAfterMs: null, detail: { reason: 'timeout' }, fix: null, index: null },
+  results: [], summary: null, reqId: null, httpStatus: null,
+});
+const okResult = () => ({ ok: true, legacy: false, data: { results: [okEl({ x: 1 })] }, error: null, results: [okEl({ x: 1 })], summary: { ok: 1, failed: 0 }, reqId: 'k7f3q9ab', httpStatus: 200 });
 
-const NEW_FIXTURE_BUDGET_MS = 8000;
-
-/** Fully scriptable fake API. config GET/PUT, rules GET (status / raw body / stall / delay) and plan PUTs. */
-function makeCustomHandler({
-  requests,
-  configGet = { status: 200, body: { relation: 'current' }, delayMs: 0 },
-  configPut = { status: 200 },
-  rules = { status: 200, body: { rules: [] }, raw: undefined, stall: false, delayMs: 0 },
-  putDelayMs = 0,
-  putStatus = () => 200,
-}) {
-  return (req, res) => {
-    requests.push({ method: req.method, url: req.url, body: req.rawBody });
-    const isPlanPut = req.method === 'PUT' && req.url.includes('/plans/');
-    if (req.method === 'GET' && req.url.includes('/config')) {
-      setTimeout(() => {
-        res.writeHead(configGet.status, { 'Content-Type': 'application/json' });
-        res.end(configGet.status === 200 ? JSON.stringify(configGet.body) : '');
-      }, configGet.delayMs || 0);
-      return;
-    }
-    if (req.method === 'PUT' && !isPlanPut && req.url.includes('/config')) {
-      res.writeHead(configPut.status, { 'Content-Type': 'application/json' });
-      res.end(configPut.status === 200 ? JSON.stringify({ updatedAt: '2026-01-01T00:00:00Z' }) : '');
-      return;
-    }
-    if (req.method === 'GET' && req.url.endsWith('/rules')) {
-      setTimeout(() => {
-        res.writeHead(rules.status, { 'Content-Type': 'application/json' });
-        if (rules.status !== 200) {
-          res.end('');
-        } else if (rules.stall) {
-          res.write('{"rules":[');
-          // headers and a partial body are out; the body is never finished
-        } else {
-          res.end(rules.raw !== undefined ? rules.raw : JSON.stringify(rules.body));
-        }
-      }, rules.delayMs || 0);
-      return;
-    }
-    if (isPlanPut) {
-      setTimeout(() => {
-        res.writeHead(putStatus(req.url));
-        res.end();
-      }, putDelayMs);
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  };
+function stubbedDeadline({ nowRef, callImpl }) {
+  const start = 1_000_000;
+  nowRef.value = start;
+  return { start, deadline: configSyncModule.makeDeadline(BUDGET_MS, start, { now: () => nowRef.value, callImpl }) };
 }
 
-const planPuts = (requests) => requests.filter((r) => r.method === 'PUT' && r.url.includes('/plans/'));
-const lineOf = (res) => statusLine(JSON.parse(res.stdout));
-const UNUSABLE_CLAUSE = 'bundled rules skipped (unusable rules listing)';
-
-test('75f0e354 S1: unparseable 200 rules listing — workspace rule still pushed, no bundled PUT, clause present', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-n1"\n');
-  const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 200, raw: 'not json' } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const puts = planPuts(requests);
-    assert.equal(puts.length, 1, 'only the workspace rule is pushed');
-    assert.equal(putKey(puts[0].url), 'rule/only');
-    assert.ok(lineOf(res).includes(UNUSABLE_CLAUSE), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('75f0e354 S12a / AC6: remaining() <= 0 at send - callImpl is never called and the answer is a deadline result', async () => {
+  const nowRef = { value: 0 };
+  let calls = 0;
+  const { start, deadline } = stubbedDeadline({ nowRef, callImpl: async () => { calls += 1; return okResult(); } });
+  nowRef.value = start + BUDGET_MS;
+  assert.equal(deadline.remaining(), 0);
+  const res = await deadline.call('config', { ops: [] });
+  assert.equal(calls, 0, 'nothing is sent once the budget is spent');
+  assert.equal(res.ok, false);
+  assert.equal(res.error.code, 'client_error');
+  assert.equal(res.error.detail.reason, 'deadline');
+  assert.equal(deadline.isDeadlineResult(res), true);
 });
 
-test('75f0e354 S2: unusable listing shapes ([], {}, null, rules not an array) — zero PUTs, bundled skipped', async () => {
-  const bodies = ['[]', '{}', 'null', '{"rules":{}}', '{"rules":null}', '{"rules":"x"}', ''];
-  for (const raw of bodies) {
-    const dir = tmpConfigDir();
-    const requests = [];
-    writeConfig(dir, 'project:\n  rootId: "root-n2"\n');
-    const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 200, raw } }));
-    try {
-      const { port } = server.address();
-      const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-      assert.equal(res.status, 0, `body ${JSON.stringify(raw)}`);
-      assert.equal(planPuts(requests).length, 0, `body ${JSON.stringify(raw)} must cause no PUT`);
-      assert.ok(
-        lineOf(res).endsWith(`Rules: 0 in sync.; ${UNUSABLE_CLAUSE}`),
-        `body ${JSON.stringify(raw)}: ${lineOf(res)}`,
-      );
-    } finally {
-      await stopServer(server);
-      rmSync(dir, { recursive: true, force: true });
+test('75f0e354 S12b / AC6: a capped call (500ms left) gets timeoutMs 500 and its timeout counts as a deadline result', async () => {
+  const nowRef = { value: 0 };
+  const seen = [];
+  const { start, deadline } = stubbedDeadline({
+    nowRef,
+    callImpl: async (tool, body, opts) => { seen.push({ tool, body, timeoutMs: opts?.timeoutMs }); return timeoutResult(); },
+  });
+  nowRef.value = start + 7500;
+  const res = await deadline.call('docs_write', { ops: [{ op: 'upsert' }] });
+  assert.deepEqual(seen, [{ tool: 'docs_write', body: { ops: [{ op: 'upsert' }] }, timeoutMs: 500 }]);
+  nowRef.value = start + 7999; // classification was fixed at send time, not here
+  assert.equal(deadline.remaining(), 1);
+  assert.equal(deadline.isDeadlineResult(res), true);
+});
+
+test('75f0e354 S12c / AC6: an uncapped call (full budget left) gets the 2000ms cap and its timeout is NOT a deadline result', async () => {
+  const nowRef = { value: 0 };
+  const seen = [];
+  const { deadline } = stubbedDeadline({
+    nowRef,
+    callImpl: async (tool, body, opts) => { seen.push(opts?.timeoutMs); return timeoutResult(); },
+  });
+  const res = await deadline.call('config', { ops: [] });
+  assert.deepEqual(seen, [2000]);
+  assert.equal(deadline.isDeadlineResult(res), false);
+});
+
+test('75f0e354 S12d / AC6: a capped call that fails for another reason, or succeeds, is not a deadline result', async () => {
+  const nowRef = { value: 0 };
+  const mode = { result: null };
+  const { start, deadline } = stubbedDeadline({ nowRef, callImpl: async () => mode.result });
+  nowRef.value = start + 7500; // capped
+  mode.result = okResult();
+  assert.equal(deadline.isDeadlineResult(await deadline.call('config', {})), false, 'a capped success');
+  mode.result = { ...timeoutResult(), error: { ...timeoutResult().error, code: 'forbidden', detail: { scope: 'capability', required: 'write-docs' } } };
+  assert.equal(deadline.isDeadlineResult(await deadline.call('config', {})), false, 'a capped forbidden');
+});
+
+test('75f0e354 S12 probe: remaining 1 still sends (timeoutMs 1); remaining 0 does not; an ok answer passes through', async () => {
+  const nowRef = { value: 0 };
+  const seen = [];
+  const { start, deadline } = stubbedDeadline({
+    nowRef,
+    callImpl: async (tool, body, opts) => { seen.push(opts?.timeoutMs); return okResult(); },
+  });
+  nowRef.value = start + 7999;
+  const res = await deadline.call('config', {});
+  assert.deepEqual(seen, [1]);
+  assert.equal(res.ok, true);
+  assert.equal(res.data.results[0].x, 1);
+  nowRef.value = start + 8000;
+  await deadline.call('config', {});
+  assert.deepEqual(seen, [1], 'no second send at remaining 0');
+});
+
+// ---- S1-S6: the config phase -------------------------------------------------------------------------------------
+
+test('S1 (AC1): relation current - only config get and the rules listing; "already in sync"; no validate, push or upsert', async () => {
+  const { dir, fp } = makeProject('root-s1');
+  await withStub({ config: { version: 4, fingerprint: fp } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const out = assertEventContract(res, 'SessionStart');
+    const line = out.hookSpecificOutput.additionalContext;
+    assert.ok(line.includes('already in sync'), line);
+    assert.ok(line.includes('root-s1'), line);
+    assert.deepEqual(stub.tools(), ['config', 'docs_read']);
+    assert.deepEqual(stub.configOps(), [{ op: 'get', rootId: 'root-s1', fingerprint: fp }]);
+    assert.deepEqual(stub.ofTool('docs_read')[0].body, { select: 'list', rootId: 'root-s1', kind: 'rule', limit: 200 });
+    for (const c of stub.calls) {
+      assert.equal(c.method, 'POST');
+      assert.equal(c.url, `/api/v1/ops/${c.tool}`);
+      assert.match(c.contentType ?? '', /application\/json/);
     }
-  }
+  });
 });
 
-test('75f0e354 S15: listing elements that are null / non-object / lack a string key are ignored; usable listing otherwise', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-n15"\n');
-  const listing = [null, 5, { key: 7 }, ...bundledAtCurrentHash()];
-  const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 200, body: { rules: listing } } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.equal(planPuts(requests).length, 0);
-    assert.ok(lineOf(res).includes('5 in sync.'), lineOf(res));
-    assert.ok(!lineOf(res).includes(UNUSABLE_CLAUSE), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('75f0e354 S3: config current + rules route 404 + no workspace rules — the config line alone', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-n3"\n');
-  const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 404 } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.equal(lineOf(res), 'Task Orchestrator: project config already in sync for root root-n3.');
-    assert.equal(planPuts(requests).length, 0);
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('75f0e354 S4: config current + rules 404 + a workspace rule — "not synced — this server has no rules API.", no PUT', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'one.md', 'content\n');
-  writeConfig(dir, 'project:\n  rootId: "root-n4"\n');
-  const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 404 } }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(lineOf(res).endsWith('Rules: not synced — this server has no rules API.'), lineOf(res));
-    assert.ok(!lineOf(res).includes('not found'), lineOf(res));
-    assert.equal(planPuts(requests).length, 0);
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('75f0e354 S5: config GET 404 then config PUT 200 confirms the root — rules 404 with no workspace rules prints no Rules clause', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-n5"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({ requests, configGet: { status: 404 }, configPut: { status: 200 }, rules: { status: 404 } }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(
-      requests.some((r) => r.method === 'PUT' && !r.url.includes('/plans/') && r.url.includes('/roots/root-n5/config')),
-      'the config PUT must have happened (fixture precondition)',
-    );
+test('S2 (AC1): relation superseded - no validate or push; "config sync skipped" naming the server head time', async () => {
+  const { dir, fp } = makeProject('root-s2c');
+  await withStub({ config: { version: 9, fingerprint: 'e'.repeat(64), createdAt: '2026-01-02T03:04:05Z', history: [fp] } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
     const line = lineOf(res);
-    assert.ok(line.includes('root root-n5'), line);
-    assert.ok(!line.includes('Rules:'), line);
-    assert.ok(!line.includes('not found'), line);
-    assert.equal(planPuts(requests).length, 0);
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.ok(line.includes('config sync skipped'), line);
+    assert.ok(line.includes("older than the server's (updated 2026-01-02T03:04:05Z)"), line);
+    assert.ok(line.includes("your checkout's config.yaml"), line);
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get']);
+  });
 });
 
-test('75f0e354 S7: config GET 404, config PUT 404, rules 404 — root genuinely absent keeps "not found on this server"', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'one.md', 'content\n');
-  writeConfig(dir, 'project:\n  rootId: "root-n7"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({ requests, configGet: { status: 404 }, configPut: { status: 404 }, rules: { status: 404 } }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(lineOf(res).includes('root root-n7 not found on this server'), lineOf(res));
-    assert.ok(!lineOf(res).includes('no rules API'), lineOf(res));
-    assert.equal(planPuts(requests).length, 0);
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('75f0e354 S6: user scope superseded — scope-aware line names the user-level config.yaml and the server timestamp', async () => {
+test('75f0e354 S6 (AC1): user scope superseded - the line names the user-level config.yaml and the server time', async () => {
   const home = tmpConfigDir();
   const cwd = tmpConfigDir();
-  const requests = [];
-  writeConfig(home, 'project:\n  rootId: "u-n6"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({
-      requests,
-      configGet: { status: 200, body: { relation: 'superseded', updatedAt: '2026-01-02T03:04:05Z' } },
-    }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnUserScope(home, cwd, `http://127.0.0.1:${port}`);
-    assert.equal(res.status, 0);
+  const text = projectConfigText('u-n6');
+  writeConfig(home, text);
+  await withStub({ config: { version: 3, fingerprint: 'd'.repeat(64), createdAt: '2026-01-02T03:04:05Z', history: [fpOf(text)] } }, async (stub) => {
+    const res = await runUserScope(home, cwd, stub.url);
+    assert.equal(res.status, 0, res.stderr);
     const line = lineOf(res);
-    assert.ok(
-      line.includes("your user-level config.yaml is older than the server's (updated 2026-01-02T03:04:05Z)"),
-      line,
-    );
+    assert.ok(line.includes('config sync skipped'), line);
+    assert.ok(line.includes("your user-level config.yaml is older than the server's (updated 2026-01-02T03:04:05Z)"), line);
     assert.ok(!line.includes('checkout'), line);
-  } finally {
-    await stopServer(server);
-    rmSync(home, { recursive: true, force: true });
-    rmSync(cwd, { recursive: true, force: true });
-  }
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get']);
+  });
 });
 
-test('75f0e354 S6 probe: project scope superseded keeps the checkout wording', async () => {
+test('S3 (AC1-3): relation unknown and the document valid - get, validate, push in that order; push.expectedVersion is the get version; appended true says "synced"', async () => {
+  const { dir, normalized, fp } = makeProject('root-s3');
+  await withStub({ config: { version: 7, fingerprint: 'a'.repeat(64) } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.configOps(), [
+      { op: 'get', rootId: 'root-s3', fingerprint: fp },
+      { op: 'validate', rootId: 'root-s3', configYaml: normalized },
+      { op: 'push', rootId: 'root-s3', configYaml: normalized, expectedVersion: 7 },
+    ]);
+    const line = lineOf(res);
+    assert.match(line, /\bsynced .* to root root-s3/, line);
+    assert.ok(!line.includes('already in sync'), line);
+    for (const c of stub.calls) {
+      assert.equal(c.headers['if-match'], undefined, 'no If-Match compare-and-set');
+      assert.equal(c.headers['if-none-match'], undefined);
+    }
+  });
+});
+
+test('S4 (AC1, AC3): get not_found kind config - validate then push, and the push carries no expectedVersion key', async () => {
+  const { dir, normalized } = makeProject('root-s4');
+  await withStub({}, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const ops = stub.configOps();
+    assert.deepEqual(ops.map((o) => o.op), ['get', 'validate', 'push']);
+    assert.ok(!('expectedVersion' in ops[2]), JSON.stringify(ops[2]));
+    assert.equal(ops[2].configYaml, normalized);
+    assert.match(lineOf(res), /\bsynced .* to root root-s4/);
+  });
+});
+
+test('S5 (AC3): BOM + CRLF + a lone CR - validate and push carry the BOM-stripped, CRLF->LF text with the lone CR kept; get.fingerprint is that text\'s sha256', async () => {
   const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-n6p"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({
-      requests,
-      configGet: { status: 200, body: { relation: 'superseded', updatedAt: '2026-01-02T03:04:05Z' } },
-    }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    assert.ok(lineOf(res).includes("your checkout's config.yaml"), lineOf(res));
-    assert.ok(!lineOf(res).includes('user-level'), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const raw = '\ufeff# bom header\n' + 'project:\n  rootId: "root-s5"\n' + '# crlf line\r\n' + '# cr-only\rstill the same comment\n' + 'last: 1\r\n';
+  const cfgDir = join(dir, '.taskorchestrator');
+  mkdirSync(cfgDir, { recursive: true });
+  writeFileSync(join(cfgDir, 'config.yaml'), Buffer.from(raw, 'utf8'));
+  const normalized = expectedNormalized(raw);
+  assert.ok(!normalized.startsWith('\ufeff') && !normalized.includes('\r\n') && normalized.includes('cr-only\rstill'), 'fixture precondition');
+  await withStub({ config: { version: 2, fingerprint: 'c'.repeat(64) } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const [get, validate, push] = stub.configOps();
+    assert.equal(get.fingerprint, sha256Hex(Buffer.from(normalized, 'utf8')));
+    assert.equal(get.fingerprint, configFingerprint(Buffer.from(raw, 'utf8')));
+    assert.equal(validate.configYaml, normalized);
+    assert.equal(push.configYaml, normalized);
+    assert.equal(Buffer.compare(Buffer.from(push.configYaml, 'utf8'), Buffer.from(normalized, 'utf8')), 0);
+  });
 });
 
-test('75f0e354 S9: stalled rules-listing body — hook still exits and emits, bounded wall time, zero PUTs, bundled skipped', async () => {
+test('S5 probe (AC3): a double leading BOM loses exactly one', async () => {
   const dir = tmpConfigDir();
-  const requests = [];
-  writeConfig(dir, 'project:\n  rootId: "root-n9"\n');
-  const server = await startFakeServer(makeCustomHandler({ requests, rules: { status: 200, stall: true } }));
-  try {
-    const { port } = server.address();
-    const started = Date.now();
-    const res = await spawnScriptAgainst(HOOK, dir, `http://127.0.0.1:${port}`);
-    const wall = Date.now() - started;
-    assert.equal(res.killed, false, 'the hook must exit on its own despite the stalled body');
-    assert.equal(res.status, 0);
-    assert.ok(wall < 9500, `wall time ${wall}ms must stay under the 8000ms budget plus margin`);
-    assert.equal(planPuts(requests).length, 0);
-    assert.ok(lineOf(res).includes(UNUSABLE_CLAUSE), lineOf(res));
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
+  const raw = '\ufeff\ufeff# two boms\nproject:\n  rootId: "root-s5b"\n';
+  mkdirSync(join(dir, '.taskorchestrator'), { recursive: true });
+  writeFileSync(join(dir, '.taskorchestrator', 'config.yaml'), Buffer.from(raw, 'utf8'));
+  await withStub({}, async (stub) => {
+    await runHook(dir, stub.url);
+    const push = stub.configOps().find((o) => o.op === 'push');
+    assert.ok(push, 'the push happened');
+    assert.equal(push.configYaml, '\ufeff# two boms\nproject:\n  rootId: "root-s5b"\n');
+  });
+});
+
+test('S6 (AC3): appended false - "already in sync", never "synced"', async () => {
+  const { dir } = makeProject('root-s6c');
+  await withStub({
+    config: { version: 4, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'push'
+      ? batch([okEl({ rootId: 'root-s6c', version: 4, fingerprint: 'b'.repeat(64), appended: false, createdAt: '2026-01-01T00:00:00Z' })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.ok(line.includes('already in sync'), line);
+    assert.doesNotMatch(line, /\bsynced\b/);
+    assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
+  });
+});
+
+test('S3 probe (AC3): push warnings are listed after " WARNINGS: " in order joined by " | "; warnings absent or [] adds nothing', async () => {
+  for (const warnings of [['first warning', 'second warning'], undefined, []]) {
+    const { dir } = makeProject('root-warn');
+    await withStub({
+      override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'push'
+        ? batch([okEl({ rootId: 'root-warn', version: 1, fingerprint: 'f'.repeat(64), appended: true, createdAt: '2026-01-01T00:00:00Z', ...(warnings === undefined ? {} : { warnings: warnings.map((w) => ({ path: '/x', reason: w })) }) })])
+        : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      const line = lineOf(res);
+      if (warnings === undefined || warnings.length === 0) {
+        assert.ok(!line.includes('WARNINGS'), `warnings ${JSON.stringify(warnings)}: ${line}`);
+      } else {
+        assert.match(line, /\bsynced\b/);
+        assert.match(line, / WARNINGS: .*first warning.* \| .*second warning/, line);
+      }
+    });
   }
 });
 
-// ---- copied-hook harness (no production seam for the bundled-rules dir): the hook, its imports and a
-// test-written bundled-rules dir are copied into a throwaway tree so BUNDLED_RULES_DIR resolves there.
+test('S1 probe (AC1): relation absent - falls back to get.fingerprint === the local fingerprint', async () => {
+  const { dir, fp } = makeProject('root-norel');
+  const noRelation = (call) => {
+    if (call.tool !== 'config' || call.body.ops[0].op !== 'get') return undefined;
+    return batch([okEl({ rootId: 'root-norel', version: 5, fingerprint: call.body.ops[0].fingerprint === fp ? fp : 'z'.repeat(64), source: 'push', createdAt: '2026-01-01T00:00:00Z', configYaml: 'x: 1\n' })]);
+  };
+  await withStub({ override: noRelation }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.ok(lineOf(res).includes('already in sync'), lineOf(res));
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get'], 'equal fingerprints: nothing validated or pushed');
+  });
+  const other = makeProject('root-norel2');
+  const differs = (call) => (call.tool === 'config' && call.body.ops[0].op === 'get'
+    ? batch([okEl({ rootId: 'root-norel2', version: 5, fingerprint: 'z'.repeat(64), source: 'push', createdAt: '2026-01-01T00:00:00Z', configYaml: 'x: 1\n' })])
+    : undefined);
+  await withStub({ config: { version: 5, fingerprint: 'z'.repeat(64) }, override: differs }, async (stub) => {
+    await runHook(other.dir, stub.url);
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate', 'push']);
+  });
+});
 
-const HOOKS_SRC = fileURLToPath(new URL('..', import.meta.url));
+// ---- S12: get failures stop the run ---------------------------------------------------------------------------------
+
+test('S12 (AC1): get not_found kind root - "root <id> not found on this server"; one call, no write, no rules sync', async () => {
+  const { dir } = makeProject('root-s12');
+  writeRuleFile(dir, 'one.md', 'content\n');
+  await withStub({ override: (call) => (call.tool === 'config' ? batch([errEl('not_found', { kind: 'root', id: 'root-s12' })]) : undefined) }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(lineOf(res).includes('root root-s12 not found on this server'), lineOf(res));
+    assert.deepEqual(stub.tools(), ['config']);
+  });
+});
+
+test('S12 (AC1): every other get failure - one "config sync skipped" line, nothing but the get, no rules', async () => {
+  const failures = {
+    unauthenticated401: () => topError(401, 'unauthenticated', 'no or bad token'),
+    forbiddenElement: () => batch([errEl('forbidden', { scope: 'capability', required: 'read' })]),
+    forbiddenTop: () => topError(403, 'forbidden', 'nope', { scope: 'root', required: 'read' }),
+    invalidRequest: () => topError(400, 'invalid_request', 'bad request'),
+    internal: () => topError(500, 'internal', 'Internal server error'),
+    legacyBody: () => ({ status: 404, raw: '{"error":"Not Found"}' }),
+    plainText: () => ({ status: 200, raw: 'ok' }),
+  };
+  for (const [name, reply] of Object.entries(failures)) {
+    const { dir } = makeProject('root-s12b');
+    writeRuleFile(dir, 'one.md', 'content\n');
+    await withStub({ override: (call) => (call.tool === 'config' ? reply() : undefined) }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, `${name}: ${res.stderr}`);
+      const line = lineOf(res);
+      assert.equal(line.split('config sync skipped').length - 1, 1, `${name}: ${line}`);
+      assert.deepEqual(stub.tools(), ['config'], name);
+    });
+  }
+});
+
+test('S12 probe (AC1): an unreachable API is one "config sync skipped" line and no rules', async () => {
+  const { dir } = makeProject('root-s12c');
+  const res = await runHook(dir, UNREACHABLE_API_URL);
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(lineOf(res).includes('config sync skipped'), lineOf(res));
+});
+
+// ---- S9-S11: validate and push rejections ---------------------------------------------------------------------------
+
+const FOUR_ERRORS = [
+  { path: '/orchestration', reason: 'unknown key: orchestration' },
+  { path: '', reason: 'document is not a mapping' },
+  { path: '/traits/needs-x', reason: 'trait is not defined' },
+  { path: '/extras', reason: 'fourth error, never shown' },
+];
+const EXPECTED_SHOWN = '/orchestration: unknown key: orchestration; (document): document is not a mapping; /traits/needs-x: trait is not defined';
+
+function assertRejected(res, event, rootId, { shown = EXPECTED_SHOWN, more = ' (+1 more)' } = {}) {
+  const out = JSON.parse(res.stdout);
+  assert.equal(typeof out.systemMessage, 'string', `top-level systemMessage on ${event}: ${res.stdout}`);
+  assert.ok(out.systemMessage.includes('config sync rejected'), out.systemMessage);
+  assert.ok(out.systemMessage.includes(rootId), out.systemMessage);
+  if (shown !== null) {
+    assert.ok(out.systemMessage.includes(shown), out.systemMessage);
+    assert.ok(out.systemMessage.includes(more), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('fourth error'), out.systemMessage);
+  }
+  if (out.hookSpecificOutput !== undefined) assert.equal(out.hookSpecificOutput.hookEventName, event, res.stdout);
+  return out;
+}
+
+for (const event of ['SessionStart', 'FileChanged']) {
+  test(`S9 (AC2, AC4) ${event}: validate valid:false with four errors - no push; systemMessage lists the first three and "(+1 more)"`, async () => {
+    const { dir } = makeProject('root-s9');
+    await withStub({
+      config: { version: 3, fingerprint: 'a'.repeat(64) },
+      override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+        ? batch([okEl({ rootId: 'root-s9', valid: false, errors: FOUR_ERRORS, warnings: [] })])
+        : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url, { event });
+      assert.equal(res.status, 0, res.stderr);
+      assertRejected(res, event, 'root-s9');
+      assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate'], 'validate precedes every push and a rejection is never pushed');
+    });
+  });
+
+  test(`S10 (AC4) ${event}: push config_invalid (207) - exactly one validate and one push (never retried); systemMessage rejected`, async () => {
+    const { dir } = makeProject('root-s10');
+    await withStub({
+      config: { version: 3, fingerprint: 'a'.repeat(64) },
+      override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'push'
+        ? batch([errEl('config_invalid', { errors: FOUR_ERRORS }, 'config is invalid')])
+        : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url, { event });
+      assert.equal(res.status, 0, res.stderr);
+      assertRejected(res, event, 'root-s10');
+      assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate', 'push']);
+    });
+  });
+}
+
+test('S9 probe (AC4): the cap is exactly three - with three errors there is no "more", and an empty path prints "(document)"', async () => {
+  const { dir } = makeProject('root-s9b');
+  const three = FOUR_ERRORS.slice(0, 3);
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([okEl({ rootId: 'root-s9b', valid: false, errors: three, warnings: [] })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.systemMessage.includes(EXPECTED_SHOWN), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('more'), out.systemMessage);
+  });
+});
+
+test('S9 probe (AC4): a reason longer than 200 characters is cut in the user-visible line', async () => {
+  const { dir } = makeProject('root-s9c');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([okEl({ rootId: 'root-s9c', valid: false, errors: [{ path: '/p', reason: 'q'.repeat(600) }], warnings: [] })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.systemMessage.includes('q'.repeat(200)), 'kept 200');
+    assert.ok(!out.systemMessage.includes('q'.repeat(201)), 'cut at 200');
+  });
+});
+
+test('S9 probe (AC4): valid:false with errors [] is still a rejection - no push', async () => {
+  const { dir } = makeProject('root-s9d');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([okEl({ rootId: 'root-s9d', valid: false, errors: [], warnings: [] })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assertRejected(res, 'SessionStart', 'root-s9d', { shown: null });
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate']);
+  });
+});
+
+test('S10 probe (AC4): payload_too_large on validate and on push are rejections, never retried', async () => {
+  for (const failingOp of ['validate', 'push']) {
+    const { dir } = makeProject('root-ptl');
+    await withStub({
+      config: { version: 3, fingerprint: 'a'.repeat(64) },
+      override: (call) => (call.tool === 'config' && call.body.ops[0].op === failingOp
+        ? batch([errEl('payload_too_large', { max: 131072, actual: 200000 })])
+        : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assertRejected(res, 'SessionStart', 'root-ptl', { shown: null });
+      assert.ok(lineOf(res).includes('(document):'), `payload_too_large carries no path, so the entry reads (document): ${lineOf(res)}`);
+      const ops = stub.configOps().map((o) => o.op);
+      assert.equal(ops.filter((o) => o === failingOp).length, 1, `${failingOp} sent once: ${ops}`);
+      assert.ok(!ops.includes('push') || failingOp === 'push', `no push after a rejected validate: ${ops}`);
+    });
+  }
+});
+
+test('S9 (AC4): rules still sync after a rejection', async () => {
+  const { dir } = makeProject('root-s9e');
+  writeRuleFile(dir, 'afterreject.md', 'Rule text.\n');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([okEl({ rootId: 'root-s9e', valid: false, errors: FOUR_ERRORS, warnings: [] })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.upserts().map((u) => u.slug), ['afterreject']);
+    assert.ok(JSON.parse(res.stdout).systemMessage.includes('config sync rejected'));
+  });
+});
+
+test('S11 (AC3): push version_conflict - "config sync deferred", "updated concurrently", "will retry next session"; one push', async () => {
+  const { dir } = makeProject('root-s11c');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'push'
+      ? batch([errEl('version_conflict', { kind: 'config', id: 'root-s11c', expected: 3, actual: 4 })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.ok(line.includes('config sync deferred'), line);
+    assert.ok(line.includes('updated concurrently'), line);
+    assert.ok(line.includes('will retry next session'), line);
+    assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
+  });
+});
+
+// ---- rules: S7, S13 ------------------------------------------------------------------------------------------------
+
+const putKeyOf = (u) => u.slug;
+function inSyncProject(rootId) {
+  const p = makeProject(rootId);
+  return { ...p, configState: { version: 1, fingerprint: p.fp } };
+}
+
+test('S7 (AC5): changed + absent rules - exactly two upserts {op, rootId, kind:rule, slug, normalized body, expectedVersion listed/0}', async () => {
+  const { dir, configState } = inSyncProject('root-s7');
+  writeRuleFile(dir, 'changed.md', 'New changed content.\r\nSecond line.\r\n');
+  writeRuleFile(dir, 'missing.md', 'Brand new rule.\n');
+  writeRuleFile(dir, 'unchanged.md', 'Steady rule.\n');
+  await withStub({
+    config: configState,
+    docs: {
+      changed: { hash: 'f'.repeat(64), version: 3 },
+      unchanged: { hash: sha256Hex(Buffer.from('Steady rule.\n')), version: 6 },
+    },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const ups = stub.upserts();
+    assert.equal(ups.length, 2, JSON.stringify(ups));
+    const bySlug = Object.fromEntries(ups.map((u) => [u.slug, u]));
+    assert.deepEqual(bySlug.changed, { op: 'upsert', rootId: 'root-s7', kind: 'rule', slug: 'changed', body: 'New changed content.\nSecond line.\n', expectedVersion: 3 });
+    assert.deepEqual(bySlug.missing, { op: 'upsert', rootId: 'root-s7', kind: 'rule', slug: 'missing', body: 'Brand new rule.\n', expectedVersion: 0 });
+    for (const slug of Object.keys(bySlug)) assert.ok(!slug.startsWith('rule/'), 'rule documents carry no rule/ prefix');
+    const line = lineOf(res);
+    assert.ok(line.includes('changed') && line.includes('missing'), line);
+    assert.ok(line.includes('pushed 2'), line);
+  });
+});
+
+test('S7 probe (AC5): sequential - one docs_write in flight at a time, protocol.* keys before every other key', async () => {
+  const { dir, configState } = inSyncProject('root-s7b');
+  writeRuleFile(dir, 'aaa.md', 'Alphabetically first workspace rule.\n');
+  writeRuleFile(dir, 'bbb.md', 'Another.\n');
+  await withStub({ config: configState, seedBundled: false }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const slugs = stub.upserts().map(putKeyOf);
+    assert.equal(slugs.length, 7, slugs.join(','));
+    assert.deepEqual(new Set(slugs.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS), `protocol keys first: ${slugs}`);
+    assert.deepEqual(stub.tools().slice(0, 2), ['config', 'docs_read']);
+  });
+});
+
+test('S7 (AC5): in-flight is observed - upserts answered after 40ms never overlap', async () => {
+  const { dir, configState } = inSyncProject('root-s7c');
+  for (const n of ['r1', 'r2', 'r3']) writeRuleFile(dir, `${n}.md`, `Rule ${n}.\n`);
+  await withStub({
+    config: configState,
+    override: (call) => (call.tool === 'docs_write'
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 1, contentHash: 'a'.repeat(64), created: true })]), delayMs: 40 }
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.upserts().length, 3);
+    assert.equal(stub.maxInFlight(), 1, 'the three upserts must be serialized');
+  });
+});
+
+test('S7 probe (AC5): the hash compare is on LF-normalized bytes - a CRLF rule whose server hash is the LF hash is not re-pushed', async () => {
+  const { dir, configState } = inSyncProject('root-crlf');
+  writeRuleFile(dir, 'crlf.md', 'Line one.\r\nLine two.\r\n');
+  await withStub({ config: configState, docs: { crlf: { hash: sha256Hex(Buffer.from('Line one.\nLine two.\n')), version: 2 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.upserts().length, 0);
+    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res)); // 1 workspace + 5 bundled
+  });
+});
+
+test('S7 probe (AC5): a workspace rule with a bundled key wins - workspace bytes are upserted even when the server holds the bundled hash', async () => {
+  const { dir, configState } = inSyncProject('root-s5w');
+  const content = 'Workspace override of the entry seat.\n';
+  writeRuleFile(dir, 'protocol.entry-seat.md', content);
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const ups = stub.upserts();
+    assert.equal(ups.length, 1);
+    assert.equal(ups[0].slug, 'protocol.entry-seat');
+    assert.equal(ups[0].body, content);
+    assert.equal(ups[0].expectedVersion, 1);
+  });
+});
+
+test('S7 probe (AC5): docs_read list follows page.next - a rule on page two counts as in sync and is not re-pushed', async () => {
+  const { dir, configState } = inSyncProject('root-pages');
+  writeRuleFile(dir, 'zzz-last.md', 'Sorts last, so it lives on the final page.\n');
+  await withStub({
+    config: configState,
+    pageSize: 2,
+    docs: { 'zzz-last': { hash: sha256Hex(Buffer.from('Sorts last, so it lives on the final page.\n')), version: 4 } },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const lists = stub.ofTool('docs_read').map((c) => c.body);
+    assert.ok(lists.length >= 2, `paged: ${JSON.stringify(lists)}`);
+    assert.equal(lists[0].cursor, undefined);
+    assert.equal(lists[1].cursor, '2');
+    for (const l of lists) assert.deepEqual({ select: l.select, rootId: l.rootId, kind: l.kind, limit: l.limit }, { select: 'list', rootId: 'root-pages', kind: 'rule', limit: 200 });
+    assert.equal(stub.upserts().length, 0, JSON.stringify(stub.upserts()));
+    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res));
+  });
+});
+
+test('S7 probe (AC5): duplicate rows for one slug in the listing change nothing', async () => {
+  const { dir, configState } = inSyncProject('root-dup');
+  const rows = bundledAtCurrentHash().flatMap(({ key, hash }) => [key, key].map(() => ({ id: '00000000-0000-4000-8000-000000000001', kind: 'rule', slug: key, contentHash: hash, version: 1, createdAt: 'x', modifiedAt: 'x' })));
+  await withStub({
+    config: configState,
+    override: (call) => (call.tool === 'docs_read' ? listAnswer(rows) : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.upserts().length, 0);
+  });
+});
+
+test('T3 (AC5): an invalid key and an oversized body are skipped client-side; valid siblings still sync', async () => {
+  const { dir, configState } = inSyncProject('root-t3');
+  writeRuleFile(dir, 'Bad Key.md', 'Has spaces in the filename.\n');
+  writeRuleFile(dir, 'toobig.md', 'x'.repeat(16385));
+  writeRuleFile(dir, 'valid-key.md', 'Fine.\n');
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.ok(line.includes('Bad Key') || line.includes('invalid key'), line);
+    assert.ok(line.includes('toobig') && line.includes('16384 bytes'), line);
+    assert.deepEqual(stub.upserts().map(putKeyOf), ['valid-key']);
+  });
+});
+
+test('S13 (AC5): an upsert forbidden - failed, and the reason names write-docs; the run still exits 0', async () => {
+  const { dir, configState } = inSyncProject('root-s13');
+  writeRuleFile(dir, 'denied.md', 'content\n');
+  await withStub({
+    config: configState,
+    override: (call) => (call.tool === 'docs_write' ? batch([errEl('forbidden', { scope: 'capability', required: 'write-docs' })]) : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.ok(line.includes('failed'), line);
+    assert.ok(line.includes('denied'), line);
+    assert.ok(line.includes('write-docs'), line);
+    assert.ok(!line.includes('pushed'), line);
+  });
+});
+
+test('S13 (AC5): an upsert version_conflict is failed (version_conflict) and not retried; a top-level 401 is failed (unauthenticated)', async () => {
+  for (const [reply, code] of [
+    [() => batch([errEl('version_conflict', { kind: 'document', id: 'rule/conflict', expected: 1, actual: 2 })]), 'version_conflict'],
+    [() => topError(401, 'unauthenticated', 'bad token'), 'unauthenticated'],
+  ]) {
+    const { dir, configState } = inSyncProject('root-s13b');
+    writeRuleFile(dir, 'conflict.md', 'content\n');
+    await withStub({ config: configState, override: (call) => (call.tool === 'docs_write' ? reply() : undefined) }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      const line = lineOf(res);
+      assert.ok(line.includes('failed'), line);
+      assert.ok(line.includes(`conflict (${code})`), line);
+      assert.equal(stub.upserts().length, 1, 'one attempt per rule');
+    });
+  }
+});
+
+// ---- bundled rules: S16 --------------------------------------------------------------------------------------------------
+
+test('S16 (AC5): no workspace rules, none on the server - all five bundled rules pushed with normalized bundled bytes and expectedVersion 0', async () => {
+  const { dir, configState } = inSyncProject('root-s16');
+  await withStub({ config: configState, seedBundled: false }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const ups = stub.upserts();
+    assert.equal(ups.length, 5);
+    assert.deepEqual(new Set(ups.map(putKeyOf)), new Set(BUNDLED_KEYS));
+    for (const u of ups) {
+      assert.equal(u.kind, 'rule');
+      assert.equal(u.expectedVersion, 0);
+      assert.equal(u.body, bundledNormalizedBytes(u.slug).toString('utf8'), `body for ${u.slug}`);
+    }
+    const line = lineOf(res);
+    for (const k of BUNDLED_KEYS) assert.ok(line.includes(k), `pushed list names ${k}: ${line}`);
+  });
+});
+
+test('S16 (AC5): an unknown server hash for a bundled key is never overwritten; the other four are pushed and the key is named', async () => {
+  const { dir, configState } = inSyncProject('root-s16b');
+  await withStub({ config: configState, seedBundled: false, docs: { 'commit-discipline': { hash: 'a'.repeat(64), version: 5 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const slugs = stub.upserts().map(putKeyOf);
+    assert.equal(slugs.length, 4);
+    assert.ok(!slugs.includes('commit-discipline'));
+    assert.ok(lineOf(res).includes('kept unrecognized server copy: commit-discipline'), lineOf(res));
+  });
+});
+
+test('S16 / 75f0e354 S2 (AC5): unusable listing shapes - zero upserts and the "bundled rules skipped" clause', async () => {
+  const unusable = [{ items: {} }, {}, { items: null }, { items: 'x' }];
+  for (const data of unusable) {
+    const { dir, configState } = inSyncProject('root-unusable');
+    await withStub({
+      config: configState,
+      override: (call) => (call.tool === 'docs_read' ? { status: 200, json: { ok: true, data, meta: META } } : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, `${JSON.stringify(data)}: ${res.stderr}`);
+      assert.equal(stub.upserts().length, 0, `data ${JSON.stringify(data)} must cause no upsert`);
+      assert.ok(lineOf(res).endsWith('Rules: 0 in sync.; bundled rules skipped (unusable rules listing)'), `${JSON.stringify(data)}: ${lineOf(res)}`);
+    });
+  }
+});
+
+test('75f0e354 S15 (AC5): listing elements that are null / non-object / lack a string slug are ignored; the listing is usable', async () => {
+  const { dir, configState } = inSyncProject('root-s15e');
+  const good = bundledAtCurrentHash().map(({ key, hash }) => ({ id: '00000000-0000-4000-8000-000000000002', kind: 'rule', slug: key, contentHash: hash, version: 1, createdAt: 'x', modifiedAt: 'x' }));
+  await withStub({ config: configState, override: (call) => (call.tool === 'docs_read' ? listAnswer([null, 5, { slug: 7 }, ...good]) : undefined) }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.upserts().length, 0);
+    assert.ok(lineOf(res).includes('5 in sync.'), lineOf(res));
+    assert.ok(!lineOf(res).includes('unusable'), lineOf(res));
+  });
+});
+
+test('S16 (AC5): a plain-text or error-envelope listing never causes a bundled upsert and does not lose the config line', async () => {
+  const replies = [
+    () => ({ status: 200, raw: 'not json' }),
+    () => topError(403, 'forbidden', 'nope', { scope: 'capability', required: 'read' }),
+    () => topError(404, 'not_found', 'no such root', { kind: 'root', id: 'x' }),
+  ];
+  for (const reply of replies) {
+    const { dir, configState } = inSyncProject('root-badlist');
+    await withStub({ config: configState, override: (call) => (call.tool === 'docs_read' ? reply() : undefined) }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assert.ok(lineOf(res).includes('already in sync'), lineOf(res));
+      const bundled = stub.upserts().filter((u) => BUNDLED_KEYS.includes(u.slug));
+      assert.deepEqual(bundled, []);
+    });
+  }
+});
+
+// ---- copied-hook harness (no production seam for the bundled-rules dir): the hook directory and a
+// test-written bundled-rules dir are copied into a throwaway tree so the bundled dir resolves there.
+
+function copyTree(from, to) {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from)) {
+    if (from === HOOKS_SRC && entry === 'tests') continue;
+    const f = join(from, entry);
+    if (statSync(f).isDirectory()) copyTree(f, join(to, entry));
+    else writeFileSync(join(to, entry), readFileSync(f));
+  }
+}
 
 function makeCopiedHook({ key, body, manifestHashes }) {
-  const root = mkdtempSync(join(tmpdir(), 'to-copied-hook-'));
-  mkdirSync(join(root, 'hooks', 'lib'), { recursive: true });
+  const root = mkTemp('to-copied-hook-');
+  copyTree(HOOKS_SRC, join(root, 'hooks'));
   mkdirSync(join(root, 'bundled-rules'), { recursive: true });
-  for (const f of ['config-sync.mjs', 'api-client.mjs', 'config-locator.mjs', 'yaml-lite.mjs']) {
-    writeFileSync(join(root, 'hooks', f), readFileSync(join(HOOKS_SRC, f)));
-  }
-  for (const f of readdirSync(join(HOOKS_SRC, 'lib')).filter((n) => n.endsWith('.mjs'))) {
-    writeFileSync(join(root, 'hooks', 'lib', f), readFileSync(join(HOOKS_SRC, 'lib', f)));
-  }
   writeFileSync(join(root, 'bundled-rules', `${key}.md`), body);
   writeFileSync(join(root, 'bundled-rules', 'manifest.json'), JSON.stringify({ [key]: manifestHashes }));
   return { root, hook: join(root, 'hooks', 'config-sync.mjs') };
 }
 
-function spawnScriptAgainst(script, dir, apiUrl, hookEventName = 'SessionStart') {
-  const { env, home } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: apiUrl });
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [script], { env, cwd: dir });
-    let killed = false;
-    // A hook that never exits (e.g. a stalled body read with no deadline) must fail an assertion, not hang the suite.
-    const killTimer = setTimeout(() => {
-      killed = true;
-      child.kill('SIGKILL');
-    }, 12000);
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => {
-      stdout += d;
-    });
-    child.stderr.on('data', (d) => {
-      stderr += d;
-    });
-    child.on('error', (err) => {
-      clearTimeout(killTimer);
-      rmSync(home, { recursive: true, force: true });
-      rejectPromise(err);
-    });
-    child.on('close', (status) => {
-      clearTimeout(killTimer);
-      rmSync(home, { recursive: true, force: true });
-      resolvePromise({ status, stdout, stderr, killed });
-    });
-    child.stdin.end(JSON.stringify({ hook_event_name: hookEventName }));
-  });
-}
-
 const ZZ_BODY = 'Zz test bundled rule, current text.\n';
 const ZZ_OLD_HASH = sha256Hex(Buffer.from('Zz test bundled rule, an older shipped text.\n'));
-const ZZ_CUR_HASH = sha256Hex(normalizeForFingerprint(Buffer.from(ZZ_BODY)));
+const ZZ_CUR_HASH = sha256Hex(Buffer.from(ZZ_BODY));
 
-test('75f0e354 S10: known-old server copy (older manifest hash) is overwritten with the current bundled bytes', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
+test('S16 / 75f0e354 S10 (AC5): a known-old server copy (older manifest hash) is overwritten with the current bundled bytes at the listed version', async () => {
+  const { dir, configState } = inSyncProject('root-n10');
   const copied = makeCopiedHook({ key: 'zz-test', body: ZZ_BODY, manifestHashes: [ZZ_OLD_HASH, ZZ_CUR_HASH] });
-  writeConfig(dir, 'project:\n  rootId: "root-n10"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({ requests, rules: { status: 200, body: { rules: [{ key: 'zz-test', rulesVersion: ZZ_OLD_HASH }] } } }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnScriptAgainst(copied.hook, dir, `http://127.0.0.1:${port}`);
+  await withStub({ config: configState, seedBundled: false, docs: { 'zz-test': { hash: ZZ_OLD_HASH, version: 3 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url, { script: copied.hook });
     assert.equal(res.status, 0, res.stderr);
-    const puts = planPuts(requests);
-    assert.equal(puts.length, 1);
-    assert.equal(putKey(puts[0].url), 'rule/zz-test');
-    assert.deepEqual(puts[0].body, normalizeForFingerprint(Buffer.from(ZZ_BODY)));
+    assert.deepEqual(stub.upserts(), [{ op: 'upsert', rootId: 'root-n10', kind: 'rule', slug: 'zz-test', body: ZZ_BODY, expectedVersion: 3 }]);
     assert.ok(lineOf(res).includes('pushed 1 (zz-test)'), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(copied.root, { recursive: true, force: true });
-  }
+  });
 });
 
-test('75f0e354 S11: unrecognized server copy is never touched and is named in the line', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
+test('S16 / 75f0e354 S11 (AC5): an unrecognized server copy is never touched and is named in the line', async () => {
+  const { dir, configState } = inSyncProject('root-n11');
   const copied = makeCopiedHook({ key: 'zz-test', body: ZZ_BODY, manifestHashes: [ZZ_OLD_HASH, ZZ_CUR_HASH] });
-  writeConfig(dir, 'project:\n  rootId: "root-n11"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({ requests, rules: { status: 200, body: { rules: [{ key: 'zz-test', rulesVersion: 'b'.repeat(64) }] } } }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnScriptAgainst(copied.hook, dir, `http://127.0.0.1:${port}`);
+  await withStub({ config: configState, seedBundled: false, docs: { 'zz-test': { hash: 'b'.repeat(64), version: 2 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url, { script: copied.hook });
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(planPuts(requests).length, 0);
+    assert.equal(stub.upserts().length, 0);
     assert.ok(lineOf(res).includes('kept unrecognized server copy: zz-test'), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(copied.root, { recursive: true, force: true });
-  }
+  });
 });
 
-test('75f0e354 S11 probe: server copy at the current hash is in sync — no PUT and no "kept unrecognized" clause', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
+test('S16 probe (AC5): a server copy at the current hash is in sync - no upsert and no "kept unrecognized" clause', async () => {
+  const { dir, configState } = inSyncProject('root-n11b');
   const copied = makeCopiedHook({ key: 'zz-test', body: ZZ_BODY, manifestHashes: [ZZ_OLD_HASH, ZZ_CUR_HASH] });
-  writeConfig(dir, 'project:\n  rootId: "root-n11b"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({ requests, rules: { status: 200, body: { rules: [{ key: 'zz-test', rulesVersion: ZZ_CUR_HASH }] } } }),
-  );
-  try {
-    const { port } = server.address();
-    const res = await spawnScriptAgainst(copied.hook, dir, `http://127.0.0.1:${port}`);
+  await withStub({ config: configState, seedBundled: false, docs: { 'zz-test': { hash: ZZ_CUR_HASH, version: 2 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url, { script: copied.hook });
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(planPuts(requests).length, 0);
+    assert.equal(stub.upserts().length, 0);
     assert.ok(!lineOf(res).includes('kept unrecognized'), lineOf(res));
     assert.ok(lineOf(res).includes('1 in sync.'), lineOf(res));
-  } finally {
-    await stopServer(server);
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(copied.root, { recursive: true, force: true });
-  }
-});
-
-// ---- makeDeadline unit tests (S12): stubbed clock and fetch implementation
-
-function abortError() {
-  const e = new Error('This operation was aborted');
-  e.name = 'AbortError';
-  return e;
-}
-
-function stubbedDeadline({ nowRef, fetchImpl }) {
-  const start = 1_000_000;
-  nowRef.value = start;
-  return {
-    start,
-    deadline: configSyncModule.makeDeadline(NEW_FIXTURE_BUDGET_MS, start, { now: () => nowRef.value, fetchImpl }),
-  };
-}
-
-test('75f0e354 S12a: remaining() <= 0 at send — rejects without calling fetchImpl; counts as a deadline error', async () => {
-  const nowRef = { value: 0 };
-  let calls = 0;
-  const { start, deadline } = stubbedDeadline({
-    nowRef,
-    fetchImpl: async () => {
-      calls += 1;
-      return {};
-    },
   });
-  nowRef.value = start + NEW_FIXTURE_BUDGET_MS;
-  assert.equal(deadline.remaining(), 0);
-  let caught;
-  try {
-    await deadline.fetch('http://x/', {});
-  } catch (err) {
-    caught = err;
-  }
-  assert.ok(caught, 'must reject');
-  assert.equal(calls, 0, 'fetchImpl must not be called when the budget is spent');
-  assert.equal(deadline.isDeadlineError(caught), true);
 });
 
-test('75f0e354 S12b: capped request (500ms left) gets timeout 500; its in-flight abort is a deadline error even if the clock reads 7999 afterwards', async () => {
-  const nowRef = { value: 0 };
-  const seen = [];
-  const { start, deadline } = stubbedDeadline({
-    nowRef,
-    fetchImpl: async (url, opts, timeoutMs) => {
-      seen.push(timeoutMs);
-      throw abortError();
-    },
+test('S16 (AC5): FileChanged pushes workspace rules only - no bundled sync', async () => {
+  const { dir, configState } = inSyncProject('root-s12fc');
+  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
+  await withStub({ config: configState, seedBundled: false }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.upserts().map(putKeyOf), ['only']);
   });
-  nowRef.value = start + 7500;
-  let caught;
-  try {
-    await deadline.fetch('http://x/', {});
-  } catch (err) {
-    caught = err;
-  }
-  assert.deepEqual(seen, [500]);
-  nowRef.value = start + 7999; // classification was fixed at send time, not here
-  assert.equal(deadline.remaining(), 1);
-  assert.equal(deadline.isDeadlineError(caught), true);
 });
 
-test('75f0e354 S12c: uncapped request (full budget left) gets the 2000ms cap; its AbortError is NOT a deadline error', async () => {
-  const nowRef = { value: 0 };
-  const seen = [];
-  const { deadline } = stubbedDeadline({
-    nowRef,
-    fetchImpl: async (url, opts, timeoutMs) => {
-      seen.push(timeoutMs);
-      throw abortError();
-    },
-  });
-  let caught;
-  try {
-    await deadline.fetch('http://x/', {});
-  } catch (err) {
-    caught = err;
-  }
-  assert.deepEqual(seen, [2000]);
-  assert.equal(deadline.isDeadlineError(caught), false);
-});
+// ---- replay against a stateful server ------------------------------------------------------------------------------------
 
-test('75f0e354 S12d: json() — a body abort on a capped response is a deadline error; SyntaxError and uncapped aborts are not', async () => {
-  const nowRef = { value: 0 };
-  const mode = { jsonError: null };
-  const { start, deadline } = stubbedDeadline({
-    nowRef,
-    fetchImpl: async () => ({ json: async () => { throw mode.jsonError; } }),
-  });
-
-  nowRef.value = start + 7500; // capped
-  const capped = await deadline.fetch('http://x/', {});
-  mode.jsonError = abortError();
-  let e1;
-  try { await deadline.json(capped); } catch (err) { e1 = err; }
-  assert.equal(deadline.isDeadlineError(e1), true, 'capped body abort');
-
-  mode.jsonError = new SyntaxError('Unexpected token');
-  let e2;
-  try { await deadline.json(capped); } catch (err) { e2 = err; }
-  assert.ok(e2 instanceof SyntaxError, 'a parse error rejects unchanged');
-  assert.equal(deadline.isDeadlineError(e2), false, 'SyntaxError is not a deadline error');
-
-  nowRef.value = start; // uncapped
-  const uncapped = await deadline.fetch('http://x/', {});
-  mode.jsonError = abortError();
-  let e3;
-  try { await deadline.json(uncapped); } catch (err) { e3 = err; }
-  assert.equal(deadline.isDeadlineError(e3), false, 'uncapped body abort');
-});
-
-test('75f0e354 S12 probe: remaining 1 still sends (timeout 1); remaining 0 does not; json() passes a good body through', async () => {
-  const nowRef = { value: 0 };
-  const seen = [];
-  const { start, deadline } = stubbedDeadline({
-    nowRef,
-    fetchImpl: async (url, opts, timeoutMs) => {
-      seen.push(timeoutMs);
-      return { json: async () => ({ ok: true }) };
-    },
-  });
-  nowRef.value = start + 7999;
-  const res = await deadline.fetch('http://x/', {});
-  assert.deepEqual(seen, [1]);
-  assert.deepEqual(await deadline.json(res), { ok: true });
-  nowRef.value = start + 8000;
-  await assert.rejects(() => deadline.fetch('http://x/', {}));
-  assert.deepEqual(seen, [1], 'no second send at remaining 0');
-});
-
-test('75f0e354 S13: PUTs aborted in flight by the SessionStart deadline are deferred, never failed', async () => {
+test('probe: replay against the stateful stub - run one syncs config and six rules, run two pushes and upserts nothing', async () => {
   const dir = tmpConfigDir();
-  const requests = [];
+  writeConfig(dir, projectConfigText('root-replay'));
+  writeRuleFile(dir, 'aaa.md', 'Replay rule.\r\n');
+  await withStub({ seedBundled: false }, async (stub) => {
+    const first = await runHook(dir, stub.url);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(stub.upserts().length, 6);
+    assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
+    const before = stub.calls.length;
+    const second = await runHook(dir, stub.url);
+    assert.equal(second.status, 0, second.stderr);
+    const delta = stub.calls.slice(before);
+    assert.deepEqual(delta.map((c) => c.tool), ['config', 'docs_read'], 'run two: a get and a listing only');
+    assert.ok(lineOf(second).includes('already in sync'), lineOf(second));
+    assert.ok(lineOf(second).includes('Rules: 6 in sync.'), lineOf(second));
+  });
+});
+
+// ---- S15: the shared deadline ----------------------------------------------------------------------------------------------
+
+test('S15 / 75f0e354 S9 + S13 (AC5, AC6) SessionStart: shared 8000ms budget - protocol keys first, bounded wall time, in-flight upserts deferred (never failed), nothing sent after the deadline', async () => {
+  const { dir, configState } = inSyncProject('root-s9d2');
   for (let i = 1; i <= 8; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
-  writeConfig(dir, 'project:\n  rootId: "root-n13"\n');
-  const server = await startFakeServer(makeCustomHandler({ requests, putDelayMs: 1500 }));
-  try {
-    const { port } = server.address();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
-    assert.equal(res.status, 0);
-    const line = lineOf(res);
-    assert.ok(!line.includes('failed'), `an aborted-in-flight PUT must not be reported as failed: ${line}`);
-    const pushed = line.match(/pushed (\d+)/);
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    override: (call) => (call.tool === 'docs_write'
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 1, contentHash: 'a'.repeat(64), created: true })]), delayMs: 1500 }
+      : undefined),
+  }, async (stub) => {
+    const started = Date.now();
+    const res = await runHook(dir, stub.url);
+    const wall = Date.now() - started;
+    assert.equal(res.killed, false);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(wall < 9500, `wall time ${wall}ms must stay under the 8000ms budget plus margin`);
+    const slugs = stub.upserts().map(putKeyOf);
+    assert.ok(slugs.length >= 3, `received ${slugs.length} upserts`);
+    assert.deepEqual(new Set(slugs.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS), 'first three upserts are the protocol.* keys');
+    const line = statusLine(assertEventContract(res, 'SessionStart'));
+    assert.ok(!line.includes('failed'), `an aborted-in-flight upsert must not be reported as failed: ${line}`);
     const deferred = line.match(/(\d+) deferred to next session/);
-    assert.ok(deferred, line);
+    assert.ok(deferred, `deferral clause missing: ${line}`);
+    const pushed = line.match(/pushed (\d+)/);
     const x = pushed ? Number(pushed[1]) : 0;
     assert.equal(x + Number(deferred[1]), 13, `pushed ${x} + deferred ${deferred[1]} must cover all 13 rules: ${line}`);
-    const received = planPuts(requests).length;
-    assert.ok(received === x || received === x + 1, `server received ${received} PUTs, hook reports ${x} pushed`);
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.ok(slugs.length === x || slugs.length === x + 1, `server received ${slugs.length} upserts, hook reports ${x} pushed`);
+    const lastArrival = Math.max(...stub.calls.map((c) => c.at)) - started;
+    assert.ok(lastArrival < 8000 + 1000, `nothing may be sent once the budget is spent (last request at +${lastArrival}ms)`);
+  });
 });
 
-test('75f0e354 S14: the rules GET itself deferred by the FileChanged deadline — whole summary "sync deferred to next session", zero PUTs', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-n14"\n');
-  const server = await startFakeServer(
-    makeCustomHandler({
-      requests,
-      configGet: { status: 200, body: { relation: 'current' }, delayMs: 1900 },
-      rules: { status: 200, body: { rules: [] }, delayMs: 2500 },
-    }),
-  );
-  try {
-    const { port } = server.address();
-    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
+test('S15 / 75f0e354 S10 (AC6) FileChanged: 3500ms budget - bounded wall time, deferrals reported, no bundled upserts', async () => {
+  const { dir, configState } = inSyncProject('root-s10fc');
+  for (let i = 1; i <= 4; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    override: (call) => (call.tool === 'docs_write'
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 1, contentHash: 'a'.repeat(64), created: true })]), delayMs: 1500 }
+      : undefined),
+  }, async (stub) => {
     const started = Date.now();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
     const wall = Date.now() - started;
-    assert.equal(res.status, 0);
+    assert.equal(res.status, 0, res.stderr);
     assert.ok(wall < 5000, `wall time ${wall}ms must stay under the 3500ms budget plus margin`);
-    assert.equal(planPuts(requests).length, 0);
+    const slugs = stub.upserts().map(putKeyOf);
+    for (const k of BUNDLED_KEYS) assert.ok(!slugs.includes(k), `no bundled upsert on FileChanged: ${k}`);
+    const line = statusLine(assertEventContract(res, 'FileChanged'));
+    const m = line.match(/(\d+) deferred to next session/);
+    assert.ok(m, `deferral clause missing: ${line}`);
+    assert.ok(Number(m[1]) >= 1);
+    assert.ok(!line.includes('failed'), line);
+    const lastArrival = Math.max(...stub.calls.map((c) => c.at)) - started;
+    assert.ok(lastArrival < 3500 + 1000, `nothing may be sent once the budget is spent (last request at +${lastArrival}ms)`);
+  });
+});
+
+test('75f0e354 S14 (AC6): the rules listing deferred by the FileChanged deadline - "sync deferred to next session", zero upserts', async () => {
+  const { dir, configState } = inSyncProject('root-n14');
+  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
+  await withStub({
+    config: configState,
+    override: (call) => {
+      if (call.tool === 'config') return { ...batch([okEl({ rootId: 'root-n14', version: 1, fingerprint: configState.fingerprint, source: 'push', createdAt: 'x', configYaml: 'a: 1\n', relation: 'current' })]), delayMs: 1900 };
+      if (call.tool === 'docs_read') return { ...listAnswer([]), delayMs: 2500 };
+      return undefined;
+    },
+  }, async (stub) => {
+    const started = Date.now();
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(wall < 5000, `wall time ${wall}ms`);
+    assert.equal(stub.upserts().length, 0);
     assert.ok(lineOf(res).includes('sync deferred to next session'), lineOf(res));
     assert.ok(!lineOf(res).includes('failed'), lineOf(res));
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });
 
-test('75f0e354 S14b: budget spent before the first rule PUT — nothing sent, remaining rules deferred', async () => {
-  const dir = tmpConfigDir();
-  const requests = [];
-  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
-  writeConfig(dir, 'project:\n  rootId: "root-n14b"\n');
-  // config GET answers at 1900ms (uncapped, budget 3500), rules GET answers at 1500ms (capped at the ~1600ms left),
-  // so the clock reads ~3400ms+ when the first PUT is planned: remaining is <= ~100ms or spent.
-  const server = await startFakeServer(
-    makeCustomHandler({
-      requests,
-      configGet: { status: 200, body: { relation: 'current' }, delayMs: 1900 },
-      rules: { status: 200, body: { rules: [] }, delayMs: 1400 },
-      putDelayMs: 3000,
-    }),
-  );
-  try {
-    const { port } = server.address();
-    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
-    const started = Date.now();
-    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
-    const wall = Date.now() - started;
-    assert.equal(res.status, 0);
-    assert.ok(wall < 5000, `wall time ${wall}ms`);
+test('75f0e354 S9 (AC5, AC6): a stalled listing body - the hook still exits and emits, bounded wall time, zero upserts', async () => {
+  const { dir, configState } = inSyncProject('root-n9');
+  await withStub({ config: configState, override: (call) => (call.tool === 'docs_read' ? { stall: true } : undefined) }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.killed, false, 'the hook must exit on its own despite the stalled body');
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(res.wall < 9500, `wall time ${res.wall}ms must stay under the 8000ms budget plus margin`);
+    assert.equal(stub.upserts().length, 0);
     const line = lineOf(res);
-    // Either the last rule PUT is deferred ("1 deferred to next session") or, if scheduler jitter spends the
-    // budget inside the rules GET, the whole summary is deferred; both contain the deferral text and neither
-    // may report a failure or a push (the PUT can never complete: the server holds it for 3000ms).
-    assert.ok(line.includes('deferred to next session'), line);
-    assert.ok(!line.includes('failed'), line);
-    assert.ok(!line.includes('pushed'), line);
-  } finally {
-    await stopServerNow(server);
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.ok(line.includes('already in sync'), line);
+    assert.ok(line.includes('Rules:'), `the rules phase is reported, not silently dropped: ${line}`);
+    // Amendment A1 (b): a failed first docs_read listing page (an uncapped stall included) is reported as the
+    // listing failing with reason timeout; the bundled-skipped clause is only for an ok listing with non-list items.
+    assert.ok(line.includes('Rules: sync skipped - listing rules failed (timeout)'), line);
+    assert.equal(stub.upserts().length, 0, 'no docs_write call is sent after a failed listing');
+  });
+});
+
+// ---- Amendment A2 / review B1: a capped config validate that hits the shared deadline defers --------------------------------
+
+// get answers ok (relation unknown) after ~1700ms of the 3500ms FileChanged budget, so the validate call that
+// follows has only ~1800ms left and is capped below the 2000ms per-call ceiling. Oracle: task-scope AC6 ("a
+// timed-out capped call counts deferred, never failed") and Amendment A2 (a deadline result on validate renders
+// the push-style "config sync deferred - <reason>; will retry next session." line and sends no push).
+test('A2 / B1 (AC6) FileChanged: get answers at ~1700ms, validate and docs_read stall - "config sync deferred" with reason timeout, no push, zero docs_write', async () => {
+  const { dir } = makeProject('root-a2b1');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => {
+      if (call.tool === 'config' && call.body.ops[0].op === 'get') {
+        return { ...batch([okEl({ rootId: 'root-a2b1', version: 3, fingerprint: 'a'.repeat(64), source: 'push', createdAt: '2026-01-01T00:00:00Z', configYaml: 'project: {}\n', relation: 'unknown' })]), delayMs: 1700 };
+      }
+      if (call.tool === 'config' && call.body.ops[0].op === 'validate') return { stall: true };
+      if (call.tool === 'docs_read') return { stall: true };
+      return undefined;
+    },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.killed, false, 'the hook must exit on its own despite the stalled validate');
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(res.wall < 5500, `wall time ${res.wall}ms must stay near the 3500ms budget`);
+    const out = assertEventContract(res, 'FileChanged');
+    assert.equal(typeof out.systemMessage, 'string', res.stdout);
+    assert.ok(out.systemMessage.includes('config sync deferred'), out.systemMessage);
+    assert.ok(out.systemMessage.includes('timeout'), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('config sync failed'), `a deadline validate is deferred, never failed: ${out.systemMessage}`);
+    const ops = stub.configOps().map((o) => o.op);
+    assert.ok(ops.includes('validate'), `the validate call was sent (so the deadline, not a skip, ended it): ${ops}`);
+    assert.ok(!ops.includes('push'), `no push after a deferred validate: ${ops}`);
+    assert.equal(stub.ofTool('docs_write').length, 0, 'zero docs_write calls');
+  });
+});
+
+test('A2 / B1 control (AC4) FileChanged: validate answers 207 forbidden - "config sync failed - validate forbidden: needs read", no push', async () => {
+  const { dir } = makeProject('root-a2b1c');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([errEl('forbidden', { needs: 'read' }, 'needs read')])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.status, 0, res.stderr);
+    const out = assertEventContract(res, 'FileChanged');
+    assert.ok(out.systemMessage.includes('config sync failed - validate forbidden: needs read'), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('config sync deferred'), out.systemMessage);
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate']);
+  });
+});
+
+// ---- user scope, no URL, hostile root ids ----------------------------------------------------------------------------------
+
+test('S1 user scope (AC1): config under the pinned home syncs and the line says "user config"', async () => {
+  const home = tmpConfigDir();
+  const cwd = tmpConfigDir();
+  const text = projectConfigText('u1');
+  writeConfig(home, text);
+  await withStub({ config: { version: 1, fingerprint: fpOf(text) } }, async (stub) => {
+    const res = await runUserScope(home, cwd, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.configOps(), [{ op: 'get', rootId: 'u1', fingerprint: fpOf(text) }]);
+    const line = lineOf(res);
+    assert.ok(line.includes('root u1'), line);
+    assert.ok(line.includes('user config'), line);
+    assert.ok(!line.includes('project config'), line);
+  });
+});
+
+test('S13 user scope: a user config without a rootId - silent exit, no requests', async () => {
+  const home = tmpConfigDir();
+  const cwd = tmpConfigDir();
+  writeConfig(home, 'retrospective:\n  mode: nudge\n');
+  await withStub({}, async (stub) => {
+    const res = await runUserScope(home, cwd, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout, '');
+    assert.equal(stub.calls.length, 0);
+  });
 });
 
 // ---- 4e15b651 amendment A2: rootId validation and origin-only project URL, end to end ----
-// Oracle: task-scope A2.1-A2.5 (a rootId failing ^[A-Za-z0-9][A-Za-z0-9-]{0,63}$ is "no rootId":
-// config-sync returns before any request and prints nothing; a project-level client.json URL with a
-// path, query or fragment is ignored); test-plan S44-S46. Hermetic: no AGENT_CONFIG_DIR, cwd in a scratch
-// tree, ceiling at that tree's parent, TASK_ORCHESTRATOR_HOME at its own empty dir, a dummy token,
-// the fake server on loopback only.
+// Oracle: task-scope A2.1-A2.5 (a rootId failing ^[A-Za-z0-9][A-Za-z0-9-]{0,63}$ is "no rootId": config-sync
+// returns before any request and prints nothing; a project-level client.json URL with a path, query or fragment
+// is ignored); the rootId now travels in the request body, never in a path.
 
 const A2_TOKEN = 'dummy-token-a2';
 const A2_BAD_ROOT_IDS = [
@@ -1756,40 +1725,16 @@ const A2_BAD_ROOT_IDS = [
 ];
 
 function a2Tree(configText) {
-  const T = realpathSync(mkdtempSync(join(tmpdir(), 'to-a2-')));
+  const T = realpathSync(mkTemp('to-a2-'));
   const P = join(T, 'proj');
   writeConfig(P, configText);
   return { T, P };
 }
 
-function spawnA2(P, T, { apiUrl } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'to-a2-home-'));
-  const env = { ...process.env };
-  delete env.AGENT_CONFIG_DIR;
-  delete env.TASK_ORCHESTRATOR_API_URL;
-  env.TASK_ORCHESTRATOR_HOME = home;
-  env.TASK_ORCHESTRATOR_CEILING = T;
-  env.TASK_ORCHESTRATOR_API_TOKEN = A2_TOKEN;
+function spawnA2(P, T, { apiUrl, event = 'SessionStart' } = {}) {
+  const { env } = hermeticEnv({ TASK_ORCHESTRATOR_CEILING: T, TASK_ORCHESTRATOR_API_TOKEN: A2_TOKEN });
   if (apiUrl !== undefined) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [HOOK], { env, cwd: P });
-    let stdout = '';
-    child.stdout.on('data', (d) => { stdout += d; });
-    child.on('error', (err) => { rmSync(home, { recursive: true, force: true }); rejectPromise(err); });
-    child.on('close', (status) => {
-      rmSync(home, { recursive: true, force: true });
-      resolvePromise({ status, stdout });
-    });
-    child.stdin.end(JSON.stringify({ hook_event_name: 'SessionStart' }));
-  });
-}
-
-function a2Server(requests, auths) {
-  const inner = makeScriptedHandler({ requests, rules: bundledAtCurrentHash() });
-  return startFakeServer((req, res) => {
-    auths.push(req.headers.authorization);
-    inner(req, res);
-  });
+  return runScript(HOOK, { cwd: P, env, input: eventInput(event, join(P, '.taskorchestrator', 'config.yaml')) });
 }
 
 test('4e15b651 S44: config-sync parseRootId returns null for a value failing the rootId rule (bare and quoted); a plain token is unchanged', () => {
@@ -1800,39 +1745,27 @@ test('4e15b651 S44: config-sync parseRootId returns null for a value failing the
   assert.equal(parseRootId('project:\n  rootId: abc-123\n'), 'abc-123');
 });
 
-test('4e15b651 S45: a hostile rootId makes config-sync silent with zero requests; a plain token syncs under /api/v1/roots/<id>/', async () => {
+test('4e15b651 S45: a hostile rootId makes config-sync silent with zero requests; a plain token syncs with that id in the request body', async () => {
   for (const v of ['../../../_cluster/settings?x=', 'a/b', '..']) {
     const { T, P } = a2Tree(`project:\n  rootId: ${v}\n  name: A2\n`);
-    const requests = [];
-    const auths = [];
-    const server = await a2Server(requests, auths);
-    try {
-      const { port } = server.address();
-      const res = await spawnA2(P, T, { apiUrl: `http://127.0.0.1:${port}` });
+    await withStub({}, async (stub) => {
+      const res = await spawnA2(P, T, { apiUrl: stub.url });
       assert.equal(res.status, 0, v);
       assert.equal(res.stdout, '', v);
-      assert.equal(requests.length, 0, `${v} sent ${JSON.stringify(requests.map((r) => r.url))}`);
-    } finally {
-      await stopServerNow(server);
-      rmSync(T, { recursive: true, force: true });
-    }
+      assert.equal(stub.calls.length, 0, `${v} sent ${JSON.stringify(stub.calls.map((r) => r.url))}`);
+    });
   }
   const { T, P } = a2Tree('project:\n  rootId: root-a2\n  name: A2\n');
-  const requests = [];
-  const auths = [];
-  const server = await a2Server(requests, auths);
-  try {
-    const { port } = server.address();
-    const res = await spawnA2(P, T, { apiUrl: `http://127.0.0.1:${port}` });
-    assert.equal(res.status, 0);
-    assert.ok(requests.length >= 1);
-    assert.equal(requests[0].method, 'GET');
-    assert.match(requests[0].url, /^\/api\/v1\/roots\/root-a2\/config\?fingerprint=[0-9a-f]{64}$/);
-    for (const r of requests) assert.ok(r.url.startsWith('/api/v1/roots/root-a2/'), r.url);
-  } finally {
-    await stopServerNow(server);
-    rmSync(T, { recursive: true, force: true });
-  }
+  await withStub({}, async (stub) => {
+    const res = await spawnA2(P, T, { apiUrl: stub.url });
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(stub.calls.length >= 1);
+    assert.equal(stub.calls[0].method, 'POST');
+    assert.equal(stub.calls[0].url, '/api/v1/ops/config');
+    assert.equal(stub.calls[0].body.ops[0].op, 'get');
+    assert.equal(stub.calls[0].body.ops[0].rootId, 'root-a2');
+    for (const c of stub.calls) assert.match(c.url, /^\/api\/v1\/ops\/(config|docs_read|docs_write)$/);
+  });
 });
 
 test('4e15b651 S46: a project client.json URL with a path, query or fragment is ignored (zero requests); the bare origin syncs with the bearer token', async () => {
@@ -1840,35 +1773,67 @@ test('4e15b651 S46: a project client.json URL with a path, query or fragment is 
   const suffixes = ['/_cluster/settings#', '/v2/keys/k?value=owned&x=', '/prefix', '#', '?x='];
   for (const suffix of suffixes) {
     const { T, P } = a2Tree(`project:\n  rootId: ${UUID}\n  name: A2\n`);
-    const requests = [];
-    const auths = [];
-    const server = await a2Server(requests, auths);
-    try {
-      const { port } = server.address();
-      writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: `http://127.0.0.1:${port}${suffix}` }));
+    await withStub({}, async (stub) => {
+      writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: `${stub.url}${suffix}` }));
       const res = await spawnA2(P, T);
       assert.equal(res.status, 0, suffix);
       assert.equal(res.stdout, '', suffix);
-      assert.equal(requests.length, 0, `${suffix} sent ${JSON.stringify(requests.map((r) => r.url))}`);
-    } finally {
-      await stopServerNow(server);
-      rmSync(T, { recursive: true, force: true });
-    }
+      assert.equal(stub.calls.length, 0, `${suffix} sent ${JSON.stringify(stub.calls.map((r) => r.url))}`);
+    });
   }
   const { T, P } = a2Tree(`project:\n  rootId: ${UUID}\n  name: A2\n`);
-  const requests = [];
-  const auths = [];
-  const server = await a2Server(requests, auths);
-  try {
-    const { port } = server.address();
-    writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: `http://127.0.0.1:${port}` }));
+  await withStub({}, async (stub) => {
+    writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: stub.url }));
     const res = await spawnA2(P, T);
-    assert.equal(res.status, 0);
-    assert.ok(requests.length >= 1);
-    for (const r of requests) assert.ok(r.url.startsWith(`/api/v1/roots/${UUID}/`), r.url);
-    for (const a of auths) assert.equal(a, `Bearer ${A2_TOKEN}`);
-  } finally {
-    await stopServerNow(server);
-    rmSync(T, { recursive: true, force: true });
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(stub.calls.length >= 1);
+    for (const c of stub.calls) {
+      assert.equal(c.auth, `Bearer ${A2_TOKEN}`);
+      if (c.body.ops) for (const o of c.body.ops) assert.equal(o.rootId, UUID);
+      else assert.equal(c.body.rootId, UUID);
+    }
+  });
+});
+
+for (const event of ['SessionStart', 'FileChanged']) {
+  test(`S18 (AC9) ${event}: no API URL configured - exit 0 and silent (the same fixture does send once a URL resolves)`, async () => {
+    const { T, P } = a2Tree(projectConfigText('root-nourl'));
+    await withStub({}, async (stub) => {
+      const withUrl = await spawnA2(P, T, { apiUrl: stub.url, event });
+      assert.equal(withUrl.status, 0, withUrl.stderr);
+      assert.ok(stub.calls.length >= 1, 'fixture precondition: the config is found and a URL makes the hook call the API');
+    });
+    const without = await spawnA2(P, T, { event });
+    assert.equal(without.status, 0, without.stderr);
+    assert.equal(without.stdout, '');
+  });
+}
+
+// ---- S17 (AC8): the api-client shim is gone ----------------------------------------------------------------------------------
+
+function walkFiles(dir, out = []) {
+  for (const entry of readdirSync(dir)) {
+    if (entry === 'node_modules' || entry === '.git') continue;
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) walkFiles(p, out);
+    else out.push(p);
+  }
+  return out;
+}
+
+test('S17 (AC8): no file under the plugin names hooks/api-client.mjs or imports ./api-client.mjs from hooks/; the four repointed hooks import ./lib/api-client.mjs', () => {
+  const offenders = [];
+  for (const file of walkFiles(PLUGIN_ROOT)) {
+    const norm = file.split('\\').join('/');
+    if (norm.includes('/hooks/tests/')) continue;
+    if (!/\.(mjs|js|json|md|yaml|yml|txt)$/.test(file)) continue;
+    const text = readFileSync(file, 'utf8');
+    if (/hooks[\\/]+api-client\.mjs/.test(text)) offenders.push(`${norm}: names hooks/api-client.mjs`);
+    if (norm.includes('/hooks/') && !norm.includes('/hooks/lib/') && /from\s*['"]\.\/api-client\.mjs['"]/.test(text)) offenders.push(`${norm}: imports ./api-client.mjs`);
+  }
+  assert.deepEqual(offenders, []);
+  for (const f of ['enforce-actor-attribution.mjs', 'phase-guard.mjs', 'phase-guard-record.mjs', 'session-start.mjs']) {
+    const text = readFileSync(join(HOOKS_SRC, f), 'utf8');
+    assert.match(text, /from\s*['"]\.\/lib\/api-client\.mjs['"]/, `${f} imports ./lib/api-client.mjs`);
   }
 });
