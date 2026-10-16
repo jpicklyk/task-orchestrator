@@ -163,8 +163,8 @@ export function buildDispatch(roots, rootId) {
     `subagent_type "general-purpose", model "sonnet", run_in_background true, prompt: invoke ` +
     `/session-retrospective ${rootsJoined}, project ancestorId ${ancestorId}, work ONLY from durable MCP ` +
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
-    `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +
-    `container at depth 0 OUTSIDE any project root, return only the retrospective item UUID plus a 2-3 line ` +
+    `conversation context), write the retrospective into the 'Session Retrospectives' ` +
+    `container, return only the retrospective item UUID plus a 2-3 line ` +
     `headline. Do not dispatch more than one retrospective for this run; skip entirely if the feature still ` +
     `has active items.`;
 }

@@ -5,16 +5,8 @@
       "owner": "0bbdc4cc"
     },
     {
-      "file": "hooks/dispatch-model-guard.mjs",
-      "owner": "8cd79bc0"
-    },
-    {
       "file": "hooks/enforce-actor-attribution.mjs",
       "owner": "0bbdc4cc"
-    },
-    {
-      "file": "hooks/orchestration-context.mjs",
-      "owner": "8cd79bc0"
     },
     {
       "file": "hooks/phase-guard-record.mjs",
@@ -27,10 +19,6 @@
     {
       "file": "hooks/retro-trigger.mjs",
       "owner": "c7e43c6d"
-    },
-    {
-      "file": "hooks/session-start.mjs",
-      "owner": "8cd79bc0"
     },
     {
       "file": "hooks/skill-enforcement.mjs",
