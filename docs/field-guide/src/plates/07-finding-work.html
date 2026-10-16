@@ -33,14 +33,14 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="tscroll"><table class="qa">
     <thead><tr><th>The question</th><th>The call</th><th>What comes back</th></tr></thead>
     <tbody>
-      <tr><td>Where did we leave off?</td><td>get_context(since="…")</td><td>Active items, recent transitions with their actors, and stalled items.</td></tr>
-      <tr><td>Is anything unhealthy?</td><td>get_context()</td><td>Active, blocked and stalled items, plus a count of live and expired claims.</td></tr>
-      <tr><td>What does this item need?</td><td>get_context(itemId="a3f2")</td><td>Its gate status: which required notes exist, which are missing, and the guidance or skill for the next one.</td></tr>
-      <tr><td>What should I pick up?</td><td>get_next_item()</td><td>Ranked items that can start right now.</td></tr>
-      <tr><td>Why can't this start?</td><td>get_blocked_items()<br>get_next_status(itemId)</td><td>Each blocker, the role it must reach, and whether that is satisfied. Or a one-item verdict: Ready, Blocked or Terminal.</td></tr>
-      <tr><td>What is under this feature?</td><td>query_items(operation="overview", itemId)</td><td>The item, its direct children, and a count of children per role.</td></tr>
-      <tr><td>Have we seen this before?</td><td>query_items(operation="search", query="…")<br>query_notes(operation="search", query="…")</td><td>Relevance-ranked hits with snippets, across items or note bodies.</td></tr>
-      <tr><td>What must this note contain?</td><td>query_items(operation="schema", itemId)</td><td>The resolved schema with full description, guidance and skill for every note.</td></tr>
+      <tr><td>Where did we leave off?</td><td>items_read(select="history", since="…")<br>items_read(select="context")</td><td>Recent transitions, newest first, with their actors when the caller may see attribution, and the active and stalled items.</td></tr>
+      <tr><td>Is anything unhealthy?</td><td>items_read(select="context")</td><td>Active, blocked and stalled items, plus a count of live and expired claims.</td></tr>
+      <tr><td>What does this item need?</td><td>items_read(select="context", itemId="a3f2c91e")</td><td>Its gate status: which required notes exist, which are missing, and the key of the guidance and skill for the next one.</td></tr>
+      <tr><td>What should I pick up?</td><td>items_read(select="next")</td><td>Ranked items that can start right now.</td></tr>
+      <tr><td>Why can't this start?</td><td>items_read(select="blocked")<br>items_read(select="context", itemId)</td><td>Each blocker, the role it must reach, and whether that is satisfied. For one item, the gate status says whether it can advance and which gate fails first.</td></tr>
+      <tr><td>What is under this feature?</td><td>items_read(select="overview", itemId)</td><td>The item, its direct children, and a count of children per role.</td></tr>
+      <tr><td>Have we seen this before?</td><td>items_read(select="search", query="…")</td><td>Relevance-ranked hits with snippets, across item content, note bodies and documents.</td></tr>
+      <tr><td>What must this note contain?</td><td>items_read(select="schema", itemId, fields=["guidance"])</td><td>The resolved schema with the description, skill and (with <code>fields</code>) guidance text of every note.</td></tr>
     </tbody>
   </table></div>
   <p class="sub small">An item is <strong>stalled</strong> when it is in work or review and a required note for its current phase is still missing.</p>
@@ -79,21 +79,21 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <tbody>
       <tr><td><code>title</code>, <code>summary</code></td><td>Up to 500 and 2000 characters</td><td>What agents see in lists and search.</td></tr>
       <tr><td><code>type</code></td><td>One schema key, such as <code>bug-fix</code></td><td>Selects the schema, so the gates and the lifecycle mode.</td></tr>
-      <tr><td><code>tags</code></td><td>Comma-separated, lowercase with hyphens</td><td>Filtering, and schema selection when no type matches.</td></tr>
+      <tr><td><code>tags</code></td><td>A list, lowercase with hyphens</td><td>Filtering. Tags never select a schema.</td></tr>
       <tr><td><code>priority</code></td><td><code>high</code>, <code>medium</code> (default), <code>low</code></td><td>First key of the next-item ranking.</td></tr>
       <tr><td><code>complexity</code></td><td>1 to 10, optional</td><td>Second key of the ranking, and the <code>complexityMax</code> filter.</td></tr>
-      <tr><td><code>traits</code></td><td>Comma-separated trait names</td><td>Extra notes, seats, resources and dispatch for this one item.</td></tr>
+      <tr><td><code>traits</code></td><td>A list of trait names</td><td>Extra notes, seats, resources and dispatch for this one item.</td></tr>
       <tr><td><code>parentId</code></td><td>An item id, or none for a root</td><td>The hierarchy. Depth is computed and has no fixed limit.</td></tr>
     </tbody>
   </table></div>
-  <p class="sub small">The role is not among them: it only changes through <code>advance_item</code>. Ids accept a prefix of four or more hex characters. An ambiguous prefix is an error. The server never guesses.</p>
+  <p class="sub small">The role is not among them: it only changes through <code>advance</code>. Ids accept a full UUID or a prefix of 8 to 32 hex characters. An ambiguous prefix is an error. The server never guesses.</p>
 </section>
 
 <section>
   <h2>Read cheaply</h2>
   <div class="grid3">
     <div class="rule"><h3>Overview before detail</h3><p class="small">One <code>overview</code> call returns a feature, its children and per-role counts. That replaces a get per item plus their notes when all you need is status.</p></div>
-    <div class="rule"><h3>Note metadata first</h3><p class="small"><code>query_notes</code> lists notes without bodies by default and returns each body's length. Fetch a body only for the note you will read, filtered by <code>role</code>.</p></div>
+    <div class="rule"><h3>Note metadata first</h3><p class="small"><code>notes_read</code> <code>list</code> returns notes without bodies and gives each body's length. Fetch a body only for the note you will read, filtered by <code>role</code>.</p></div>
     <div class="rule"><h3>Search is ranked, not exact</h3><p class="small">Full-text search runs a substring index and a word-stem index and fuses the two rankings. Several words mean all of them. Scope it to a subtree, a role or tags.</p></div>
   </div>
 </section>
@@ -140,7 +140,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="grid3">
     <div class="rule"><h3>Set up a project</h3><p class="small"><code>/task-orchestrator:init</code> finds or creates the project root, writes <code>project: { rootId, name }</code> into the repo's <code>.taskorchestrator/config.yaml</code>, pushes the config and seeds the bundled rules.</p></div>
     <div class="rule"><h3>Set up a personal root</h3><p class="small"><code>init --user</code> creates one root for every directory that has no config of its own. It gives new items a home. It does not narrow what reads return.</p></div>
-    <div class="rule"><h3>Scope every read</h3><p class="small">With a project root, agents pass <code>ancestorId</code> on <code>query_items</code>, <code>get_next_item</code>, <code>get_context</code> and <code>get_blocked_items</code>, and parent new top-level items under the root.</p></div>
+    <div class="rule"><h3>Scope every read</h3><p class="small">With a project root, agents pass <code>ancestorId</code> on the <code>items_read</code> selects <code>list</code>, <code>search</code>, <code>next</code>, <code>context</code> and <code>blocked</code>, and parent new top-level items under the root.</p></div>
   </div>
 </section>
 
@@ -198,7 +198,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     if(cx<10)args.push('complexityMax='+cx);
     if(lim>1)args.push('limit='+lim);
     if(ic)args.push('includeClaimed=true');
-    $('call').textContent='get_next_item('+args.join(', ')+')';
+    $('call').textContent='items_read(select="next"'+(args.length?', '+args.join(', '):'')+')';
   }
   ['ob','cx','lim','ic'].forEach(function(id){$(id).addEventListener('change',run);});
   run();
