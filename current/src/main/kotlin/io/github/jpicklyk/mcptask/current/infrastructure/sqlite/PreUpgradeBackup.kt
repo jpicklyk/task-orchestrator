@@ -61,6 +61,9 @@ internal object PreUpgradeBackup {
     const val FIRST_UNPROTECTED_VERSION = 18
 
     private val logger = LoggerFactory.getLogger(PreUpgradeBackup::class.java)
+    private const val DISABLE_HINT = "Set UPGRADE_BACKUP=false to skip the backup and migrate without one."
+    private const val RETRY_AFTER_FIX = "Fix the cause and restart to retry; the database has not been migrated."
+
     private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
 
     fun run(
@@ -113,17 +116,17 @@ internal object PreUpgradeBackup {
             val parentDir = dbFile.absoluteFile.parentFile ?: File(".")
             val free = usableSpaceBytes(parentDir)
             if (free < needed) {
-                return fail("insufficient free space in ${parentDir.path} (need >= $needed bytes, have $free bytes)")
+                return fail("insufficient free space in ${parentDir.path} (need >= $needed bytes, have $free bytes)", RETRY_AFTER_FIX)
             }
 
             if (checkpointBusy(connection)) {
-                return fail("WAL checkpoint reported busy (a concurrent reader holds un-checkpointed WAL frames)")
+                return fail("WAL checkpoint reported busy (a concurrent reader holds un-checkpointed WAL frames)", RETRY_AFTER_FIX)
             }
 
             val target = File(parentDir, "${dbFile.name}.pre-4.0.${STAMP.format(now())}.bak")
             // An existing path (file or directory, even a dangling link) is never ours to touch or delete.
             if (Files.exists(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                return fail("backup path already exists, refusing to overwrite: ${target.path}")
+                return fail("backup path already exists, refusing to overwrite: ${target.path}", RETRY_AFTER_FIX)
             }
             var created = false
             try {
@@ -132,11 +135,11 @@ internal object PreUpgradeBackup {
                     Files.copy(dbFile.toPath(), out)
                 }
             } catch (e: FileAlreadyExistsException) {
-                return fail("backup path already exists, refusing to overwrite: ${target.path}")
+                return fail("backup path already exists, refusing to overwrite: ${target.path}", RETRY_AFTER_FIX)
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 if (created) runCatchingNonCancellation { target.delete() }
-                return fail("copy to ${target.path} failed: ${e.javaClass.simpleName}: ${e.message}")
+                return fail("copy to ${target.path} failed: ${e.javaClass.simpleName}: ${e.message}", RETRY_AFTER_FIX)
             }
 
             val problem = verify(target, stored, busyTimeoutMs)
@@ -149,8 +152,11 @@ internal object PreUpgradeBackup {
         }
     }
 
-    private fun fail(reason: String): BackupOutcome.Failed {
-        val detail = "Pre-upgrade backup failed: $reason. Set UPGRADE_BACKUP=false to skip the backup and migrate without one."
+    private fun fail(
+        reason: String,
+        hint: String = DISABLE_HINT,
+    ): BackupOutcome.Failed {
+        val detail = "Pre-upgrade backup failed: $reason. $hint"
         logger.error(detail)
         return BackupOutcome.Failed(detail)
     }
