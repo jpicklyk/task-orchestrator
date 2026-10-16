@@ -61,18 +61,6 @@
       "owner": "a28fa715"
     },
     {
-      "file": "skills/batch-complete/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/create-item/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/dependency-manager/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
       "file": "skills/init/SKILL.md",
       "owner": "a28fa715"
     },
@@ -125,18 +113,6 @@
       "owner": "a28fa715"
     },
     {
-      "file": "skills/orchestrate/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/post-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/pre-plan-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
       "file": "skills/ralph/SKILL.md",
       "owner": "cae5d141"
     },
@@ -163,14 +139,6 @@
     {
       "file": "skills/run-wave/references/snapshot.md",
       "owner": "cac1bffa"
-    },
-    {
-      "file": "skills/schema-workflow/SKILL.md",
-      "owner": "facd8579"
-    },
-    {
-      "file": "skills/status-progression/SKILL.md",
-      "owner": "facd8579"
     }
   ],
   "proseExceptions": []
