@@ -32,6 +32,8 @@ import {
     lockSourceDeferrals,
     buildPlanDoc,
     validatePlanDoc,
+    explainPlan,
+    sharedFileEdgeWarnings,
     ORCHESTRATOR_PROVENANCE_NOTE,
 } from "../run-planner-lib.mjs";
 
@@ -1783,4 +1785,83 @@ test("(3) <ownedTests> is left literal in both modes (substituted per seat at pr
         assert.equal(v.command, "node --test <ownedTests>", `${mode}: <ownedTests> must stay literal`);
         assert.equal(v.ownedTestsPattern, "\\.test\\.mjs$");
     }
+});
+
+
+// -- shared-file edge warning (febaca71) --
+
+const SF_PARENT = "f0000000-0000-4000-8000-0000000000f0";
+const SF_A = "a5000000-0000-4000-8000-000000000000";
+const SF_B = "b5000000-0000-4000-8000-000000000000";
+const BS = String.fromCharCode(92);
+
+function sharedFileSnapshot({ scopes, extra = {} } = {}) {
+    return baseSnapshot({
+        candidates: [
+            plainCandidate({ id: SF_A, short: "a5000000", parentId: SF_PARENT }),
+            plainCandidate({ id: SF_B, short: "b5000000", parentId: SF_PARENT }),
+        ],
+        blocked: [
+            { itemId: SF_B, role: "queue", blockType: "dependency", blockedBy: [{ itemId: SF_A, role: "queue", effectiveUnblockRole: "terminal", satisfied: false }] },
+        ],
+        schemas: { [SF_A]: plainSchema(), [SF_B]: plainSchema() },
+        parents: { [SF_PARENT]: { role: "work", canAdvance: true, missing: [] } },
+        scopes,
+        ...extra,
+    });
+}
+
+const SF_SCOPES = () => ({
+    [SF_A]: { files: ["/repo/docs/x.md"] },
+    [SF_B]: { files: ["docs" + BS + "x.md", "y.md"] },
+});
+
+const SF_TEXT = "shared-file edge a5000000 -> b5000000: same feature, both scopes name docs/x.md, and b5000000 states no dependency on a5000000 - per-file locks already serialize a shared file in one run; drop the edge unless it is a semantic dependency (record it as \"Depends on a5000000: <reason>\")";
+
+test("shared-file S1: same-feature edge with a shared file warns once and explain shows Warnings:", () => {
+    const result = buildPlanDoc(sharedFileSnapshot({ scopes: SF_SCOPES() }), { now: NOW, mode: "shared" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.meta.warnings, [SF_TEXT]);
+    assert.match(explainPlan(result.doc), /Warnings: shared-file edge/);
+});
+
+test("shared-file S2: a stated dependsOn (short or upper-case full id) suppresses the warning", () => {
+    for (const dep of ["a5000000", SF_A.toUpperCase()]) {
+        const scopes = SF_SCOPES();
+        scopes[SF_B].dependsOn = [dep];
+        const result = buildPlanDoc(sharedFileSnapshot({ scopes }), { now: NOW, mode: "shared" });
+        assert.equal(result.ok, true, JSON.stringify(result.errors));
+        assert.deepEqual(result.doc.meta.warnings, []);
+    }
+});
+
+test("shared-file S3: per-item mode never warns", () => {
+    const result = buildPlanDoc(sharedFileSnapshot({ scopes: SF_SCOPES() }), { now: NOW, mode: "per-item" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.meta.warnings, []);
+    assert.deepEqual(sharedFileEdgeWarnings(sharedFileSnapshot({ scopes: SF_SCOPES() }), "per-item"), []);
+});
+
+test("shared-file S4: no scopes, disjoint files or a glob give no warning and no Warnings: line", () => {
+    const cases = [
+        undefined,
+        { [SF_A]: { files: ["a.md"] }, [SF_B]: { files: ["b.md"] } },
+        { [SF_A]: { files: ["docs/*.md"] }, [SF_B]: { files: ["docs/*.md"] } },
+    ];
+    for (const scopes of cases) {
+        const result = buildPlanDoc(sharedFileSnapshot({ scopes }), { now: NOW, mode: "shared" });
+        assert.equal(result.ok, true, JSON.stringify(result.errors));
+        assert.deepEqual(result.doc.meta.warnings, []);
+        assert.doesNotMatch(explainPlan(result.doc), /Warnings:/);
+    }
+});
+
+test("shared-file S5: validateSnapshot rejects a non-candidate scopes key and non-string-array files", () => {
+    const bad = sharedFileSnapshot({ scopes: { "c5000000-0000-4000-8000-000000000000": { files: [] } } });
+    assert.ok(validateSnapshot(bad).errors.includes("scopes c5000000-0000-4000-8000-000000000000: not a candidate"));
+    const bad2 = sharedFileSnapshot({ scopes: { [SF_A]: { files: "x.md" } } });
+    assert.ok(validateSnapshot(bad2).errors.includes(`scopes ${SF_A}: files must be an array of strings`));
+    const bad3 = sharedFileSnapshot({ scopes: { [SF_A]: { files: [], dependsOn: 3 } } });
+    assert.ok(validateSnapshot(bad3).errors.includes(`scopes ${SF_A}: dependsOn must be an array of strings`));
+    assert.ok(validateSnapshot(sharedFileSnapshot({ scopes: [] })).errors.includes("scopes must be an object"));
 });

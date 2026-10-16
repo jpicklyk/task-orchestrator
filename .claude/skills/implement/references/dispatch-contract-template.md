@@ -62,6 +62,7 @@ proposal item's own status says "terminal".
 | `ef33c175` (#319) | negative and exhaustive claims must name their sweep | **Contract-change sweep** — moved to rule `contract-change-sweep` §3 (a planner's negative claim does not discharge the sweep); the general rule lives in `spec-quality/SKILL.md` → Blast Radius, and the `defect-class-siblings` field (`bb191508`) is its planning-seat special case |
 | `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `NOTE_BODY_TOO_LONG` |
 | `8ecc28f1` | plan state matrix (lifecycle states x surfaces) | **Items** - the State matrix column; the matrix itself is adopted in `spec-quality/SKILL.md` (Test Strategy) and the work-exit check in `/implement` Step 4c |
+| `1f635007` (#416) | per-file locks, not BLOCKS edges, for files shared in one worktree | **File ownership** - the Declared cross-stream overlaps line; materialization rule in `post-plan-workflow` step 2, advisory `shared-file edge` warning in `run-planner plan` |
 
 ---
 
@@ -196,7 +197,7 @@ edit on exact text (`old_string`), never on line numbers; an instruction that lo
 for an agent quotes the text, not a line range.
 
 Declared cross-stream overlaps: `<file → the streams that both write, and the serialization or
-arbitration rule that applies — or "none (explicitly verified by all planners)">`.
+arbitration rule that applies ("lock-serialized, no BLOCKS edge" for a file shared in one worktree) — or "none (explicitly verified by all planners)">`.
 Untouched by implementers: `<files no stream may write — wiring/entry points, shared harnesses,
 and all docs>`.
 Scope decisions (orchestrator): `<in/out-of-scope calls a reader would otherwise re-litigate,
