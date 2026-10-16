@@ -705,6 +705,23 @@ test('outcomeOf: results[0] wins over the top-level partial_failure; with no res
   assert.equal(good.data.version, 3);
 });
 
+test('formatRejection (AC4, Amendment A1): four entries show the first three joined by "; " then " (+1 more)"', () => {
+  const entries = ['/a: first reason', '/b: second reason', '(document): third reason', '/d: fourth reason'];
+  const line = configSyncModule.formatRejection('root-fr4', entries);
+  assert.equal(typeof line, 'string');
+  assert.ok(line.includes('config sync rejected for root root-fr4'), line);
+  assert.ok(line.includes('/a: first reason; /b: second reason; (document): third reason'), line);
+  assert.ok(line.includes('(+1 more)'), line);
+  assert.ok(!line.includes('fourth reason'), line);
+});
+
+test('formatRejection (AC4, Amendment A1): two entries are both shown and there is no "(+" suffix', () => {
+  const line = configSyncModule.formatRejection('root-fr2', ['/a: first reason', '/b: second reason']);
+  assert.ok(line.includes('config sync rejected for root root-fr2'), line);
+  assert.ok(line.includes('/a: first reason; /b: second reason'), line);
+  assert.ok(!line.includes('(+'), line);
+});
+
 const BUDGET_MS = 8000;
 const timeoutResult = () => ({
   ok: false, legacy: false, data: null,
@@ -1597,9 +1614,10 @@ test('75f0e354 S9 (AC5, AC6): a stalled listing body - the hook still exits and 
     const line = lineOf(res);
     assert.ok(line.includes('already in sync'), line);
     assert.ok(line.includes('Rules:'), `the rules phase is reported, not silently dropped: ${line}`);
-    // The wording of a listing that times out (neither "unusable" per AC5 nor a deadline cut per AC6) is not fixed
-    // by the spec; the 3.x oracle (75f0e354 S9) asserted the bundled-skipped clause. Raised in test-manifest as an
-    // arbitration item rather than resolved by reading the hook.
+    // Amendment A1 (b): a failed first docs_read listing page (an uncapped stall included) is reported as the
+    // listing failing with reason timeout; the bundled-skipped clause is only for an ok listing with non-list items.
+    assert.ok(line.includes('Rules: sync skipped - listing rules failed (timeout)'), line);
+    assert.equal(stub.upserts().length, 0, 'no docs_write call is sent after a failed listing');
   });
 });
 
