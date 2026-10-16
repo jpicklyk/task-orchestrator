@@ -55,7 +55,8 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 ## Startup, Readiness, and Health Checks
 
 Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
-`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
+`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UPGRADE_BACKUP` (the verified pre-upgrade
+copy of a 3.x database could not be taken, see "Upgrading from 3.x" below), `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
 `TRANSPORT_START` — the transport (stdio session creation or the HTTP Ktor engine) failed to
 bind/start after DB init and schema update had already succeeded — or `DATA_STEPS` — a data step
 failed or a registered once step is unapplied, see "Data steps" below). A
@@ -625,6 +626,7 @@ One row per operator-facing environment variable the server reads. This table is
 | `RETENTION_EVENTS_DAYS` | `180` | [Data Retention](#data-retention) |
 | `RETENTION_LEASE_HISTORY_DAYS` | `365` | [Data Retention](#data-retention) |
 | `SCHEMA_MODE` | `migrate` | [Schema management](#schema-management-locking-and-startup-integrity) |
+| `UPGRADE_BACKUP` | `true` | [Schema management](#schema-management-locking-and-startup-integrity) |
 
 ## Release Gates
 
@@ -953,6 +955,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FTS_INTEGRITY` | `startup` | `startup` runs the FTS5 `integrity-check` on every FTS table at each start and rebuilds a desynced one. `off` skips only that check and logs one WARN; the inventory check (every FTS table and trigger exists) still runs and still fails startup when an object is missing. Any other value falls back to `startup` with a WARN. |
+| `UPGRADE_BACKUP` | `true` | Before the first 4.0 migration of a 3.x database (stored schema version 17 or lower), copy the database file to `<db>.pre-4.0.<yyyyMMdd'T'HHmmss'Z'>.bak` (UTC) beside it and verify the copy; a copy that cannot be taken or verified fails startup as `UPGRADE_BACKUP` before any migration. `false` skips the copy with one WARN. Accepts `true`/`1`/`yes` and `false`/`0`/`no` (case-insensitive); an unset variable is `true` and any other value falls back to `true` with a WARN. A new database, one already at version 18 or later, `FLYWAY_REPAIR=true` and `SCHEMA_MODE=validate` never copy. See "Upgrading from 3.x". |
 | `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence, but only over a valid value: an invalid `SCHEMA_MODE` fails startup even with `FLYWAY_REPAIR=true`. `validate` is not read-only: it takes the `<db>.migrate.lock` file, may create an empty database file when `DATABASE_PATH` points at a missing path, and still runs the FTS integrity check, which may rebuild an index. |
 
 - **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
@@ -973,6 +976,162 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 - **Topology.** One HTTP server hub is the recommended shape; one stdio process per session against the
   same database file is supported (the migration lock serializes their boots). Stop every 3.x process
   before upgrading: a 3.x binary does not fail closed on a newer database.
+
+---
+
+## Upgrading from 3.x
+
+The procedure for the first 4.0 start on a volume that a 3.x server wrote. What changes in the data and the wire contract is listed under "Upgrading from 3.x" in [CHANGELOG.md](../../CHANGELOG.md); this section is the order of operations, what the server does for you, and how to undo it.
+
+In the commands, `<volume>` is the Docker volume holding the database (`mcp-task-data` in the quick-start) and `<name>` is a backup file name of your choosing. The commands assume the image defaults: the database is `/app/data/current-tasks.db` (the image's `DATABASE_PATH=data/current-tasks.db`, relative to `/app`) and the server runs as uid 1001. If you set `DATABASE_PATH`, use that file name wherever `current-tasks.db` appears below.
+
+### 1. Stop every 3.x process
+
+Stop the 3.x container, and close every client that runs a 3.x stdio session against the same volume. A 3.x binary does not fail closed on a newer database, so a 3.x process left running can write to a file the 4.0 migrations are about to rewrite.
+
+```bash
+docker stop <3.x container>
+```
+
+### 2. Back up the whole volume
+
+```bash
+docker run --rm -v <volume>:/app/data -v "$(pwd)":/backup alpine tar czf /backup/<name>.tgz -C /app/data .
+```
+
+On PowerShell write `${PWD}` in place of `"$(pwd)"`. List the archive to confirm it is readable:
+
+```bash
+docker run --rm -v "$(pwd)":/backup alpine tar tzf /backup/<name>.tgz
+```
+
+Keep the archive off the volume. The `.bak` the server writes in step 3 sits on the same volume as the database, so it does not protect against losing the volume itself.
+
+### 3. First 4.0 start
+
+`UPGRADE_BACKUP` is on by default, so no flag is needed. The container must stay up for you to watch readiness, so start it detached over HTTP (a stdio container exits when its stdin closes). The example publishes the port on loopback only and uses the local, unauthenticated `/mcp` mode, which is acceptable only because of that loopback mapping; for a shared host start the container the way you will run it (see "`/mcp` Authentication - Read First"). Replace `<4.0 image>` with the 4.0 image you are deploying.
+
+```bash
+docker run -d --name to-4.0 -v <volume>:/app/data -p 127.0.0.1:3001:3001 -e MCP_TRANSPORT=http -e MCP_ALLOW_UNAUTHENTICATED=true <4.0 image>
+```
+
+Wait for the readiness marker (`READINESS_FILE`, which the image's `HEALTHCHECK` tests; see "Startup, Readiness, and Health Checks"). The loop stops when the container is healthy, or prints its log and stops if it exits:
+
+```bash
+until [ "$(docker inspect --format '{{.State.Health.Status}}' to-4.0)" = healthy ]; do
+  [ "$(docker inspect --format '{{.State.Running}}' to-4.0)" = true ] || { docker logs to-4.0; break; }
+  sleep 5
+done
+```
+
+The first start is slower than a normal boot: it runs the migrations, the startup compaction and the data steps before the marker is written. On a large database raise the container's `--start-period`, or the health will read `unhealthy` while the start is still progressing.
+
+**What the server does before the first migration.** After the database opens and before Flyway runs, the server takes a safety copy when all of these hold:
+
+- the highest successful version in `flyway_schema_history` is 17 or lower, or the file has user tables and no `flyway_schema_history` at all (a 3.x Direct-mode file; it counts as unversioned and is copied); and
+- the binary's newest classpath migration is 18 or higher.
+
+It then runs these steps in order, and the first one that fails stops the sequence:
+
+1. Free space: the directory holding the database must have at least the size of the database file plus its `-wal` file free (exactly that much is enough).
+2. `PRAGMA wal_checkpoint(TRUNCATE)`; a busy result is a failure, because a copy could miss WAL frames.
+3. Copy the database file to `<db name>.pre-4.0.<yyyyMMdd'T'HHmmss'Z'>.bak` in the same directory (for the default file, `current-tasks.db.pre-4.0.20261016T142700Z.bak`; the stamp is UTC). The file is created with `CREATE_NEW`: a path that already exists fails the run and is never overwritten or deleted.
+4. Verify the copy: `PRAGMA integrity_check` must return `ok` and its highest successful `flyway_schema_history` version must equal the source's. A copy that fails verification is deleted.
+
+On success the INFO log line `Pre-upgrade backup written: <path> (schema version <n>)` names the `.bak`, and Flyway then migrates. If any step fails, startup fails as `UPGRADE_BACKUP` before any migration runs, the process exits non-zero and the readiness marker is never written; the log (and the exception) carry the cause. Fix it (free space, a leftover `.bak` at the same-second path) and start again, or set `UPGRADE_BACKUP=false` to migrate without a copy.
+
+When the server does not copy:
+
+- `UPGRADE_BACKUP=false` skips the copy with one WARN naming the database and the versions involved. The WARN is logged only when a copy would otherwise have been taken.
+- A new database (the file is missing or empty, or has no user tables) and a database already at version 18 or higher (every later boot, once the first one migrated it) are never copied.
+- `FLYWAY_REPAIR=true` and `SCHEMA_MODE=validate` never migrate, so they never copy; neither does an invalid `SCHEMA_MODE`, which fails startup on its own. An in-memory database is never copied.
+
+Limits to know about:
+
+- Only the database file is copied, after the checkpoint. The `.bak` is not a copy of the volume: config files, the `.migrate.lock` file and any other file on the volume are not in it.
+- The server never deletes a `.bak`. Each boot that still finds a version of 17 or lower takes a new one with a new stamp, so a start that failed midway can leave several. Delete them once the 4.0 volume is accepted.
+- A `.bak` holds the pre-upgrade data in full, including anything the 4.0 migrations later scrub. Protect and purge it like the database (see "Proof handling" -> Remediation).
+
+### 4. Check the result
+
+List the volume to see the `.bak`, and the log for the line above:
+
+```bash
+docker run --rm -v <volume>:/app/data alpine ls -l /app/data
+docker logs to-4.0
+```
+
+**Data steps.** The `data_steps` table has one row per once step that has run: `name`, `applied_at` (UTC), `rows_affected` and `binary_version`. In Claude Code the `check_schema_version` command (`.claude/commands/check_schema_version.md`) prints the last ten `flyway_schema_history` rows and the `data_steps` rows; without it, this prints the latest three migrations and the `data_steps` rows:
+
+```bash
+docker run --rm -v <volume>:/data alpine sh -c "apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 -header -column /data/current-tasks.db 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 3; SELECT name, applied_at, rows_affected, binary_version FROM data_steps ORDER BY applied_at;'"
+```
+
+A missing row for a once step that is registered fails startup as `DATA_STEPS`, so every row you expect is there on a healthy start. An every-boot step leaves no row.
+
+**Config warnings.** The global config file is imported at every boot; a legacy 3.x top-level key in it is accepted as a stored warning. `GET /api/v1/info` returns them as `configWarnings` (an empty array when there are none). The route needs the REST API enabled and an authenticated caller, and the step 3 example has the API off: to read it, start with `API_ENABLED=true` and a credential mode (see "Enabling the REST API" and [api-rest.md](api-rest.md)). A global file carrying 3.x plugin sections is expected to show them; move those settings under `extensions.claude-code`.
+
+### 5. Roll back
+
+Rolling back discards everything 4.0 wrote after the upgrade. A 3.x binary cannot open a database at version 26 or later, so the file must go back to its 3.x state first.
+
+1. Stop and remove the 4.0 container:
+
+   ```bash
+   docker stop to-4.0 && docker rm to-4.0
+   ```
+
+2. Restore the database, either from the server's `.bak` or from your tar archive.
+
+   From the `.bak` (use the file name `ls` showed in step 4). Removing the `-wal` and `-shm` files matters: the 4.0 database ran in WAL mode, and a leftover WAL from it must not be replayed onto the restored file.
+
+   ```bash
+   docker run --rm -v <volume>:/app/data alpine sh -c "cd /app/data && rm -f current-tasks.db-wal current-tasks.db-shm && cp <db>.pre-4.0.<stamp>.bak current-tasks.db && chown 1001:1001 current-tasks.db"
+   ```
+
+   Or from the archive, replacing the whole volume content:
+
+   ```bash
+   docker run --rm -v <volume>:/app/data -v "$(pwd)":/backup alpine sh -c "find /app/data -mindepth 1 -delete && tar xzf /backup/<name>.tgz -C /app/data"
+   ```
+
+   If you restore or copy the data into a NEW Docker volume, the data directory must be owned by uid 1001 before the first boot (the server runs as uid 1001 and cannot write a backup or the database otherwise): run `docker run --rm -v <volume>:/app/data alpine chown -R 1001:1001 /app/data`.
+
+3. Start the 3.16 image with the flags you used before the upgrade. Use the exact tag; never `latest`, which follows the newest release and would start 4.0 again.
+
+   ```bash
+   docker run -d --name to-3.16 -v <volume>:/app/data -p 127.0.0.1:3001:3001 -e MCP_TRANSPORT=http ghcr.io/jpicklyk/task-orchestrator:3.16.0
+   ```
+
+To confirm the restored file is a 3.x database, run the step 4 query again: the latest `flyway_schema_history` row reads version 17, and the `data_steps` query fails with `no such table`.
+
+<!-- Source citations for the behavioural claims in "Upgrading from 3.x" (docs seat, task ff08e631; line numbers as of that commit, search by symbol if they drift). P = current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/sqlite/PreUpgradeBackup.kt, D = infrastructure/sqlite/DatabaseManager.kt, S = bootstrap/CurrentMcpServer.kt, A = infrastructure/config/AppConfig.kt (all under the same package root).
+ 1 eligibility, stored <= 17 and binary target >= 18: P:59, P:97-99, P:186-202 (max successful version).
+ 2 a file with user tables and no flyway_schema_history is unversioned (null) and still copied: P:95-97, P:186-193.
+ 3 binary target = latest classpath migration: D:240-257; none found = SkippedNoMigration: D:236.
+ 4 step order free space -> checkpoint -> copy -> verify: P:108-114, P:116-118, P:120-129, P:138-142.
+ 5 free space needs db + -wal, equality proceeds: P:108-112.
+ 6 busy checkpoint is a failure: P:116-118, P:204-207.
+ 7 file name and UTC stamp: P:62, P:120.
+ 8 CREATE_NEW, an existing path fails and is never overwritten or deleted: P:121-124, P:127, P:131-136.
+ 9 verification (integrity_check = ok, same max version), failed copy deleted: P:138-142, P:154-176.
+10 INFO log line: P:143.
+11 Failed maps to Reason.UPGRADE_BACKUP before updateSchema(): S:201-206, StartupOutcome.kt:37-38.
+12 non-zero exit, readiness marker not written: CurrentMain.kt:76; marker written only later, S:443 and S:584; cleared first, S:169.
+13 failure detail carries the cause and the UPGRADE_BACKUP=false hint: P:148-151.
+14 UPGRADE_BACKUP=false skips with one WARN, only when a copy was otherwise due: P:100-106; default true A:93; EnvBoolean.parse A:165, EnvBoolean.kt:41-47 and :59-71 (unset = default, unrecognized = default with WARN).
+15 new database never copied (missing, empty, no user tables): P:89, P:95.
+16 already >= 18 never copied (every later boot): P:97-98.
+17 FLYWAY_REPAIR, SCHEMA_MODE=validate and an invalid SCHEMA_MODE never copy: D:227-235.
+18 in-memory or non-file URL never copied: P:72, StartupCompaction.kt:212-227, D:226.
+19 only the database file is copied, after the checkpoint: P:116-129.
+20 the server never deletes a .bak (only a copy it just made and failed to verify); each boot still at <= 17 copies again with a new stamp: P:97, P:120, P:134-140.
+21 image defaults: Dockerfile:40 (WORKDIR /app), :47 (uid 1001), :52 (VOLUME /app/data), :74-75 (HEALTHCHECK on READINESS_FILE), :88 (DATABASE_PATH=data/current-tasks.db).
+22 the database runs in WAL mode (stale -wal/-shm must not survive a restore): D:135.
+23 data_steps columns: current/src/main/resources/db/migration/sqlite/V23__Data_Steps.sql:14-19; an unapplied once step fails startup as DATA_STEPS: S:251-254 and the "Data steps" paragraph above.
+24 configWarnings on GET /api/v1/info, authenticated: api-rest.md:826-850, ServiceRoutes.kt:58-60.
+25 a 3.x binary cannot open a V26 or later database: CHANGELOG.md:14.
+-->
 
 ---
 
@@ -1348,6 +1507,8 @@ If you stop the server while claims are active, no data is lost — claim record
 ### Upgrade Behavior
 
 Schema migrations (Flyway) run at server startup before any tool calls are accepted. Existing claim columns are preserved across migrations unless a migration explicitly modifies them — V6 reshaped the `claim_expires_at` index but claim row data was untouched. Future migrations that touch the four claim columns will be flagged in the release notes.
+
+The first 4.0 start on a 3.x volume is a larger step than a routine migration: see "Upgrading from 3.x" for the backup, the checks and the rollback.
 
 A migration that runs while no client is connected has no claim-state implications. A migration that runs immediately after a restart, with claim records already in place, applies normally — claim records survive because they are row data, not schema.
 

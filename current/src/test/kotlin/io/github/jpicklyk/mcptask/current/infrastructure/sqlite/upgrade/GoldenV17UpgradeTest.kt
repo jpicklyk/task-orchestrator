@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.BackupOutcome
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
@@ -231,6 +232,46 @@ class GoldenV17UpgradeTest {
         }
     }
 
+    @Test
+    fun `S2 production order takes a verified V17 bak before updateSchema migrates the live database`() {
+        val golden = GoldenV17.copyTo(File(dir, "backup.sqlite"))
+        val url = UpgradeHarness.urlFor(golden)
+        val latest = UpgradeHarness.migrationVersions(dir).max()
+        assertTrue(latest > 17, "fixture: this binary carries migrations after V17")
+
+        val manager = DatabaseManager(appConfig = AppConfig.fromEnv { null })
+        var bak: File? = null
+        try {
+            assertTrue(manager.initialize(url), "initialize must accept the golden database")
+            val outcome = manager.runPreUpgradeBackup()
+            assertTrue(outcome is BackupOutcome.Copied, "an unmigrated 3.x file is backed up before updateSchema, got $outcome")
+            bak = outcome.path
+            assertEquals(golden.parentFile.canonicalFile, bak.parentFile.canonicalFile, "the bak sits beside the database")
+            assertTrue(bak.name.startsWith("backup.sqlite.pre-4.0."), "bak name: ${bak.name}")
+            assertTrue(bak.name.endsWith(".bak"), "bak name: ${bak.name}")
+            assertTrue(manager.updateSchema(), "production updateSchema must accept the golden database")
+        } finally {
+            manager.shutdown()
+        }
+
+        fun maxVersion(file: File): Int =
+            DriverManager.getConnection(UpgradeHarness.urlFor(file)).use { conn ->
+                scalar(conn, "SELECT max(CAST(version AS INTEGER)) FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL")
+            }
+
+        val backup = assertNotNull(bak)
+        DriverManager.getConnection(UpgradeHarness.urlFor(backup)).use { conn ->
+            val rows =
+                conn.createStatement().use { st ->
+                    st.executeQuery("PRAGMA integrity_check").use { rs ->
+                        buildList { while (rs.next()) add(rs.getString(1)) }
+                    }
+                }
+            assertEquals(listOf("ok"), rows, "the bak passes PRAGMA integrity_check")
+        }
+        assertEquals(17, maxVersion(backup), "the bak is the pre-migration state")
+        assertEquals(latest, maxVersion(golden), "the live database was migrated to the latest version")
+    }
     // ---------------------------------------------------------------------------------------------
     // S17 (Q24, AC4) - the production steps pin every golden item; forItem agrees with the LEGACY resolution
     // ---------------------------------------------------------------------------------------------

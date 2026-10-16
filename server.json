@@ -296,6 +296,12 @@
           "description": "Schema phase: migrate (default) applies pending migrations; validate refuses pending or future versions",
           "isRequired": false,
           "isSecret": false
+        },
+        {
+          "name": "UPGRADE_BACKUP",
+          "description": "Verified pre-upgrade copy of a 3.x database (<db>.pre-4.0.<UTC stamp>.bak) taken before its first 4.0 migration; a failed copy fails startup. Set false to skip (default: true)",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }
