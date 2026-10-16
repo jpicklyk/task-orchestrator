@@ -697,13 +697,15 @@ function isNoneSentinel(s) {
 }
 
 /**
- * mapStageResult(stage, env, entryMode='seat') -> {status, reason}
+ * mapStageResult(stage, env, entryMode='seat', item?) -> {status, reason}
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
  * stage.enters and not done); planner proceed===false; planner envelope-mismatch (proceed:true
- * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); test-author
+ * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); no-test-owner (only
+ * when item is given: planner proceed:true with testFiles, no test-author-v1 stage on the item, and the
+ * item's implementer-v1 stage not implicitOwner); test-author
  * missingDeclaration/breachDisclosure; else env.status when stopped|deferred; else done.
  */
-function mapStageResult(stage, env, entryMode = 'seat') {
+function mapStageResult(stage, env, entryMode = 'seat', item) {
   if (env === null || env === undefined) return { status: 'stopped', reason: 'agent returned null' }
   if (env.reason === 'schema-changed') return { status: 'stopped', reason: 'schema-changed' }
   if (env.reason === 'config-unavailable') return { status: 'deferred', reason: 'config-unavailable' }
@@ -734,6 +736,16 @@ function mapStageResult(stage, env, entryMode = 'seat') {
       return {
         status: 'stopped',
         reason: `envelope-mismatch: planner reported no files for owned notes ${stage.notes.join(', ')}`,
+      }
+    }
+    if (item && env.output.proceed === true && (env.output.testFiles || []).length > 0) {
+      const stages = item.stages || []
+      const impl = stages.find((s) => s.output === 'implementer-v1')
+      if (!stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)) {
+        return {
+          status: 'stopped',
+          reason: `no-test-owner: add needs-test-author or clear testFiles (${env.output.testFiles.join(', ')})`,
+        }
       }
     }
   }
@@ -990,11 +1002,11 @@ function promptVerify(plan, item, stage, outsByOutput) {
 }
 
 /**
- * handoff(stage, outs) -> string
+ * handoff(stage, outs, item?) -> string
  * outs is keyed by OUTPUT-SCHEMA id (not seat name). Builds the hand-off block for
  * stage.output from its declared upstream outputs; empty string when none apply.
  */
-function handoff(stage, outs) {
+function handoff(stage, outs, item) {
   const lines = []
   if (stage.output === 'implementer-v1') {
     const p = outs['planner-v1']
@@ -1005,6 +1017,17 @@ function handoff(stage, outs) {
       lines.push(`docFiles: ${(p.docFiles || []).join(', ') || 'none'}`)
       lines.push(`missingApiOrSeam: ${p.missingApiOrSeam || 'none'}`)
       lines.push(`diagnosisCorrections: ${p.diagnosisCorrections || 'none'}`)
+      if (item && !(item.stages || []).some((s) => s.output === 'test-author-v1')) {
+        const owned = []
+        const add = (f) => { if (typeof f === 'string' && !owned.includes(f)) owned.push(f) }
+        for (const f of p.testFiles || []) add(f)
+        for (const e of p.existingTestEdits || []) if (e && e.file) add(e.file)
+        if (owned.length > 0) {
+          lines.push(
+            `TESTS ARE YOURS: ${owned.join(', ')} - no test-author seat runs on this item; write, run and commit them yourself.`
+          )
+        }
+      }
     }
   } else if (stage.output === 'declarations-v1') {
     const i = outs['implementer-v1']
@@ -1133,7 +1156,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
-    handoff(stage, outsByOutput),
+    handoff(stage, outsByOutput, item),
     promptRerunAndEntry(plan, item, stage, actor),
     promptReturn(stage),
   ]
@@ -1243,7 +1266,7 @@ async function runItem(plan, item, deps) {
       const env = stageResult.env
       outs[stage.seat] = env ? env.output : undefined
 
-      const mapped = mapStageResult(stage, env, plan.entryMode)
+      const mapped = mapStageResult(stage, env, plan.entryMode, item)
       stages.push({
         seat: stage.seat,
         status: mapped.status,

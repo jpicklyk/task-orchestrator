@@ -75,6 +75,12 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 - Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An
   `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
   WITH a test-author stage owns `existingTestEdits[].file` only.
+- No test owner: a seat-aware item (implementer stage not `implicitOwner`) with no test-author stage whose planner returns
+  non-empty `testFiles` is stopped with `no-test-owner: add needs-test-author or clear testFiles (<list>)` before the
+  implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
+  exempt. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
+  `TESTS ARE YOURS: <paths> - no test-author seat runs on this item; write, run and commit them yourself.` (testFiles then
+  existingTestEdits files, exact duplicates once). Method A and B share one core, so both behave identically.
 - `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
   `node --test` entry never receives `.kt` files.
 - An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.

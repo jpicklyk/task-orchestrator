@@ -20,6 +20,7 @@ Complete materialization **before** any implementation begins.
 2. **Wire dependency edges** between items — use `BLOCKS` for sequencing, `fan-out`/`fan-in` patterns for parallel work
 3. **Check `expectedNotes` in create responses** — if the item's tags match a schema, the response includes the expected note keys and phases. Fill required queue-phase notes (`feature-summary`, `task-scope`, etc.) with content from the plan before advancing.
    - **`feature-implementation` root:** keep its `feature-summary` note lean — goal (2-3 sentences), a findings→tasks table mapping plan findings to the child items just created, dependency edges between those children, and a pointer to non-goals (target under 2k chars). Put full alternatives/blast-radius/risk-flags/test-strategy detail in each child's `task-scope` note instead — that's where `/spec-quality`'s full bar applies.
+   - **Test-owner flag:** for each `feature-task` whose `query_items(operation="schema", itemId=...)` seats list no `test-author` seat and whose task-scope names test files or test commands, show one FYI line `test owner: <short> lists tests without needs-test-author - add the trait (preferred) or drop the tests; run-wave stops it after its planner`. Never add the trait yourself.
 4. **Verify all item UUIDs exist** — confirm the full item graph is materialized before proceeding
 
 **If `create_work_tree` fails:** Check partial state with `query_items(operation='overview')`. Delete partial items with `manage_items(operation="delete", itemIds=["<uuid>"], recursive=true)` and retry.

@@ -612,7 +612,7 @@ export function stageResult(core, doc, state, idOrShort, seat, finalText, opts =
     return { status: 'retry', reason: `invalid envelope: ${detail}`, state: newState }
   }
 
-  const mapped = core.mapStageResult(stage, env, plan.entryMode)
+  const mapped = core.mapStageResult(stage, env, plan.entryMode, item)
   newState.stages[key] = Object.assign({}, prevEntry, {
     status: mapped.status,
     reason: mapped.reason,
