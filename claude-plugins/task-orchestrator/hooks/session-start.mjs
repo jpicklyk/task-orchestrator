@@ -2,14 +2,17 @@
 // Session Start Hook — injects current v3 workflow guidance plus setup/scope status derived from
 // the shared config locator (none / config without rootId / personal root / project root).
 
-import { readFileSync, statSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir, tmpdir } from 'os';
+import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
 import { locateConfig, userConfigPath } from './config-locator.mjs';
 import { apiBaseUrl } from './api-client.mjs';
+import { emit } from './lib/emit.mjs';
+import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
+import { checkServer } from './lib/server-compat.mjs';
 
 const BASE_GUIDANCE = `## Task Orchestrator — Session Context
 
@@ -96,14 +99,8 @@ function buildSetupHint(loc, state, registrations) {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const dir = join(tmpdir(), 'task-orchestrator');
-  const marker = join(dir, `setup-hint-${hash}-${date}`);
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(marker, '', { flag: 'wx' });
-  } catch {
-    return null; // EEXIST = already shown today; anything else = stay silent
-  }
+  // createMarkerOnce is false on EEXIST (already shown today) and on any other error (stay silent).
+  if (!createMarkerOnce(sharedMarkerPath(`setup-hint-${hash}-${date}`, ''))) return null;
   return state === 'none'
     ? 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.'
     : `Task Orchestrator config at ${loc.path} has no project.rootId — run /task-orchestrator:init${loc.scope === 'user' ? ' --user' : ''} to finish setup.`;
@@ -399,6 +396,17 @@ try {
   // Fail-open.
 }
 
+// Server compatibility: only when a REST API is configured; an unreachable server or an unusable
+// well-known document yields no line. The warning follows the setup hint, one line each.
+try {
+  if (apiBaseUrl()) {
+    const warning = await checkServer({ timeoutMs: 1000 });
+    if (warning) output.systemMessage = output.systemMessage ? output.systemMessage + '\n' + warning : warning;
+  }
+} catch {
+  // Fail-open.
+}
+
 // Ask the harness to watch the config file(s) we found so a mid-session edit fires a
 // FileChanged event that re-triggers config-sync.mjs without waiting for the next session.
 try {
@@ -407,4 +415,4 @@ try {
 } catch {
   // Fail-open.
 }
-process.stdout.write(JSON.stringify(output));
+emit(output);

@@ -32,24 +32,14 @@
 // control and this hook only a backstop. Never denies; silent on unset API URL, 404, non-ok,
 // null actor, timeout or any error.
 
-import { readFileSync } from 'fs';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emit, contextOutput, denyOutput } from './lib/emit.mjs';
 
-let input = '';
-try {
-  input = readFileSync(0, 'utf-8');
-} catch {
-  process.exit(0);
-}
-
-let hookInput;
-try {
-  hookInput = JSON.parse(input);
-} catch {
-  process.exit(0);
-}
+const hookInput = readHookInput();
+if (!hookInput) process.exit(0);
 
 const toolName = hookInput.tool_name || '';
 const toolInput = hookInput.tool_input || {};
@@ -160,21 +150,18 @@ if (!missing) {
   }
   if (warnings.length > 0) {
     const text = warnings.join('\n');
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text },
-      systemMessage: text,
-    }));
+    emit({ ...contextOutput('PreToolUse', text), systemMessage: text });
   }
   process.exit(0);
 }
 
-process.stdout.write(JSON.stringify({
-  hookSpecificOutput: {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'deny',
-    permissionDecisionReason: 'Actor attribution is required (actor_authentication.enabled or actor_attribution.required is set). Include an "actor" object ' +
+emitDenyAttribution();
+
+function emitDenyAttribution() {
+  emit(denyOutput(
+    'Actor attribution is required (actor_authentication.enabled or actor_attribution.required is set). Include an "actor" object ' +
       'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
       'transition/note element (for a singular advance_item call with itemId+trigger, put it at the ' +
-      'top level). For subagents, include "parent" with the dispatching agent\'s id.'
-  }
-}));
+      "top level). For subagents, include \"parent\" with the dispatching agent's id.",
+  ));
+}
