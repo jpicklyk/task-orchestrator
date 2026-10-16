@@ -842,7 +842,8 @@ class CascadeSeatBlockedWireTest {
     }
 
     @Test
-    fun `S1 AC1 a token-less start of a non-member child reports the seat-blocked cascade and leaves the member parent in queue`(): Unit =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S1 AC1 a token-less start of a non-member child reports exactly the seat-blocked cascade and leaves the member parent in queue`(): Unit =
         world { w ->
             val blocked = w.fam("blocked", Role.QUEUE, Role.QUEUE)
             val control = w.fam("control", Role.QUEUE, Role.QUEUE)
@@ -884,7 +885,8 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S7 a token bound to the parent cannot complete it by cascade, a sibling token or a human holding one cannot start it`(): Unit =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S7 a builder token bound to the parent cannot complete it by cascade, a sibling token or a human holding one cannot start it`(): Unit =
         world { w ->
             val complete = w.fam("complete", Role.WORK, Role.WORK)
             val builderOfParent = w.assignOk(complete.run, complete.parent, "builder").token
@@ -940,7 +942,8 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `AC2 items_write delete of the last child reports the member parent with seat_forbidden, coordinator and human cascade`(): Unit =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `AC2 items_write delete of the last open child reports the member parent with seat_forbidden, coordinator and human cascade`(): Unit =
         world { w ->
             val blocked = w.fam("delete blocked", Role.WORK, Role.WORK)
             val done = w.rig.seed("done kid", parent = blocked.parent, role = Role.TERMINAL, tags = "plain-task")
@@ -1045,7 +1048,8 @@ class CascadeSeatBlockedWireTest {
         }
 
     @Test
-    fun `S12 complete_tree over the member parent completes leaves, cannot terminate the parent token-less, the coordinator can`(): Unit =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `S12 complete_tree over the member parent completes the leaves, cannot terminate the parent token-less, the coordinator can`(): Unit =
         world { w ->
             val blocked = w.fam("tree root blocked", Role.WORK, Role.WORK)
             val blockedLeaf = w.rig.seed("second leaf", parent = blocked.parent, role = Role.WORK, tags = "plain-task")
