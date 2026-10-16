@@ -1797,25 +1797,25 @@ function allowMcpFor(entries) {
     }).allow.mcp;
 }
 
-test("S13: probeFrom — mcp__mcp-task-orchestrator-http__* sets allow.mcp true", () => {
+test("S13: probeFrom - mcp__mcp-task-orchestrator-http__* sets allow.mcp true", () => {
     assert.equal(allowMcpFor(["mcp__mcp-task-orchestrator-http__*"]), true);
 });
 
-test("S13: probeFrom — mcp__mcp-task-orchestrator__* (stdio key) still sets allow.mcp true", () => {
+test("S13: probeFrom - mcp__mcp-task-orchestrator__* (stdio key) still sets allow.mcp true", () => {
     assert.equal(allowMcpFor(["mcp__mcp-task-orchestrator__*"]), true);
 });
 
-test("S13: probeFrom — a plugin-qualified orchestrator key and the bare key set allow.mcp true", () => {
+test("S13: probeFrom - a plugin-qualified orchestrator key and the bare key set allow.mcp true", () => {
     assert.equal(allowMcpFor(["mcp__plugin_task-orchestrator_task-orchestrator__*"]), true);
     assert.equal(allowMcpFor(["mcp__task-orchestrator__*"]), true);
 });
 
-test("S13: probeFrom — a non-orchestrator server key leaves allow.mcp false", () => {
+test("S13: probeFrom - a non-orchestrator server key leaves allow.mcp false", () => {
     assert.equal(allowMcpFor(["mcp__other__*"]), false);
     assert.equal(allowMcpFor(["mcp__tasks__*"]), false);
 });
 
-test("S13: probeFrom — an orchestrator entry among unrelated entries is found; unrelated entries alone are not", () => {
+test("S13: probeFrom - an orchestrator entry among unrelated entries is found; unrelated entries alone are not", () => {
     assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "mcp__mcp-task-orchestrator-http__*"]), true);
     assert.equal(allowMcpFor(["Bash(git:*)", "mcp__other__*", "Workflow(task-orchestrator:implement-wave)"]), false);
 });
