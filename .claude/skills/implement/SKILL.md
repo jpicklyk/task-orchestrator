@@ -197,7 +197,7 @@ working directory and then names a relative `plans/<slug>.md` points at a path t
 |---|---|
 | Header | One place agents read branch, worktree path, the write root every agent write must fall under, the contract's own absolute path, base SHA, PR boundary, scratchpad (logs only) and the tracked gradle lock helper path (`.claude/skills/implement/references/gradle-locked.ps1`, never copied), so no prompt repeats them (write root: proposal `d1484a3e`). |
 | Conflict rule | Makes the plan file authoritative over prompt text, and names the per-item note that outranks the plan for its own dimension. |
-| Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave. |
+| Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave, and records each item's state-matrix decision (a pointer to the matrix in its spec note, or `n/a - <reason>`; proposal `8ecc28f1`). |
 | Planning seat return template | Fixes the fields each planning seat returns, so streams compose without re-reading every plan. |
 | Commit discipline | The shared index makes a bare commit unsafe: pathspec staging and commit, post-commit verification, and the recovery step (proposal `568e7f7e` / #301). |
 | Compile self-check | One pinned invocation through the lock helper, how its exit code is read, the foreign-file early exit, the owned-file retry bound (proposal `b82537e4` / #302), and the single statement of who runs gradle in the wave. |
@@ -272,6 +272,11 @@ cite its authoritative location and be verified on disk or in source before the 
 approved — child items' specification notes are generated from the plan and inherit its errors
 silently (spec-quality, "Cite Contracts, Don't Restate Them"). This reminder lives here because
 spec-quality is reached via note `guidance` pointers that plan mode does not traverse.
+
+**Plans carry the State matrix.** For each item that changes user-visible runtime behaviour, the
+plan's Verification / Test strategy section carries (or points at) the item's State matrix, or
+one `State matrix: n/a - <reason>` line (spec-quality, "State matrix"). Same reason as above:
+plan mode does not traverse the guidance pointer that would surface it.
 
 **Do not confuse this with resource-lease contention.** A queue→work `advance_item` can also
 fail with `applied: false`, `errorCode: "resource_unavailable"`, `errorKind: "transient"` — a
@@ -771,7 +776,12 @@ the working branch for Direct/Delegated):
    these bullets into the release section.
 5. Fill all work-phase notes following their `guidancePointer` — focus on context
    that downstream agents need to know
-6. After implementation completes:
+6. **Live-owed check (proposal `8ecc28f1`)** - before the work-exit `advance_item`, read the
+   item's `session-tracking` note for its `**Live-owed**:` line (spec-quality, "State matrix").
+   Any entry not ending `run <date>: <result>` or `deferred: <item id>` is open and holds the
+   item in work until it is run or deferred. This check sits at work exit because
+   `feature-task` items skip review by default (Step 5).
+7. After implementation completes:
    - **Subagent delegation:** The agent returns after filling work-phase notes.
      The orchestrator then calls `advance_item(trigger="start")` to advance
      the item to the next phase.
