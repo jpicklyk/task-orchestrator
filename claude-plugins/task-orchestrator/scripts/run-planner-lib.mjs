@@ -915,7 +915,8 @@ function canonicalScopeFile(p, repoRoot) {
  * sharedFileEdgeWarnings(snap, mode) -> string[]
  * Advisory only. In shared mode, per-file locks already serialize two items that declare one file,
  * so a dependency edge between same-parent candidates whose scopes share a file, and whose
- * dependent states no dependency on the blocker, costs a run for nothing.
+ * dependent states no dependency on the blocker, may be redundant. Warns on every unsatisfied
+ * dependency edge regardless of the role at which it unblocks.
  */
 export function sharedFileEdgeWarnings(snap, mode) {
   if (mode !== 'shared') return [];
