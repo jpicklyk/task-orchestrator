@@ -112,6 +112,7 @@ class SharedConfigCacheRestMcpTest {
     // ----------------------------------------------------------------------------------------------------
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S5 - after a warm context read, a read failure makes the context select unavailable while a non-unit read is still cached`(): Unit =
         testApplication {
             val sqlite = db.repositoryProvider()

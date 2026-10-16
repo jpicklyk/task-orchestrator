@@ -66,6 +66,7 @@ class RunBudgetStopLeaseReleaseTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S9 the budget stop of a run releases the lease of a WORK member, reports it in run ended and leaves a non-member's lease alone`(): Unit =
         world { w ->
             val leased = w.rig.seed("Leased WORK member", parent = w.root, role = Role.WORK, tags = "plain-task")

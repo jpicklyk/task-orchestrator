@@ -152,6 +152,7 @@ class RunLimitDecisionWithdrawTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `W3 after the refusal the decision is open, the run stays paused on the same decision, no event, and the answer still works`(): Unit =
         world { w ->
             val (run, decisionId) = budgetPaused(w)

@@ -131,6 +131,7 @@ class RunsBudgetAfterDispatchTest {
     // ------------------------------------------------------------------ S11 reported usage
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S11 a token budget set by update after dispatch pauses the run on the seat's next heartbeat and blocks the other seat's start`(): Unit =
         world { w ->
             val run = w.open(members = listOf(w.m1, w.m2))

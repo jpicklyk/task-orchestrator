@@ -414,6 +414,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S6 limit outside 1 to 200 is invalid_request on limit, a malformed cursor is invalid_cursor and unknown members are refused`(): Unit =
         irApp(db.db, dir) { rig ->
             rig.addRow(rig.make("Any"), t0)
@@ -465,6 +466,7 @@ class ItemsReadHistoryTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S6 a well-formed id that names nothing is not_found for an unrestricted caller and an 8-hex prefix resolves or is ambiguous`(): Unit =
         irApp(db.db, dir) { rig ->
             val a = rig.make("A", id = uuid("abcd1234-0000-4000-8000-000000000001"))

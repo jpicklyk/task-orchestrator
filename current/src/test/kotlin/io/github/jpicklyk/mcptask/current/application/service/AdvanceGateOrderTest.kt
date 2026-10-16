@@ -903,6 +903,7 @@ class SeatEnforcementTokenPathTest {
     private fun Reply.seatDetail(): JsonObject = checkNotNull(error()?.get("detail")?.jsonObject) { "no error detail: $this" }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `R23 S2 S3 S5 S7 S8 real tokens - a seat acts on its own item, the coordinator on any, a human on any, the rest are refused`(): Unit =
         world { w ->
             val own = w.m1

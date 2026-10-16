@@ -369,6 +369,7 @@ class CallLogPrincipalKindTest {
     // ------------------------------------------------------------------ S6 / S7 no principal
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S6 a REST request with no token or an unknown token writes principal_kind NULL, and a valid token beside it writes a kind`(): Unit =
         testApplication {
             val rig = EventLogRig.build(db.db, dir)

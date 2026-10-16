@@ -161,6 +161,7 @@ class RunsLivenessDisplacementTest {
     // ------------------------------------------------------------------ B1 displacement over a foreign lapsed claim
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `B1 a claim over a foreign lapsed seat claim records one claim expired displaced with a null displacedBy and reports displaced`(): Unit =
         world { w ->
             val run = w.open()
@@ -193,6 +194,7 @@ class RunsLivenessDisplacementTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `B1 displacedBy is the new holder's assignment id under a seat token, a principal-level displaced holder has no assignmentId`(): Unit =
         world { w ->
             assertTrue(w.claim(w.m3, null).ok())

@@ -244,6 +244,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `D1 seatToken inside an ops element is unknown_parameter at its pointer and never runs, even beside a valid top-level token`(): Unit =
         world { w ->
             val run = w.open()

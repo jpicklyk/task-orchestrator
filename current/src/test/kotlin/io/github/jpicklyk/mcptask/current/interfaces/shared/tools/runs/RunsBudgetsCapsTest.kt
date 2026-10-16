@@ -272,6 +272,7 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S2 the writer alone never pauses a run whose observed usage is far over the limit, and the next token-carrying write does`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
@@ -288,6 +289,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S3 a heartbeat breach pauses
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S3 a heartbeat over the token budget succeeds, pauses the run for budget and raises the run-budget decision in the same unit`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")
@@ -533,6 +535,7 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S10 while paused
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S10 while paused for a limit assign, a seat-token start and update are run_paused and a manual resume is invalid_run_state`(): Unit =
         world { w ->
             val run = open(w, """{"tokens":100}""")

@@ -180,6 +180,7 @@ class RunsHardeningScopeTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S1 probe the upper-case spelling of the same out-of-scope UUID is also a nonexistent decision, and the refusal changes nothing`(): Unit =
         world { w ->
             w.startOk(w.m2)
@@ -196,6 +197,7 @@ class RunsHardeningScopeTest {
     // ------------------------------------------------------------------ S2 everything else about the check stays as it was
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S2 an unrestricted caller and a restricted one naming an in-scope decision of another item still read belongs to another item`(): Unit =
         world { w ->
             w.startOk(w.m2)
@@ -322,6 +324,7 @@ class RunsHardeningScopeTest {
     }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S4 a tag-scoped caller counts only the members it may see in get and in list, an unrestricted and a root-scoped one count all`(): Unit =
         world { w ->
             val s = scopedRun(w)

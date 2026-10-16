@@ -99,6 +99,7 @@ class RunLimitsStatementCountTest {
     // ------------------------------------------------------------------ S7 statement counts
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S7 a token heartbeat on an unlimited run issues no single-table runs SELECT and one statement fewer than on a budgeted run`(): Unit =
         world { w ->
             val unlimited = w.open(members = listOf(w.m1))

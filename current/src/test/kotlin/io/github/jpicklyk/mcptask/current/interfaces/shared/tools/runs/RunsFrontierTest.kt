@@ -299,6 +299,7 @@ class RunsFrontierTest {
     // ------------------------------------------------------------------ S3 the run view agrees
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S3 frontier stalled equals the run view coordinatorStalled, and stalledSeats counts the stalled in-flight member seats only`(): Unit =
         world { w ->
             val b1 = w.item("B1")

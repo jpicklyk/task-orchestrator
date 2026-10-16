@@ -1081,6 +1081,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S16 a paused run refuses assign as run_paused until resumed, and a closed run's dead coordinator token is unauthenticated`(): Unit =
         world { w ->
             val run = w.open()
@@ -1178,6 +1179,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S8 and S13 a keyed retry of end_seat after it committed meets the dead token first - unauthenticated, nothing written twice`(): Unit =
         world { w ->
             val run = w.open()
@@ -1293,6 +1295,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S9 seats
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S9 seats lists the coordinator and the active seats oldest first, ended ones only on request, and never a token or a principal`(): Unit =
         world { w ->
             val run = w.open()
@@ -1380,6 +1383,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S9 seats of an unknown run is not_found, of a run outside the scope is forbidden on the root, and a read-only caller may read`(): Unit =
         world { w ->
             val run = w.open()
@@ -1473,6 +1477,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `D3 close is for the coordinator token, the director or a human - the opener without a token is refused and the run stays open`(): Unit =
         world { w ->
             val run = w.open()
@@ -1510,6 +1515,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `D3 a human credential presenting a seat token is not a human any more - pause is refused under a token and allowed without`(): Unit =
         world { w ->
             val run = w.open(by = w.human)
@@ -1623,6 +1629,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `D9 a token-carrying write touches last_seen_at - skipped under 5 s, written from 5 s, never by a select or token-less call`(): Unit =
         world { w ->
             val run = w.open()
@@ -1757,6 +1764,7 @@ class RunsSeatOpsTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S21 heartbeat and release belong to the exact holder - the same principal with no token or another seat is not_claim_holder`(): Unit =
         world { w ->
             val run = w.open()
@@ -2011,6 +2019,7 @@ class RunsSeatOpsTest {
     // ------------------------------------------------------------------ S11 idempotency per assignment
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `S11 an idempotency key is namespaced per assignment - the same key replays for the same seat and runs fresh for a sibling seat`(): Unit =
         world { w ->
             val run = w.open()

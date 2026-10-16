@@ -164,6 +164,7 @@ class PlanDocumentServiceTest {
         }
 
     @Test
+    @Suppress("ktlint:standard:max-line-length")
     fun `dual ingestion parity — REST-style stash and MCP bodyFromFile-style stash of identical bytes land identical content hashes`(): Unit =
         runBlocking {
             // Simulates the two ingestion paths converging on the same PlanDocumentService.stash
