@@ -37,7 +37,8 @@ internal val reportRollupSelect =
                 "the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls " +
                 "stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, " +
                 "byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), " +
-                "count}, attempts {total, max} and budget {used, limit, basis: enforced} (tokens, from the run row). A " +
+                "count}, attempts {total, max} and budget {used, limit, basis: enforced, breaches, extends} (tokens, from the " +
+                "run row; breaches counts its run-budget decisions, extends those answered extend, both omitted when zero). A " +
                 "closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. " +
                 "Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts " +
                 "only calls of its roots (anchorId) or sees only runs of its roots (runId).",

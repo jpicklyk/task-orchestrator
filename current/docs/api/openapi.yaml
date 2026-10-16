@@ -950,7 +950,8 @@ paths:
         attempt, outcome, endedAt, released}`; `seats{runId, itemId?, ended?}` returns `{runId, seats}` without any
         token. `frontier{runId}` returns `{runId, status, stalled, counts, ready, inFlight, waiting}` (item ids are
         8-hex short ids; members and blockers outside the token's scope are left out). Every run view carries
-        `activeSeats` and `stalledSeats`. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
+        `activeSeats` and `stalledSeats`; under a restricted scope, `members`, `activeSeats` and `stalledSeats` count
+        only what the caller's scope can see. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
         `marked: false` reports a replay.
         Decisions: `runs_write` `raise` (capability `runs`), `ack` and `answer` (capability `decide`) and `withdraw`
         (capability `runs`); `runs_read` `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest

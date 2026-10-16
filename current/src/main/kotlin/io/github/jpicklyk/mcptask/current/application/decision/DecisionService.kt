@@ -44,8 +44,8 @@ import java.util.UUID
  *
  * Acknowledge and answer need the request's answerers to admit the caller ([admits]); withdraw needs the raiser (same
  * principal and seat) or the coordinator token of the request's run, and a server-raised request (`run-budget`,
- * `attempt-cap`) cannot be withdrawn at all: it stays pending until answered or its run closes. A refusal is `forbidden` (`principal_kind`),
- * checked before the status. The caller has already checked that the request's root is in scope.
+ * `attempt-cap`) cannot be withdrawn at all: it stays pending until answered (a run close withdraws no decision). A
+ * refusal is `forbidden` (`principal_kind`), checked before the status. The caller has already checked that the request's root is in scope.
  *
  * ## Raise
  *

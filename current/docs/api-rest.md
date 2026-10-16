@@ -1036,8 +1036,9 @@ its run after its own change: on a crossing the run is paused (`pauseReason: bud
 decision is raised (dedupe key `budget:<runId>:<n>`, options `extend` / `stop`, recommended `stop`, `context` a JSON
 object naming the breached `dimension` with `used` and `limit`), both committed with the write, which still succeeds and
 carries `paused: {decisionId}` in its result. While a run is paused for a limit, `assign` and a `start` transition
-under a seat token are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause
-does not refuse `start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
+under any of the run's tokens (a member seat's or the coordinator's; a start with no token is not refused) are
+`run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause does not refuse
+`start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
 (`attempts`), and the run pauses on a server-raised `attempt-cap` decision (dedupe key
 `attempts:<runId>:<itemId>:<seat>:<attempt>`, options `allow_one` / `skip_item` / `stop`) written although the assign
 is refused. An otherwise admissible `assign` that would not supersede an active seat is `409 run_at_capacity` (transient,
@@ -1087,8 +1088,9 @@ option must be one of the keys, `text` (at most 1,000) is accepted only for a fr
 1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
 {decisionId}` (director profile, `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
 decision's run (`required` `coordinator,raiser`); a server-raised `run-budget` or `attempt-cap` decision cannot be
-withdrawn by anyone (the same `forbidden`): it stays pending until it is answered or its run is closed. An `ack`, `answer` or `withdraw` of an answered or withdrawn decision
-is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
+withdrawn by anyone (the same `forbidden`): it stays pending until it is answered (closing its run withdraws no
+decision; `run.ended` counts it in `openDecisions`). An `ack`, `answer` or `withdraw` of an answered or withdrawn
+decision is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
 `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
 profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status
 client-side). A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
