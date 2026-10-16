@@ -1137,6 +1137,7 @@ test('S10 probe (AC4): payload_too_large on validate and on push are rejections,
       const res = await runHook(dir, stub.url);
       assert.equal(res.status, 0, res.stderr);
       assertRejected(res, 'SessionStart', 'root-ptl', { shown: null });
+      assert.ok(lineOf(res).includes('(document):'), `payload_too_large carries no path, so the entry reads (document): ${lineOf(res)}`);
       const ops = stub.configOps().map((o) => o.op);
       assert.equal(ops.filter((o) => o === failingOp).length, 1, `${failingOp} sent once: ${ops}`);
       assert.ok(!ops.includes('push') || failingOp === 'push', `no push after a rejected validate: ${ops}`);
@@ -1618,6 +1619,58 @@ test('75f0e354 S9 (AC5, AC6): a stalled listing body - the hook still exits and 
     // listing failing with reason timeout; the bundled-skipped clause is only for an ok listing with non-list items.
     assert.ok(line.includes('Rules: sync skipped - listing rules failed (timeout)'), line);
     assert.equal(stub.upserts().length, 0, 'no docs_write call is sent after a failed listing');
+  });
+});
+
+// ---- Amendment A2 / review B1: a capped config validate that hits the shared deadline defers --------------------------------
+
+// get answers ok (relation unknown) after ~1700ms of the 3500ms FileChanged budget, so the validate call that
+// follows has only ~1800ms left and is capped below the 2000ms per-call ceiling. Oracle: task-scope AC6 ("a
+// timed-out capped call counts deferred, never failed") and Amendment A2 (a deadline result on validate renders
+// the push-style "config sync deferred - <reason>; will retry next session." line and sends no push).
+test('A2 / B1 (AC6) FileChanged: get answers at ~1700ms, validate and docs_read stall - "config sync deferred" with reason timeout, no push, zero docs_write', async () => {
+  const { dir } = makeProject('root-a2b1');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => {
+      if (call.tool === 'config' && call.body.ops[0].op === 'get') {
+        return { ...batch([okEl({ rootId: 'root-a2b1', version: 3, fingerprint: 'a'.repeat(64), source: 'push', createdAt: '2026-01-01T00:00:00Z', configYaml: 'project: {}\n', relation: 'unknown' })]), delayMs: 1700 };
+      }
+      if (call.tool === 'config' && call.body.ops[0].op === 'validate') return { stall: true };
+      if (call.tool === 'docs_read') return { stall: true };
+      return undefined;
+    },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.killed, false, 'the hook must exit on its own despite the stalled validate');
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(res.wall < 5500, `wall time ${res.wall}ms must stay near the 3500ms budget`);
+    const out = assertEventContract(res, 'FileChanged');
+    assert.equal(typeof out.systemMessage, 'string', res.stdout);
+    assert.ok(out.systemMessage.includes('config sync deferred'), out.systemMessage);
+    assert.ok(out.systemMessage.includes('timeout'), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('config sync failed'), `a deadline validate is deferred, never failed: ${out.systemMessage}`);
+    const ops = stub.configOps().map((o) => o.op);
+    assert.ok(ops.includes('validate'), `the validate call was sent (so the deadline, not a skip, ended it): ${ops}`);
+    assert.ok(!ops.includes('push'), `no push after a deferred validate: ${ops}`);
+    assert.equal(stub.ofTool('docs_write').length, 0, 'zero docs_write calls');
+  });
+});
+
+test('A2 / B1 control (AC4) FileChanged: validate answers 207 forbidden - "config sync failed - validate forbidden: needs read", no push', async () => {
+  const { dir } = makeProject('root-a2b1c');
+  await withStub({
+    config: { version: 3, fingerprint: 'a'.repeat(64) },
+    override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+      ? batch([errEl('forbidden', { needs: 'read' }, 'needs read')])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.status, 0, res.stderr);
+    const out = assertEventContract(res, 'FileChanged');
+    assert.ok(out.systemMessage.includes('config sync failed - validate forbidden: needs read'), out.systemMessage);
+    assert.ok(!out.systemMessage.includes('config sync deferred'), out.systemMessage);
+    assert.deepEqual(stub.configOps().map((o) => o.op), ['get', 'validate']);
   });
 });
 
