@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
 /** The gate that rejected a transition. */
-enum class GateId { OWNERSHIP, SEAT, TABLE, HOLD, DEPENDENCY, NOTE, LEASE }
+enum class GateId { OWNERSHIP, SEAT, TABLE, HOLD, REVIEW_PENDING, DEPENDENCY, NOTE, LEASE }
 
 /** Why a cascade does not apply (cascades only; never an error). */
 enum class NotApplicableReason { LIFECYCLE, ROLE, NO_CHILDREN, CHILDREN_ACTIVE }

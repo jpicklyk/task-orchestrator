@@ -1311,7 +1311,8 @@ caused it (see Suppressed below), and a cascade applies only when the parent's s
 - **terminal.** A transition that lands an item in `terminal` (`complete`, `cancel`, or `start` out of `review`)
   evaluates its immediate parent: the parent moves to `terminal` only when it has at least one child and every child
   is `terminal`. An applied terminal cascade evaluates its own parent in turn, so the chain climbs while each ancestor
-  qualifies. A reparent away from a parent, and a delete under it, re-evaluate that old parent the same way
+  qualifies. A parent in `review` is never moved by this cascade: it leaves `review` only by an explicit advance (see
+  `blocked: gate` below). A reparent away from a parent, and a delete under it, re-evaluate that old parent the same way
   ([`items_write`](#items_write)).
 - **reopen.** `reopen` of a terminal item evaluates its immediate parent: a `terminal` parent moves back to `work`.
   It does not climb further.
@@ -1331,7 +1332,8 @@ caused it (see Suppressed below), and a cascade applies only when the parent's s
   `items_write` reports `reason: seat_forbidden`. To recover, the coordinator token or a human credential advances the
   parent directly), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
   unless it descends from a `cancel`, a start cascade checks the parent's current phase only, a reopen cascade
-  never checks notes), `blocked: dependency` (the parent has an unmet blocker; `blockers`), `blocked: resource`
+  never checks notes; a terminal cascade into a parent in `review` is always suppressed, whatever its origin, with
+  `reason: review-pending` and no `missing`, and the chain stops there), `blocked: dependency` (the parent has an unmet blocker; `blockers`), `blocked: resource`
   (a start or reopen cascade into `work` whose exclusive lease is held elsewhere; `contended`), or `blocked: role`
   (the parent is `blocked`, an explicit hold: no cascade moves an item out of it, cancel-origin chains included).
   A suppressed cascade never fails the primary transition. A fault while applying an applicable cascade fails the
