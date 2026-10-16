@@ -99,7 +99,7 @@ class CompositionResult(
 )
 
 /**
- * Manual composition root for the Current (v3) MCP server.
+ * Manual composition root for the Current (4.0) MCP server.
  *
  * Builds the entire object graph (repositories, config services, REST/SSE wiring,
  * and the final [ToolExecutionContext]) from a single typed [AppConfig] snapshot and an already

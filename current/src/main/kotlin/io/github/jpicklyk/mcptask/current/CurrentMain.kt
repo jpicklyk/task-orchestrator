@@ -14,7 +14,7 @@ import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import org.slf4j.LoggerFactory
 
 /**
- * Entry point for the Current (v3) MCP Task Orchestrator application.
+ * Entry point for the Current (4.0) MCP Task Orchestrator application.
  */
 fun main() {
     // Suppress kotlin-logging-jvm's own startup banner ("kotlin-logging: initializing... active
@@ -40,7 +40,7 @@ fun main() {
     val logger = LoggerFactory.getLogger("CurrentMain")
     val version = BuildInfo.version
 
-    logger.info("Starting Current (v3) MCP Task Orchestrator v$version")
+    logger.info("Starting Current (4.0) MCP Task Orchestrator v$version")
 
     // Log environment information for debugging
     logger.info("Java version: ${System.getProperty("java.version")}")
@@ -81,7 +81,7 @@ fun main() {
 
         logger.info("Main function exiting normally")
     } catch (e: Exception) {
-        logger.error("Error in Current (v3) MCP Task Orchestrator", e)
+        logger.error("Error in Current (4.0) MCP Task Orchestrator", e)
         // Don't use exitProcess(1) — it bypasses shutdown hooks.
         // Throwing from main() will cause the JVM to exit with code 1.
         throw e
