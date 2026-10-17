@@ -47,8 +47,8 @@ if (!isPhaseOwnerAgentType(hookInput.agent_type)) {
 }
 
 // The codes an `advance` transition can answer, from the generated catalog, partitioned by the
-// generated ERROR_KINDS (permanent | transient | shedding). `gate_blocked` is the already-in-phase
-// signal and is named separately.
+// generated ERROR_KINDS (permanent | transient | shedding). `gate_blocked` means a required note is
+// missing; it is not an already-in-phase signal and is named separately.
 function transitionCodes() {
   try {
     const catalog = JSON.parse(readFileSync(new URL('./lib/tool-catalog.json', import.meta.url), 'utf8'));
@@ -75,7 +75,11 @@ const protocol = `## Agent-Owned-Phase Protocol
 
 **Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance\` with \`ops: [{op: "transition", itemId: "<your-item-UUID>", trigger: "start"}]\`. A non-entry seat or a **read-only** agent never calls \`advance\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`notes_write\` (\`ops: [{op: "upsert", itemId, key, role, body}]\`). When your dispatch prompt carries a \`seatToken\`, send it as a top-level field of every call you make. Read the item's gate and guidance with \`items_read\` (\`select: "context"\`, \`itemId\`).
 
-Every result is an envelope: branch on \`ok\` and on \`error.code\` / \`error.kind\` (and \`retryAfterMs\` when present) of the element, never on the absence of an error. If the item is already in your phase, the transition fails with \`error.code: "gate_blocked"\` and \`error.detail.role\` equal to your phase — do not retry; call \`items_read\` (\`select: "context"\`) once for guidance and proceed.
+Every result is an envelope: branch on \`ok\` and on \`error.code\` / \`error.kind\` (and \`retryAfterMs\` when present) of the element, never on the absence of an error.
+
+**Read the role before you send \`start\`.** Call \`items_read\` (\`select: "context"\`, \`itemId\`) first. A \`start\` is not idempotent: a second \`start\` moves the item forward whenever its gate passes, so retrying it can advance the item past your phase. Send \`start\` only when the role is the one just before your phase: \`queue\` for a work-phase seat, \`work\` for a review-phase seat. When the context already shows your phase, do not send \`start\`; take the guidance from that context and begin. For any other role (blocked, terminal, or a phase past yours), do not send \`start\`: stop and report the role back to the orchestrator.
+
+**A \`gate_blocked\` answer means a required note is missing**. It says nothing about where the item is. Stop, report the missing notes back to the orchestrator, and do not retry.
 
 **If the transition fails with a transient or shedding code (${retry || 'none'}), do NOT treat it as already-in-phase and do NOT retry or spin.** Stop immediately and report the \`error.code\`, the \`error.message\` and \`retryAfterMs\` back to the orchestrator — do not proceed as if you had entered your phase.
 
