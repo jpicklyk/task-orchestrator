@@ -1,4 +1,4 @@
-// Tests for the director-guard gaps closed in item dbb45373 (AC7, scenarios S13-S14). BLIND author:
+// Tests for the director-guard gaps closed in item dbb45373 (AC7 as amended by A1: R1-R6 flag allow-list, scenarios S13-S14). BLIND author:
 // written from the frozen task-scope and test-plan notes, the supplied declarations and the existing
 // director-guard tests. Oracles: task-scope AC7 (git log patch flags, git branch listing flags only, file
 // tools denied like Read, the hooks-config matcher string). The subprocess test redirects TEMP so no real
@@ -24,7 +24,7 @@ after(() => {
 
 // ---- S13 bashAllowed ----
 
-test('S13: git log with a patch-producing flag is denied: -p, -u, --patch*, -L*, --output*, --word-diff*, and clusters with p, u or L', () => {
+test('S13 (R3): git log with any flag off the allow-list is denied, incl. the original patch flags and clusters', () => {
   const denied = [
     'git log -p', 'git log -u', 'git log --patch', 'git log --patch-with-stat', 'git log --patch-with-raw',
     'git log -L1,2:f', 'git log -Lfoo:file.js', 'git log --output=x', 'git log --output x',
@@ -87,6 +87,72 @@ test('S13: a second operand after --merged, or an operand after a plain listing 
 test('S13: the existing allow-list entries and denials around the new rules are unchanged', () => {
   for (const c of ['git status', 'gh pr view 1', 'gh pr list', 'docker ps']) assert.equal(bashAllowed(c), true, c)
   for (const c of ['git push', 'git commit -m x', 'cat f', 'git log `x`', 'git log > f', 'git log $(x)']) assert.equal(bashAllowed(c), false, c)
+})
+
+// ---- A1 allow-list probes (R1-R6) ----
+const deny = (cmds) => { for (const c of cmds) assert.equal(bashAllowed(c), false, JSON.stringify(c)) }
+const allow = (cmds) => { for (const c of cmds) assert.equal(bashAllowed(c), true, JSON.stringify(c)) }
+
+test('S13 (R3): git log patch-implying and diff-merge flags the review found are denied', () => {
+  deny([
+    'git log -U1', 'git log -U 1', 'git log --unified=1', 'git log -c', 'git log --cc', 'git log --dd',
+    'git log --remerge-diff', 'git log --binary', 'git log -W', 'git log --function-context',
+    'git log --inter-hunk-context=1', 'git log --diff-merges=on', 'git log -m', 'git log --ext-diff',
+    'git log --oneline -U1', 'git log --format=%h --cc',
+  ])
+})
+
+test('S13 (R1/R2): quoted, escaped, expanded and brace-built spellings of -p are denied', () => {
+  deny([
+    'git log "-p"', "git log '-p'", 'git log -"p"', 'git log ""--patch', 'git log \\-p', 'git log ${u:--p}',
+    'git log $X', 'git log {-p,HEAD}', 'git log -[p]', 'git log *',
+  ])
+})
+
+test('S13 (R4): git status with -v, -vv, --verbose, any abbreviation, a cluster or a quoted form is denied', () => {
+  deny(['git status -v', 'git status -vv', 'git status --verbose', 'git status --verb', 'git status -sv', 'git status "-v"'])
+})
+
+test('S13 (R5): git branch with quoted or brace-built mutating flags is denied', () => {
+  deny(['git branch "-D" x', 'git branch {-D,x}'])
+})
+
+test('S13 (R1): $, braces, globs, brackets and backslashes are denied in any allowed command', () => {
+  deny(['git status $X', 'git status {a,b}', 'git status *', 'git status ?', 'git status [a]', 'git status \\n', 'gh pr view $N', 'gh pr list *', 'docker ps {a}', 'git branch \\-D'])
+})
+
+test('S13 (R6): git show, git diff and gh pr diff stay denied whole', () => {
+  deny(['git show', 'git show HEAD', 'git diff', 'git diff HEAD', 'gh pr diff 1'])
+})
+
+test('S13 (R3) controls: allowed git log listing forms, operands and paths', () => {
+  allow([
+    'git log -n5', 'git log --format=%h', 'git log "--format=%h %s"', 'git log --decorate --graph --all',
+    'git log --max-count=3 main..HEAD', 'git log --since=1.week --until=now --author=pat --grep=fix',
+    'git log HEAD~3', 'git log -- path/to/file', 'git log origin/main..HEAD --name-only',
+    'git log -n 5', 'git log -5', 'git log --stat', 'git log -P',
+  ])
+})
+
+test('S13 (R3): a path after -- that starts with a dash is denied (fail closed)', () => {
+  deny(['git log -- -p', 'git log -- --patch'])
+})
+
+test('S13 (R4) controls: allowed git status listing forms', () => {
+  allow(['git status -s', 'git status --short --branch', 'git status -sb', 'git status --porcelain=v2', 'git status -uno', 'git status src/'])
+})
+
+const g14 = (command) => guardDecision({ tool_name: 'Bash', tool_input: { command }, session_id: 's' }, { env: {}, director: true })
+
+test('S14: guardDecision denies git status -v and git log -U1 with the reason prefix and the listing-flags clause', () => {
+  for (const c of ['git status -v', 'git log -U1']) {
+    const r = g14(c)
+    assert.equal(typeof r, 'string', c)
+    assert.ok(r.startsWith(REASON_PREFIX), c)
+    assert.ok(r.includes('with only listing flags on `git log`, `git status` and `git branch`'), r)
+  }
+  assert.equal(g14('git status -s'), null)
+  assert.equal(g14('git log --oneline -n 5'), null)
 })
 
 // ---- S14 file tools and registration ----

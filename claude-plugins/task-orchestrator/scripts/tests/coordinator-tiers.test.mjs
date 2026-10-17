@@ -172,6 +172,14 @@ test('S4: an unknown tier throws', () => {
 
 // ---- CLI ----
 
+test('A1 O6: launchProfile(3) throws an Error naming prompt unless prompt is a non-empty string; the budget check stays first', () => {
+  assert.throws(() => launchProfile(3, { budgetUsd: 5 }), (e) => e instanceof Error && /prompt/.test(e.message))
+  assert.throws(() => launchProfile(3, { prompt: '', budgetUsd: 5 }), (e) => e instanceof Error && /prompt/.test(e.message))
+  assert.throws(() => launchProfile(3, { prompt: 'p' }), (e) => e instanceof Error && /budgetUsd/.test(e.message))
+  assert.throws(() => launchProfile(3), (e) => e instanceof Error && /budgetUsd/.test(e.message))
+  assert.ok(Array.isArray(launchProfile(3, { prompt: 'p', budgetUsd: 5 }).argv))
+})
+
 function cli(args) {
   return spawnSync(process.execPath, [MODULE, ...args], { encoding: 'utf8' })
 }
@@ -214,4 +222,9 @@ test('purity: importing the module prints nothing and runs no subcommand', () =>
   )
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.stdout, '')
+})
+
+test('A1 O6: CLI profile --tier 3 --budget-usd 5 with no --prompt-file exits non-zero', () => {
+  const r = cli(['profile', '--tier', '3', '--budget-usd', '5'])
+  assert.notEqual(r.status, 0)
 })

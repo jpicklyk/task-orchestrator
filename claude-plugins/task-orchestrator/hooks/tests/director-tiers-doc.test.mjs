@@ -66,3 +66,26 @@ test('S5: the hooks README has a director-watch row and the director-guard row n
   const guard = lines.filter((l) => l.startsWith('|') && l.includes('director-guard'))
   assert.ok(guard.some((l) => l.includes('Grep') && l.includes('Glob') && l.includes('NotebookEdit')), 'the director-guard row names Grep, Glob and NotebookEdit')
 })
+
+test('A1: SKILL.md, hooks/README.md and CHANGELOG.md state the "flag allow-list" and drop the old deny-list wording', () => {
+  const docs = {
+    'skills/director/SKILL.md': read('skills', 'director', 'SKILL.md'),
+    'hooks/README.md': read('hooks', 'README.md'),
+    'CHANGELOG.md': readFileSync(join(PLUGIN, '..', '..', 'CHANGELOG.md'), 'utf8'),
+  }
+  for (const [name, t] of Object.entries(docs)) {
+    assert.ok(t.includes('flag allow-list'), `${name} contains "flag allow-list"`)
+    assert.ok(!t.includes('prints patches'), `${name} has no "prints patches"`)
+    assert.ok(!t.includes('may not print patches'), `${name} has no "may not print patches"`)
+  }
+})
+
+test('A1: coordinator-tiers.md states the only configured hard stop', () => {
+  assert.ok(read(...TIERS_DOC).includes('only configured hard stop'))
+})
+
+test('A1: post-run.md covers reseat from a safe result: --declarations and red-proof-shape', () => {
+  const t = read('skills', 'run-wave', 'references', 'post-run.md')
+  assert.ok(t.includes('--declarations'))
+  assert.ok(t.includes('red-proof-shape'))
+})
