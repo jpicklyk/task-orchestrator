@@ -364,7 +364,6 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
         if (await idleWait(decision.waitMs, decision.reason)) break;
         continue;
     }
-    stats.consecutiveIdle = 0;
     const itemId = String(decision.pick.id).toLowerCase();
     const title = decision.pick.title ? ` ${decision.pick.title}` : "";
 
@@ -425,6 +424,7 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
     }
 
     // ---- iteration
+    stats.consecutiveIdle = 0;
     stats.iterations++;
     const iterIndex = stats.iterations;
     const tokenFile = seatTokenFilePath(cfg.scratchDir, iterIndex);
@@ -890,7 +890,7 @@ function formatSummary() {
         `    # ${stats.gateBlocked} gate-blocked`,
         `    x ${stats.errored} errored`,
         `    - ${stats.skipped} skipped`,
-        `    . ${stats.idle} idle selections`,
+        `    . ${stats.idle} idle waits (empty pages, skipped pages, backed-off calls)`,
     ];
     const kept = stats.outcomes.filter((o) => o.outcome.status === "gate-blocked" || o.outcome.status === "error");
     if (kept.length) {
