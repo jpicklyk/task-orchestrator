@@ -30,9 +30,13 @@
 #   Part 3: data_steps holds the once-steps and no server-config-import row (every-boot steps are
 #           never recorded); the highest successful flyway version equals the highest V<N>__ file in
 #           the checkout, with zero failed rows; row counts equal the golden manifest count.* lines
-#           (an empty-volume swap would go red).
+#           (an empty-volume swap would go red). The two boots before Part 3 (readiness, stdio)
+#           must have left exactly one pre-4.0 backup (*.bak, current-tasks.db.pre-4.0.<ts>.bak)
+#           in the volume, and that copy must verify: PRAGMA integrity_check = ok and the highest
+#           successful flyway version equal to the golden manifest's schema_version.
 #   Part 4: boot the same volume once more and assert every data_steps.applied_at is unchanged
-#           (once-steps are skipped when already applied).
+#           (once-steps are skipped when already applied) and that the volume still holds exactly
+#           that one backup, so a later boot never takes a second copy.
 #
 # Usage: scripts/ci/smoke-test-image.sh [--seed <sqlite>] <image-tag>
 #   Without --seed the behaviour is the fresh-volume smoke (Parts 1 and 2) only.
@@ -262,6 +266,37 @@ for table in work_items notes dependencies; do
   fi
 done
 
+# Pre-upgrade backup: the first boot against the old database copies it aside exactly once.
+# Count every *.bak first, then check the strict name, so a stray-named copy is caught too. The
+# copy is verified here (never the checked-in seed, which must not be opened with sqlite3).
+BAK_NAMES="$(find "$EXTRACT_DIR" -maxdepth 1 -type f -name '*.bak' -exec basename {} \; | sort)"
+BAK_COUNT="$(printf '%s' "$BAK_NAMES" | grep -c . || true)"
+FIRST_BAK=""
+if [ "$BAK_COUNT" -ne 1 ]; then
+  echo "ERROR: expected exactly one pre-4.0 .bak after the first boot, found ${BAK_COUNT}: $(if [ -n "$BAK_NAMES" ]; then printf '%s' "$BAK_NAMES" | tr '\n' ' '; else printf '(none)'; fi)" >&2
+  UP_FAIL=1
+else
+  FIRST_BAK="$BAK_NAMES"
+  if ! printf '%s\n' "$FIRST_BAK" | grep -Eq '^current-tasks\.db\.pre-4\.0\.[0-9]{8}T[0-9]{6}Z\.bak$'; then
+    echo "ERROR: unexpected .bak file name $FIRST_BAK" >&2
+    UP_FAIL=1
+  else
+    BAK_DB="${EXTRACT_DIR}/${FIRST_BAK}"
+    BAK_EXPECT_VERSION="$(tr -d '\r' <"$GOLDEN_MANIFEST" | sed -n 's/^schema_version=\([0-9][0-9]*\)$/\1/p')"
+    BAK_INTEGRITY="$(sqlite3 "$BAK_DB" 'PRAGMA integrity_check' 2>&1 | head -1 || true)"
+    BAK_VERSION="$(sqlite3 "$BAK_DB" 'SELECT MAX(CAST(version AS INTEGER)) FROM flyway_schema_history WHERE success=1' 2>&1 | head -1 || true)"
+    if [ "$BAK_INTEGRITY" != "ok" ]; then
+      echo "ERROR: pre-4.0 .bak $FIRST_BAK failed verification: integrity_check returned '$BAK_INTEGRITY'" >&2
+      UP_FAIL=1
+    elif [ -z "$BAK_EXPECT_VERSION" ] || [ "$BAK_VERSION" != "$BAK_EXPECT_VERSION" ]; then
+      echo "ERROR: pre-4.0 .bak $FIRST_BAK failed verification: flyway max successful version is '$BAK_VERSION', golden manifest schema_version is '$BAK_EXPECT_VERSION'" >&2
+      UP_FAIL=1
+    else
+      echo "pre-4.0 backup verified: $FIRST_BAK (schema version $BAK_VERSION)"
+    fi
+  fi
+fi
+
 if [ "$UP_FAIL" -ne 0 ]; then
   exit 1
 fi
@@ -295,4 +330,11 @@ if [ "$FIRST_STEPS" != "$SECOND_STEPS" ]; then
   exit 1
 fi
 echo "second boot reached readiness; data_steps unchanged."
+SECOND_BAK_NAMES="$(find "$EXTRACT_DIR" -maxdepth 1 -type f -name '*.bak' -exec basename {} \; | sort)"
+SECOND_BAK_COUNT="$(printf '%s' "$SECOND_BAK_NAMES" | grep -c . || true)"
+if [ "$SECOND_BAK_COUNT" -ne 1 ] || [ "$SECOND_BAK_NAMES" != "$FIRST_BAK" ]; then
+  echo "ERROR: expected the same single pre-4.0 .bak after the second boot (${FIRST_BAK}), found ${SECOND_BAK_COUNT}: $(if [ -n "$SECOND_BAK_NAMES" ]; then printf '%s' "$SECOND_BAK_NAMES" | tr '\n' ' '; else printf '(none)'; fi)" >&2
+  exit 1
+fi
+echo "second boot took no new backup: $FIRST_BAK"
 echo "Smoke test passed (upgrade from seed)."
