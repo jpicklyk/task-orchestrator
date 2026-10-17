@@ -76,7 +76,7 @@
         ]
       },
       {
-        "matcher": "Skill|Read|Edit|Write|Bash|Agent",
+        "matcher": "Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -109,6 +109,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/retro-trigger.mjs\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*task-orchestrator.*__runs_read$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-watch.mjs\"",
             "timeout": 5
           }
         ]

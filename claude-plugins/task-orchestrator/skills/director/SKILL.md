@@ -24,12 +24,18 @@ Calling the skill again while in director mode refreshes the marker and the dash
 
 ## The altitude rule
 
-- Never open a file. `Read`, `Edit` and `Write` are denied.
+- Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
+  denied.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
 - `Bash` runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
-  `$(`) and nothing chained after a command outside that list.
+  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
+  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log`
+  takes `--oneline`, `--format=`, `-n <k>`, `--graph`, `--since=`, `--author=`, `--grep=` and
+  `--stat`, never `-p` or another patch flag; `git status` takes `-s`, `-b`, `--porcelain` and
+  `-uno`, never `-v`; `git branch` may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`,
+  `--merged <ref>`, `--contains <ref>` and the like). Revisions and paths are allowed as operands.
 - `Agent` runs only in the background: pass `run_in_background: true`. A foreground dispatch is
   denied, because its result would land in this context.
 - `SendMessage` and `ListAgents` are never denied. Use them to talk to coordinators.
@@ -171,6 +177,28 @@ board line. The tier says where coordinators run; it does not launch one.
 
 At tier 4, warn the user once: the altitude holds only as long as each delegated agent reports a
 summary instead of raw file content, so ask each agent for a short summary.
+
+How to launch a coordinator at each tier (the desktop session profile, the tier-2 hand-off with
+`--altitude-safe`, the tier-3 `claude -p` argv with `--max-budget-usd`, and the tier-4 warning) is
+in [references/coordinator-tiers.md](references/coordinator-tiers.md). The plugin's
+`scripts/coordinator-tiers.mjs` holds the same probe rule and prints each launch profile; a
+coordinator or background agent runs it, not this session. A small run (one or two items) skips the
+coordinator layer: dispatch it as one background agent.
+
+## Waking up
+
+On any wake-up (a `SendMessage` from a coordinator, a task notification, or the user returning
+after idle), read the run that woke you:
+
+```to-call
+{"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}
+```
+
+and the run's decisions (Dashboard step 3). Do not decide on your own whether to push or run a
+retrospective: the plugin's `director-watch` hook reads those results and tells you. A
+`Decision waiting:` directive means call `PushNotification` once for the ids it names; a
+retrospective directive (only for a `closed` run, since an idle run is not done) means nudge or
+dispatch exactly as it says. Each fires once per decision or run per session.
 
 ## Hardened entry
 

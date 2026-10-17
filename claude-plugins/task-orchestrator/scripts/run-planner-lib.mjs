@@ -1074,13 +1074,15 @@ function buildWorktreesToCreate(snap, args, mode) {
 
 /**
  * buildPlanDoc(snap, opts) -> {ok:true, doc} | {ok:false, refused:boolean, errors, doc?}
- * opts = {now, maxItems=5, mode='auto', entry='auto', method?, scratchpad}
+ * opts = {now, maxItems=5, mode='auto', entry='auto', method?, scratchpad, altitudeSafe?}
+ * opts.altitudeSafe === true sets args.altitudeSafe true (implement-wave then returns the scrubbed
+ * altitude-safe result); otherwise args carries no altitudeSafe key.
  * Runs the whole pipeline: validateSnapshot -> chooseMode/chooseEntry -> deriveStages ->
  * frontier -> resourceDeferrals -> orderItems -> applyCap -> lockSourceDeferrals ->
  * assembleArgs -> size check.
  */
 export function buildPlanDoc(snap, opts = {}) {
-  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch } = opts;
+  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch, altitudeSafe } = opts;
 
   const snapCheck = validateSnapshot(snap);
   if (!snapCheck.ok) {
@@ -1236,6 +1238,7 @@ export function buildPlanDoc(snap, opts = {}) {
     worktree,
     branch
   });
+  if (altitudeSafe === true) args.altitudeSafe = true;
 
   const warnings = [];
   for (const id of finalIds) {
@@ -1425,6 +1428,9 @@ export function validatePlanDoc(doc, argsSchema, snapshot) {
       for (const item of doc.args.items || []) {
         if ((item.waitsFor || []).length) errors.push('per-item mode forbids waitsFor');
       }
+    }
+    if (doc.args.altitudeSafe !== undefined && typeof doc.args.altitudeSafe !== 'boolean') {
+      errors.push('bad altitudeSafe: must be a boolean');
     }
     if (doc.args.serverRunId !== undefined && !(doc.args.project && typeof doc.args.project.scratchDir === 'string' && doc.args.project.scratchDir)) {
       errors.push('serverRunId requires project.scratchDir');
