@@ -319,3 +319,53 @@ test('S9 probe: a proseException line excuses every retired name on that line', 
   assert.deepEqual(r.violations, []);
   assert.deepEqual(r.stale, []);
 });
+
+// ---- S2/S3 (P23 2953cc30): the project skills and project rules ---------------------------------
+// Oracle: task-scope AC1/AC4 - zero retired 3.x tool names under <repo>/.claude/skills and
+// <repo>/.taskorchestrator with an EMPTY baseline (a bare complete_tree is allowed by the scan rules).
+
+const REPO = join(PLUGIN, '..', '..');
+const PROJECT_DIRS = ['.claude/skills', '.taskorchestrator'];
+
+test('S2: scanning <repo> .claude/skills and .taskorchestrator with an empty baseline finds 0 violations and 0 stale rows', () => {
+  assert.ok(existsSync(join(REPO, '.claude', 'skills')), 'the project skills directory must exist');
+  assert.ok(existsSync(join(REPO, '.taskorchestrator')), 'the project rules directory must exist');
+  const r = scanToolNames({ pluginRoot: REPO, dirs: PROJECT_DIRS, tools: TOOLS, baseline: EMPTY_BASELINE });
+  assert.deepEqual(r.violations, [], JSON.stringify(r.violations.slice(0, 10)));
+  assert.deepEqual(r.stale, [], JSON.stringify(r.stale.slice(0, 10)));
+});
+
+function projectFixture(files) {
+  const root = mkdtempSync(join(tmpdir(), 'cnames-proj-'));
+  tmpDirs.push(root);
+  for (const d of PROJECT_DIRS) mkdirSync(join(root, ...d.split('/')), { recursive: true });
+  for (const [rel, text] of Object.entries(files)) {
+    const abs = join(root, ...rel.split('/'));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, text);
+  }
+  return root;
+}
+
+test('S3: non-vacuity - a retired name under a dot-segment directory (.claude/skills) is exactly one violation', () => {
+  const root = projectFixture({ '.claude/skills/x/SKILL.md': 'query_notes' });
+  const r = scanToolNames({ pluginRoot: root, dirs: PROJECT_DIRS, tools: TOOLS, baseline: EMPTY_BASELINE });
+  assert.equal(r.violations.length, 1, JSON.stringify(r.violations));
+  assert.equal(r.violations[0].file, '.claude/skills/x/SKILL.md');
+  assert.equal(r.violations[0].line, 1);
+  assert.equal(r.violations[0].name, 'query_notes');
+  assert.deepEqual(r.stale, []);
+});
+
+test('S3: non-vacuity - a retired name under .taskorchestrator/rules is also found, and clean files beside it are not', () => {
+  const root = projectFixture({
+    '.taskorchestrator/rules/bad.md': 'first\nuse manage_notes here\n',
+    '.taskorchestrator/rules/good.md': 'use notes_write here\n',
+    '.claude/skills/x/SKILL.md': 'use items_read and complete_tree\n',
+  });
+  const r = scanToolNames({ pluginRoot: root, dirs: PROJECT_DIRS, tools: TOOLS, baseline: EMPTY_BASELINE });
+  assert.equal(r.violations.length, 1, JSON.stringify(r.violations));
+  assert.equal(r.violations[0].file, '.taskorchestrator/rules/bad.md');
+  assert.equal(r.violations[0].line, 2);
+  assert.equal(r.violations[0].name, 'manage_notes');
+});

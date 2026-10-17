@@ -197,7 +197,7 @@ correct one.
 
 ```kotlin
 @Test
-fun `get_context returns resolved schema for item with traits`() {
+fun `context read returns resolved schema for item with traits`() {
     val context = getContextTool.execute(GetContextRequest(itemId = itemWithTrait.id))
 
     assertNotNull(context)
@@ -212,7 +212,7 @@ notes with the trait notes silently missing — anything non-empty satisfies it.
 
 ```kotlin
 @Test
-fun `get_context returns resolved schema for item with traits`() {
+fun `context read returns resolved schema for item with traits`() {
     val context = getContextTool.execute(GetContextRequest(itemId = itemWithTrait.id))
 
     val noteKeys = context.expectedNotes.map { it.key }.toSet()
@@ -291,7 +291,7 @@ block observed the difference.
 
 ```kotlin
 @Test
-fun `manage_notes upsert accepts a note within maxLength`() {
+fun `notes upsert accepts a note within maxLength`() {
     try {
         val result = manageNotesTool.execute(upsertRequest)
         assertEquals(NOTE_LIMITS_OK, result.warning)
@@ -312,7 +312,7 @@ genuine setup problem, logged, and the test reports green.
 
 ```kotlin
 @Test
-fun `manage_notes upsert accepts a note within maxLength`() {
+fun `notes upsert accepts a note within maxLength`() {
     check(schemaService.isLoaded()) { "test setup invariant: schema must be loaded before this test" }
 
     val result = manageNotesTool.execute(upsertRequest)

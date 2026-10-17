@@ -13,6 +13,10 @@ declarations block per item to a file before the author is dispatched.
   writes production code, test code, or any note the author later reads as guidance.
 - **Dispatched after the implementer returns**, so it extracts from the real, now-existing
   surface rather than a predicted one.
+- **Extract for the union of two lists**: the files the implementer changed, plus the planner's
+  `declarationModules` (modules the test scenarios touch even when nobody edited them). Report the
+  paths actually covered in `output.modules`; the dispatcher compares that list against
+  `declarationModules` and refuses the author dispatch with `missingDeclaration: <paths>` on a gap.
 - **One block per item, written to a file**, not pasted inline into a chat turn -- the file is
   what the orchestrator scans (section 3) before the author ever sees it.
 

@@ -129,8 +129,11 @@ function runPlan(args) {
   // shared-mode-only) lives in run-planner-lib.mjs's buildPlanDoc guardErrors, not here.
   const worktree = flagValue(args, '--worktree', undefined);
   const branch = flagValue(args, '--branch', undefined);
+  // --altitude-safe: the run returns the scrubbed altitude-safe result (counts and pointers only),
+  // for a director session that makes the Workflow call itself (coordinator tier 2).
+  const altitudeSafe = args.includes('--altitude-safe');
 
-  const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad, worktree, branch });
+  const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad, worktree, branch, altitudeSafe });
 
   if (result.ok) {
     process.stdout.write(`${JSON.stringify(result.doc)}\n`);

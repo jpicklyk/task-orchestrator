@@ -86,10 +86,10 @@ Use only these categories (omit any that have no entries):
 
 Rules for each bullet:
 - Start with a past-tense verb (Added, Fixed, Improved, Removed, Changed)
-- Name the tool or feature affected (e.g., `query_items`, `advance_item`)
+- Name the tool or feature affected (e.g., `items_read`, `advance`)
 - Describe the **benefit to the user**, not the implementation detail
 - Do not mention internal class names, Kotlin types, or file paths
-- Example: `Added \`includeAncestors\` to \`query_items\` — eliminates parent-walk call chains for breadcrumb context`
+- Example: `Added \`includeAncestors\` to \`items_read\` — eliminates parent-walk call chains for breadcrumb context`
 
 ### 4d. Detect plugin content changes
 

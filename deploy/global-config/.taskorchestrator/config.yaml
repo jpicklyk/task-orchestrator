@@ -4,7 +4,8 @@
 # (mounted via AGENT_CONFIG_DIR, read once at server startup). It carries
 # ONLY the process/self-improvement schemas that every project sharing this
 # server should get for free: agent-observation, session-retrospective, and
-# improvement-proposal items, plus the generic container schema.
+# improvement-proposal items, plus the generic container, project and
+# retrospective-trend schemas.
 #
 # Project-specific schemas (feature-implementation, feature-task, bug-fix,
 # traits, etc.) do NOT belong here — those are delivered per-root via the
@@ -84,3 +85,13 @@ work_item_schemas:
         required: false
         description: "Optional high-level description of what this container organizes."
         guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."
+
+  # The project anchor root (type "project"): permanent, never cascades to terminal, no required notes.
+  project:
+    lifecycle: permanent
+    notes: []
+
+  # Trend items the session-retrospective skill creates, updates, upserts evidence-* notes on, and cancels.
+  retrospective-trend:
+    lifecycle: auto
+    notes: []

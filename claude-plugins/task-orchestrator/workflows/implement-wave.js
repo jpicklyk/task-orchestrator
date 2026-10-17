@@ -298,6 +298,11 @@ function normalizeArgs(raw) {
       (!Array.isArray(parsed.project.appendOnlyFiles) || parsed.project.appendOnlyFiles.some((e) => typeof e !== 'string'))) {
     return { ok: false, reason: 'invalid args: bad appendOnlyFiles' }
   }
+  // altitudeSafe is optional: true scrubs the result to counts and pointers (altitudeSafeResult),
+  // so a director session that makes the Workflow call never receives seat prose.
+  if ('altitudeSafe' in parsed && parsed.altitudeSafe !== undefined && typeof parsed.altitudeSafe !== 'boolean') {
+    return { ok: false, reason: 'invalid args: bad altitudeSafe' }
+  }
   // serverRunId is optional (set by run-planner bind-run once runs_write open answered): the server
   // run UUID. Seats of a bound run read their seat token from a file under project.scratchDir.
   if (parsed.serverRunId !== undefined && parsed.serverRunId !== null) {
@@ -1574,7 +1579,7 @@ async function runPlan(plan, deps) {
   const runDeps = { agent: deps.agent, milestones, locks, log: deps.log }
   const thunks = pf.runnable.map((item) => () => runItem(plan, item, runDeps))
   const results = await deps.parallel(thunks)
-  return {
+  const full = {
     contract: 'implement-wave/result-v1',
     started: true,
     runId: plan.runId,
@@ -1582,6 +1587,90 @@ async function runPlan(plan, deps) {
     items: results,
     refused: pf.refused,
     deferred: plan.deferred || [],
+  }
+  return plan.altitudeSafe === true ? altitudeSafeResult(full) : full
+}
+
+const SAFE_REASON_MAX = 120
+const SAFE_RED_PROOF_MAX = 200
+const SAFE_OUTPUT_LISTS = [
+  'mainFiles', 'docFiles', 'testFiles', 'declarationModules',
+  'mainFilesChanged', 'docFilesChanged', 'testFilesChanged',
+]
+
+function safeText(v, max) {
+  return typeof v === 'string' ? v.slice(0, max) : ''
+}
+
+function safeOutput(out) {
+  if (!out || typeof out !== 'object' || Array.isArray(out)) return null
+  const kept = {}
+  for (const k of SAFE_OUTPUT_LISTS) {
+    if (Array.isArray(out[k])) kept[k] = out[k].filter((v) => typeof v === 'string')
+  }
+  if (Array.isArray(out.existingTestEdits)) {
+    kept.existingTestEdits = out.existingTestEdits
+      .filter((e) => e && typeof e === 'object' && typeof e.file === 'string')
+      .map((e) => ({ file: e.file }))
+  }
+  if ('proceed' in out) kept.proceed = out.proceed
+  if (typeof out.redProofShape === 'string') kept.redProofShape = out.redProofShape.slice(0, SAFE_RED_PROOF_MAX)
+  return kept
+}
+
+function safeStage(st) {
+  const s = st || {}
+  const commits = s.commits && typeof s.commits === 'object' ? s.commits : {}
+  return {
+    seat: s.seat,
+    status: s.status,
+    reason: safeText(s.reason, SAFE_REASON_MAX),
+    modelReported: typeof s.modelReported === 'string' ? s.modelReported : '',
+    agentTypeUsed: typeof s.agentTypeUsed === 'string' ? s.agentTypeUsed : null,
+    agentTypeFallback: !!s.agentTypeFallback,
+    commits: { pre: typeof commits.pre === 'string' ? commits.pre : '', post: typeof commits.post === 'string' ? commits.post : '' },
+    files: Array.isArray(s.files) ? s.files.filter((f) => typeof f === 'string') : [],
+    notes: Array.isArray(s.notes)
+      ? s.notes.filter((n) => n && typeof n === 'object').map((n) => ({ key: n.key, actor: n.actor, chars: n.chars }))
+      : [],
+  }
+}
+
+function safeEntry(e) {
+  const x = e || {}
+  return { id: x.id, short: x.short, reason: safeText(x.reason, SAFE_REASON_MAX) }
+}
+
+/**
+ * altitudeSafeResult(full) -> result-v1 scrubbed to counts and pointers, plus `rollup`.
+ * Keeps the item skeleton post-run verify and end-seats read (items[].stages, items[].outputs.<seat>
+ * file lists) and drops every prose field (decisions, corrections, edits, deviations, publicSurface).
+ * Reasons are cut to 120 characters; the full prose lives in the seats' notes.
+ */
+function altitudeSafeResult(full) {
+  const items = (full.items || []).map((it) => {
+    const item = { id: it.id, short: it.short, status: it.status }
+    if (it.schemaFree) item.schemaFree = true
+    item.reason = safeText(it.reason, SAFE_REASON_MAX)
+    item.stages = (it.stages || []).map(safeStage)
+    const outputs = {}
+    for (const [seat, out] of Object.entries(it.outputs || {})) outputs[seat] = safeOutput(out)
+    item.outputs = outputs
+    return item
+  })
+  const refused = (full.refused || []).map(safeEntry)
+  const deferred = (full.deferred || []).map(safeEntry)
+  const count = (status) => items.filter((it) => it.status === status).length
+  return {
+    contract: 'implement-wave/result-v1',
+    started: true,
+    altitudeSafe: true,
+    runId: full.runId,
+    serverRunId: full.serverRunId || null,
+    rollup: { items: items.length, done: count('done'), stopped: count('stopped'), deferred: count('deferred'), refused: refused.length },
+    items,
+    refused,
+    deferred,
   }
 }
 // @core-end

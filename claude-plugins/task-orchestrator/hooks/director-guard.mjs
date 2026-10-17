@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Director Guard Hook - PreToolUse on Skill|Read|Edit|Write|Bash|Agent. Two jobs:
+// Director Guard Hook - PreToolUse on Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit. Two jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
 //    `task-orchestrator:director`) from the main session (non-empty `session_id`, no `agent_id`)
@@ -7,9 +7,10 @@
 //    with `args` `off` removes it. A skill body cannot see its session id, the hook can, so the
 //    marker is written here.
 // 2. Altitude rule. While the marker exists, the director session may not open files or run
-//    foreground work: Read/Edit/Write are denied, Bash is denied unless every segment of the
-//    command starts with a DIRECTOR_BASH_ALLOW entry, and Agent is denied unless
-//    `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
+//    foreground work: Read/Edit/Write/Grep/Glob/NotebookEdit are denied, Bash is denied unless
+//    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
+//    `git branch`, every later token is on that command's flag allow-list or is a plain operand
+//    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
 //    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
 //
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
@@ -33,7 +34,7 @@ export const DIRECTOR_BASH_ALLOW = Object.freeze(['git status', 'git log', 'git 
 export const REASON_PREFIX = 'Director altitude rule:';
 
 const NEVER_DENIED = new Set(['SendMessage', 'ListAgents']);
-const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']);
 
 const REMEDY =
   'Delegate the work through a background `Agent` (`run_in_background: true`) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
@@ -49,18 +50,89 @@ export function isDirectorSkillCall(input) {
 }
 
 /**
- * True when a director session may run `command`: a string with no backtick, `$(`, `<`, `>` or
- * carriage return, whose every segment (split on `;`, `&&`, `||`, `|`, `&` and newline), trimmed,
- * starts with a DIRECTOR_BASH_ALLOW entry followed by end-of-segment or whitespace. Case-sensitive.
+ * True when a director session may run `command`: a string with no backtick, `<`, `>`, carriage
+ * return, `$`, brace, glob character (`*`, `?`, `[`, `]`) or backslash (R1), whose every segment
+ * (split on `;`, `&&`, `||`, `|`, `&` and newline), trimmed, starts with a DIRECTOR_BASH_ALLOW entry
+ * followed by end-of-segment or whitespace. Case-sensitive. For `git log`, `git status` and
+ * `git branch` each later token has every `'` and `"` deleted (R2) and must then pass that
+ * command's flag allow-list (R3, R4, R5).
  */
 export function bashAllowed(command) {
   if (typeof command !== 'string') return false;
-  if (/[`<>\r]/.test(command) || command.includes('$(')) return false;
+  if (/[`<>\r${}*?[\]\\]/.test(command)) return false;
   const segments = command.split(/&&|\|\||;|\||&|\n/);
   return segments.every((raw) => {
     const seg = raw.trim();
-    return DIRECTOR_BASH_ALLOW.some((entry) => seg === entry || (seg.startsWith(entry) && /^\s/.test(seg.slice(entry.length))));
+    const entry = DIRECTOR_BASH_ALLOW.find((e) => seg === e || (seg.startsWith(e) && /^\s/.test(seg.slice(e.length))));
+    if (entry === undefined) return false;
+    const rest = seg.slice(entry.length).trim();
+    const tokens = rest === '' ? [] : rest.split(/\s+/).map(stripQuotes);
+    if (entry === 'git log') return tokens.every(gitLogTokenAllowed);
+    if (entry === 'git status') return tokens.every(gitStatusTokenAllowed);
+    if (entry === 'git branch') return gitBranchListingOnly(tokens);
+    return true;
   });
+}
+
+/** R2: a token with every `'` and `"` deleted, the form the shell hands to git. */
+const stripQuotes = (token) => token.replace(/['"]/g, '');
+
+/** An operand: a normalized token that does not start with `-`. */
+const isOperand = (token) => !token.startsWith('-');
+
+/** R3: exact `git log` listing flags. */
+const GIT_LOG_FLAGS = new Set([
+  '--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--merges',
+  '--no-merges', '--abbrev-commit', '--stat', '--shortstat', '--name-only', '--name-status', '--pretty',
+  '-n', '-i', '-E', '-F', '-P', '--',
+]);
+
+/** R3: `git log` flag prefixes that carry a value. */
+const GIT_LOG_VALUE_PREFIXES = Object.freeze([
+  '--format=', '--pretty=', '--decorate=', '--max-count=', '--since=', '--until=', '--after=', '--before=',
+  '--author=', '--committer=', '--grep=', '--date=',
+]);
+
+/**
+ * R3, the `git log` flag allow-list: a token is allowed only when it is an operand, an exact
+ * GIT_LOG_FLAGS entry, starts with a GIT_LOG_VALUE_PREFIXES entry, or matches `-<n>` / `-n<n>`.
+ * Any other token (a patch, diff, merge-diff or output flag in any spelling) denies the segment.
+ * Tokens after `--` are classified the same way, so a path starting with `-` is denied (fail closed).
+ */
+function gitLogTokenAllowed(token) {
+  if (isOperand(token) || GIT_LOG_FLAGS.has(token)) return true;
+  if (GIT_LOG_VALUE_PREFIXES.some((prefix) => token.startsWith(prefix))) return true;
+  return /^-n?\d+$/.test(token);
+}
+
+/** R4, the `git status` flag allow-list. -v, -vv, --verbose and every abbreviation are absent. */
+const GIT_STATUS_FLAGS = new Set([
+  '-s', '--short', '-b', '--branch', '-sb', '--long', '--porcelain', '--porcelain=v1', '--porcelain=v2',
+  '--show-stash', '--ahead-behind', '--no-ahead-behind', '-u', '-uno', '-unormal', '-uall', '--untracked-files',
+  '--untracked-files=no', '--untracked-files=normal', '--untracked-files=all', '--ignored', '--',
+]);
+
+/** R4: a `git status` token is an operand or an exact GIT_STATUS_FLAGS entry. */
+function gitStatusTokenAllowed(token) {
+  return isOperand(token) || GIT_STATUS_FLAGS.has(token);
+}
+
+/** Flags that keep `git branch` a listing. */
+const GIT_BRANCH_LIST_FLAGS = new Set([
+  '-a', '--all', '-r', '--remotes', '-v', '-vv', '--verbose', '--list', '--show-current',
+  '--merged', '--no-merged', '--contains', '--no-contains', '--points-at', '--color', '--no-color',
+]);
+
+/** Listing flags whose one following operand is allowed. */
+const GIT_BRANCH_OPERAND_FLAGS = new Set(['--merged', '--no-merged', '--contains', '--no-contains', '--points-at']);
+
+/** True when every `git branch` token is a listing flag or the one operand right after an operand flag. */
+function gitBranchListingOnly(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    if (!GIT_BRANCH_LIST_FLAGS.has(tokens[i])) return false;
+    if (GIT_BRANCH_OPERAND_FLAGS.has(tokens[i]) && i + 1 < tokens.length && !tokens[i + 1].startsWith('-')) i++;
+  }
+  return true;
 }
 
 function denyReason(tool, detail) {
@@ -86,7 +158,7 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
-    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution`);
+    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;

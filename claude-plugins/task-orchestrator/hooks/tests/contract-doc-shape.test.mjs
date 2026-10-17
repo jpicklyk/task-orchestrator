@@ -53,6 +53,34 @@ test('S10: the generated call-shapes.md carries no to-call blocks of its own', (
   assert.deepEqual(parseToCallBlocks(text), []);
 });
 
+// ---- S1 (P23 2953cc30): the project skills ---------------------------------------------------
+// Oracle: task-scope AC1 - the example calls in <repo>/.claude/skills are ```to-call blocks that
+// validate against the generated catalog. Never "what checkToCall returns today"; at least one block
+// must exist so an empty walk cannot pass.
+
+const REPO = join(PLUGIN, '..', '..');
+
+test('S1: every to-call block in <repo>/.claude/skills/**/*.md parses and validates, and at least one exists', () => {
+  const files = walkMd(join(REPO, '.claude', 'skills'));
+  assert.ok(files.length > 0, 'the scan must cover at least one project skill markdown file');
+  let found = 0;
+  for (const f of files) {
+    const text = readFileSync(f, 'utf8');
+    for (const b of parseToCallBlocks(text)) {
+      found += 1;
+      assert.ok(!('error' in b), `${f}:${b.line} ${b.error}`);
+      assert.deepEqual(checkToCall(b.value, CATALOG), [], `${f}:${b.line}`);
+    }
+  }
+  assert.ok(found >= 1, 'the project skills must carry at least one to-call block');
+});
+
+test('S1 non-vacuity: a retired 3.x call shape in a to-call block is rejected by the same check', () => {
+  const retired = block({ tool: 'manage_notes', op: 'upsert', args: UPSERT_ARGS });
+  const parsed = parseToCallBlocks(retired);
+  assert.equal(parsed.length, 1);
+  assert.ok(checkToCall(parsed[0].value, CATALOG).length >= 1, 'a retired tool name must fail the catalog check');
+});
 // ---- S11: checkToCall --------------------------------------------------------------------
 
 const UPSERT_ARGS = { itemId: '58facb39', key: 'test-manifest', role: 'work', body: 'x' };

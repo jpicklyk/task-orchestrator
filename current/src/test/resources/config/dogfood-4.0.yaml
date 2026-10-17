@@ -1,5 +1,5 @@
-# 4.0 form of the dogfood config, used as a test fixture (the live .taskorchestrator/config.yaml is frozen until the
-# 4.0 sync). It must validate STRICT with zero errors and zero warnings.
+# 4.0 form of the dogfood config, used as a pinned test fixture (the live .taskorchestrator/config.yaml has its own checks).
+# It must validate STRICT with zero errors and zero warnings.
 project:
   rootId: "ce064d2c-7c03-4eac-ae7d-89a14c2ba273"
   name: "TaskOrchestrator"

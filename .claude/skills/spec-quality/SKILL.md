@@ -72,7 +72,7 @@ authority to the agent that implements it faithfully.
 If the spec claims something was verified, name exactly what was checked. "Verified
 against source" that checked one path while prescribing another is how a partially
 verified claim ships a defect (two sessions of evidence: task-scope facts contradicting
-target files, 2026-07-27; a design prescribing `advance_item` trigger sequences that
+target files, 2026-07-27; a design prescribing `advance` trigger sequences that
 gate-block, 2026-07-31).
 
 This discipline applies to the **plan artifact** as much as to spec notes. Specification notes
@@ -127,7 +127,7 @@ Read `references/project-concerns.md` for cross-cutting constraints specific to 
 codebase that frequently expand blast radius in non-obvious ways.
 
 If the blast radius touches a surface with an automated budget, ceiling, or quota test
-(e.g. `ToolTokenBudgetTest`), measure current headroom while writing the spec and record
+(e.g. `ToolSurfaceGuardsTest`), measure current headroom while writing the spec and record
 both the measured values and the predicted post-change values. Do not defer the
 measurement to implementation — by then the scope decision is already made.
 
@@ -183,6 +183,34 @@ artifacts map coverage back to this spec without duplicating it — most directl
 `needs-test-author` trait's `test-plan` and `test-manifest` notes, which reference these
 same ids; cite the trait by name rather than restating its note schema here.
 
+**State matrix (user-visible runtime changes).** Required when the change alters behaviour
+observed in a running session or server process: plugin hooks, hook-injected context or skill
+text, output styles, mod modules, server startup, config load or hot-reload, transport or REST
+behaviour. Otherwise the spec carries one line, `State matrix: n/a - <reason>` (docs-only,
+test-only, pure refactor, domain logic fully unit-tested, agent-read process prose). A missing
+line is an omission, not a decision.
+
+- **Rows (minimum set):** fresh session (no prior markers or state); configured; unconfigured,
+  one row per fallback the change reads, each with that fallback removed alone (for example no
+  `project.rootId`, empty API URL, no `config.yaml`); reload or restart mid-use (plugin reload,
+  server restart, config hot-reload); resume after compaction or `--resume`. An item may add
+  rows; none may be dropped silently.
+- **Columns:** terminal (interactive CLI), desktop app, headless `claude -p`.
+- **Cells:** exactly one of `test: <test file or S#>` (only when that test's fixture actually
+  models the row's state), `live-owed: <command or steps, in the form that will be executed>`,
+  or `n/a: <reason>`. A desktop cell an agent cannot drive is `live-owed` (to the user, or carrying
+  a `deferred: <item id>` suffix on its Live-owed entry), never `n/a` merely because an agent
+  cannot run it.
+- **Owed cells:** the item's `session-tracking` note (the orchestrator's, under the
+  `session-tracked` trait) lists every `live-owed` cell on a `**Live-owed**:` line. Each entry
+  ends `run <date>: <result>` or `deferred: <item id>`; a deferral names a tracked item, never
+  prose. An entry with neither suffix is open, and the item does not leave work while one is
+  open (`/implement` Step 4c).
+
+The matrix lives in the item's spec note (`task-scope`, `diagnosis` or `specification`). A plan may
+carry it or point at it (`/implement` Step 3, "Plans carry the State matrix"); a dispatch contract
+only points at it and never copies its cells.
+
 ---
 
 ## Completion Checklist
@@ -200,6 +228,7 @@ Validate spec completeness before advancing past queue phase:
 - [ ] 1-2 concrete risk flags identified
 - [ ] Test scenarios named for happy paths, failure paths, and edge cases
 - [ ] Scenarios carry stable numbered ids (S1…) with an oracle source recorded for each
+- [ ] State matrix present for a user-visible runtime change (or one `n/a` line with reason); every cell `test` | `live-owed` | `n/a: reason`
 - [ ] Shared interface breakage assessed (if applicable)
 
 ---
