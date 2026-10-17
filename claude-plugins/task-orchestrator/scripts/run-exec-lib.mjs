@@ -1195,6 +1195,25 @@ export function expectedActors(doc) {
 }
 
 /**
+ * reseatAccepts(resItem, expectedActorId, observedActorId) -> boolean. True only when the result
+ * item carries a `reseats` ledger (an array, even empty) with an entry whose `seat` is the
+ * observed `<baseSeat>-a<n>` seat and whose `baseSeat` is the expected seat, and the observed
+ * actor id is exactly `<seat>-a<n>:<short>:<runId>` for that expected `<seat>:<short>:<runId>`.
+ * Absent ledger or no exact match -> false (strict mismatch).
+ */
+function reseatAccepts(resItem, expectedActorId, observedActorId) {
+  const ledger = resItem && resItem.reseats
+  if (!Array.isArray(ledger) || ledger.length === 0) return false
+  const exp = String(expectedActorId).split(':')
+  const obs = String(observedActorId || '').split(':')
+  if (exp.length < 3 || obs.length !== exp.length) return false
+  if (obs.slice(1).join(':') !== exp.slice(1).join(':')) return false
+  const m = RESEAT_SEAT_RE.exec(obs[0])
+  if (!m || m[1] !== exp[0]) return false
+  return ledger.some((entry) => entry && entry.seat === obs[0] && entry.baseSeat === exp[0])
+}
+
+/**
  * auditActors(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
  * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result, behaviour is
  * byte-for-byte unchanged (every stage's notes are expected). With opts.result (the run's result
@@ -1202,7 +1221,9 @@ export function expectedActors(doc) {
  * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
  * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
  * `{ok:true, missing:[], mismatched:[], skipped:true}` instead of flagging notes from stages that
- * never ran.
+ * never ran. In the result branch an observed `<seat>-a<n>:<short>:<runId>` actor is accepted for
+ * the expected `<seat>` lane only when the item's `reseats` ledger records that seat with that
+ * baseSeat; the no-result branch stays strict.
  */
 export function auditActors(doc, observed, itemIds, opts) {
   const filter = itemIds ? new Set(itemIds) : null
@@ -1253,7 +1274,7 @@ export function auditActors(doc, observed, itemIds, opts) {
         const found = observedForItem.find((o) => o.key === e.key)
         if (!found) {
           if (!e.optional) missing.push(e.key)
-        } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+        } else if (found.actorId !== e.actorId && !reseatAccepts(resItem, e.actorId, found.actorId)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
       }
       return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
     })

@@ -151,6 +151,11 @@ a Step 1 verify failure — do not advance it. The rule this enforces: only the 
 note may (re-)write it; a mismatch is evidence something wrote outside its lane, not a cosmetic
 discrepancy to wave through.
 
+A reseated seat is the one exception: with `--result`, a note written by `<seat>-a<n>` (actor
+`<seat>-a<n>:<short>:<runId>`) is accepted in the `<seat>` lane when that item's `reseats` ledger
+records the seat with `baseSeat` equal to `<seat>`; an absent ledger, or any actor not in it, stays
+`mismatched`.
+
 An **optional** note (a stage's `optionalNotes`; the expected-actors table marks it `optional:
 true`) that was never written is **not** `missing` and does not fail the item — but if it was
 written under another actor it is still `mismatched`. In a seat-less plan `delegation-metadata` is not a seat's
@@ -269,7 +274,7 @@ The output JSON carries a `result` copy with the seat appended to `items[].resea
 recorded once and never moves): write it back to `result.json`. Verify then judges the
 test-author-before-implementer order only over item commits at or before the earliest recorded
 `pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
-finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`. The actor audit (`actors`) does not yet accept `-a<n>` actors.
+finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`.
 
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
