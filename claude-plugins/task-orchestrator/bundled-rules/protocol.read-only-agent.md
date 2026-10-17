@@ -18,7 +18,10 @@ fix, or transition anything.
 
 ## claude:
 
-- Go straight to `get_context(itemId=...)` for guidance -- never call `advance_item`, not even
-  once.
-- Fill your note via `manage_notes(operation="upsert", ...)`. Where a note points at a specialized
-  evaluation framework, invoke that first and use its output to fill the note.
+- Go straight to `items_read` with `select` `context` for your item to get guidance -- never call
+  `advance`, not even once, and never call `runs_write`: a read-only agent does not raise.
+- A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
+  field of each task-orchestrator request, reads included. Keep it out of your output, commits and
+  notes. The server answering `unauthenticated` means your seat is no longer valid: halt.
+- Fill your note with `notes_write` `upsert`. `note_owned_by_other` is final (no takeover is possible): log it as a finding. Where a note points at a specialized evaluation framework,
+  invoke that first and use its output to fill the note.

@@ -23,7 +23,11 @@ ownership.
 
 ## claude:
 
-- Never call `advance_item` at all as a non-entry seat -- not even once to enter. Call
-  `get_context(itemId=...)` for guidance instead.
-- Fill notes via `manage_notes(operation="upsert", ...)`, using the note keys your dispatch prompt
-  names for your seat.
+- Never call `advance` at all as a non-entry seat -- not even once to enter. Call `items_read` with
+  `select` `context` for your item to get guidance instead.
+- A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
+  field of each task-orchestrator request, reads included. Keep it out of your output, commits and
+  notes. The server answering `unauthenticated` means your seat is no longer valid: halt.
+- Fill notes with `notes_write` `upsert`, using the note keys your dispatch names for your seat. `note_owned_by_other` is final (no takeover is possible): log it as a finding.
+- The only sanctioned way for an in-phase seat to stop the item is the `runs_write` `raise` that
+  your dispatch names. Without one, report the blocker in your return instead.

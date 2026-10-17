@@ -9,34 +9,6 @@
       "owner": "cae5d141"
     },
     {
-      "file": "agents/implementer.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "agents/planner.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "agents/reviewer.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "agents/test-author.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "bundled-rules/protocol.entry-seat.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "bundled-rules/protocol.in-phase-seat.md",
-      "owner": "c6740063"
-    },
-    {
-      "file": "bundled-rules/protocol.read-only-agent.md",
-      "owner": "c6740063"
-    },
-    {
       "file": "skills/ralph/SKILL.md",
       "owner": "cae5d141"
     },
