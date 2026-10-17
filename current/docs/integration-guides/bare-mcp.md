@@ -126,7 +126,7 @@ Returns the top unblocked, unclaimed `queue` items ranked by priority then compl
 5. If in review: fill review notes, then `trigger: "start"` (review to terminal)
 6. The next child auto-unblocks: the transition result lists it under `unblocked`, and `{"select": "blocked", "ancestorId": "<root>"}` shows what is still waiting
 7. Use `{"select": "next", "parentId": "<root>"}` to find what's ready
-8. When all children complete, the parent auto-cascades to terminal
+8. When all children complete, a parent in work auto-cascades to terminal; a parent in review stays there (the child's result reports the cascade as `blocked: "gate"`, `reason: "review-pending"`) until its reviewer completes it
 
 ## Key Tool Patterns
 
