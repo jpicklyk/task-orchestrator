@@ -6,5 +6,3 @@
 # This is a RATCHET, not an allowlist to grow: LayeringTest fails on any layering violation not
 # listed here (new violations must not be added -- fix the import instead), AND fails on any line
 # below that no longer matches a real violation (delete the line once the violation is fixed).
-#
-# infrastructure -> interfaces (R3)
