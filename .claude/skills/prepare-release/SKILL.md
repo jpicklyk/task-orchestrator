@@ -14,6 +14,10 @@ CI is green, tags the release, and monitors the Docker build to completion.
 
 Run this from any branch after all feature PRs have been merged to `main`.
 
+Steps 1-11 are the ordinary point-release path (3.x and 4.x). A major release that lands a long-lived
+branch on `main` follows "Major release landing (X1, first used for 4.0.0)" below instead of Steps 1, 7, 10
+and 11b-11e.
+
 ---
 
 ## Step 1 — Ensure Clean Main
@@ -235,22 +239,27 @@ published a stale record — v3.3.0 through v3.13.1 shipped with `server.json` s
 
 ### 8b. Update plugin version files (if plugin content changed)
 
-Skip this step if no plugin files changed in Step 4d.
+Skip this step if no plugin files changed in Step 4d (`claude-plugins/`).
 
-Read the current plugin version from `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
-(already retrieved in Step 4d). Calculate the new version using the plugin bump level from Step 4d.
+This repository ships two plugins, each versioned on its own: `task-orchestrator` and
+`task-orchestrator-mod`. Bump only the plugin whose directory changed. Read each plugin's current
+version from its `plugin.json` (`claude-plugins/task-orchestrator/.claude-plugin/plugin.json` and
+`claude-plugins/task-orchestrator-mod/.claude-plugin/plugin.json`) and calculate the new version using
+the plugin bump level from Step 4d.
 
-Update **both** files with the new version:
+For each plugin being bumped, update **both** files with the new version:
 
-1. `claude-plugins/task-orchestrator/.claude-plugin/plugin.json` — update the `version` field
-2. `.claude-plugin/marketplace.json` — update `plugins[name="task-orchestrator"].version`
+1. `claude-plugins/<plugin>/.claude-plugin/plugin.json` - update the `version` field
+2. `.claude-plugin/marketplace.json` - update `plugins[name="<plugin>"].version`
 
-Also update the version table in `claude-plugins/CLAUDE.md`:
-- Find the row for `task-orchestrator` and replace the version number
+Also update the version table in `claude-plugins/CLAUDE.md`: find the row for each bumped plugin and
+replace the version number. Neither plugin has a `package.json`; the two files above plus the table row
+are its only version fields.
 
-Stage the three files (in addition to version.properties):
+Stage every file you changed (in addition to version.properties), for example when both plugins move:
 ```bash
 git add claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
+        claude-plugins/task-orchestrator-mod/.claude-plugin/plugin.json \
         .claude-plugin/marketplace.json \
         claude-plugins/CLAUDE.md
 ```
@@ -263,8 +272,10 @@ of the file; check whether one exists before writing anything.
 **If `## [Unreleased]` exists:** rename that header in place to `## [X.Y.Z] - YYYY-MM-DD` and fold
 your synthesized bullets from Step 4 into its existing `### Added` / `### Changed` / `### Fixed`
 subsections (create a subsection only if it is missing). Keep every existing bullet — they are
-the per-PR record — and add only what Step 4 found missing. Do not leave an empty `[Unreleased]`
-section behind; the next feature PR recreates it. Match each merged PR in `git log <LAST_TAG>..HEAD`
+the per-PR record - and add only what Step 4 found missing. Categories in use are Added,
+Changed, Removed, Fixed, Security and Plugin. Leave an empty `## [Unreleased]` heading above the cut
+section, with one blank line between the two headings (one rule for every release); the next feature PR
+fills it. Match each merged PR in `git log <LAST_TAG>..HEAD`
 to a bullet by the behaviour it describes (per-PR bullets usually cite no PR number) — merged PRs
 with no bullet are the gaps to fill, except a PR whose body states `Changelog: none (<why>)`,
 which is intentionally bullet-less (the September 2026 release prep found three bug-wave PRs
@@ -529,6 +540,15 @@ gawk it degrades to a character class — the match never fires and the extracti
 zero lines. `index($0, hdr) == 1` compares plain strings, so version dots and brackets carry no
 special meaning. Verified failing on gawk 2026-08-04 during the v3.13.1 release.
 
+A major release body keeps two lines from its "Upgrading from 3.x" section even when the rest is trimmed:
+
+- the data-step line: the first start runs the data steps (`type-backfill`, `traits-from-properties`,
+  `config-canonicalize`, `pin-backfill`) before the readiness marker is written, and a failed step fails
+  startup as `DATA_STEPS`;
+- the `UPGRADE_BACKUP` line: the server writes a verified `<db>.pre-4.0.<yyyyMMddTHHmmssZ>.bak` beside the
+  database before the first migration (default on, `UPGRADE_BACKUP=false` skips it), and the volume
+  should still be copied by hand.
+
 Verify the body now leads with the curated notes:
 ```bash
 gh release view vX.Y.Z --json body -q '.body' | head -20
@@ -569,6 +589,52 @@ pushes (`v*`), not manual dispatch.
 
 ---
 
+## Major release landing (X1, first used for 4.0.0)
+
+Use this flow when a long-lived branch (`release/4.0`) becomes the next major line on `main`. It
+replaces Steps 1, 7, 10 and 11b-11e; Steps 2-6, 8, 9, 11f-11i still apply with the differences noted
+here. The version-bump PR targets the long-lived branch (squash, as any PR there); the landing PR then
+carries the branch to `main`. The merge, the tag and the publish wait for the user's go.
+
+**a. Cut `release/3.x` first.** Before anything else, from the tip of `main`:
+
+```bash
+git branch release/3.x origin/main
+git push origin release/3.x
+```
+
+The 3.x line keeps its `3.16.0` version, the `3.16` image tag and its own `[Unreleased]` changelog
+section. Every later 3.x fix lands there as a twin of its 4.0 PR.
+
+**b. Landing PR.** Open `release/4.0` -> `main` and merge it with ONE merge commit
+(`gh pr merge <n> --merge`), never squash: a squash discards the branch history and the later
+`release/3.x` twins can no longer be matched against it. The PR retires the `guard` job of
+`.github/workflows/pr-base-guard.yml`. Because `guard` is a required status check in both the "Main
+branch protection" and "Release 4.0 protection" rulesets, the user removes it from the rulesets before the
+merge; repository settings are outside the orchestrator's autonomy, so ask and wait.
+
+**c. CHANGELOG at the merge.** Everything on `main` at tag time ships as 4.0.0. Check
+`git log release/4.0..main --oneline` for a `main` commit with no 4.0 twin before merging, and fold
+`main`'s `[Unreleased]` bullets into `## [4.0.0]` by hand: `scripts/resolve-changelog.mjs` resolves only
+`[Unreleased]` against `[Unreleased]`, not a cut section.
+
+**d. Tag from `main`.** Once CI is green on the merge commit, `git tag v4.0.0 && git push origin v4.0.0`.
+`docker-publish.yml` then runs `needs: test`, the release-gate build, the fresh smoke, the upgrade smoke
+from the 3.16 golden volume, Trivy, pushes `latest`, `4.0.0` and `4.0`, publishes `server.json` with
+`mcp-publisher` and creates the GitHub release with generated notes, which Step 11g overwrites.
+
+**e. After the merge.** Confirm `sync-wiki.yml` ran on `main` (it triggers on a push to `main` that
+touches `current/docs/**`). Once the marketplace shows plugin 4.0.0, refresh the plugin cache as
+`claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh" describes:
+`rm -rf ~/.claude/plugins/cache/task-orchestrator-marketplace`, then
+`claude plugin marketplace update task-orchestrator-marketplace`; re-extraction is lazy, at the next
+session start. This is a step to run after publishing, not part of the release PR.
+
+**f. Acceptance.** `ghcr.io/jpicklyk/task-orchestrator:4.0.0` exists, `latest` resolves to it,
+`3.16` still resolves, and the marketplace shows plugin 4.0.0.
+
+---
+
 ## Quick Reference
 
 | Bump level | When | Version change |
@@ -581,8 +647,10 @@ pushes (`v*`), not manual dispatch.
 - Do not tag before CI is green on main — tagging a broken commit ships a broken Docker image
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
-- Do not stage files other than `version.properties`, `server.json`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
+- Do not stage files other than `version.properties`, `server.json`, `CHANGELOG.md`, `claude-plugins/CLAUDE.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
 - Do not forget `server.json` — the registry publish step fails when it lags `version.properties`
 - Do not create the PR if there are no commits ahead of the last tag
 - Do not bump plugin versions outside of the release workflow
+- Do not squash the major-release landing PR
+- Do not tag before the ruleset edit and the merge commit are on `main`
 - Do not leave GitHub's auto-generated PR-title list as the final release notes — overwrite the GitHub Release body with the curated `CHANGELOG.md` section (Step 11g)

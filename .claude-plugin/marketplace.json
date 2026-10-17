@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "task-orchestrator",
-      "version": "3.9.0",
+      "version": "4.0.0",
       "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Schema-aware context, note-driven workflow, and session hooks.",
       "author": {
         "name": "Jeff Picklyk",
@@ -24,7 +24,7 @@
     },
     {
       "name": "task-orchestrator-mod",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Opt-in Claude Code mod for MCP Task Orchestrator: live work graph, gate band, and in-process orchestration hooks (early-access function-hooks API)",
       "author": {
         "name": "Jeff Picklyk",
