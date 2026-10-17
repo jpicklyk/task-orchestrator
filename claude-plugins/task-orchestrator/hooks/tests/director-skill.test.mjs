@@ -128,19 +128,19 @@ test('S14: README Mode gating rows for both scripts', () => {
   }
 });
 
-test('S14: CHANGELOG [Unreleased] ### Plugin has a director bullet', () => {
+test('S14: CHANGELOG [4.0.0] ### Plugin has a director bullet', () => {
   const lines = CHANGELOG.split(/\r?\n/);
-  const u = lines.findIndex((l) => l.startsWith('## [Unreleased]'));
-  assert.ok(u >= 0, 'Unreleased heading');
+  const u = lines.findIndex((l) => l.startsWith('## [4.0.0]'));
+  assert.ok(u >= 0, '4.0.0 heading');
   let end = lines.findIndex((l, i) => i > u && l.startsWith('## ['));
   if (end < 0) end = lines.length;
   const sec = lines.slice(u, end);
   const p = sec.findIndex((l) => l.trim() === '### Plugin');
-  assert.ok(p >= 0, 'Plugin subsection in Unreleased');
+  assert.ok(p >= 0, 'Plugin subsection in 4.0.0');
   let pend = sec.findIndex((l, i) => i > p && l.startsWith('### '));
   if (pend < 0) pend = sec.length;
   const bullets = sec.slice(p + 1, pend).filter((l) => l.startsWith('- ') && l.toLowerCase().includes('director'));
-  assert.ok(bullets.length >= 1, 'director bullet under Unreleased Plugin');
+  assert.ok(bullets.length >= 1, 'director bullet under 4.0.0 Plugin');
 });
 
 test('S14: integration guide has the Director Guard heading and a director skill row', () => {

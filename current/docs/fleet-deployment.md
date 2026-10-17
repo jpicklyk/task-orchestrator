@@ -634,7 +634,7 @@ Three gates stand between a change and a published image, each independent of th
 
 1. **The Gradle suite** (the `workflow_call` test job in `.github/workflows/test.yml`) -- unit, integration and distribution-manifest tests, including the env-var parity guard over the table above.
 2. **The fresh-volume image smoke plus Trivy** -- `scripts/ci/smoke-test-image.sh <image>` boots the built image on an empty volume, waits for the readiness marker, performs the MCP stdio handshake and requires pure JSON-RPC on stdout; Trivy then scans for fixable CRITICAL findings.
-3. **The upgrade smoke from the 3.16 golden volume** -- `scripts/ci/smoke-test-image.sh --seed current/src/test/resources/upgrade/golden-v17-3.16.sqlite <image>` seeds the volume with the checked-in 3.16-format database, boots the image, then inspects the stopped volume with `sqlite3`: the once data steps are recorded (and no every-boot step is), Flyway is at the newest `V<N>` migration with no failed rows, the work item / note / dependency counts still match the golden manifest, exactly one pre-4.0 backup (`current-tasks.db.pre-4.0.<timestamp>.bak`) sits in the volume and verifies (`PRAGMA integrity_check` is `ok`, highest successful Flyway version equals the golden manifest's `schema_version`), and a second boot leaves every `data_steps.applied_at` unchanged and takes no second backup (a database already at version 18 or higher is never copied, see "Upgrading from 3.x" below). An empty seed must fail that gate; the `Upgrade smoke negative path (empty seed must fail)` step in `test.yml` keeps proving it. Both the PR image-smoke job and the release gate in `docker-publish.yml` run the upgrade smoke before anything is pushed; the negative step runs in the PR job only.
+3. **The upgrade smoke from the 3.16 golden volume** -- `scripts/ci/smoke-test-image.sh --seed current/src/test/resources/upgrade/golden-v17-3.16.sqlite <image>` seeds the volume with the checked-in 3.16-format database, boots the image, then inspects the stopped volume with `sqlite3`: the once data steps are recorded (and no every-boot step is), Flyway is at the newest `V<N>` migration with no failed rows, the work item / note / dependency counts still match the golden manifest, exactly one pre-4.0 backup (`current-tasks.db.pre-4.0.<yyyyMMddTHHmmssZ>.bak`) sits in the volume and verifies (`PRAGMA integrity_check` is `ok`, highest successful Flyway version equals the golden manifest's `schema_version`), and a second boot leaves every `data_steps.applied_at` unchanged and takes no second backup (a database already at version 18 or higher is never copied, see "Upgrading from 3.x" below). An empty seed must fail that gate; the `Upgrade smoke negative path (empty seed must fail)` step in `test.yml` keeps proving it. Both the PR image-smoke job and the release gate in `docker-publish.yml` run the upgrade smoke before anything is pushed; the negative step runs in the PR job only.
 
 ## Scope
 
@@ -955,7 +955,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FTS_INTEGRITY` | `startup` | `startup` runs the FTS5 `integrity-check` on every FTS table at each start and rebuilds a desynced one. `off` skips only that check and logs one WARN; the inventory check (every FTS table and trigger exists) still runs and still fails startup when an object is missing. Any other value falls back to `startup` with a WARN. |
-| `UPGRADE_BACKUP` | `true` | Before the first 4.0 migration of a 3.x database (stored schema version 17 or lower), copy the database file to `<db>.pre-4.0.<yyyyMMdd'T'HHmmss'Z'>.bak` (UTC) beside it and verify the copy; a copy that cannot be taken or verified fails startup as `UPGRADE_BACKUP` before any migration. `false` skips the copy with one WARN. Accepts `true`/`1`/`yes` and `false`/`0`/`no` (case-insensitive); an unset variable is `true` and any other value falls back to `true` with a WARN. A new database, one already at version 18 or later, `FLYWAY_REPAIR=true` and `SCHEMA_MODE=validate` never copy. See "Upgrading from 3.x". |
+| `UPGRADE_BACKUP` | `true` | Before the first 4.0 migration of a 3.x database (stored schema version 17 or lower), copy the database file to `<db>.pre-4.0.<yyyyMMddTHHmmssZ>.bak` (UTC) beside it and verify the copy; a copy that cannot be taken or verified fails startup as `UPGRADE_BACKUP` before any migration. `false` skips the copy with one WARN. Accepts `true`/`1`/`yes` and `false`/`0`/`no` (case-insensitive); an unset variable is `true` and any other value falls back to `true` with a WARN. A new database, one already at version 18 or later, `FLYWAY_REPAIR=true` and `SCHEMA_MODE=validate` never copy. See "Upgrading from 3.x". |
 | `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence, but only over a valid value: an invalid `SCHEMA_MODE` fails startup even with `FLYWAY_REPAIR=true`. `validate` is not read-only: it takes the `<db>.migrate.lock` file, may create an empty database file when `DATABASE_PATH` points at a missing path, and still runs the FTS integrity check, which may rebuild an index. |
 
 - **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
@@ -1009,10 +1009,10 @@ Keep the archive off the volume. The `.bak` the server writes in step 3 sits on 
 
 ### 3. First 4.0 start
 
-`UPGRADE_BACKUP` is on by default, so no flag is needed. The container must stay up for you to watch readiness, so start it detached over HTTP (a stdio container exits when its stdin closes). The example publishes the port on loopback only and uses the local, unauthenticated `/mcp` mode, which is acceptable only because of that loopback mapping; for a shared host start the container the way you will run it (see "`/mcp` Authentication - Read First"). Replace `<4.0 image>` with the 4.0 image you are deploying.
+`UPGRADE_BACKUP` is on by default, so no flag is needed. The container must stay up for you to watch readiness, so start it detached over HTTP (a stdio container exits when its stdin closes). The example publishes the port on loopback only and uses the local, unauthenticated `/mcp` mode, which is acceptable only because of that loopback mapping; for a shared host start the container the way you will run it (see "`/mcp` Authentication - Read First").
 
 ```bash
-docker run -d --name to-4.0 -v <volume>:/app/data -p 127.0.0.1:3001:3001 -e MCP_TRANSPORT=http -e MCP_ALLOW_UNAUTHENTICATED=true <4.0 image>
+docker run -d --name to-4.0 -v <volume>:/app/data -p 127.0.0.1:3001:3001 -e MCP_TRANSPORT=http -e MCP_ALLOW_UNAUTHENTICATED=true ghcr.io/jpicklyk/task-orchestrator:4.0.0
 ```
 
 Wait for the readiness marker (`READINESS_FILE`, which the image's `HEALTHCHECK` tests; see "Startup, Readiness, and Health Checks"). The loop stops when the container is healthy, or prints its log and stops if it exits:
@@ -1035,7 +1035,7 @@ It then runs these steps in order, and the first one that fails stops the sequen
 
 1. Free space: the directory holding the database must have at least the size of the database file plus its `-wal` file free (exactly that much is enough).
 2. `PRAGMA wal_checkpoint(TRUNCATE)`; a busy result is a failure, because a copy could miss WAL frames.
-3. Copy the database file to `<db name>.pre-4.0.<yyyyMMdd'T'HHmmss'Z'>.bak` in the same directory (for the default file, `current-tasks.db.pre-4.0.20261016T142700Z.bak`; the stamp is UTC). The file is created with `CREATE_NEW`: a path that already exists fails the run and is never overwritten or deleted.
+3. Copy the database file to `<db name>.pre-4.0.<yyyyMMddTHHmmssZ>.bak` in the same directory (for the default file, `current-tasks.db.pre-4.0.20261016T142700Z.bak`; the stamp is UTC). The file is created with `CREATE_NEW`: a path that already exists fails the run and is never overwritten or deleted.
 4. Verify the copy: `PRAGMA integrity_check` must return `ok` and its highest successful `flyway_schema_history` version must equal the source's. A copy that fails verification is deleted.
 
 On success the INFO log line `Pre-upgrade backup written: <path> (schema version <n>)` names the `.bak`, and Flyway then migrates. If any step fails, startup fails as `UPGRADE_BACKUP` before any migration runs, the process exits non-zero and the readiness marker is never written; the log (and the exception) carry the cause. Fix it (free space, a leftover `.bak` at the same-second path) and start again, or set `UPGRADE_BACKUP=false` to migrate without a copy.
@@ -1086,7 +1086,7 @@ Rolling back discards everything 4.0 wrote after the upgrade. A 3.x binary canno
    From the `.bak` (use the file name `ls` showed in step 4). Removing the `-wal` and `-shm` files matters: the 4.0 database ran in WAL mode, and a leftover WAL from it must not be replayed onto the restored file.
 
    ```bash
-   docker run --rm -v <volume>:/app/data alpine sh -c "cd /app/data && rm -f current-tasks.db-wal current-tasks.db-shm && cp <db>.pre-4.0.<stamp>.bak current-tasks.db && chown 1001:1001 current-tasks.db"
+   docker run --rm -v <volume>:/app/data alpine sh -c "cd /app/data && rm -f current-tasks.db-wal current-tasks.db-shm && cp <db>.pre-4.0.<yyyyMMddTHHmmssZ>.bak current-tasks.db && chown 1001:1001 current-tasks.db"
    ```
 
    Or from the archive, replacing the whole volume content:

@@ -10,14 +10,10 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.9.0` |
-| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.1.0` |
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `4.0.0` |
+| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.2.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
->
-> The 4.0.0 release (P26) sets `task-orchestrator` to `4.0.0` and `task-orchestrator-mod` to `0.2.0`; until then the table above shows the pre-4.0 values.
->
-> `/prepare-release` step 8b (`.claude/skills/prepare-release/SKILL.md`) bumps only `task-orchestrator` today, so the `task-orchestrator-mod` version is held by hand, in both version files, until the skill learns about it.
 
 ## Compatibility with the server
 
@@ -30,7 +26,7 @@ The plugin and the server are versioned together by major version. The 4.x plugi
 | 3.x | 3.x | Supported (the `release/3.x` line). |
 | 3.x | 4.x | Not supported: every 3.x call shape is gone, so the hooks fail open and the skills call tools that do not exist. |
 
-To keep a 3.x server on the 3.x plugin, pin the plugin marketplace to the `release/3.x` ref.
+To keep a 3.x server on the 3.x plugin, install the plugin from the `release/3.x` line: clone the repository and check out `release/3.x`; remove the 4.x marketplace first (`/plugin marketplace remove task-orchestrator-marketplace`, since both lines use that name); then run `/plugin marketplace add <checkout>` with the repository root, which holds `.claude-plugin/marketplace.json` and against which its `source` paths resolve. The marketplace serves the checkout's working tree, so keep that checkout on `release/3.x`.
 
 ## Version Files
 

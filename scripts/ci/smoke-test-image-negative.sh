@@ -83,7 +83,7 @@ expect_output "Readiness marker found." "the container must boot, so the failure
 expect_output "stdout is pure JSON-RPC" "the stdio handshake must pass, so the failure is not a protocol failure"
 # Both Part 3 failures in one run: the checks accumulate rather than exit early.
 expect_output "ERROR: work_items has 0 rows, golden manifest expects '$EXPECT_WORK_ITEMS'" "row-count check"
-expect_output "ERROR: expected exactly one pre-4.0 .bak after the first boot, found 0" "backup count check"
+expect_output "ERROR: expected exactly one pre-4.0 .bak after the readiness and stdio boots, found 0" "backup count check"
 
 if grep -qF -- "Smoke test passed" "$OUT"; then
     echo "ERROR: the empty-seed smoke printed a pass line" >&2

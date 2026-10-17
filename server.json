@@ -2,16 +2,16 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jpicklyk/task-orchestrator",
   "title": "MCP Task Orchestrator",
-  "description": "Server-enforced workflow discipline for AI agents: work items, dependency graphs, quality gates",
+  "description": "Workflow discipline for AI agents: work items, gates, role-scoped tool profiles and runs",
   "repository": {
     "url": "https://github.com/jpicklyk/task-orchestrator.git",
     "source": "github"
   },
-  "version": "3.16.0",
+  "version": "4.0.0",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/jpicklyk/task-orchestrator:3.16.0",
+      "identifier": "ghcr.io/jpicklyk/task-orchestrator:4.0.0",
       "transport": {
         "type": "stdio"
       },
@@ -299,7 +299,7 @@
         },
         {
           "name": "UPGRADE_BACKUP",
-          "description": "Verified pre-upgrade copy of a 3.x database (<db>.pre-4.0.<UTC stamp>.bak) taken before its first 4.0 migration; a failed copy fails startup. Set false to skip (default: true)",
+          "description": "Verified pre-upgrade copy of a 3.x database (<db>.pre-4.0.<yyyyMMddTHHmmssZ>.bak) taken before its first 4.0 migration; a failed copy fails startup. Set false to skip (default: true)",
           "isRequired": false,
           "isSecret": false
         }

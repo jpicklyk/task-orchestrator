@@ -31,7 +31,7 @@
 #           never recorded); the highest successful flyway version equals the highest V<N>__ file in
 #           the checkout, with zero failed rows; row counts equal the golden manifest count.* lines
 #           (an empty-volume swap would go red). The two boots before Part 3 (readiness, stdio)
-#           must have left exactly one pre-4.0 backup (*.bak, current-tasks.db.pre-4.0.<ts>.bak)
+#           must have left exactly one pre-4.0 backup (*.bak, current-tasks.db.pre-4.0.<yyyyMMddTHHmmssZ>.bak)
 #           in the volume, and that copy must verify: PRAGMA integrity_check = ok and the highest
 #           successful flyway version equal to the golden manifest's schema_version.
 #   Part 4: boot the same volume once more and assert every data_steps.applied_at is unchanged
@@ -273,7 +273,7 @@ BAK_NAMES="$(find "$EXTRACT_DIR" -maxdepth 1 -type f -name '*.bak' -exec basenam
 BAK_COUNT="$(printf '%s' "$BAK_NAMES" | grep -c . || true)"
 FIRST_BAK=""
 if [ "$BAK_COUNT" -ne 1 ]; then
-  echo "ERROR: expected exactly one pre-4.0 .bak after the first boot, found ${BAK_COUNT}: $(if [ -n "$BAK_NAMES" ]; then printf '%s' "$BAK_NAMES" | tr '\n' ' '; else printf '(none)'; fi)" >&2
+  echo "ERROR: expected exactly one pre-4.0 .bak after the readiness and stdio boots, found ${BAK_COUNT}: $(if [ -n "$BAK_NAMES" ]; then printf '%s' "$BAK_NAMES" | tr '\n' ' '; else printf '(none)'; fi)" >&2
   UP_FAIL=1
 else
   FIRST_BAK="$BAK_NAMES"

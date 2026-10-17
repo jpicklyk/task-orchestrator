@@ -1,6 +1,6 @@
 {
   "name": "task-orchestrator-mod",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Opt-in Claude Code mod for MCP Task Orchestrator: live work graph, gate band, and in-process orchestration hooks (early-access function-hooks API)",
   "author": { "name": "Jeff Picklyk" },
   "types": "./types/index.d.ts",
