@@ -16,10 +16,12 @@ every module is pure at import (no top-level I/O) and never throws.
 
 ## Hooks on the envelope
 
-The write-path hooks read the 4.0 contract, not the 3.x one. `phase-guard-record` (PostToolUse `advance`) and
+The write-path hooks read the 4.0 contract, not the 3.x one. `phase-guard-record` (PostToolUse `advance` and `items_read`) and
 `dispatch-hint` parse `tool_response` with `parseToolResult` and read every `results[i]`: an element is recordable when
-`ok` with a `newRole`, or `gate_blocked` (the item and the phase it already sits in come from `error.detail`); a
-non-empty top-level `seatToken` marks a run seat, which is never recorded. A 3.x-shaped result records and hints
+`ok` with a `newRole` (`gate_blocked` records nothing: it means a note is missing). A phase-owner seat (`implementer` or
+`reviewer`) already in its phase sends no `start`, so its first item-mode context read is recorded instead, when the
+item's role is the one the seat owns and nothing is recorded yet; a non-empty top-level `seatToken` marks a run seat,
+which is never recorded. A 3.x-shaped result records and hints
 nothing and shows the legacy-shape warning once per session. `phase-guard` (SubagentStop) reads each recorded item's
 gate with `items_read` `select: "context"` (`POST /api/v1/ops/items_read`) and skips `workflow-subagent`.
 `skill-enforcement` (PreToolUse `notes_write`) acts on `ops[]` elements with `op: "upsert"` and takes skill and
@@ -53,7 +55,7 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
 | `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
 | `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
-| `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded | Not read | Not gated |
+| `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded; a context read is recorded only for an `implementer` or `reviewer` agent | Not read | Not gated |
 | `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
 | `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
 | `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
