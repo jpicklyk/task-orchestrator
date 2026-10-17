@@ -791,9 +791,15 @@ test('S5 (AC5): the ERRORS part retries unavailable once, never retries run_paus
   for (const code of ['note_owned_by_other', 'ownerSeat', 'seat_forbidden', 'not_claim_holder', 'decision_closed', 'forbidden', 'detail.required', 'not_found', 'invalid_transition']) {
     assert.ok(permanent.includes(code), `permanent list names ${code}`)
   }
-  // fixture condition: run_paused must not be among the retried codes
-  const retriedPart = errors.slice(0, errors.indexOf('run_paused'))
-  assert.equal(/Retried:[^\n]*run_paused/.test(retriedPart), false)
+  // cae5d141 (carry-in p17-redproof-m3): the whole ERRORS part is asserted, not a slice cut at the first run_paused,
+  // so naming run_paused on the Retried: line cannot hide behind the dedicated "never retry" line.
+  // Fixture condition: a Retried: line that listed run_paused fails the first loop; a second run_paused line (or none)
+  // fails the count.
+  const errorLines = errors.split('\n')
+  const retriedLines = errorLines.filter((l) => l.includes('Retried:'))
+  assert.ok(retriedLines.length >= 1, 'the ERRORS part has a Retried: line')
+  for (const l of retriedLines) assert.equal(l.includes('run_paused'), false, `a Retried: line names run_paused: ${l}`)
+  assert.equal(errorLines.filter((l) => l.startsWith('run_paused')).length, 1, 'exactly one line starts with run_paused')
 })
 
 test('S5 (AC5): a success carrying paused:{decisionId} stops the seat; run_at_capacity is coordinator-only and backed off; a withdrawn pause leaves the run paused', () => {

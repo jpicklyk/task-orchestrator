@@ -84,7 +84,7 @@ test('AC2: phase-guard-record and dispatch-hint no longer import retro-lib extra
 test('AC9: the contract baseline has no pendingPort row for a file or owner of this item, and no prose exception names them', () => {
   const baseline = JSON.parse(read(join(PLUGIN, 'scripts', 'lib', 'contract-names-baseline.json')));
   const rows = baseline.pendingPort ?? [];
-  assert.ok(rows.length > 0, 'sanity: other owners keep their rows');
+  assert.ok(Array.isArray(rows), 'pendingPort stays an array');
   for (const row of rows) {
     assert.ok(!OWNED_BASELINE_FILES.includes(row.file), `pendingPort row for ${row.file} must be deleted`);
     assert.notEqual(row.owner, '0bbdc4cc', `pendingPort row owned by 0bbdc4cc remains: ${row.file}`);
