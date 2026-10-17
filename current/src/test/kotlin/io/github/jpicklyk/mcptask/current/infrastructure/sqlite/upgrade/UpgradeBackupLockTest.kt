@@ -312,13 +312,16 @@ class UpgradeBackupLockTest {
     @Test
     @Timeout(60, unit = TimeUnit.SECONDS)
     fun `S7 a manager that was never initialized is SchemaUpdateFailed without throwing and creates no lock file`() {
-        val m = manager(timeoutMs = 1000)
+        // The configured path points into the TempDir, so any fallback that resolved it would create
+        // "<dir>/x.db.migrate.lock"; an uninitialized manager has no file-backed JDBC URL, so none may appear.
+        val configured = File(dir, "x.db")
+        val m = manager(timeoutMs = 1000, env = mapOf("DATABASE_PATH" to configured.absolutePath))
 
         val outcome = m.backupAndUpdateSchema()
 
         assertEquals(SchemaStartupOutcome.SchemaUpdateFailed, outcome)
         val locks = (dir.listFiles() ?: emptyArray()).filter { it.name.endsWith(".migrate.lock") }
-        assertTrue(locks.isEmpty(), "no lock file without a database file: ${locks.map { it.name }}")
+        assertTrue(locks.isEmpty(), "no lock file beside the configured path without a JDBC URL: ${locks.map { it.name }}")
     }
 
     // ---------------------------------------------------------------- probes
