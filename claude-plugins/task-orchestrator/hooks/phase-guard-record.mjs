@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// PostToolUse:advance — records which items a subagent has entered its own phase for, so
-// phase-guard.mjs (SubagentStop) can re-check their gate status when the subagent tries to
-// return.
+// PostToolUse:(advance|items_read) — records which items a subagent has entered its own phase
+// for, so phase-guard.mjs (SubagentStop) can re-check their gate status when the subagent tries
+// to return.
 //
 // Acts only inside a subagent call — the hook input carries `agent_id` only when firing inside a
 // subagent call (plugin hooks also run for the main session, where `agent_id` is absent) — and
@@ -9,14 +9,21 @@
 // back, so recording anything would be dead weight.
 //
 // Fail-open by design: any read/parse error, missing env, or unrecognized tool_response shape
-// results in a silent `{}` on stdout and exit 0 — this hook must never block advance.
+// results in a silent `{}` on stdout and exit 0 — this hook must never block advance or a read.
 //
-// Reads the 4.0 envelope through lib/envelope.mjs: every element of `results[]` is considered.
-// An element is recordable when it is `ok: true` with a string `newRole` (the role entered), or
-// `ok: false` with `error.code === 'gate_blocked'` (the already-in-phase case: the server binds
-// `error.detail.role` to the item's CURRENT role, the phase the agent already sits in, and
-// `error.detail.itemId` to the item). Every other failure code means the transition never
-// touched the item, or the item is not this agent's, and records nothing.
+// A seat enters an item in one of two ways:
+//   1. advance: an element of the 4.0 `results[]` (read through lib/envelope.mjs) that is
+//      `ok: true` with a string `newRole`, the role entered. `gate_blocked` is NEVER recorded:
+//      it means a required note is missing, and its `detail.role` is the item's role BEFORE the
+//      transition, not a phase the seat entered.
+//   2. context read: a phase-owner seat (implementer or reviewer, from `agent_type`) reads the
+//      role before its phase and sends `start` only from there, so a seat already in its phase
+//      sends no `start` at all. Its FIRST ok item-mode context read (`items_read` select
+//      "context" with a full-UUID itemId) is recorded when `data.item.role` equals the role the
+//      seat owns (SEAT_ROLE) and the marker holds no items yet. The id is the requested
+//      `tool_input.itemId`, never `data.item.id` (a short id in compact views). Only the first
+//      read counts (marker `contextReadSeen`), so reading a sibling or parent that also sits in
+//      work never adds a false block. The read path never emits anything but `{}`.
 //
 // Workflow-seat exclusion: a call carrying a non-empty top-level `seatToken` belongs to a run
 // seat, not an ordinary subagent dispatch; those seats never return through phase-guard.mjs's
@@ -34,9 +41,11 @@ import { emitEmpty as writeEmpty, emitSystemMessage } from './lib/emit.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { parseToolResult } from './lib/envelope.mjs';
 import { legacyShapeWarningOnce } from './lib/server-compat.mjs';
-import { isHeadlessIteration } from './execution-mode.mjs';
+import { isHeadlessIteration, phaseOwnerSeat } from './execution-mode.mjs';
 
 const MAX_ITEMS_PER_AGENT = 50;
+/** The role each phase-owner seat owns; phase-guard.mjs imports it too. */
+export const SEAT_ROLE = { implementer: 'work', reviewer: 'review' };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -49,14 +58,15 @@ export function phaseGuardMarkerPath(sessionId, agentId) {
   return sessionMarkerPath(sessionId, 'phase-guard', agentId || 'unknown');
 }
 
-/** Shape: `{items: string[], blocks: number, enteredRoles: {[itemId]: string}}`. `enteredRoles`
+/** Shape: `{items: string[], blocks: number, enteredRoles: {[itemId]: string}, contextReadSeen: boolean}`. `enteredRoles`
  * is new (previously-written markers lack it) and defaults to `{}` on any missing/malformed
  * value, so an old marker degrades to the pre-entered-role behavior in phase-guard.mjs rather
- * than crashing. Any read failure degrades to the empty default. */
+ * than crashing. `contextReadSeen` is true only when the stored value is `=== true`.
+ * Any read failure degrades to the empty default. */
 export function readPhaseGuardMarker(path) {
   try {
     const parsed = readMarker(path, null);
-    if (!parsed) return { items: [], blocks: 0, enteredRoles: {} };
+    if (!parsed) return { items: [], blocks: 0, enteredRoles: {}, contextReadSeen: false };
     const enteredRoles =
       parsed.enteredRoles && typeof parsed.enteredRoles === 'object' && !Array.isArray(parsed.enteredRoles)
         ? parsed.enteredRoles
@@ -65,9 +75,10 @@ export function readPhaseGuardMarker(path) {
       items: Array.isArray(parsed.items) ? parsed.items : [],
       blocks: Number.isInteger(parsed.blocks) ? parsed.blocks : 0,
       enteredRoles,
+      contextReadSeen: parsed.contextReadSeen === true,
     };
   } catch {
-    return { items: [], blocks: 0, enteredRoles: {} };
+    return { items: [], blocks: 0, enteredRoles: {}, contextReadSeen: false };
   }
 }
 
@@ -86,20 +97,13 @@ function recordable(r) {
     if (isFullUuid(r.itemId) && typeof r.newRole === 'string' && r.newRole) return { id: r.itemId, role: r.newRole };
     return null;
   }
-  if (r.ok === false && r.error && r.error.code === 'gate_blocked') {
-    const d = r.error.detail;
-    if (d && typeof d === 'object' && isFullUuid(d.itemId)) {
-      return { id: d.itemId, role: typeof d.role === 'string' && d.role ? d.role : null };
-    }
-  }
   return null;
 }
 
 /**
  * From a parsed 4.0 advance result (`lib/envelope.mjs` Parsed), the itemIds worth recording: a
- * full UUID AND either `ok === true` with a string `newRole` (the transition succeeded) OR
- * `error.code === 'gate_blocked'` (the "already in phase" case). Every other code, or `ok: false`
- * without a code, records nothing. Every element of `results[]` is considered.
+ * full UUID AND `ok === true` with a string `newRole` (the transition succeeded). Every failure,
+ * `gate_blocked` included, records nothing. Every element of `results[]` is considered.
  */
 export function extractRecordableItemIds(parsed) {
   const results = Array.isArray(parsed?.results) ? parsed.results : [];
@@ -112,9 +116,8 @@ export function extractRecordableItemIds(parsed) {
 }
 
 /**
- * The role each recordable item actually ENTERED: `newRole` on an `ok: true` result, or
- * `error.detail.role` on the already-in-phase `gate_blocked` case. An item with no recognizable
- * role string is simply omitted from the map.
+ * The role each recordable item actually ENTERED: `newRole` on an `ok: true` result. An item with
+ * no recognizable role string is simply omitted from the map.
  */
 export function extractEnteredRoles(parsed) {
   const results = Array.isArray(parsed?.results) ? parsed.results : [];
@@ -129,6 +132,33 @@ export function extractEnteredRoles(parsed) {
 function emitEmpty() {
   writeEmpty();
   process.exit(0);
+}
+
+/**
+ * Records the first item-mode context read of a phase-owner seat (see the header). Writes nothing
+ * for a non-phase-owner agent_type, a non-context select, a non-full-UUID itemId, or a response
+ * that is not `ok: true`; never emits.
+ */
+function recordContextRead(hookInput) {
+  const input = hookInput.tool_input;
+  if (input.select !== 'context' || !isFullUuid(input.itemId)) return;
+  const seat = phaseOwnerSeat(hookInput.agent_type);
+  if (!seat) return;
+  const parsed = parseToolResult(hookInput.tool_response);
+  if (!parsed || parsed.legacy || parsed.ok !== true) return;
+
+  const path = phaseGuardMarkerPath(hookInput.session_id, hookInput.agent_id);
+  const marker = readPhaseGuardMarker(path);
+  if (marker.contextReadSeen) return;
+
+  const role = parsed.data && typeof parsed.data === 'object' ? parsed.data.item?.role : undefined;
+  const record = marker.items.length === 0 && typeof role === 'string' && role === SEAT_ROLE[seat];
+  writePhaseGuardMarker(path, {
+    items: record ? [input.itemId] : marker.items,
+    blocks: marker.blocks,
+    enteredRoles: record ? { ...marker.enteredRoles, [input.itemId]: role } : marker.enteredRoles,
+    contextReadSeen: true,
+  });
 }
 
 function main() {
@@ -155,6 +185,12 @@ function main() {
     const seatToken = hookInput.tool_input?.seatToken;
     if (typeof seatToken === 'string' && seatToken.length > 0) emitEmpty();
 
+    // Context read (items_read): a different payload from advance; it has its own recorder.
+    if (typeof hookInput.tool_input?.select === 'string') {
+      recordContextRead(hookInput);
+      emitEmpty();
+    }
+
     const parsed = parseToolResult(hookInput.tool_response);
     if (!parsed) emitEmpty();
     if (parsed.legacy) {
@@ -180,7 +216,7 @@ function main() {
     for (const id of items) {
       if (mergedRoles[id]) enteredRoles[id] = mergedRoles[id];
     }
-    writePhaseGuardMarker(path, { items, blocks: marker.blocks, enteredRoles });
+    writePhaseGuardMarker(path, { items, blocks: marker.blocks, enteredRoles, contextReadSeen: marker.contextReadSeen });
 
     emitEmpty();
   } catch {

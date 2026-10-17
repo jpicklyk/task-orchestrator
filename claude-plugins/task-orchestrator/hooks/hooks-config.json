@@ -124,7 +124,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__advance$",
+        "matcher": "^mcp__.*task-orchestrator.*__(advance|items_read)$",
         "hooks": [
           {
             "type": "command",

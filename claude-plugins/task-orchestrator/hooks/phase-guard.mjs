@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 // SubagentStop — re-checks the phase gate for every item this subagent recorded via
-// phase-guard-record.mjs (PostToolUse:advance) and, when required notes are still missing
+// phase-guard-record.mjs (PostToolUse:advance|items_read) and, when required notes are still missing
 // for a work/review-phase item, blocks the subagent's stop so it gets sent back with the missing
 // keys named. This implements a harness-level backstop for a subagent that ends its turn with a
 // progress report instead of finished work: treat the early stop as a report, check the external
 // checklist (the item's gate status), and send a capped continuation naming what's still open.
 //
-// Entered-role gating: phase-guard-record.mjs now also records, per item, the ROLE this agent
-// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `error.detail.role` on the
-// already-in-phase gate_blocked case, which is the item's CURRENT role at the time of the blocked
-// transition — see phase-guard-record.mjs's extractEnteredRoles). When a role was recorded for an
-// item, this hook blocks on
+// Entered-role gating: phase-guard-record.mjs also records, per item, the ROLE this agent
+// entered (`marker.enteredRoles[itemId]` — `newRole` on a successful `start`, or the role the
+// seat owns when its first context read found the item already in it; `gate_blocked` is never
+// recorded). When a role was recorded for an item, this hook blocks on
 // it ONLY if the item's CURRENT gate role still equals that entered role — if a later seat has
 // since advanced the item further, gate.role differs from the recorded entered role and the item
 // is skipped entirely, so an earlier seat is never blocked on notes belonging to a phase it never
@@ -29,10 +28,9 @@
 // surfaces them only when that first key survives the test-author filter.
 //
 // Known limitation (non-goal, not addressed here): the guard only engages for subagents that
-// enter their phase with an `advance` transition (`start`) — the plugin's agent-owned-phase protocol. A
-// subagent dispatched under an orchestrator-owns-transitions contract (never calling
-// advance itself) has nothing recorded by phase-guard-record.mjs, so the guard stays inert
-// for it.
+// either send `start` or, as a phase-owner seat, make an item-mode context read of an item
+// already in their phase. A subagent dispatched under an orchestrator-owns-transitions contract
+// that does neither has nothing recorded by phase-guard-record.mjs, so the guard stays inert for it.
 //
 // Fail-open everywhere: no REST API configured, no state file for this agent (also covers
 // Claude Code's own internal agents — prompt suggestions, etc. — which fire SubagentStop too),
@@ -60,13 +58,12 @@ import { readHookInput } from './lib/stdin.mjs';
 import { emitEmpty as writeEmpty, emitBlock as writeBlock, emitSystemMessage } from './lib/emit.mjs';
 import { createMarkerOnce, sessionMarkerPath } from './lib/markers.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
+import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker, SEAT_ROLE } from './phase-guard-record.mjs';
 import { isHeadlessIteration, phaseOwnerSeat, isTestAuthorAgentType } from './execution-mode.mjs';
 
 const MAX_BLOCKS_PER_AGENT = 2;
 const GATE_TIMEOUT_MS = 2000;
 const BLOCKING_ROLES = new Set(['work', 'review']);
-const SEAT_ROLE = { implementer: 'work', reviewer: 'review' };
 export const TEST_AUTHOR_OWNED_KEYS = new Set(['test-manifest']);
 
 function emitEmpty() {
@@ -239,7 +236,9 @@ async function main() {
       emitEmpty();
     }
 
-    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1, enteredRoles: marker.enteredRoles || {} });
+    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1, enteredRoles: marker.enteredRoles || {},
+      contextReadSeen: marker.contextReadSeen,
+    });
     emitBlock(buildReason(blockers));
   } catch {
     emitEmpty();
