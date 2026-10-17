@@ -673,7 +673,7 @@ export function validateAgainst(schema, value, path = '$') {
 }
 
 /**
- * stageResult(core, doc, state, idOrShort, seat, finalText, {agentTypeUsed, agentTypeFallback}={})
+ * stageResult(core, doc, state, idOrShort, seat, finalText, {agentTypeUsed, agentTypeFallback, knownTokens}={})
  * -> {status, reason, state} (a NEW state object; input not mutated).
  * Parse via extractLastBalancedJson -> JSON.parse -> validateAgainst(envelopeSchema). Empty/
  * whitespace text and unparseable text are both treated as an invalid envelope. First
