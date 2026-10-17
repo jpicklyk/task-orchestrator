@@ -51,6 +51,7 @@ function listData(items, reason) {
 // opts:
 //   items            [{id}] queue members in oldest-first order (short 8-hex ids, like the compact view)
 //   claim(ctx)       -> undefined (grant) | {code, detail?, retryAfterMs?} (element error); ctx {itemId, nth, nthForToken}
+//   update(ctx)      -> undefined (grant) | {code, detail?, retryAfterMs?} (element error); ctx {itemId, nth} (per addItems id); consulted before the duplicate check
 //   assign(ctx)      -> undefined (grant) | {code, detail?} (element error) | {http401: true}; ctx {itemId, nth}
 //   nextReason       reason string sent when the queue page is empty
 //   completeOnDone   when true an item whose seat ends `done` leaves the queue
@@ -66,6 +67,7 @@ export async function startFakeApi(opts = {}) {
     issuedSeatTokens: [],
     coordinatorToken: null,
     claimCounts: new Map(),
+    updateCounts: new Map(),
     claimCountsByToken: new Map(),
     assignCount: 0,
     seq: 0,
@@ -117,6 +119,13 @@ export async function startFakeApi(opts = {}) {
       case 'runs_write.update': {
         if (caller.kind !== 'coordinator') return elementError('forbidden', { scope: 'principal_kind', required: 'coordinator' })
         for (const id of op.addItems ?? []) {
+          const nthUpdate = (st.updateCounts.get(norm(id)) ?? 0) + 1
+          st.updateCounts.set(norm(id), nthUpdate)
+          const verdict = opts.update?.({ itemId: norm(id), nth: nthUpdate })
+          if (verdict) {
+            const extra = verdict.retryAfterMs !== undefined ? { retryAfterMs: verdict.retryAfterMs } : {}
+            return elementError(verdict.code, verdict.detail, extra)
+          }
           if (opts.duplicateItems?.has(norm(id))) return elementError('duplicate', { kind: 'item', id })
           st.run.members.add(norm(id))
         }

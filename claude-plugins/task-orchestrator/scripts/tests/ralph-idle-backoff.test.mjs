@@ -30,6 +30,7 @@ import {
   addSkip,
   isSkipped,
   decideSelection,
+  isBackoffError,
 } from '../ralph-lib.mjs';
 
 // ── Sanity: the three constants match the oracle's literal values ────────────────────────────
@@ -340,4 +341,51 @@ test('S4 probe: decideSelection does not mutate the candidate page or the skip l
   const snap = JSON.stringify({ candidates, skipList });
   decideSelection({ candidates, skipList, now: NOW });
   assert.equal(JSON.stringify({ candidates, skipList }), snap);
+});
+
+// === cae5d141 A2 B2: transient / shedding classification ================================================
+// Oracle: task-scope Amendment A2 (B2), error catalog kinds (hooks/lib/tool-catalog.json: unavailable =
+// shedding, internal and run_at_capacity = transient, invalid_transition = permanent). A skip of the item
+// (claim_held, resource_unavailable) is NOT a loop backoff; any other transient/shedding error is.
+
+test('A2 B2: addSkip times unavailable by its retryAfterMs and internal (no retryAfterMs) by the 30000 default', () => {
+  const u = addSkip([], { itemId: 'aaaa1111', code: 'unavailable', retryAfterMs: 1000, now: NOW });
+  assert.equal(u[0].until, NOW + 1000);
+  const i = addSkip([], { itemId: 'aaaa1111', code: 'internal', now: NOW });
+  assert.equal(i[0].until, NOW + 30000);
+});
+
+test('A2 B2: addSkip times run_at_capacity (transient kind), while the opaque codes error and skip stay permanent', () => {
+  const r = addSkip([], { itemId: 'aaaa1111', code: 'run_at_capacity', retryAfterMs: 2000, now: NOW });
+  assert.equal(Number.isFinite(r[0].until), true);
+  assert.ok(r[0].until > NOW);
+  for (const code of ['error', 'skip']) {
+    assert.equal(addSkip([], { itemId: 'aaaa1111', code, retryAfterMs: 1000, now: NOW })[0].until, Infinity, code);
+  }
+});
+
+test('A2 B2: isBackoffError is false for the item-skip codes claim_held and resource_unavailable', () => {
+  assert.equal(isBackoffError({ code: 'claim_held', kind: 'transient' }), false);
+  assert.equal(isBackoffError({ code: 'resource_unavailable', kind: 'transient' }), false);
+});
+
+test('A2 B2: isBackoffError is true for unavailable (shedding), internal and run_at_capacity (transient)', () => {
+  assert.equal(isBackoffError({ code: 'unavailable', kind: 'shedding' }), true);
+  assert.equal(isBackoffError({ code: 'internal', kind: 'transient' }), true);
+  assert.equal(isBackoffError({ code: 'run_at_capacity', kind: 'transient' }), true);
+});
+
+test('A2 B2: isBackoffError is false for a permanent code and true for the api-client client_error transient answer', () => {
+  assert.equal(isBackoffError({ code: 'invalid_transition', kind: 'permanent' }), false);
+  assert.equal(isBackoffError({ code: 'client_error', kind: 'transient' }), true);
+});
+
+test('A2 B2 probe: isBackoffError is false for an empty error object and for null / undefined', () => {
+  assert.equal(isBackoffError({}), false);
+  assert.equal(isBackoffError(null), false);
+  assert.equal(isBackoffError(undefined), false);
+});
+
+test('A2 B2 probe: a transient kind alone does not override the item-skip code (code is keyed first)', () => {
+  assert.equal(isBackoffError({ code: 'claim_held', kind: 'shedding' }), false);
 });

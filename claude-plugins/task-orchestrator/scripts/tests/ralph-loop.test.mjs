@@ -612,3 +612,165 @@ describe('S13 preflight', () => {
     assert.equal(/\bactor\b/i.test(s.res.out), false, '--help no longer mentions an actor option')
   })
 })
+
+// ---- A2 B1: a signal landing in a pre-spawn window (update / assign / claim) -------------------------
+// Oracle: task-scope Amendment A2 (B1) and the driver contract (SKILL.md / driver header): a SIGTERM at any
+// point still ends the active seat (if any), closes the run `cancelled` as the last write, spawns nothing,
+// leaves no token file, exits 143, and does so without needing the 30 s shutdown backstop. The fake REST
+// hooks run synchronously before the answer is written, so the test kills the driver INSIDE the hook (then
+// holds the answer for a moment so the signal is delivered first) and then grants: that is the deterministic
+// "signal in the window". W4 (the sub-millisecond window between the claim answer and spawn, plus the
+// token-file write) has no external hook and is deliberately NOT tested here: an honest untestable limit,
+// covered only by the existing mid-iteration SIGTERM probe above.
+
+const SIGNAL_SKIP = process.platform === 'win32' ? 'POSIX signal semantics: Windows terminates the driver without running a handler' : false
+
+function killDriverAndHold(getChild) {
+  getChild().kill('SIGTERM')
+  const until = Date.now() + 300
+  while (Date.now() < until) {
+    // busy-wait on purpose: the hook must not answer before the driver has received the signal
+  }
+}
+
+async function signalScenario(hookName, trigger) {
+  let child
+  return scenario({
+    items: [A],
+    apiOpts: {
+      [hookName]: (ctx) => {
+        if (trigger(ctx)) killDriverAndHold(() => child)
+        return undefined
+      },
+    },
+    timeoutMs: 30000,
+    onStart: (c) => {
+      child = c
+    },
+  })
+}
+
+function assertCancelledShutdown(s) {
+  assert.equal(s.res.timedOut, false, tail(s))
+  assert.ok(s.res.elapsedMs < 25000, `the 30 s shutdown backstop must not have fired (took ${s.res.elapsedMs} ms)` + tail(s))
+  assert.equal(s.res.code, 143, 'exit code' + tail(s))
+  const closes = opsNamed(s, 'close')
+  assert.equal(closes.length, 1, 'exactly one close')
+  assert.equal(closes[0].reason, 'cancelled')
+  assert.equal(writes(s).at(-1).op, 'close', 'close is the last write')
+  assert.equal(s.starts.length, 0, 'nothing was spawned')
+  assert.equal(fs.existsSync(path.join(s.scratch, 'tokens')), false, 'no tokens dir is left under the scratch dir')
+}
+
+describe('A2 B1 signal windows', () => {
+  test('W1: SIGTERM during update addItems -> no assign, no seat, run closed cancelled', { skip: SIGNAL_SKIP, timeout: 30000 }, async () => {
+    const s = await signalScenario('update', ({ nth }) => nth === 1)
+    assertCancelledShutdown(s)
+    assert.equal(opsNamed(s, 'assign').length, 0)
+    assert.equal(s.api.seats.length, 0)
+  })
+
+  test('W2: SIGTERM during assign -> the seat ends abandoned before close, no claim is made', { skip: SIGNAL_SKIP, timeout: 30000 }, async () => {
+    const s = await signalScenario('assign', ({ nth }) => nth === 1)
+    assertCancelledShutdown(s)
+    assert.equal(s.api.seats.length, 1)
+    assert.equal(s.api.seats[0].outcome, 'abandoned')
+    assert.equal(opsNamed(s, 'claim').length, 0)
+    const end = opsNamed(s, 'end_seat')[0]
+    assert.ok(end, 'the seat is ended')
+    assert.ok(end.seq < opsNamed(s, 'close')[0].seq, 'end_seat precedes close')
+  })
+
+  test('W3: SIGTERM during the seat claim -> the claim was made, the seat ends abandoned before close', { skip: SIGNAL_SKIP, timeout: 30000 }, async () => {
+    const s = await signalScenario('claim', ({ nth }) => nth === 1)
+    assertCancelledShutdown(s)
+    assert.equal(s.api.seats.length, 1)
+    assert.equal(s.api.seats[0].outcome, 'abandoned')
+    assert.equal(opsNamed(s, 'claim').length, 1)
+    const end = opsNamed(s, 'end_seat')[0]
+    assert.ok(end, 'the seat is ended')
+    assert.ok(end.seq < opsNamed(s, 'close')[0].seq, 'end_seat precedes close')
+  })
+})
+
+// ---- A2 B2: transient / shedding driver-call errors back the loop off, never skip-list -----------------
+// Oracle: task-scope Amendment A2 (B2), error catalog (unavailable = shedding, always with retryAfterMs;
+// internal = transient, no retryAfterMs) and the api-reference retry guide: transient and shedding both retry
+// the same request after retryAfterMs (default 30 s when absent). Failure mode without the fix: the item is
+// permanently skip-listed and the loop reports drained.
+
+describe('A2 B2 transient driver errors', () => {
+  const hitsFor = (s, word) => s.api.hits.filter((h) => h.raw.includes(`"${word}"`))
+
+  test('update addItems unavailable{retryAfterMs: 1000} backs off and retries the same update; the item is then worked', async () => {
+    const s = await scenario({
+      items: [A],
+      apiOpts: { update: ({ nth }) => (nth === 1 ? { code: 'unavailable', retryAfterMs: 1000 } : undefined) },
+      timeoutMs: 30000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
+    const updates = hitsFor(s, 'update')
+    assert.equal(updates.length, 2, 'the update is repeated once' + tail(s))
+    assert.ok(updates[1].ts - updates[0].ts >= 1000, `waited at least retryAfterMs (got ${updates[1].ts - updates[0].ts})`)
+    assert.equal(opsNamed(s, 'assign').length, 1)
+    assert.equal(s.api.seats.length, 1)
+    assert.equal(s.api.seats[0].outcome, 'done')
+    assert.equal(s.starts.length, 1)
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+    assert.ok(s.res.out.includes('idle (update addItems: unavailable)'), tail(s))
+  })
+
+  test('seat claim unavailable{retryAfterMs: 1000} ends the seat abandoned, waits, and the same item is assigned again and worked', async () => {
+    const s = await scenario({
+      items: [A],
+      apiOpts: { claim: ({ nth }) => (nth === 1 ? { code: 'unavailable', retryAfterMs: 1000 } : undefined) },
+      timeoutMs: 30000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
+    assert.deepEqual(s.api.seats.map((x) => [x.itemId, x.outcome]), [[A, 'abandoned'], [A, 'done']])
+    assert.equal(opsNamed(s, 'claim').filter((c) => c.opsInCall === 1).length, 2)
+    const assigns = opsNamed(s, 'assign')
+    assert.equal(assigns.length, 2)
+    assert.ok(opsNamed(s, 'end_seat')[0].seq < assigns[1].seq, 'the first seat ends before the second assign')
+    const assignHits = hitsFor(s, 'assign')
+    assert.ok(assignHits[1].ts - assignHits[0].ts >= 1000, `waited at least retryAfterMs (got ${assignHits[1].ts - assignHits[0].ts})`)
+    assert.equal(s.starts.length, 1)
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+  })
+
+  test('seat claim internal (no retryAfterMs) waits about DEFAULT_IDLE_BACKOFF_MS, then the same item is assigned again and worked', async () => {
+    const s = await scenario({
+      items: [A],
+      apiOpts: { claim: ({ nth }) => (nth === 1 ? { code: 'internal' } : undefined) },
+      timeoutMs: 60000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
+    assert.deepEqual(s.api.seats.map((x) => [x.itemId, x.outcome]), [[A, 'abandoned'], [A, 'done']])
+    assert.equal(opsNamed(s, 'claim').filter((c) => c.opsInCall === 1).length, 2)
+    const assignHits = hitsFor(s, 'assign')
+    const gap = assignHits[1].ts - assignHits[0].ts
+    assert.ok(gap >= DEFAULT_IDLE_BACKOFF_MS - 2000, `waited about ${DEFAULT_IDLE_BACKOFF_MS} ms (got ${gap})`)
+    assert.equal(s.starts.length, 1)
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+    assert.ok(s.res.out.includes('idle (claim: internal)'), tail(s))
+  })
+
+  test('an iteration skip carrying unavailable{retryAfterMs: 1000} is a timed skip: the same item is assigned again after the wait', async () => {
+    const s = await scenario({
+      items: [A],
+      plan: [{ kind: 'skip', code: 'unavailable', retryAfterMs: 1000 }, 'terminal'],
+      args: ['--max', '2'],
+      timeoutMs: 30000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.deepEqual(opsNamed(s, 'assign').map((a) => a.itemId.toLowerCase()), [A, A])
+    assert.deepEqual(s.api.seats.map((x) => x.outcome), ['abandoned', 'done'])
+    assert.equal(s.starts.length, 2)
+  })
+})

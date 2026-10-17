@@ -704,7 +704,7 @@ test("firstOpResult: a call-level error with no results (401 unauthenticated) is
 
 const AC2_CATALOG_CODES = [
     "claim_held", "resource_unavailable", "not_claim_holder", "gate_blocked", "dependency_unmet",
-    "invalid_transition", "duplicate", "run_paused", "run_at_capacity", "run_closed", "unauthenticated", "unavailable",
+    "invalid_transition", "duplicate", "run_paused", "run_at_capacity", "run_closed", "unauthenticated", "unavailable", "internal",
 ];
 const AC2_LOCAL_CODES = ["iteration_timeout", "spawn_error"];
 const OUTCOME_STATUSES = ["terminal", "gate-blocked", "error", "skip", "idle", "no-item"];
@@ -764,9 +764,15 @@ test("S8 carry-in m3: run_paused and run_closed end the loop and sit in no retri
     }
 });
 
+test("S8 A2 B2: the internal row is a driver-side transient backoff", () => {
+    assert.equal(rowOf("internal").by, "driver");
+    assert.equal(rowOf("internal").loop, "backoff");
+    assert.equal(rowOf("internal").kind, ERROR_KINDS.internal);
+});
+
 test("S8 carry-in m3: the retried buckets hold exactly idle, dependency_unmet, run_at_capacity and unavailable; every other permanent code is outside them", () => {
     const retried = OUTCOME_TABLE.filter((r) => RETRIED_BUCKETS.has(r.loop)).map((r) => r.code).sort();
-    assert.deepEqual(retried, ["dependency_unmet", "idle", "run_at_capacity", "unavailable"]);
+    assert.deepEqual(retried, ["dependency_unmet", "idle", "internal", "run_at_capacity", "unavailable"]);
     for (const row of OUTCOME_TABLE.filter((r) => r.kind === "permanent" && r.code !== "dependency_unmet")) {
         assert.equal(RETRIED_BUCKETS.has(row.loop), false, `${row.code} (permanent) must not be retried`);
     }
