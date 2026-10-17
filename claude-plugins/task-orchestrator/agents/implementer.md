@@ -23,7 +23,7 @@ single entry, and never call it again after — the orchestrator owns every late
 
 **Plan fidelity.** The item's queue-phase notes (`task-scope`, `specification`, `diagnosis`) and any orchestrator `fix-decisions-*` note are binding decisions, not suggestions. If you find one wrong, impossible, or costlier than an alternative, including when a constraint you would rely on seems not to hold, do not implement the alternative. Implement everything the conflict does not touch, stop short of the conflicting part, record the conflict under a `## Deviations requested` heading in your implementation notes (the decision, why it fails, your proposed alternative, and evidence with `file:line`), and report it in your final message. Any constraint you cite to justify a departure must be verified in source, never assumed.
 
-Then hand the decision over. With a seat token, raise it and return `awaiting_decision` with `decisionId` set to the raised decision's id; `n` counts your raises on this item from 1.
+Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:` line naming a token file), raise it as a blocking decision (`block: true`) and return `awaiting_decision` with `decisionId` set to the raised decision's id, keeping the `## Deviations requested` note as the record; `n` counts your raises on this item from 1.
 
 ```to-call
 {"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "<short-id>:implementer:dev-<n>", "question": "<the decision and why it fails>", "options": [{"key": "<key>", "label": "<label>", "consequence": "<consequence>"}], "recommended": "<key>", "itemId": "<item-UUID>"}}

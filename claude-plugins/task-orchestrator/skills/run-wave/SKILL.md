@@ -1,7 +1,7 @@
 ---
 name: run-wave
 description: "Front door for running a multi-item wave of MCP work items through a generated run plan — resolves a frontier of ready/resumed items, derives per-item seat stages from their resolved schemas, opens a server run for them, and executes the plan via the Workflow tool (Method A) or direct Agent dispatch (Method B) when Workflow is unavailable. Use when a user says: run the wave, launch the wave, run a wave over <feature>, run these ready items as a wave, run-wave, resume run r-…, or when a task notification arrives from task-orchestrator:implement-wave. NOT for a single Direct-tier fix (use /status-progression or a direct dispatch) and NOT for headless unattended queue draining (use /ralph). Does not itself decide whether to plan or implement — it executes a run plan over items whose specification/task-scope notes already exist."
-argument-hint: "[ancestorId | itemIds] [--method A|B] [--mode shared|per-item] [--worktree <path> --branch <name>] [--resume <runId>] [--claim]"
+argument-hint: "[ancestorId | itemIds] [--method A|B] [--mode shared|per-item] [--worktree <path> --branch <name>] [--resume <runId>] [--claim] [--altitude-safe]"
 ---
 
 # run-wave — Multi-Item Run Plan Front Door
@@ -145,11 +145,20 @@ reach `plan` at all:
 | `--worktree <path> --branch <name>` | `--worktree <path> --branch <name>` | `shared` mode only; both or neither, else `plan` exits 3. Reuses an already-created feature worktree/branch (e.g. `/implement` Step 2's) instead of `assembleArgs` deriving a fresh one |
 | `--resume <runId>` | — | Routes straight to the **Resume matrix** below instead of Steps 1–3 |
 | `--claim` | — | Consumed in Step 1 (an `advance` `claim` before entering work) instead of a seat entry |
+| `--altitude-safe` | `--altitude-safe` | Sets `args.altitudeSafe: true`: implement-wave returns the altitude-safe result (`rollup` counts, statuses, SHAs, file lists, note keys, reasons cut to 120 characters, no seat prose). Post-run Step 0 saves and verifies it like a full result |
 
 Step 0 F4's fallback also maps to a `plan` flag, not just a prose note: when `probe.phase0Hooks`
 is false, pass `--entry pre-entered` to `plan` in Step 3. Likewise, when F1 selects Method B,
 pass `--method B` to `plan` so `meta.method` is `"B"` — the Method B prompt addendum and the blind
 test-author default key on it.
+
+**Director tier 2.** When a director session drives the run, it does not run these steps itself (its
+guard denies the `node` helper, and the snapshot reads note bodies). It dispatches one named
+background coordinator agent (`run_in_background: true`, `model` set) for Steps 0-5a with
+`--altitude-safe`; the coordinator keeps the coordinator token and returns `{runId, serverRunId,
+args}`. The director makes the one `Workflow` call with those `args`, and on its task notification
+sends that coordinator a `SendMessage` to run post-run. Decisions land between runs. See
+`skills/director/references/coordinator-tiers.md`.
 
 ---
 
