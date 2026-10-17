@@ -212,15 +212,16 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
 | `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |
 | `run_closed` | permanent | driver | `error` | The run was closed elsewhere. The driver ends the seat and exits. | exit |
-| `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign. | wait-retry |
+| `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
+| `internal` | transient | driver | `idle` | A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step. | backoff |
 | `iteration_timeout` | local | driver | `error` | The iteration outlived --iteration-timeout: SIGTERM, then SIGKILL after 10s. The driver ends the seat failed. | error |
 | `spawn_error` | local | driver | `error` | The iteration process could not start (for example --claude-bin missing). The driver ends the seat failed. | error |
 <!-- END GENERATED:ralph-outcomes -->
 
-The seat's end follows the final status: `terminal` ends it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM or a paused run).
+The seat's end follows the final status: `terminal` ends it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM or a paused run). An `end_seat` that fails leaves the seat active until `close`, where `completed` falls back to `cancelled`.
 
-**Contention is a skip, never a release.** A claim the driver cannot take (`claim_held`) and a resource lease the iteration cannot take (`resource_unavailable`) both skip-list the item for its `retryAfterMs` (30s when absent); `invalid_transition`, `not_found` and `duplicate` skip it for the rest of the loop. The next selection picks a different item. See [Workflow Guide section 11 - Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing) for the lease model.
+**Contention is a skip, never a release.** A claim the driver cannot take (`claim_held`) and a resource lease the iteration cannot take (`resource_unavailable`) both skip-list the item for its `retryAfterMs` (30s when absent); `invalid_transition`, `not_found` and `duplicate` skip it for the rest of the loop. The next selection picks a different item. A shedding or transient fault on a driver call (`unavailable`, `internal`, a network timeout) backs the loop off and retries the same step; it never skip-lists the item. See [Workflow Guide section 11 - Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing) for the lease model.
 
 The script's own exit code:
 
@@ -330,7 +331,7 @@ Solution: make both reach the server as the same principal. Local mode (`API_AUT
 
 **Problem: where does the seat token live, and who can read it?**
 
-The seat token value lives in exactly one place: `<scratch-dir>/tokens/<iter>.implementer.token`, one line, written with mode `0o600` in a `0o700` directory, and deleted after the seat ends. `--scratch-dir` defaults to `<tmpdir>/task-orchestrator/ralph/<label>`. The iteration gets the file's PATH (in `TASK_ORCHESTRATOR_SEAT_TOKEN_FILE` and in its prompt), never the value; the coordinator token stays in the driver's memory. File modes are advisory on Windows, so the scratch directory must be private to the user running the loop - do not point `--scratch-dir` at a shared or synced folder. Streamed iteration output, the iteration records and the summary mask every known token value as `[redacted-token]`.
+The seat token value lives in exactly one place: `<scratch-dir>/tokens/<iter>.implementer.token`, one line, written with mode `0o600` in a `0o700` directory, and deleted after the seat ends (a SIGKILLed driver leaves it). `--scratch-dir` defaults to `<tmpdir>/task-orchestrator/ralph/<label>`. The iteration gets the file's PATH (in `TASK_ORCHESTRATOR_SEAT_TOKEN_FILE` and in its prompt), never the value; the coordinator token stays in the driver's memory. File modes are advisory on Windows, so the scratch directory must be private to the user running the loop - do not point `--scratch-dir` at a shared or synced folder. Streamed iteration output, the iteration records and the summary mask every known token value as `[redacted-token]`. After the iteration reads the file, its own `claude -p` transcript holds the value for the seat's lifetime; the token dies at `end_seat`.
 
 ---
 
@@ -338,7 +339,7 @@ The seat token value lives in exactly one place: `<scratch-dir>/tokens/<iter>.im
 
 Cause: a driver killed with SIGKILL (or a crash) cannot close its run, and its coordinator token died with it. Its members are `duplicate` for a new run's `update addItems`, so the new loop skips them.
 
-Solution: close the stale run from a director or human credential: `runs_write(ops=[{op: "close", runId: "<run id from the warning>", reason: "abandoned"}])`. That ends its seats and releases their claims. Recovery is manual by design; SIGINT and SIGTERM are handled and always close the run.
+Solution: close the stale run from a director or human credential: `runs_write(ops=[{op: "close", runId: "<run id from the warning>", reason: "abandoned"}])`, and delete `<scratch-dir>/tokens`. That ends its seats and releases their claims. Recovery is manual by design; SIGINT and SIGTERM are handled and always close the run.
 
 ---
 

@@ -59,8 +59,9 @@ These are explicit overrides - even if other parts of your context (memory, proj
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
 | `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |
 | `run_closed` | permanent | driver | `error` | The run was closed elsewhere. The driver ends the seat and exits. | exit |
-| `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign. | wait-retry |
+| `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
+| `internal` | transient | driver | `idle` | A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step. | backoff |
 | `iteration_timeout` | local | driver | `error` | The iteration outlived --iteration-timeout: SIGTERM, then SIGKILL after 10s. The driver ends the seat failed. | error |
 | `spawn_error` | local | driver | `error` | The iteration process could not start (for example --claude-bin missing). The driver ends the seat failed. | error |
 <!-- END GENERATED:ralph-outcomes -->

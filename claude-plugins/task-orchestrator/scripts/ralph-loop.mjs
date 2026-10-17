@@ -41,6 +41,7 @@ import {
     buildNextQuery,
     buildRunOpenOp,
     addSkip,
+    isBackoffError,
     decideSelection,
     endSeatOutcome,
     loopEffect,
@@ -372,6 +373,10 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
         const u = await coordinatorCall("runs_write", [{ op: "update", runId: run.runId, addItems: [itemId] }]);
         if (!u.ok) {
             if (handleCoordinatorStop(u.error, "update")) break;
+            if (isBackoffError(u.error)) {
+                if (await idleWait(u.error.retryAfterMs, `update addItems: ${u.error.code}`)) break;
+                continue;
+            }
             skipList = addSkip(skipList, { itemId, code: u.error?.code || "error", retryAfterMs: u.error?.retryAfterMs, now: Date.now() });
             say(`  - ${itemId.slice(0, 8)} skipped: update addItems ${errText(u.error)}`);
             continue;
@@ -380,17 +385,29 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
     }
 
     // ---- assign
+    if (shuttingDown) break; // G1: a signal during update addItems; no seat exists yet
     const seat = await assignSeat(itemId);
     if (!seat) {
         if (stats.exitReason || shuttingDown) break;
         continue;
     }
     activeSeat = { itemId, token: seat.token, tokenFile: null };
+    if (shuttingDown) {
+        // G2: a signal during assign
+        await endActiveSeat("abandoned", "ralph: interrupted before claim");
+        break;
+    }
 
     // ---- claim under the seat token
     const claim = await seatCall("advance", [{ op: "claim", itemId, ttlSeconds: cfg.ttl }], seat.token);
     if (!claim.ok) {
         const code = claim.error?.code || "error";
+        if (isBackoffError(claim.error)) {
+            say(`  - ${itemId.slice(0, 8)} claim ${errText(claim.error)}: backing off`);
+            await endActiveSeat("abandoned", `ralph: claim ${code}, backing off`);
+            if (await idleWait(claim.error.retryAfterMs, `claim: ${code}`)) break;
+            continue;
+        }
         skipList = addSkip(skipList, { itemId, code, retryAfterMs: claim.error?.retryAfterMs, now: Date.now() });
         say(`  - ${itemId.slice(0, 8)} skipped: claim ${errText(claim.error)}`);
         await endActiveSeat("abandoned", `ralph: claim failed (${code})`);
@@ -399,6 +416,12 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
             break;
         }
         continue;
+    }
+
+    if (shuttingDown) {
+        // G3: a signal during the claim; end_seat releases the claim (D6)
+        await endActiveSeat("abandoned", "ralph: interrupted before the iteration started");
+        break;
     }
 
     // ---- iteration
@@ -609,6 +632,11 @@ async function runOneIteration({ iterIndex, itemId, title, tokenFile }) {
     let exitCode, envelope, error, parsed, timedOut;
 
     for (;;) {
+        if (shuttingDown) {
+            // G4: a signal during the token-file write, or between a child exit and its resume
+            parsed = { outcome: { status: "error", code: "interrupted", reason: `interrupted (${shuttingDown.sig})` }, markerFound: false };
+            break;
+        }
         ({ exitCode, envelope, error, timedOut } = await spawnClaude(currentArgs, { cwd: currentCwd, env, timeoutMs: deadline - Date.now() }));
         spentUsd = updateSpend(spentUsd, envelope);
         if (timedOut) {

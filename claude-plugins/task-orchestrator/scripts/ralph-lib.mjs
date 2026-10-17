@@ -488,26 +488,41 @@ export function buildRunOpenOp({ rootId, items, label, title, filter, pid, runBu
     return op;
 }
 
-/** Codes whose skip lasts for the error's `retryAfterMs`; every other code skips for the whole loop. */
+/** Codes that skip the item instead of backing the loop off. */
 export const TRANSIENT_SKIP_CODES = Object.freeze(["claim_held", "resource_unavailable"]);
 
 /**
  * Add (or replace) a skip row `{itemId, code, until}` and return a NEW list; `list` is not mutated.
- * `itemId` is lowercased. `claim_held` and `resource_unavailable` skip until `now + retryAfterMs`,
- * where a missing, non-numeric, non-finite or negative `retryAfterMs` falls back to
- * `DEFAULT_IDLE_BACKOFF_MS` (30000). Every other code (`invalid_transition`, `not_found`,
- * `duplicate`, ...) is permanent for the loop: `until = Infinity`.
+ * `itemId` is lowercased. A code whose catalog kind (`ERROR_KINDS[code]`) is `transient` or
+ * `shedding` (`claim_held`, `resource_unavailable`, `unavailable`, `internal`, `run_at_capacity`)
+ * skips until `now + retryAfterMs`, where a missing, non-numeric, non-finite or negative
+ * `retryAfterMs` falls back to `DEFAULT_IDLE_BACKOFF_MS` (30000). Every other code
+ * (`invalid_transition`, `not_found`, `duplicate`, unknown codes, ...) is permanent for the loop:
+ * `until = Infinity`.
  */
 export function addSkip(list, { itemId, code, retryAfterMs, now }) {
     const id = String(itemId).toLowerCase();
     let until = Infinity;
-    if (TRANSIENT_SKIP_CODES.includes(code)) {
+    const kind = ERROR_KINDS[code];
+    if (kind === "transient" || kind === "shedding") {
         const ms = typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0
             ? retryAfterMs
             : DEFAULT_IDLE_BACKOFF_MS;
         until = now + ms;
     }
     return [...(list || []).filter((r) => r.itemId !== id), { itemId: id, code, until }];
+}
+
+/**
+ * True when a driver call's error should back the loop off and repeat the same step instead of
+ * skip-listing the item. Code first: a code in `TRANSIENT_SKIP_CODES` skips the item (false). Then
+ * kind: `transient` or `shedding` (`unavailable`, `internal`, `run_at_capacity`, the api-client's
+ * network/timeout `client_error`) backs off (true). Anything else, and a null or empty error, is false.
+ */
+export function isBackoffError(error) {
+    if (!error || typeof error !== "object") return false;
+    if (TRANSIENT_SKIP_CODES.includes(error.code)) return false;
+    return error.kind === "transient" || error.kind === "shedding";
 }
 
 /** True while the item has a skip row whose `until` is strictly later than `now`. */
@@ -585,8 +600,9 @@ export const OUTCOME_TABLE = Object.freeze([
     { code: "unauthenticated", kind: ERROR_KINDS.unauthenticated, by: "iteration", status: "error", action: "The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2.", loop: "error" },
     { code: "run_paused", kind: ERROR_KINDS.run_paused, by: "driver", status: "error", action: "The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision.", loop: "exit" },
     { code: "run_closed", kind: ERROR_KINDS.run_closed, by: "driver", status: "error", action: "The run was closed elsewhere. The driver ends the seat and exits.", loop: "exit" },
-    { code: "run_at_capacity", kind: ERROR_KINDS.run_at_capacity, by: "driver", status: "idle", action: "assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign.", loop: "wait-retry" },
+    { code: "run_at_capacity", kind: ERROR_KINDS.run_at_capacity, by: "driver", status: "idle", action: "assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop.", loop: "wait-retry" },
     { code: "unavailable", kind: ERROR_KINDS.unavailable, by: "driver", status: "idle", action: "The server shed load on a driver call. The driver waits retryAfterMs, then tries again.", loop: "backoff" },
+    { code: "internal", kind: ERROR_KINDS.internal, by: "driver", status: "idle", action: "A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step.", loop: "backoff" },
     { code: "iteration_timeout", kind: "local", by: "driver", status: "error", action: "The iteration outlived --iteration-timeout: SIGTERM, then SIGKILL after 10s. The driver ends the seat failed.", loop: "error" },
     { code: "spawn_error", kind: "local", by: "driver", status: "error", action: "The iteration process could not start (for example --claude-bin missing). The driver ends the seat failed.", loop: "error" },
 ].map((row) => Object.freeze(row)));
