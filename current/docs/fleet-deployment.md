@@ -775,7 +775,7 @@ To authenticate callers, configure the credential mode ([Enabling the REST API](
 The `actor_authentication:` block in the global `.taskorchestrator/config.yaml` is **removed**. Nothing authenticated or attributed a call through it, since no request carries an `actor` or an `actor.proof` any more, so its only remaining effect was an informational field on `GET /api/v1/info`, which is gone too. What to know when upgrading:
 
 - A global config with an `actor_authentication:` key, whatever its value (a mapping, `{}`, a scalar or a bare `null`), stops the server with an `IllegalArgumentException` naming the key and the config path, before the readiness marker is written (the container exits non-zero). The legacy 3.x `auditing:` key and a set `DEGRADED_MODE_POLICY` variable fail the same way.
-- Delete the block. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not in the config file. For the plugin hook's attribution requirement use `actor_attribution.required`.
+- Delete the block. Caller authentication is configured with `API_AUTH_MODE` and the `API_JWKS_*` variables, not in the config file. The 4.0 plugin no longer has an attribution hook, so there is no plugin-side attribution requirement to configure.
 - A per-root push carrying the key is rejected at `/actor_authentication` as an unknown top-level section; nothing is stored.
 - `GET /api/v1/info` no longer returns `actorAuthenticationEnabled`.
 - Solo stdio: with no `AGENT_CONFIG_DIR` the server reads the workspace `.taskorchestrator/config.yaml` as its global file, so a hook-only `actor_authentication: {enabled: true}` block in it fails startup too.

@@ -15,7 +15,22 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
 >
+> The 4.0.0 release (P26) sets `task-orchestrator` to `4.0.0` and `task-orchestrator-mod` to `0.2.0`; until then the table above shows the pre-4.0 values.
+>
 > `/prepare-release` step 8b (`.claude/skills/prepare-release/SKILL.md`) bumps only `task-orchestrator` today, so the `task-orchestrator-mod` version is held by hand, in both version files, until the skill learns about it.
+
+## Compatibility with the server
+
+The plugin and the server are versioned together by major version. The 4.x plugin speaks the 4.0 tool surface (`items_read`, `advance`, `runs_write` and the rest of the registry) and needs a server whose major version is 4 and whose `GET /.well-known/mcp-task-orchestrator.json` lists the `seats` feature (`hooks/lib/server-compat.mjs`, `assessServer`).
+
+| Plugin | Server | Result |
+|--------|--------|--------|
+| 4.x | 4.x with `seats` | Supported. |
+| 4.x | 3.x, or 4.x without `seats` | `session-start` shows one warning line (when a REST API URL resolves and the server answers); `run-wave` `plan` refuses (exit 3, `server incompatible: ...`); a tool result that still has the 3.x shape shows one warning per session from `phase-guard-record` and `dispatch-hint`, which record and hint nothing. The other hooks fail open. |
+| 3.x | 3.x | Supported (the `release/3.x` line). |
+| 3.x | 4.x | Not supported: every 3.x call shape is gone, so the hooks fail open and the skills call tools that do not exist. |
+
+To keep a 3.x server on the 3.x plugin, pin the plugin marketplace to the `release/3.x` ref.
 
 ## Version Files
 
@@ -71,9 +86,8 @@ The plugin's view of the 4.0 tool surface is generated, never hand-edited: `skil
 bodies and cannot import, which is why they carry the generated region instead of importing `tool-names.mjs`.
 
 Contract tests (`hooks/tests/contract-*.test.mjs`, library `scripts/lib/contract-checks.mjs`) pin the hook matchers
-to real tool names and reject a hard-coded retired 3.x tool name. A file that still names one is listed under
-`pendingPort` in `scripts/lib/contract-names-baseline.json` with the item that ports it; the ratchet is two-way, so the
-item that ports a file deletes its row, and a row left behind fails the test. Documented examples are ```to-call
+to real tool names and reject a hard-coded retired 3.x tool name. The baseline `scripts/lib/contract-names-baseline.json` is now empty (`pendingPort: []`, `proseExceptions: []`): no file waits for a port, so a new
+file that names a retired tool fails the test. The ratchet is two-way, so a row added for a file that no longer needs it also fails. Documented examples are ```to-call
 blocks (`{tool, select|op, args, profile?}`) validated against the catalog.
 
 ## Mod plugin: loading and refresh

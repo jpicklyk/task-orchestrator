@@ -25,19 +25,23 @@ The plugin delivers the orchestration core through a SessionStart hook, not an o
 | `orchestration-context` SessionStart hook | The always-on core: workflow principles, skill routing, retrospective handling, action items, visual conventions | Every session start, including after `/compact` and `/clear` |
 | `task-orchestrator:orchestrate` skill | On-demand depth: the tier table, the delegation model table, and phase-owner dispatch rules | Invoked from the orchestration context before sizing or dispatching work |
 | `dispatch-model-guard` PreToolUse hook (matcher `Agent`) | Denies an `Agent` dispatch that omits `model`; the deny reason names the retry (the delegation table in `workflow` mode, the dispatch profile in `schema` mode) | Every `Agent` call |
-| `dispatch-hint` PostToolUse hook (matcher `advance_item`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, optional `effort`) | After each `advance_item`, main session only |
+| `dispatch-hint` PostToolUse hook (matcher `advance`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, optional `effort`), taken from the `dispatch` object of the `advance` result | After each `advance`, main session only |
 | `skills/ralph/iteration-system-prompt.md` | The rules for a headless ralph iteration | Appended to the system prompt of each `claude -p` iteration; the orchestration context stays inert there |
 
-The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`. That covers both enforcement hooks too.
+The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`. That covers both enforcement hooks too. The orchestration context is also withheld from subagents and director sessions (`hooks/README.md`, Mode gating). Where each item's phase owner comes from is not a hook's call: the dispatch profile arrives in the `advance` `transition` result (`dispatch`) and in the `items_read` `select: "schema"` view of the item.
 
 ### The `orchestration.mode` key
 
-Set it in `.taskorchestrator/config.yaml`:
+Set it under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
 
 ```yaml
-orchestration:
-  mode: workflow   # workflow (default) | schema | off
+extensions:
+  claude-code:
+    orchestration:
+      mode: workflow   # workflow (default) | schema | off
 ```
+
+A top-level `orchestration:` block is ignored by the hooks (they read only `extensions.claude-code`), `session-start` prints a `## Config Shape` line naming it, and a 4.0 server rejects it on push. Until you move it, the hooks run in `workflow` mode.
 
 | Mode | Behaviour |
 |------|-----------|
@@ -45,7 +49,7 @@ orchestration:
 | `schema` | No tiers and no model table. The item's resolved note schema alone sets the process; phase-owner dispatch rules still apply. |
 | `off` | The orchestration hooks exit silently, including `dispatch-model-guard` and `dispatch-hint`. |
 
-The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. See [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration) for the full field reference.
+The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. See [config-format.md → Plugin settings](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code) for the full field reference and [config-reference.md](../config-reference.md#extensions) for who owns each key.
 
 ### Layering a personal output style
 
@@ -81,9 +85,9 @@ Phase transitions follow a strict ownership model:
 
 | Transition | Owner | Mechanism |
 |-----------|-------|-----------|
-| queue → work | Implementation agent | `advance_item(trigger="start")` — phase entry |
-| work → review/terminal | Orchestrator | `advance_item(trigger="start")` — routes based on schema |
-| review → terminal | Orchestrator | `advance_item(trigger="start")` after review verdict |
+| queue → work | Implementation agent | `advance` op `transition`, `trigger: "start"` — phase entry, sent after an `items_read` `context` read shows the role just before its phase |
+| work → review/terminal | Orchestrator | `advance` `transition` `start` — routes based on schema |
+| review → terminal | Orchestrator | `advance` `transition` `start` after review verdict |
 
 Implementation agents enter their assigned phase and fill its notes. The orchestrator owns all subsequent transitions — it advances the item and inspects `newRole` to determine the next phase. If the schema has review-phase notes, the item moves to review and a reviewer is dispatched. If not, the item moves directly to terminal.
 
@@ -103,7 +107,7 @@ The orchestrator always sets the `model` parameter explicitly on every agent dis
 
 Omitting `model` would make the agent inherit the orchestrator's model — typically opus — wasting tokens on sonnet-eligible work. The `dispatch-model-guard` hook denies such a dispatch with a reason naming this table, so the call is retried with `model` set.
 
-**Rule: Never make 3+ MCP write calls in a single orchestrator turn.** Delegate bulk MCP write work (multiple item/dependency/note creates) to a haiku agent to keep the orchestrator context clean. Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged.
+**Rule: Never make 3+ MCP write calls in a single orchestrator turn.** Delegate bulk MCP write work (multiple item/dependency/note creates) to a haiku agent to keep the orchestrator context clean. Parallelized reads (e.g., `items_read` `context` + `items_read` `overview`) are fine and encouraged.
 
 ---
 
@@ -158,10 +162,10 @@ Feature: "Refactor authentication into three components"
 1. **Plan:** Enter plan mode. Pre-plan hook gathers MCP state. Write plan with three tasks. User approves.
 2. **Materialize:** Post-plan creates root item + three children with fan-out dependencies.
 3. **Dispatch:** Three worktree agents in parallel. Each gets a child UUID + target files. Each creates a session task.
-4. **Phase entry:** Each agent calls `advance_item(trigger="start")` once — queue→work at start. Fills work-phase notes and returns.
-5. **Orchestrator advances:** Calls `advance_item(trigger="start")` on each item. Items with review-phase notes move to review; lightweight items move to terminal.
+4. **Phase entry:** Each agent reads the item's role with `items_read` `context`, then sends `advance` `transition` `start` once — queue→work at start. Fills work-phase notes and returns.
+5. **Orchestrator advances:** Sends `advance` `transition` `start` for each item. Items with review-phase notes move to review; lightweight items move to terminal.
 6. **Review:** For items now in review, orchestrator dispatches review agents into each worktree path. After review passes, advances review→terminal.
-7. **Cascade:** Parent auto-cascades to terminal when all children reach terminal.
+7. **Cascade:** An `auto`-lifecycle parent cascades to terminal when all children reach terminal (the `cascades` field of the `transition` result reports it). A `manual`, `permanent` or lifecycle-free parent is left alone, and a terminal cascade into a parent in `review` is suppressed (`reason: review-pending`): that parent needs an explicit advance. The rules are in the Cascades section of the [API reference](../api-reference.md#advance).
 8. **Merge:** Squash-merge each worktree branch into local `main`. Run tests after each merge.
 
 ---
@@ -191,21 +195,21 @@ Narration uses the `↳` prefix for background operations — one line each, ski
 
 ## Retrospective
 
-The plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. When items reach terminal after an implementation run (via `advance_item`, `complete_tree`, or auto-cascade), the hook fires and the orchestrator follows it according to `retrospective.mode` in `.taskorchestrator/config.yaml`:
+A retrospective is owed per closed run that has no `retro` mark, and the plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. `runs_write` `close` fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run closed in another session still gets one. The orchestrator follows the hook according to `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
 
 | Mode | What the orchestrator does |
 |------|----------------------------|
-| `nudge` (default) | Surfaces a suggestion to run `/session-retrospective`; the user opts in |
-| `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per run. A run below the configured `dispatchThreshold` still arrives as a nudge |
+| `nudge` (default) | Surfaces a suggestion to run `/session-retrospective --run <runId>`; the user opts in |
+| `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per run, after the hook wins the `retro` mark (the first mark wins, so two sessions never both dispatch). A run with fewer terminal members than `dispatchThreshold` (default 3) still arrives as a nudge |
 | `off` | Nothing |
 
-In `nudge` mode the suggestion looks like:
+An item reaching terminal by itself does not trigger anything: the unit is the run. In `nudge` mode the suggestion looks like:
 
 ```
-↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
+Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
 ```
 
-See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference.
+See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference and [Self-Improving Workflow](self-improving-workflow.md) for what the retrospective does with it.
 
 ---
 

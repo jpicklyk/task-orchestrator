@@ -66,13 +66,13 @@ work_item_schemas:
           Keep it factual and concise — this feeds the session retrospective.
 ```
 
-The note is the **single source of truth** for what happened on each item. The retrospective reads these notes via `query_notes(role="work", key="session-tracking")` rather than re-deriving from the transcript. Gate enforcement guarantees the data exists.
+The note is the **single source of truth** for what happened on each item. The retrospective reads these notes with `notes_read` `list` (`role: "work"`, `keys: ["session-tracking"]`) per item rather than re-deriving from the transcript. Gate enforcement guarantees the data exists.
 
-> **Why on every implementation schema, not just one:** The retrospective aggregates across the full feature tree. Putting `session-tracking` on `feature-task`, `bug-fix`, `plugin-change`, etc. (rather than only the parent feature) lets distributed sub-agents each record their own outcomes without contention. The catch-all `default` schema picks up untagged items so nothing escapes tracking.
+> **Why on every implementation schema, not just one:** The retrospective aggregates across the full feature tree. Putting `session-tracking` on `feature-task`, `bug-fix`, `plugin-change`, etc. (rather than only the parent feature) lets distributed sub-agents each record their own outcomes without contention. The catch-all `default` schema picks up items whose type has no schema of its own, so nothing escapes tracking.
 
 ### `agent-observation` — the tool-side issue log
 
-Standalone MCP items (no `parentId`) tagged `agent-observation` plus exactly one type tag. Each carries a single queue-phase note describing the issue:
+Standalone MCP items (no `parentId`) of type `agent-observation`, tagged `agent-observation` plus exactly one type tag. Each carries a single queue-phase note describing the issue:
 
 ```yaml
 work_item_schemas:
@@ -94,7 +94,7 @@ work_item_schemas:
           - **missing-capability** (needed feature that doesn't exist)
 ```
 
-Default `priority: low` keeps observations from competing with implementation items in `get_next_item`. Add `action-item` as a secondary tag for observations that block current work.
+Default `priority: low` keeps observations from competing with implementation items in `items_read` `next`. Add `action-item` as a secondary tag for observations that block current work.
 
 ### `session-retrospective` — the aggregate artifact
 
@@ -124,7 +124,8 @@ work_item_schemas:
 When the orchestrator dispatches a subagent, it can record the model used and isolation mode as a `delegation-metadata` note on the work item. Projects that want this consistently can define a `delegated` trait (see the `/manage-schemas` reference) and apply it to delegated items:
 
 ```
-manage_notes(operation="upsert", notes=[{
+notes_write(ops=[{
+  op: "upsert",
   itemId: "<task-uuid>",
   key: "delegation-metadata",
   role: "work",
@@ -146,13 +147,13 @@ The first loop runs in real time as the agent uses MCP tools. It surfaces issues
 
 | Pattern | Detection signal | Preferred alternative |
 |---------|-----------------|----------------------|
-| Over-fetching | `query_items(get)` for a status check | `query_items(overview)` — 85-90% fewer tokens |
-| Missing batch | 3+ individual `manage_items`/`manage_dependencies`/`advance_item` calls in one turn | Use `items`/`dependencies`/`transitions` arrays for bulk operations |
-| Note body waste | `query_notes(includeBody=true)` when only keys/roles needed | `includeBody` now defaults to `false` — only pass `true` when bodies are actually needed |
+| Over-fetching | `items_read(get)` for a status check | `items_read(overview)` or the compact `list` view — item summaries without note bodies |
+| Missing batch | 3+ individual `items_write`/`deps_write`/`advance` calls in one turn | Put the operations in one call's `ops[]` array (`atomic: true` makes the batch all-or-nothing) |
+| Note body waste | `notes_read(get)` on every note when only keys/roles are needed | `notes_read(list)` returns an item's notes without bodies — `get` only the note whose body is needed |
 | Redundant queries | Same entity queried twice in a turn | Cache the first result or combine into one call |
-| Unfiltered search | `query_items(search)` with no filters | Add `role`, `tags`, `priority`, or `parentId` to narrow |
+| Unfiltered search | `items_read(search)` with no filters | Add `role`, `tags`, `ancestorId`, or `kinds` to narrow |
 | Multi-status role query | Listing specific statuses when a role would suffice | Use `role="work"` — resolves to all work-phase statuses |
-| Full notes for partial read | `query_notes(includeBody=true)` for all notes when one is needed | Scope with `query_notes(role=..., keys=[...])` |
+| Full notes for partial read | `notes_read(get)` for all notes when one is needed | Scope with `notes_read(list, role=..., keys=[...])` |
 
 **Friction patterns:**
 
@@ -162,7 +163,7 @@ The first loop runs in real time as the agent uses MCP tools. It surfaces issues
 | Excessive round-trips | Workflows requiring 3+ sequential calls where 1-2 should suffice |
 | Workarounds | Cases where the agent must work around a missing capability |
 | API confusion | Parameter naming inconsistencies, unclear error messages |
-| Tool misuse | Wrong operation chosen, missing required params, skipping `advance_item` |
+| Tool misuse | Wrong op or select chosen, missing required params, skipping `advance` |
 | Silent failures | Operations that succeed but produce no useful effect |
 
 **Return-payload waste** (often the biggest token drain in delegated runs):
@@ -191,16 +192,18 @@ When the agent detects an issue worth persisting, it follows a three-step protoc
 **Step 1 — Dedup check.** Search for existing observations to avoid duplicates:
 
 ```
-query_items(operation="search", tags="agent-observation", query="<topic keyword>")
+items_read(select="search", query="<topic keyword>", tags=["agent-observation"])
 ```
 
 **Step 2 — Create (only if no match found):**
 
 ```
-manage_items(operation="create", items=[{
+items_write(ops=[{
+  op: "create",
   title: "[optimization] Use overview instead of get for status dashboards",
-  summary: "Detected query_items(get) used for a status check. query_items(overview) returns item summaries without note bodies — sufficient for dashboards and 85-90% cheaper.",
-  tags: "agent-observation,optimization",
+  summary: "Detected items_read(get) used for a status check. items_read(overview) returns item summaries without note bodies — sufficient for dashboards and far cheaper.",
+  type: "agent-observation",
+  tags: ["agent-observation", "optimization"],
   priority: "low"
 }])
 ```
@@ -208,7 +211,8 @@ manage_items(operation="create", items=[{
 **Step 3 — Fill the observation note:**
 
 ```
-manage_notes(operation="upsert", notes=[{
+notes_write(ops=[{
+  op: "upsert",
   itemId: "<new-item-uuid>",
   key: "observation-detail",
   role: "queue",
@@ -270,16 +274,16 @@ Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries,
 
 ### When It Runs
 
-Two trigger paths:
+A retrospective is owed **per closed run** that has no `retro` mark. Two trigger paths:
 
-1. **Manual** — user invokes `/session-retrospective` (optionally with a root item UUID)
-2. **Hook-driven** — when work items reach terminal during an implementation run, the plugin's retrospective hooks fire. In the default `nudge` mode the orchestrator suggests running it:
+1. **Manual** — user invokes `/session-retrospective`, optionally with a root item UUID or `--run <runId>`. `--run` takes the run's members from its ended seats and frontier, and wins over a root UUID.
+2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run closed in another session or by a subagent is still found. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
 
 ```
-↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
+Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
 ```
 
-In `nudge` mode the suggestion appears at most once per implementation run and the user opts in. With `retrospective.mode: dispatch`, the hook instead directs the orchestrator to launch the retrospective as a background agent at the next run boundary — see option 6b under [Setup](#setup) for the modes.
+In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the `retro` mark and directs the orchestrator to launch the retrospective as a background agent at the next run boundary, once the run has at least `dispatchThreshold` terminal members (below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
 
 ### What It Evaluates
 
@@ -305,9 +309,9 @@ tags:    retrospective-trend,delegation
 notes:   evidence-2026-04-29-<retro-short-id>  (role: work — one per recurrence)
 ```
 
-The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `friction`, or `extension-candidate`. Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item at `Sessions: 1`. A trend that is addressed or obsolete is retired with `advance_item(trigger="cancel")`, which drops it out of the active listing.
+The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `friction`, or `extension-candidate`. Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item of type `retrospective-trend` at `Sessions: 1` (the server's global config must declare that type; the shipped global floor does). A trend that is addressed or obsolete is retired with `advance` `transition` `cancel`, which drops it out of the active listing. `--deep` hands the matching to the `retro-analysis` workflow in the main session, and stashes the findings as the plan document `retro/<runId>` while it runs.
 
-> **Legacy layout.** Earlier plugin versions kept trends in `memory/retrospectives.md` in the auto-memory directory. If that file still holds trend entries and the Trends container is absent or empty, the skill migrates them into MCP items once, automatically, then rewrites the file to a pointer stub.
+> **Legacy layout.** Earlier plugin versions kept trends in `memory/retrospectives.md` in the auto-memory directory. If that file still holds trend entries and the Trends container is absent or empty, the skill follows `skills/session-retrospective/references/legacy-trend-migration.md` to move them into MCP items once.
 
 ### Proposal Graduation
 
@@ -338,6 +342,23 @@ A retrospective run produces:
 2. New or updated `retrospective-trend` MCP items under the `Retrospective Trends` container (new trends, incremented counters, evidence notes)
 3. Zero or more `improvement-proposal` MCP items under an `Improvement Proposals` container (one per graduated trend)
 4. A dashboard rendered to the user with dimension scores, trends, and any proposals created
+
+### Settings
+
+The hooks read `extensions.claude-code.retrospective` from `.taskorchestrator/config.yaml`; the skills read `github_feedback` from the same block:
+
+```yaml
+extensions:
+  claude-code:
+    retrospective:
+      mode: nudge            # nudge (default) | dispatch | off
+      dispatchThreshold: 3   # terminal members a closed run needs before dispatch mode dispatches
+      github_feedback:
+        enabled: false
+        repo: jpicklyk/task-orchestrator
+```
+
+A top-level `retrospective:` block is ignored, and a 4.0 server rejects it on push. Edits take effect on the next hook trigger, with no `/mcp` reconnect. Full field reference: [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective).
 
 ### Dry-Run Mode
 
@@ -387,7 +408,7 @@ Or with an issue:
 ↳ [optimization] `a1b2c3d4` — batch dependency creation for linear chains
 
 **Suggestions**
-↳ Consider using query_items(overview) for the work-summary dashboard
+↳ Consider using items_read(overview) for the work-summary dashboard
 ```
 
 Inline analysis uses the `↳ [analysis]` prefix for real-time visibility during the response body. The end-of-response block is the aggregate summary.
@@ -415,14 +436,14 @@ The lightest path: persistent tracking of tool issues, no analysis reporting, no
 
 When you detect tool friction, bugs, or optimization opportunities during MCP use:
 
-1. Dedup-check: `query_items(operation="search", tags="agent-observation", query="<topic>")`
-2. If no match, create with `tags: "agent-observation,<type>"` where type is one of: optimization, friction, bug, missing-capability
+1. Dedup-check: `items_read(select="search", query="<topic>", tags=["agent-observation"])`
+2. If no match, create with `type: "agent-observation"` and `tags: ["agent-observation", "<type>"]` where type is one of: optimization, friction, bug, missing-capability
 3. Fill the `observation-detail` note describing observed/expected/suggested
 ```
 
 **3.** Reload the MCP config: `/mcp` (or restart Claude Code).
 
-You now have persistent tool-issue tracking. Periodically run `query_items(operation="search", tags="agent-observation")` to triage.
+You now have persistent tool-issue tracking. Periodically run `items_read(select="list", tags=["agent-observation"])` to triage.
 
 ### Option B: CLAUDE.md Driven (lightweight active analysis)
 
@@ -504,26 +525,26 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 ```
 ## Retrospective Nudge
 
-When work items reach terminal during an implementation run — via `advance_item`,
-`complete_tree`, or auto-cascade — suggest `/session-retrospective` once per run:
+When a run closes, or a retrospective nudge or dispatch directive arrives from the plugin's
+hooks, suggest `/session-retrospective --run <runId>` once per run:
 
-  ↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
+  ↳ Run closed. Consider running `/session-retrospective --run <runId>` to capture learnings.
 
-Do not auto-invoke. Show at most once per implementation run.
+Do not auto-invoke. Show at most once per run.
 ```
 
-This relies on the agent noticing the terminal transition and remembering to nudge. Soft signal, no infrastructure.
+This relies on the agent noticing the run close and remembering to nudge. Soft signal, no infrastructure.
 
 **Option 6b — Plugin-native hooks (reliable, no setup required).** The `task-orchestrator` plugin ships deterministic retrospective hooks out of the box:
 
 | Hook | Fires on | Role |
 |------|----------|------|
-| `retro-trigger.mjs` | PostToolUse on `advance_item` / `complete_tree` | Detects parent/run completion and records lone terminals |
-| `retro-backstop.mjs` | Stop | End-of-turn backstop so a completion is never silently missed |
+| `retro-trigger.mjs` | PostToolUse on `runs_write` | On a successful `close`, nudges or (in `dispatch` mode) wins the run's `retro` mark and directs a background retrospective |
+| `retro-backstop.mjs` | Stop | End-of-turn backstop: finds closed, unmarked runs (`runs_read` `unmarked: "retro"`) so a close is never silently missed |
 
 Both are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
 
-Behavior is configured per workspace via `retrospective.mode` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled) — `headless` is reserved for a future mode. See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
+Behavior is configured per workspace via `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled). See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 
 Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge (or dispatch directive, in `dispatch` mode), the personal output-style prose tells the agent how to act on it.
 
@@ -533,9 +554,9 @@ Hooks fire deterministically on every matching tool call regardless of agent att
 
 After the first implementation run with the full pipeline:
 
-1. Confirm `session-tracking` notes were filled on each item: `query_notes(itemId="<uuid>", role="work")`
-2. Run `/session-retrospective` and check the dashboard renders dimension scores
-3. List the trend items — `query_items(operation="search", tags="retrospective-trend", role="queue")` — the first trend entries should now exist under a `Retrospective Trends` container
+1. Confirm `session-tracking` notes were filled on each item: `notes_read(select="list", itemId="<uuid>", role="work")`
+2. Run `/session-retrospective --run <runId>` and check the dashboard renders dimension scores; `runs_read(select="get", runId="<runId>")` shows the run's `retro` mark afterwards
+3. List the trend items — `items_read(select="list", type="retrospective-trend", role="queue")` — the first trend entries should now exist under a `Retrospective Trends` container
 4. After a second similar run, check whether any trends graduated into `improvement-proposal` items
 
 If `session-tracking` notes are missing, the gate enforcement is not configured — re-check Step 2.
@@ -609,9 +630,9 @@ After several sessions, three places hold the accumulated learning:
 **MCP — observations, proposals, and retrospectives:**
 
 ```
-query_items(operation="search", tags="agent-observation")
-query_items(operation="search", tags="improvement-proposal")
-query_items(operation="search", tags="session-retrospective")
+items_read(select="list", tags=["agent-observation"])
+items_read(select="list", tags=["improvement-proposal"])
+items_read(select="list", tags=["session-retrospective"])
 ```
 
 Group observations by type tag to see patterns:
@@ -623,10 +644,10 @@ Group observations by type tag to see patterns:
 **MCP — trend items:**
 
 ```
-query_items(operation="search", tags="retrospective-trend", role="queue", limit=100)
+items_read(select="list", type="retrospective-trend", role="queue", limit=100)
 ```
 
-Lists the active trends (id, title, tags); fetch one with `query_items(operation="get", itemId="<trend-uuid>")` to read its summary and session count, and `query_notes(operation="list", itemId="<trend-uuid>")` for its per-session evidence. Trends with `Sessions >= 2` should already have proposals — their summary carries a `GRADUATED -> proposal <short-id>` pointer. Trends with high session counts but no pointer indicate the graduation step missed (skill bug or schema gap).
+Lists the active trends (id, title, tags); fetch one with `items_read(select="get", itemId="<trend-uuid>")` to read its summary and session count, and `notes_read(select="list", itemId="<trend-uuid>")` for its per-session evidence. Trends with `Sessions >= 2` should already have proposals — their summary carries a `GRADUATED -> proposal <short-id>` pointer. Trends with high session counts but no pointer indicate the graduation step missed (skill bug or schema gap).
 
 **Auto-memory — self-corrections:**
 
@@ -636,6 +657,10 @@ Lists the active trends (id, title, tags); fetch one with `query_items(operation
 
 The agent's discipline corrections. Reviewable and editable; entries that are no longer relevant can be removed.
 
+### Accepting proposals
+
+`/task-orchestrator:review-proposals` walks the pending `improvement-proposal` items and records an accept, reject or defer for each. A project-scoped acceptance has its exact YAML applied to `.taskorchestrator/config.yaml` and pushed to the project's root with the `config` tool: `validate` first, then `get` for the head version, then `push` with that version as `expectedVersion` (a concurrent edit comes back as `version_conflict` instead of being overwritten). An accepted item then dwells in `review` by design, until a later `/session-retrospective` run fills its `outcome-verification` note. A global acceptance is tracked as a GitHub issue when `retrospective.github_feedback.enabled` is on and `gh` is available; otherwise the maintainer path applies (`skills/review-proposals/SKILL.md`).
+
 ### Triage Cadence
 
 A reasonable rhythm:
@@ -643,6 +668,6 @@ A reasonable rhythm:
 - **Per session:** retrospective runs at end of implementation work
 - **Weekly or per release:** review accumulated `improvement-proposal` items, accept/reject
 - **Monthly:** scan `agent-observation` items for recurring `friction` or `bug` reports that should escalate to product work
-- **Quarterly:** review the trend file for patterns that graduated but never had proposals applied — indicates either the proposal was wrong or the user wasn't reviewing them
+- **Quarterly:** review the trend items for patterns that graduated but never had proposals applied — indicates either the proposal was wrong or the user wasn't reviewing them
 
 The system is designed to surface, not enforce. Human judgment decides which signals turn into product changes.
