@@ -615,7 +615,7 @@ merged into `release/4.0` before the landing PR leaves draft. The landing keeps 
 (step c), so anything on `main` without a twin is dropped from `main` (it survives on `release/3.x`).
 For 4.0.0 the audit found 21 of 22 covered; `d8f23c81` (#574, carry-in plumbing) needed a twin.
 
-**c. Landing PR.** The two lines conflict widely (for 4.0.0, more than 60 files), so GitHub cannot
+**c. Landing PR.** The two lines conflict widely (for 4.0.0, 270 paths), so GitHub cannot
 merge `release/4.0` into `main` directly. Cut a landing branch from `release/4.0`, retire the `guard`
 job by deleting `.github/workflows/pr-base-guard.yml`, and record `main` as a parent while keeping the
 `release/4.0` tree, which is correct only after step b passes:
@@ -638,10 +638,13 @@ wait. Re-merge `origin/release/4.0` into the landing branch (an ordinary merge) 
 `release/4.0` moves before the landing.
 
 The 4.0.0 CHANGELOG section is the release record. `main`'s `[Unreleased]` 3.x bullets are not folded
-into it; they ship from `release/3.x` in its next point release. `scripts/resolve-changelog.mjs` resolves
+into it; they ship from `release/3.x` in its next point release. `claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs` resolves
 only `[Unreleased]` against `[Unreleased]`, so it is not used here.
 
-**d. Tag from `main`.** Once CI is green on the merge commit, `git tag v4.0.0 && git push origin v4.0.0`.
+**d. Tag from `main`.** Before the landing PR leaves draft, re-merge `origin/release/4.0` into the landing
+branch and fold anything under its `## [Unreleased]` (a twin or fix merged into `release/4.0` after the
+cut) into `## [4.0.0]`, so the release section is complete and Step 11g's extraction finds it. Once CI is
+green on the merge commit, `git tag v4.0.0 && git push origin v4.0.0`.
 `docker-publish.yml` then runs `needs: test`, the release-gate build, the fresh smoke, the upgrade smoke
 from the 3.16 golden volume, Trivy, pushes `latest`, `4.0.0` and `4.0`, publishes `server.json` with
 `mcp-publisher` and creates the GitHub release with generated notes, which Step 11g overwrites.

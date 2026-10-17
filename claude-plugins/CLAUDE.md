@@ -26,7 +26,7 @@ The plugin and the server are versioned together by major version. The 4.x plugi
 | 3.x | 3.x | Supported (the `release/3.x` line). |
 | 3.x | 4.x | Not supported: every 3.x call shape is gone, so the hooks fail open and the skills call tools that do not exist. |
 
-To keep a 3.x server on the 3.x plugin, pin the plugin marketplace to the `release/3.x` line: clone the repository at `release/3.x` and run `/plugin marketplace add <checkout>/.claude-plugin`.
+To keep a 3.x server on the 3.x plugin, install the plugin from the `release/3.x` line: clone the repository and check out `release/3.x`; remove the 4.x marketplace first (`/plugin marketplace remove task-orchestrator-marketplace`, since both lines use that name); then run `/plugin marketplace add <checkout>` with the repository root, which holds `.claude-plugin/marketplace.json` and against which its `source` paths resolve. The marketplace serves the checkout's working tree, so keep that checkout on `release/3.x`.
 
 ## Version Files
 
