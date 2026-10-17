@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupCompaction
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.FlywayException
@@ -10,12 +9,8 @@ import org.flywaydb.core.api.output.MigrateResult
 import org.slf4j.LoggerFactory
 import org.sqlite.SQLiteConfig
 import org.sqlite.SQLiteDataSource
-import java.io.File
-import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
-import java.nio.channels.OverlappingFileLockException
-import java.nio.file.StandardOpenOption
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
@@ -31,8 +26,9 @@ import java.util.UUID
  * (for example the V9 header) fails validation on every existing database.
  *
  * The whole schema phase (Direct-mode check/baseline, migrate/validate/repair, inventory, FTS check)
- * runs under an OS file lock `<dbfile>.migrate.lock` so concurrent boots serialize; Flyway has no
- * SQLite migration lock of its own (AR-85).
+ * runs under an OS file lock `<dbfile>.migrate.lock` ([MigrationLock]) so concurrent boots serialize; Flyway has no
+ * SQLite migration lock of its own (AR-85). The startup pre-upgrade backup takes the same lock around the copy and this phase,
+ * so the lock is re-entrant for the holding thread.
  *
  * @param jdbcUrl The JDBC URL for the database connection.
  * @param repair Whether to run Flyway repair instead of migrate. Sourced from the FLYWAY_REPAIR
@@ -323,67 +319,14 @@ class FlywayDatabaseSchemaManager(
             false
         }
 
-    /**
-     * Runs [block] under the `<dbfile>.migrate.lock` OS file lock (no lock for in-memory URLs).
-     * Polls `tryLock`; [OverlappingFileLockException] (this JVM already holds it) counts as held.
-     * Any other [IOException] from the attempt (for example ENOLCK on an NFS mount without lockd) fails
-     * closed: startup fails with a message naming the lock file. Logs INFO every 10 s while waiting and
-     * gives up after [lockTimeoutMs]. The lock file is never deleted.
-     */
-    private fun <T> withMigrationLock(block: () -> T): T {
-        val dbFile = StartupCompaction.resolveDbFile(jdbcUrl) ?: return block()
-        val lockFile = File(dbFile.path + ".migrate.lock")
-        lockFile.absoluteFile.parentFile?.mkdirs()
-
-        FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
-            val start = System.nanoTime()
-            var lastLog = start
-            var lock: FileLock? = null
-            while (lock == null) {
-                lock =
-                    try {
-                        lockAttempt(channel)
-                    } catch (e: OverlappingFileLockException) {
-                        null
-                    } catch (e: IOException) {
-                        throw IllegalStateException(
-                            "Could not acquire the migration lock ${lockFile.path}: ${e.message}. " +
-                                "Startup fails closed: the database is not migrated without the lock. " +
-                                "Check that the filesystem holding the database supports file locks.",
-                            e
-                        )
-                    }
-                if (lock != null) break
-                val now = System.nanoTime()
-                val waitedMs = (now - start) / 1_000_000
-                if (waitedMs >= lockTimeoutMs) {
-                    throw IllegalStateException(
-                        "Timed out after ${waitedMs / 1000}s waiting for the migration lock ${lockFile.path}; " +
-                            "another process is migrating this database. The lock file is never deleted; " +
-                            "stop the other process and retry."
-                    )
-                }
-                if ((now - lastLog) / 1_000_000 >= LOCK_LOG_INTERVAL_MS) {
-                    logger.info("Waiting for migration lock ${lockFile.path} (${waitedMs / 1000}s elapsed)")
-                    lastLog = now
-                }
-                Thread.sleep(LOCK_POLL_MS)
-            }
-            try {
-                return block()
-            } finally {
-                runCatching { lock?.release() }
-            }
-        }
-    }
+    /** Runs [block] under [MigrationLock] (re-entrant for a thread that already holds it). */
+    private fun <T> withMigrationLock(block: () -> T): T = MigrationLock.withLock(jdbcUrl, lockTimeoutMs, lockAttempt, block)
 
     companion object {
         /** The only configured migration location. */
         const val MIGRATION_LOCATION = "classpath:db/migration/sqlite"
         internal const val HISTORY_TABLE = "flyway_schema_history"
         internal const val LOCK_TIMEOUT_MS = 300_000L
-        private const val LOCK_POLL_MS = 100L
-        private const val LOCK_LOG_INTERVAL_MS = 10_000L
         private const val BUSY_RETRIES = 3
         private const val BUSY_BACKOFF_MS = 500L
 
