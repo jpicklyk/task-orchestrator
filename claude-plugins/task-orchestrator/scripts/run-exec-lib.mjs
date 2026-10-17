@@ -1195,14 +1195,38 @@ export function expectedActors(doc) {
 }
 
 /**
+ * reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) -> boolean. True when the
+ * observed actor id is exactly `<seat>-a<n>:<short>:<runId>` for the expected
+ * `<seat>:<short>:<runId>` (RESEAT_SEAT_RE, capture 1 === the expected seat, identical tail) AND:
+ *  - no result document (hasResult false), or the result row has no `reseats` array (absent/null/
+ *    non-array): the grammar alone decides;
+ *  - the result row carries a `reseats` array (even empty): the ledger is authoritative and needs
+ *    an entry with `seat` === the observed seat part and `baseSeat` === the expected seat.
+ */
+function reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) {
+  const exp = String(expectedActorId).split(':')
+  const obs = String(observedActorId || '').split(':')
+  if (exp.length < 3 || obs.length !== exp.length) return false
+  if (obs.slice(1).join(':') !== exp.slice(1).join(':')) return false
+  const m = RESEAT_SEAT_RE.exec(obs[0])
+  if (!m || m[1] !== exp[0]) return false
+  const ledger = hasResult && resItem ? resItem.reseats : undefined
+  if (!Array.isArray(ledger)) return true
+  return ledger.some((entry) => entry && entry.seat === obs[0] && entry.baseSeat === exp[0])
+}
+
+/**
  * auditActors(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
- * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result, behaviour is
- * byte-for-byte unchanged (every stage's notes are expected). With opts.result (the run's result
+ * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result every stage's
+ * notes are expected (and reseated actors match by grammar, see below). With opts.result (the run's result
  * document, D7), the expected rows for an item are limited to stages whose result status is
  * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
  * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
  * `{ok:true, missing:[], mismatched:[], skipped:true}` instead of flagging notes from stages that
- * never ran.
+ * never ran. An observed `<seat>-a<n>:<short>:<runId>` actor is accepted for the expected `<seat>` lane when
+ * it is grammar-valid and either there is no result, or the item's result row has no `reseats`
+ * array (grammar fallback); when the row carries a `reseats` array it is authoritative and must
+ * list that seat with that baseSeat (an empty array accepts nothing).
  */
 export function auditActors(doc, observed, itemIds, opts) {
   const filter = itemIds ? new Set(itemIds) : null
@@ -1220,7 +1244,7 @@ export function auditActors(doc, observed, itemIds, opts) {
           const found = observedForItem.find((o) => o.key === e.key)
           if (!found) {
             if (!e.optional) missing.push(e.key)
-          } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+          } else if (found.actorId !== e.actorId && !reseatAccepts(null, e.actorId, found.actorId, false)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
         }
         return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
       })
@@ -1253,7 +1277,7 @@ export function auditActors(doc, observed, itemIds, opts) {
         const found = observedForItem.find((o) => o.key === e.key)
         if (!found) {
           if (!e.optional) missing.push(e.key)
-        } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+        } else if (found.actorId !== e.actorId && !reseatAccepts(resItem, e.actorId, found.actorId, true)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
       }
       return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
     })
