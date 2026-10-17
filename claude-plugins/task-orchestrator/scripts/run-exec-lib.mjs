@@ -1217,8 +1217,8 @@ function reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) {
 
 /**
  * auditActors(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
- * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result, behaviour is
- * byte-for-byte unchanged (every stage's notes are expected). With opts.result (the run's result
+ * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result every stage's
+ * notes are expected (and reseated actors match by grammar, see below). With opts.result (the run's result
  * document, D7), the expected rows for an item are limited to stages whose result status is
  * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
  * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
