@@ -106,6 +106,7 @@ async function fetchGate(itemId) {
       title: typeof d.item?.title === 'string' ? d.item.title : '',
       role: d.item?.role,
       gateStatus: d.gateStatus,
+      seats: d.seats,
       guidanceKey: d.guidanceKey,
       skillPointer: d.skillPointer,
     };
@@ -204,9 +205,18 @@ async function main() {
       if (seat && gate.role !== SEAT_ROLE[seat]) continue;
       const rawMissing = Array.isArray(gate.gateStatus?.missing) ? gate.gateStatus.missing : [];
       const normalizedMissing = rawMissing.map(missingKey).filter(Boolean);
-      const missing = isTestAuthor
-        ? normalizedMissing
-        : normalizedMissing.filter((key) => !TEST_AUTHOR_OWNED_KEYS.has(key));
+      const stopSeat = seat ?? (isTestAuthor ? 'test-author' : null);
+      const buckets = gate.gateStatus?.missingBySeat;
+      const bucketMode =
+        buckets !== null && typeof buckets === 'object' && !Array.isArray(buckets) &&
+        stopSeat !== null &&
+        Array.isArray(gate.seats) && gate.seats.some((s) => s && s.name === stopSeat) &&
+        (buckets[stopSeat] === undefined || Array.isArray(buckets[stopSeat]));
+      const missing = bucketMode
+        ? (buckets[stopSeat] ?? []).map(missingKey).filter(Boolean)
+        : isTestAuthor
+          ? normalizedMissing
+          : normalizedMissing.filter((key) => !TEST_AUTHOR_OWNED_KEYS.has(key));
 
       // A2: only a REJECT-mode block can ever contribute a violation-based blocker. `canAdvance`
       // alone is not the signal — it is also false whenever the gate's raw `missing` list is
