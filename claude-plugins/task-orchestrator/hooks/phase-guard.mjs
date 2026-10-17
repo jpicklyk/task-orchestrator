@@ -20,12 +20,18 @@
 // SubagentStart) identifies which seat is stopping. `phaseOwnerSeat()` maps it to `'implementer'`
 // (owns `work`), `'reviewer'` (owns `review`), or `null` (unrecognised/pre-field build — keeps the
 // prior role-agnostic behaviour). A recognised seat never blocks on an item outside the role it
-// owns (SEAT_ROLE) — it is still fetched, just never named as a blocker. Independently of seat,
-// keys in TEST_AUTHOR_OWNED_KEYS (e.g. `test-manifest`) are dropped from `missing` unless the
-// stopping agent is itself a test-author seat (`isTestAuthorAgentType`) — those notes are filled
-// by a separately dispatched seat and must never be demanded of the implementer or reviewer. The
-// DTO's `skillPointer`/`guidanceKey` describe only the FIRST raw missing key, so the block reason
-// surfaces them only when that first key survives the test-author filter.
+// owns (SEAT_ROLE) — it is still fetched, just never named as a blocker.
+//
+// Seat buckets: when the context view's `gateStatus.missingBySeat` is an object, the stopping seat is
+// known (`phaseOwnerSeat()`, or `'test-author'` via `isTestAuthorAgentType`), the view's current-phase
+// `seats` array names that seat (exact match) and its bucket is absent or an array, the hook blocks only
+// on `missingBySeat[seat]` (an absent bucket is empty). The `unowned` bucket and other seats' buckets
+// never block, and the server's ownership wins over TEST_AUTHOR_OWNED_KEYS: a schema that gives
+// `test-manifest` to the implementer blocks the implementer on it. Otherwise the fallback applies:
+// keys in TEST_AUTHOR_OWNED_KEYS (e.g. `test-manifest`) are dropped from the flat `missing` list
+// unless the stopping agent is itself a test-author seat. The DTO's `skillPointer`/`guidanceKey`
+// describe only the FIRST raw missing key, so the block reason surfaces them only when that first
+// raw key is also the first key left after the bucket or fallback filter.
 //
 // Known limitation (non-goal, not addressed here): the guard only engages for subagents that
 // either send `start` or, as a phase-owner seat, make an item-mode context read of an item
