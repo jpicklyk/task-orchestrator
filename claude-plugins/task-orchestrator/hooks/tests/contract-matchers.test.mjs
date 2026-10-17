@@ -26,7 +26,7 @@ const ORCHESTRATION_TOOLS = readdirSync(GOLDEN_DIR)
 const EXPECTED = {
   'skill-enforcement.mjs': ['notes_write'],
   'retro-trigger.mjs': ['runs_write'],
-  'phase-guard-record.mjs': ['advance'],
+  'phase-guard-record.mjs': ['advance', 'items_read'],
   'dispatch-hint.mjs': ['advance'],
 };
 

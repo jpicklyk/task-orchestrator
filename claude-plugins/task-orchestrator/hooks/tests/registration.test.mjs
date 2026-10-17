@@ -70,7 +70,7 @@ test('hooks-config.json matchers match the registration.mjs builder output (no d
   const expectedByCommand = {
     'skill-enforcement.mjs': orchestratorToolMatcher(['notes_write']),
     'retro-trigger.mjs': orchestratorToolMatcher(['runs_write']),
-    'phase-guard-record.mjs': orchestratorToolMatcher(['advance']),
+    'phase-guard-record.mjs': orchestratorToolMatcher(['advance', 'items_read']),
     'dispatch-hint.mjs': orchestratorToolMatcher(['advance']),
     'director-watch.mjs': orchestratorToolMatcher(['runs_read']),
   };

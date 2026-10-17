@@ -6,14 +6,14 @@
 // phase-guard.mjs, and phase-guard.test.mjs seeds its marker directly via writePhaseGuardMarker
 // rather than producing it from phase-guard-record.mjs's own extraction logic.
 //
-// The B1 regression this guards: a gate_blocked ("already in phase") result carries the item's
-// CURRENT role (4.0: error.detail.role; 3.x: previousRole), not the phase the blocked transition
-// tried to reach. Recording the wrong role makes phase-guard.mjs's entered-role gate
-// (gate.role !== enteredRole) compare the item's real role ("work") with a bogus recorded one
-// and silently skip the item -- a false negative.
+// b15ac560 rule: a gate_blocked advance result is never recorded. Its error.detail.role is the item's
+// role BEFORE the transition (TransitionPolicy.kt:273-279), not a role the seat entered, and the
+// result only means a required note is missing. A seat already in its phase is recorded by its first
+// context read instead (phase-guard-record-read.test.mjs). So a gate_blocked advance leaves the
+// guard with nothing to fetch and nothing to block on (scenario S5).
 //
-// Oracle: 0bbdc4cc task-scope AC3 (detail.role is the phase the agent already sits in) and AC4
-// (gate = res.data of the items_read context call, block sentence unchanged).
+// Oracle: b15ac560 task-scope AC1 (gate_blocked records nothing) and 0bbdc4cc AC4 (gate = res.data
+// of the items_read context call, block sentence unchanged).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -154,14 +154,14 @@ test('chained: ok:true advance -> recorded newRole "work" -> gate still work wit
   }
 });
 
-test('chained: gate_blocked ("already in phase") advance -> recorded detail.role "work" -> gate still work -> blocks', async () => {
+test('S5 chained: a gate_blocked advance records nothing -> the guard emits {} and makes zero gate requests', async () => {
   const tempDir = freshTempDir();
   const sessionId = `chain-blocked-${randomUUID()}`;
   const agentId = 'agent-1';
   const itemId = 'c0ffee00-0000-0000-0000-000000000002';
-  // Realistic 4.0 shape: the failed element carries error.detail {itemId, role}; role is the
-  // current role of the item ("work", the phase this agent already entered), bound by the
-  // server's TransitionPolicy to item.role, so a redundant advance toward review still records "work".
+  // Realistic 4.0 shape: the failed element carries error.detail {itemId, role}; role is the item's
+  // role before the transition. The stub gate reports the item in work with a missing note, so a
+  // recorded id would make the guard fetch it and block: that is what this assertion fails on.
   const requests = [];
   const server = await startGateStub('work', ['implementation-notes'], requests);
   try {
@@ -203,12 +203,8 @@ test('chained: gate_blocked ("already in phase") advance -> recorded detail.role
     const apiUrl = `http://127.0.0.1:${server.address().port}`;
     const guardRes = await runGuard({ session_id: sessionId, agent_id: agentId }, tempDir, apiUrl);
     assert.equal(guardRes.status, 0);
-    const out = JSON.parse(guardRes.stdout);
-    // The assertion that fails if the recorded role were the transition's target ("review"):
-    // gate.role "work" != entered "review" would skip the item and emit {} instead of blocking.
-    assert.equal(out.decision, 'block');
-    assert.ok(out.reason.includes('implementation-notes'), out.reason);
-    assert.deepEqual(JSON.parse(requests[0].body), { select: 'context', itemId });
+    assert.deepEqual(JSON.parse(guardRes.stdout), {});
+    assert.equal(requests.length, 0);
   } finally {
     await stopStub(server);
     rmSync(tempDir, { recursive: true, force: true });

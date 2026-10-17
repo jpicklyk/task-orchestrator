@@ -192,26 +192,28 @@ test('S1 probe: failing leading elements do not hide a later ok:true element (po
   }
 });
 
-// ── S2: gate_blocked is the other recordable outcome (AC3) ────────────────────────────────────
+// ── S4: gate_blocked records nothing (b15ac560 AC1) ───────────────────────────────────────────
+// detail.role on a gate_blocked is the item's role BEFORE the transition (TransitionPolicy.kt:273-279),
+// not a role the seat entered, so the hook never records it. An in-phase seat is covered by its
+// first context read (phase-guard-record-read.test.mjs).
 
-test('S2: ok:false with error.code gate_blocked is recorded with id and role taken from error.detail', () => {
+test('S4: ok:false with error.code gate_blocked records no id and no entered role', () => {
   const tempDir = freshTempDir();
   const sessionId = `s2-${randomUUID()}`;
   const itemId = 'dddddddd-0000-0000-0000-000000000004';
   try {
-    // detail.role is the item's CURRENT role (the phase the agent already sits in), not the
-    // phase the blocked transition tried to reach: the marker records work, never review.
     const res = spawnHook(advanceCall(sessionId, 'agent-1', [gateBlocked(itemId, 'work')]), tempDir, UNREACHABLE_API_URL);
     assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
     const marker = readMarker(tempDir, sessionId, 'agent-1');
-    assert.deepEqual(marker.items, [itemId]);
-    assert.deepEqual(marker.enteredRoles, { [itemId]: 'work' });
+    assert.deepEqual(marker.items, []);
+    assert.deepEqual(marker.enteredRoles, {});
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test('S2: gate_blocked recorded from a mixed batch next to an ok:true element', () => {
+test('S4: in a mixed batch only the ok:true element is recorded; the gate_blocked sibling is not', () => {
   const tempDir = freshTempDir();
   const sessionId = `s2b-${randomUUID()}`;
   const blocked = 'dddddddd-0000-0000-0000-000000000005';
@@ -220,8 +222,8 @@ test('S2: gate_blocked recorded from a mixed batch next to an ok:true element', 
     const res = spawnHook(advanceCall(sessionId, 'agent-1', [gateBlocked(blocked, 'review'), okResult(advanced, 'work')]), tempDir, UNREACHABLE_API_URL);
     assert.equal(res.status, 0);
     const marker = readMarker(tempDir, sessionId, 'agent-1');
-    assert.deepEqual([...marker.items].sort(), [blocked, advanced].sort());
-    assert.deepEqual(marker.enteredRoles, { [blocked]: 'review', [advanced]: 'work' });
+    assert.deepEqual(marker.items, [advanced]);
+    assert.deepEqual(marker.enteredRoles, { [advanced]: 'work' });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -589,7 +591,7 @@ test('accumulates itemIds across multiple advance calls for the same agent, dedu
   try {
     spawnHook(advanceCall(sessionId, 'agent-1', [okResult(itemA, 'work')]), tempDir, UNREACHABLE_API_URL);
     spawnHook(advanceCall(sessionId, 'agent-1', [okResult(itemB, 'review')]), tempDir, UNREACHABLE_API_URL);
-    // A gate-blocked re-entry of itemA (e.g. a bounced retry) must not duplicate it in the list.
+    // A gate-blocked retry of itemA records nothing (it is neither duplicated nor re-keyed).
     spawnHook(advanceCall(sessionId, 'agent-1', [gateBlocked(itemA, 'work')]), tempDir, UNREACHABLE_API_URL);
     const marker = readMarker(tempDir, sessionId, 'agent-1');
     assert.deepEqual([...marker.items].sort(), [itemA, itemB].sort());
@@ -665,7 +667,7 @@ test('isFullUuid: accepts a full UUID, rejects a hex prefix / non-string / empty
   assert.equal(isFullUuid(123), false);
 });
 
-test('extractRecordableItemIds: ok:true and gate_blocked recorded; other codes, hex ids and codeless failures dropped, in order', () => {
+test('extractRecordableItemIds: only ok:true recorded; gate_blocked, other codes, hex ids and codeless failures dropped', () => {
   const parsed = parsedOf([
     okResult('aaaaaaaa-0000-0000-0000-000000000001'),
     okResult('ef07'),
@@ -673,10 +675,7 @@ test('extractRecordableItemIds: ok:true and gate_blocked recorded; other codes, 
     gateBlocked('cccccccc-0000-0000-0000-000000000003', 'work'),
     { ok: false, error: { message: 'codeless', detail: { itemId: 'dddddddd-0000-0000-0000-000000000004', role: 'work' } } },
   ]);
-  assert.deepEqual(extractRecordableItemIds(parsed), [
-    'aaaaaaaa-0000-0000-0000-000000000001',
-    'cccccccc-0000-0000-0000-000000000003',
-  ]);
+  assert.deepEqual(extractRecordableItemIds(parsed), ['aaaaaaaa-0000-0000-0000-000000000001']);
 });
 
 test('extractRecordableItemIds: reads results past index 0', () => {
@@ -690,18 +689,15 @@ test('extractRecordableItemIds: empty / missing results yields an empty array', 
   assert.deepEqual(extractRecordableItemIds(null), []);
 });
 
-test('extractEnteredRoles: newRole on ok:true, detail.role on gate_blocked (never a requested target), omitted otherwise', () => {
+test('extractEnteredRoles: newRole on ok:true only; gate_blocked and every other failure omitted', () => {
   const parsed = parsedOf([
     okResult('aaaaaaaa-0000-0000-0000-000000000001', 'work'),
-    // detail.role = the item's current role; a requested review target is not on the wire at all
+    // detail.role = the item's role before the transition, not a role entered (TransitionPolicy.kt:273-279)
     gateBlocked('bbbbbbbb-0000-0000-0000-000000000002', 'work'),
     errResult('dependency_unmet', 'permanent', { itemId: 'cccccccc-0000-0000-0000-000000000003', role: 'queue' }),
     okResult('ef07', 'work'), // non-UUID -- omitted regardless of role
   ]);
-  assert.deepEqual(extractEnteredRoles(parsed), {
-    'aaaaaaaa-0000-0000-0000-000000000001': 'work',
-    'bbbbbbbb-0000-0000-0000-000000000002': 'work',
-  });
+  assert.deepEqual(extractEnteredRoles(parsed), { 'aaaaaaaa-0000-0000-0000-000000000001': 'work' });
 });
 
 test('extractEnteredRoles: empty / missing results yields an empty object', () => {

@@ -1,11 +1,10 @@
 // Coverage for the recording rule of phase-guard-record.mjs on the 4.0 envelope (0bbdc4cc AC3;
 // supersedes the 3.x c39fe915 payloads). Test author actor id: test-author:0bbdc4cc.
 //
-// Oracle: task-scope AC3 -- a results[] element is recordable iff its id is a full UUID AND
-//   (r.ok === true with a string r.newRole, id = r.itemId)
-//   OR (r.ok === false AND r.error.code === 'gate_blocked', id = r.error.detail.itemId).
-// Any other error code, or ok:false without a code, is NOT recorded; no applied/errorCode field is
-// read. Scenario S14 (EXISTING-SURFACE): extractRecordableItemIds already existed; this file keeps
+// Oracle: b15ac560 task-scope AC1 (supersedes 0bbdc4cc AC3) -- a results[] element is recordable iff
+// its id is a full UUID AND r.ok === true with a string r.newRole (id = r.itemId). gate_blocked is
+// NOT recordable (its detail.role is the item's role before the transition, not one the seat entered);
+// neither is any other error code, nor ok:false without a code; no applied/errorCode field is read. Scenario S14 (EXISTING-SURFACE): extractRecordableItemIds already existed; this file keeps
 // its S14 numbering and re-expresses each case as a Parsed (lib/envelope.mjs parseToolResult).
 //
 // Direct import of the pure helper -- no subprocess needed since extractRecordableItemIds does no I/O.
@@ -48,11 +47,11 @@ test('S14: ok:true is recorded even if an error object happens to be present alo
   assert.deepEqual(extractRecordableItemIds(parsed([el])), [UUID_A]);
 });
 
-// ── S14: ok:false with error.code gate_blocked is recorded (already-in-phase) ────────────────
+// ── S14: ok:false with error.code gate_blocked is NOT recorded (b15ac560 AC1) ─────────────────
 
-test('S14: ok:false with error.code gate_blocked is recorded, id from error.detail.itemId', () => {
+test('S14: ok:false with error.code gate_blocked is not recorded, although detail carries a full UUID itemId', () => {
   const el = failR('gate_blocked', 'permanent', { itemId: UUID_B, role: 'work' });
-  assert.deepEqual(extractRecordableItemIds(parsed([el])), [UUID_B]);
+  assert.deepEqual(extractRecordableItemIds(parsed([el])), []);
 });
 
 test('S14: gate_blocked without detail.itemId has no id to record', () => {
@@ -100,9 +99,9 @@ test('S14: a hex-prefix detail.itemId with error.code gate_blocked is still not 
   assert.deepEqual(extractRecordableItemIds(parsed([failR('gate_blocked', 'permanent', { itemId: 'ef07', role: 'work' })])), []);
 });
 
-// ── S14: a mixed batch keeps exactly the ok:true and gate_blocked entries, in order ──────────
+// ── S14: a mixed batch keeps exactly the ok:true entries ─────────────────────────────────────
 
-test('S14: a mixed batch of six results keeps only ok:true and gate_blocked entries', () => {
+test('S14: a mixed batch of six results keeps only the ok:true entry', () => {
   const results = [
     okR(UUID_A),
     failR('gate_blocked', 'permanent', { itemId: UUID_B, role: 'work' }),
@@ -111,7 +110,7 @@ test('S14: a mixed batch of six results keeps only ok:true and gate_blocked entr
     failR('resource_unavailable', 'transient', { itemId: UUID_E, role: 'work' }),
     failR(null, 'permanent', { itemId: UUID_F, role: 'work' }),
   ];
-  assert.deepEqual(extractRecordableItemIds(parsed(results)), [UUID_A, UUID_B]);
+  assert.deepEqual(extractRecordableItemIds(parsed(results)), [UUID_A]);
 });
 
 // ── Sanity: isFullUuid still gates every case above the same way it always has ────────────────
