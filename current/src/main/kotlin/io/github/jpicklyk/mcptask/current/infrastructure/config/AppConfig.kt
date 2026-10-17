@@ -89,7 +89,7 @@ data class AppConfig(
      *  after a successful Flyway-mode schema update. Set to `false` to opt out (e.g. to run the
      *  offline compaction runbook manually instead). */
     val dbCompactOnUpgrade: Boolean = true,
-    /** UPGRADE_BACKUP -- when true (default), a 3.x database file (schema version <= 17) is copied to <db>.pre-4.0.<UTC stamp>.bak and verified before the first 4.0 migration; a failed copy fails startup (Reason.UPGRADE_BACKUP). false skips with one WARN. */
+    /** UPGRADE_BACKUP -- when true (default), a 3.x database file (schema version <= 17) is copied to <db>.pre-4.0.<UTC stamp>.bak and verified before the first 4.0 migration; a failed copy fails startup (Reason.UPGRADE_BACKUP). `false` skips with one WARN. */
     val upgradeBackup: Boolean = true,
     /** `USE_FLYWAY` is ignored (Flyway is the only schema path); true when it is set so startup can warn. Not a parsed boolean. */
     val ignoredUseFlywaySet: Boolean = false,

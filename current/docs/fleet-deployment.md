@@ -55,7 +55,7 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 ## Startup, Readiness, and Health Checks
 
 Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
-`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UPGRADE_BACKUP` (the verified pre-upgrade
+`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE` (the schema update failed, or the migration lock could not be taken within its 300 s wait), `UPGRADE_BACKUP` (the verified pre-upgrade
 copy of a 3.x database could not be taken, see "Upgrading from 3.x" below), `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
 `TRANSPORT_START` — the transport (stdio session creation or the HTTP Ktor engine) failed to
 bind/start after DB init and schema update had already succeeded — or `DATA_STEPS` — a data step
@@ -961,7 +961,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 - **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
 - **Migration lock.** The whole schema phase runs under an OS file lock `<dbfile>.migrate.lock` next to
   the database file, so the schema phase of concurrent boots serializes. One acquisition of the lock covers the `UPGRADE_BACKUP` copy, the schema phase, the parent-cycle check and the startup compaction, so a second first boot of a 3.x volume waits for the first one's copy and migration and then sees version 18 or later (one `.bak` in total; see "Upgrading from 3.x"). A second boot waits (INFO log every 10 s) for all of that and gives
-  up after 300 s, naming the lock file; a first boot of a very large database can outlast that wait, and the waiter then fails startup closed. The lock file is never deleted; leaving it in place is normal.
+  up after 300 s, naming the lock file; a first boot of a very large database can outlast that wait, and the waiter then fails startup closed as `SCHEMA_UPDATE` without taking a copy. The lock file is never deleted; leaving it in place is normal.
   A bounded retry on `SQLITE_BUSY` covers filesystems where the lock is advisory only.
 - **Startup integrity.** After migrate, startup verifies that the six FTS5 tables (work items, notes and
   documents, two each) and the FTS and parent-cycle triggers exist (a missing one fails startup and nothing
