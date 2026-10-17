@@ -8,7 +8,9 @@ that keep authorship independent, the scenario-labelling discipline, and the tes
 ## 1. Two seats, two phases
 
 - **The plan seat**, before implementation starts, writes the scenarios, their oracle sources, and
-  a probe list, frozen before any implementation exists. This is the structural lever: an oracle
+  a probe list, frozen before any implementation exists. It also records a `declarationModules:`
+  line in the test-plan note, listing each repo-relative module that any scenario touches, so the
+  extractor's coverage can be checked before the author is dispatched. This is the structural lever: an oracle
   written before code exists cannot be derived from that code, no matter who writes it later.
 - **The test-author seat**, after implementation lands, writes the actual test files -- compiling
   against the real, now-existing signatures, but without reading the implementation's reasoning or
@@ -194,7 +196,7 @@ is decided elsewhere, not by the test author.
 
 ## 10. The test-manifest record
 
-Record, per item: the authoring actor's identity; every test file created or modified; the commit
+Record, per item: the seat and principal that own the note (the authoring identity); every test file created or modified; the commit
 range test authorship spans; a scenario-id-to-test mapping (covered, naming the test, or
 not-covered with a reason); every probe attempted and its result; every forbidden-construct
 instance present, each with a justification (an empty declaration is itself a checked claim); the
@@ -206,9 +208,13 @@ with a reason for genuinely inapplicable fields.
 
 ## claude:
 
-- Orchestration tool names: `query_notes(operation="list", itemId=..., keys=[...])` for the
-  frozen planning-phase notes (a `keys=` filter is mandatory on every call); `SendMessage` to the
-  orchestrator (or ask the user in a single-agent run) for stop-and-ask escalation;
-  `manage_notes(operation="upsert", ...)` to write `test-manifest`; never call `advance_item` or
-  `manage_items`. Return line format:
+- Orchestration tool names: `notes_read` `list` (`itemId`, `keys`) for the frozen planning-phase
+  notes (a `keys` filter is mandatory on every `list`) and `notes_read` `get` (`itemId`, one
+  queue-phase `key`) for a body; `SendMessage` to the orchestrator (or ask the user in a single-agent
+  run) for stop-and-ask escalation; `notes_write` `upsert` to write `test-manifest`; never call
+  `advance` or `items_write`. When the dispatch names a seat token, put it in the top-level
+  `seatToken` of each call you make, reads included; never print it, commit it or write it to a note; a
+  call answered `unauthenticated` means the seat ended, so stop. A write failure is read per
+  element from `data.results[i].error` (the call-level error is only `partial_failure`); a
+  `note_owned_by_other` refusal is permanent. Return line format:
   `<item>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`.

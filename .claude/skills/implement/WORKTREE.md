@@ -67,7 +67,7 @@ waves. The orchestrator must enforce file scope per agent — overlapping files 
 shared worktree cause "second agent reads the file after first agent committed" mid-flight
 confusion.
 
-**Sequential dispatch:** when children share files, dispatch sequentially; dependency edges are
+**Sequential dispatch:** when children share files, dispatch sequentially without a BLOCKS edge (under run-wave, per-file locks serialize them; declare `Shared file, lock-serialized: <path>` in both scopes); BLOCKS edges are for semantic dependencies, and dependency edges are
 classified by `run-wave` (in-run vs cross-run).
 
 ### Committing in a shared worktree
@@ -157,7 +157,10 @@ Step 5 of `/implement` for the agent template.
 When all children reach terminal:
 
 1. Final test + ktlint pass on the feature worktree.
-2. Fill parent feature's notes (implementation-notes, session-tracking, review-checklist).
+2. Fill parent feature's notes (implementation-notes, session-tracking). With 2+ children the
+   feature reviewer fills `review-checklist` (`run-wave` `post-run.md` Step 7b) and the
+   orchestrator records the dispositions in `orchestrator-confirmation`; with one child the
+   orchestrator fills `review-checklist`.
 3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
    body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
 4. Push `<FEATURE_BRANCH>` and open one PR.

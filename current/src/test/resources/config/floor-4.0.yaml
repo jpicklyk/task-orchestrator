@@ -86,3 +86,13 @@ work_item_schemas:
         required: false
         description: "Optional high-level description of what this container organizes."
         guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."
+
+  # The project anchor root (type "project"): permanent, never cascades to terminal, no required notes.
+  project:
+    lifecycle: permanent
+    notes: []
+
+  # Trend items the session-retrospective skill creates, updates, upserts evidence-* notes on, and cancels.
+  retrospective-trend:
+    lifecycle: auto
+    notes: []

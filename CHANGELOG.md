@@ -174,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Changed: `require_verified` independence counts only cryptographic proof.** A note whose proof is `issued` (a server-issued token), `none` or `rejected` is `unverified`; only `verified` and `verified_stale` satisfy it.
 - **Changed: `GET /api/v1/info` reports the API credential verifier.** `verifier` (`none`, `bearer` or `jwks`) and, with `jwks`, `maxStale` (the `max_stale_seconds` of the key set, in seconds).
 - **Changed (internal): the `application` sub-packages are acyclic.** `PageRequest`, `ListPage` and `CursorCodec` moved to `application.port`; `IdRef`, `ScopeGuard` and `eventRootOf` to `application.support`; `StatusLabelService` and `WorkItemSchemaService` to `application.config`; `UnscopedUnitOfWork` to `application.service`; `LIFECYCLE_FREE_ENDPOINT_REASON` to `Dependency`. The package-cycle baseline is empty. No wire or behaviour change.
+- **Changed: the global floor gains `project` and `retrospective-trend`; the dogfood config is in 4.0 shape; the freeze guard is retired.** `deploy/global-config/.taskorchestrator/config.yaml` declares `project` (permanent, no required notes) and `retrospective-trend` (auto, no required notes) beside `container`, so every root admits both types. This repository's `.taskorchestrator/config.yaml` keeps its plugin settings under `extensions.claude-code` and drops `actor_attribution`. The `dogfood-freeze` job, `.github/scripts/dogfood-freeze-guard.sh` and their test, added earlier in this cycle, are removed.
 
 ### Removed
 

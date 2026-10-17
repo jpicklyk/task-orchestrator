@@ -1,19 +1,21 @@
 ---
 name: feature-implementation
-description: "Guides the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review. Creates or resumes the feature container, fills gate-enforced notes at each phase (feature-summary, implementation-notes, session-tracking, review-checklist), dispatches implementation subagents, and advances through queue, work, and review to terminal. Use when the user says: implement a feature, start a new feature, feature workflow, resume feature work, guide feature lifecycle, or references a feature-implementation item UUID."
+description: "Guides the full lifecycle of a feature-implementation typed MCP item (the feature container) — from queue through review. Creates or resumes the feature container, fills gate-enforced notes at each phase (feature-summary, implementation-notes, session-tracking, review-checklist), dispatches implementation subagents, and advances through queue, work, and review to terminal. Use when the user says: implement a feature, start a new feature, feature workflow, resume feature work, guide feature lifecycle, or references a feature-implementation item UUID."
 ---
 
 # Feature Implementation Workflow
 
-End-to-end workflow for a `feature-implementation` tagged item — the **feature container**
+End-to-end workflow for a `feature-implementation` typed item — the **feature container**
 that holds the plan and holistic review. Child work items under this container use the
-`feature-task` tag with lighter gates (`task-scope` instead of the feature-level
+`feature-task` type with lighter gates (`task-scope` instead of the feature-level
 `feature-summary`, and no review phase by default — task-level review is opt-in via the
 `needs-task-review` trait, which adds a `review-checklist` note to that child). A second
 child-level trait, `needs-test-author`, is opt-in the same way (applied per the
 `/implement` Step 1 trigger rule) and adds its own gate-enforced notes.
 
 Covers all three phases (queue → work → review) with gate-enforced notes at each transition.
+
+Call shapes are in [`claude-plugins/task-orchestrator/skills/_generated/call-shapes.md`](../../../claude-plugins/task-orchestrator/skills/_generated/call-shapes.md); field semantics are in `current/docs/api-reference.md`. Ids in examples are 8-hex shorts; any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`). When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind`, `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`. When the dispatch names a seat token, pass it as the top-level `seatToken` on every call, reads included, and never print or store it.
 
 **Usage:** `/feature-implementation [item-uuid]`
 
@@ -25,20 +27,17 @@ Covers all three phases (queue → work → review) with gate-enforced notes at 
 ## Phase 0 — Setup
 
 If an item UUID was provided, call:
+```to-call
+{"tool":"items_read","select":"context","args":{"itemId":"4b7d0e19"}}
 ```
-get_context(itemId="<uuid>")
-```
-Check `canAdvance` and `missingRequiredNotes` to determine which phase the item is in,
+Check `gateStatus.canAdvance` and `gateStatus.missing` to determine which phase the item is in,
 then jump to the appropriate phase below.
 
 If no UUID was provided, create the item:
+```to-call
+{"tool":"items_write","op":"create","args":{"title":"<feature title>","type":"feature-implementation","priority":"medium"}}
 ```
-manage_items(
-  operation="create",
-  items=[{ title: "<feature title>", tags: "feature-implementation", priority: "medium" }]
-)
-```
-Note the returned UUID and `expectedNotes` list. Confirm the item is in `queue` role,
+Note the returned `id`, and read the gate notes with `items_read` `schema`. Confirm the item is in `queue` role,
 then continue to Phase 1.
 
 ---
@@ -49,17 +48,9 @@ then continue to Phase 1.
 
 ### 1a. Fill `feature-summary`
 
-Use `manage_notes` to upsert the `feature-summary` note:
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "feature-summary",
-    role: "queue",
-    body: "<content>"
-  }]
-)
+Use `notes_write` `upsert` for the `feature-summary` note:
+```to-call
+{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"feature-summary","role":"queue","body":"<content>"}}
 ```
 
 **What to write:** Keep this note lean (target under 2k chars) — it stays at the feature
@@ -81,15 +72,15 @@ When the plan is approved, `post-plan` hook fires — proceed directly to Phase 
 
 ### 1c. Advance to work
 
-```
-advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
+```to-call
+{"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start"}}
 ```
 
-Gate check: `feature-summary` must be filled. If gate rejects, fill the missing note and retry.
-If instead the response has `errorCode: "resource_unavailable"` (`errorKind: "transient"`), this
+Gate check: `feature-summary` must be filled. If the element fails `gate_blocked`, fill the notes in `data.results[0].error.detail.missing[]` and retry.
+If it instead fails `resource_unavailable` (`kind: transient`), this
 is resource-lease contention, not a note gate failure — see Quick Reference below.
 
-Confirm `newRole: "work"` in the response before dispatching implementation subagents.
+Confirm `newRole: "work"` in `data.results[0]` before dispatching implementation subagents.
 
 ---
 
@@ -99,20 +90,20 @@ Confirm `newRole: "work"` in the response before dispatching implementation suba
 
 ### 2a. Materialize any child items
 
-If the feature has sub-tasks, create them now using `create_work_tree` with the feature UUID
-as `parentId` and the `feature-task` tag. Each child fills a `task-scope` queue note (the
+If the feature has sub-tasks, create them now using `items_write` `create_tree` with the feature UUID
+as `parentId` and the `feature-task` type. Each child fills a `task-scope` queue note (the
 full spec-quality disciplines — alternatives, non-goals, blast radius, risk flags, test
 strategy — apply there, not in the feature-level `feature-summary`). Dispatch
 implementation subagents with each child item UUID.
 
 Each subagent must:
-- Call `advance_item(trigger="start")` on their item to enter work phase
+- Call `advance` `transition` with `trigger: "start"` on their item to enter work phase (only the entry seat does; a hand-dispatch outside a run carries no seat token)
 - Fill work-phase notes following the JIT progression loop (the subagent-start hook
-  provides guidance via `guidancePointer` and `skillPointer`)
-- Return to the orchestrator — do NOT call `advance_item` again. The orchestrator
+  provides guidance via `guidanceKey` and `skillPointer`)
+- Return to the orchestrator — do NOT call `advance` again. The orchestrator
   handles all further transitions.
 
-By default, `feature-task` items have no review phase — `advance_item(trigger="start")`
+By default, `feature-task` items have no review phase — `advance` `transition` `start`
 from work goes straight to terminal. A child only gets a review phase if it (or its
 schema's `default_traits`) carries the `needs-task-review` trait, which adds the
 `review-checklist` note back in, or the `needs-test-author` trait, which adds
@@ -121,16 +112,8 @@ schema's `default_traits`) carries the `needs-task-review` trait, which adds the
 ### 2b. Fill `implementation-notes`
 
 After implementation agents return:
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "implementation-notes",
-    role: "work",
-    body: "<content>"
-  }]
-)
+```to-call
+{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"implementation-notes","role":"work","body":"<content>"}}
 ```
 
 **What to write:** Key decisions made during implementation. Deviations from the plan.
@@ -139,16 +122,8 @@ line counts. If an observation was fixed, reference its item ID.
 
 ### 2c. Fill `session-tracking`
 
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "session-tracking",
-    role: "work",
-    body: "<content>"
-  }]
-)
+```to-call
+{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"session-tracking","role":"work","body":"<content>"}}
 ```
 
 **What to write:** Run `./gradlew :current:test` ONCE here, incrementally (no
@@ -159,12 +134,12 @@ note comes from the `session-tracked` default trait and feeds `/session-retrospe
 
 ### 2d. Advance to review
 
-```
-advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
+```to-call
+{"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start"}}
 ```
 
 Gate check: both `implementation-notes` and `session-tracking` must be filled.
-Confirm `newRole: "review"` in the response.
+Confirm `newRole: "review"` in `data.results[0]`.
 
 ---
 
@@ -179,16 +154,8 @@ Follow the `review-quality` skill's framework — plan alignment against `featur
 and each child's `task-scope`, test quality, and (if `/simplify` ran) test coverage of its
 changes.
 
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "review-checklist",
-    role: "review",
-    body: "<content>"
-  }]
-)
+```to-call
+{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"review-checklist","role":"review","body":"<content>"}}
 ```
 
 **What to write:** A feature-level verdict aggregating across children — reference each
@@ -203,21 +170,13 @@ Reconnect MCP after deploy: `/mcp`.
 
 ### 3c. Smoke test the change
 
-Exercise the new capability via MCP tool calls. Confirm it behaves as described in the
+Exercise the new capability through the 4.0 tools. Confirm it behaves as described in the
 `feature-summary` note's goal.
 
 ### 3d. Fill `deploy-notes` (optional)
 
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "deploy-notes",
-    role: "review",
-    body: "<content>"
-  }]
-)
+```to-call
+{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"deploy-notes","role":"review","body":"<content>"}}
 ```
 
 **What to write:** Whether a Docker rebuild was done and what image tag was used.
@@ -225,11 +184,11 @@ Plugin version bump (if any). MCP reconnect required. Any smoke test results.
 
 ### 3e. Close the item
 
-```
-advance_item(transitions=[{ itemId: "<uuid>", trigger: "start", summary: "<one-line summary>" }])
+```to-call
+{"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start","summary":"<one-line summary>"}}
 ```
 
-Confirm `newRole: "terminal"`. Run `get_context()` health check to verify no stalled items.
+Confirm `newRole: "terminal"`. Run the `items_read` `context` health view (no `itemId`) to verify no stalled items.
 
 ---
 
@@ -241,10 +200,10 @@ Confirm `newRole: "terminal"`. Run `get_context()` health check to verify no sta
 | work | `implementation-notes`, `session-tracking` | `start` → review |
 | review | `review-checklist` | `start` → terminal |
 
-**Gate error pattern:** `"required notes not filled for <phase> phase: <keys>"`
-→ Fill the listed notes, then retry `advance_item`.
+**Gate error pattern:** `gate_blocked` with `detail.missing[]` naming the unfilled notes
+→ Fill the listed notes, then retry `advance` `transition`.
 
-**Resource-lease contention pattern:** `applied: false`, `errorCode: "resource_unavailable"`,
-`errorKind: "transient"`, `contendedResources: [...]` on a `start` into work — a different
+**Resource-lease contention pattern:** the element fails `resource_unavailable` (`kind: transient`,
+`detail.resources[]`, `retryAfterMs`) on a `start` into work — a different
 failure mode than the gate error above. Do NOT fill notes or spin-retry; the resource is held by
 another item. Work a different item and retry later, or report contention upstream.
