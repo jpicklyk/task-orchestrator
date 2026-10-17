@@ -63,8 +63,9 @@ function protocolText(payload = { session_id: 'test-session', agent_id: 'test-ag
 // "start"}]), notes_write (op: "upsert"), items_read (select: "context"), seatToken as a top-level field
 // of every call when the dispatch prompt carries one, error.code / error.kind / retryAfterMs. The codes
 // are NOT hand-written: lib/tool-catalog.json tools.advance.entries.transition.errors, partitioned by
-// lib/tool-names.mjs ERROR_KINDS. gate_blocked with detail.role equal to the agent phase = already in
-// phase; the transient and shedding codes = stop, report retryAfterMs, never spin; the remaining
+// lib/tool-names.mjs ERROR_KINDS. gate_blocked = a required note is missing (stop, report the missing
+// notes, do not retry; it is NOT an already-in-phase signal -- a second start moves the item forward,
+// 66a5bc0c); the transient and shedding codes = stop, report retryAfterMs, never spin; the remaining
 // permanent codes listed by name = stop and report. The expected sets below are computed here from
 // those two generated files, never copied from the hook output.
 
@@ -117,13 +118,8 @@ test('S7: every transition error code of the catalog is named in the protocol te
   }
 });
 
-test('S7: gate_blocked is the already-in-phase signal, keyed to error.detail.role equal to the agent phase', () => {
-  const para = paragraphWith(protocolText(), 'gate_blocked');
-  assert.ok(para, 'expected a paragraph naming gate_blocked');
-  assert.match(para, /already in your phase/i);
-  assert.ok(para.includes('detail.role'), para);
-  assert.ok(!para.includes('stop immediately'), 'already-in-phase is not a stop-and-report case');
-});
+// (66a5bc0c S6, at the end of this file, replaces the retired "gate_blocked is the already-in-phase
+// signal" test.)
 
 test('S7: the transient and shedding codes (ERROR_KINDS) share one paragraph: stop, report retryAfterMs, never spin', () => {
   const text = protocolText();
@@ -295,4 +291,126 @@ test('locator gate (e): cwd with an empty .taskorchestrator/ dir and no config.y
 
 test('locator gate (f): hook source keeps the literal workflow-subagent string (run-planner-lib detects it by text)', () => {
   assert.ok(readFileSync(HOOK, 'utf-8').includes('workflow-subagent'));
+});
+
+// ── 66a5bc0c: a second `start` moves the item forward, so the seat reads the role first ──────────────
+// Test author actor id: test-author:66a5bc0c:r-202610171301-66a5bc0c.
+// Oracles (frozen in the item's test-plan before any implementation): O1 = the task-scope acceptance
+// criteria AC1-AC7; O2 = bundled-rules/protocol.entry-seat.md (read the role first, send start only from
+// the role before the phase; gate_blocked = a required note is missing); O3 = TransitionTable.kt (start
+// moves queue, work and review forward, so a retried start can advance a seat's own item past its phase).
+// The hook cannot see the phase, so the text is one phase-generic text for every phase-owner agent type.
+
+const READ_FIRST = '**Read the role before you send `start`.**';
+const readFirstParagraphs = (text) => paragraphs(text).filter((p) => p.includes(READ_FIRST));
+/** The one paragraph that opens with the read-the-role-first literal (S1 asserts there is exactly one). */
+const readFirstParagraph = (text) => {
+  const found = readFirstParagraphs(text);
+  assert.equal(found.length, 1, `expected exactly one paragraph containing ${READ_FIRST}, found ${found.length}`);
+  return found[0];
+};
+
+test('66a5bc0c S1: exactly one paragraph opens with the read-the-role-first literal and names items_read with select: "context"', () => {
+  const para = readFirstParagraph(protocolText());
+  assert.ok(para.trimStart().startsWith(READ_FIRST), `paragraph must open with the literal: ${para}`);
+  assert.ok(para.includes('items_read'), 'items_read');
+  assert.match(para, /select:\s*"context"/);
+});
+
+test('66a5bc0c S2: that paragraph names queue (before a work phase) and work (before a review phase) in backticks', () => {
+  const para = readFirstParagraph(protocolText());
+  assert.ok(para.includes('`queue`'), 'the role before a work-phase seat: `queue`');
+  assert.ok(para.includes('`work`'), 'the role before a review-phase seat: `work`');
+});
+
+test('66a5bc0c S3: that paragraph says why: a second `start` moves the item past your phase', () => {
+  const para = readFirstParagraph(protocolText());
+  assert.ok(para.includes('a second `start`'), para);
+  assert.ok(para.includes('past your phase'), para);
+});
+
+test('66a5bc0c S4: when the context already shows your phase, do not send `start`', () => {
+  const para = readFirstParagraph(protocolText());
+  assert.ok(para.includes('already shows your phase'), para);
+  assert.ok(para.includes('do not send `start`'), para);
+});
+
+test('66a5bc0c S5: any other role means stop and report', () => {
+  const para = readFirstParagraph(protocolText());
+  assert.ok(para.includes('any other role'), para);
+  assert.match(para, /stop/i);
+  assert.match(para, /report/i);
+});
+
+// Fixture condition that makes the negative assertions fail without the fix: the pre-fix text carried a
+// paragraph naming gate_blocked with "already in your phase" and error.detail.role.
+test('66a5bc0c S6: gate_blocked means a required note is missing (report, do not retry), never an already-in-phase signal', () => {
+  const text = protocolText();
+  const gateParas = paragraphs(text).filter((p) => p.includes('gate_blocked'));
+  assert.ok(gateParas.length >= 1, 'expected a paragraph naming gate_blocked');
+  const para = gateParas.find((p) => p.includes('required note'));
+  assert.ok(para, `expected a gate_blocked paragraph that says a required note is missing: ${gateParas.join(' || ')}`);
+  assert.match(para, /report/i);
+  assert.match(para, /not retry|never retry/i);
+  for (const p of gateParas) {
+    assert.ok(!/already in (your )?phase/i.test(p), `gate_blocked must not be an already-in-phase signal: ${p}`);
+  }
+  assert.ok(!text.includes('detail.role'), 'detail.role is not part of the protocol text');
+});
+
+test('66a5bc0c S7: the text is identical for every phase-owner agent type (one phase-generic text)', () => {
+  const base = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'implementer' });
+  for (const agentType of ['task-orchestrator:implementer', 'task-orchestrator:reviewer', 'reviewer']) {
+    assert.equal(protocolText({ session_id: 's', agent_id: 'a', agent_type: agentType }), base, agentType);
+  }
+});
+
+test('66a5bc0c S8: the rest of the protocol holds: codes named, gate_blocked out of the permanent paragraph, never-advance-again and discipline kept', () => {
+  const text = protocolText();
+  for (const code of TRANSITION_CODES) assert.ok(text.includes(code), `expected "${code}" in the protocol text`);
+  const permanent = paragraphWith(text, 'not_claim_holder');
+  assert.ok(permanent, 'expected the permanent-codes paragraph');
+  assert.ok(!permanent.includes('gate_blocked'), 'gate_blocked has its own sentence, not the permanent list');
+  assert.ok(text.includes('Never call `advance` again after entering your phase'), 'never-advance-again rule');
+  assert.ok(text.includes('## Subagent Discipline'), 'Subagent Discipline section');
+});
+
+// S9 (gating unchanged: non-phase-owner types, headless iteration, workflow-subagent, no config, bad
+// stdin) is covered by the kept tests S5, S6, the workflow-subagent tests and the locator-gate tests above.
+
+// ── 66a5bc0c probes ──────────────────────────────────────────────────────────────────────────────────
+
+test('66a5bc0c P1: the read-the-role-first paragraph is one paragraph holding every S2-S5 phrase (a blank line inside would split it)', () => {
+  const para = readFirstParagraph(protocolText());
+  for (const phrase of ['items_read', '`queue`', '`work`', 'a second `start`', 'past your phase', 'already shows your phase', 'do not send `start`', 'any other role']) {
+    assert.ok(para.includes(phrase), `missing from the one paragraph: ${phrase}`);
+  }
+});
+
+test('66a5bc0c P2: the new paragraph does not hijack the substring lookups of the transient and permanent paragraph tests', () => {
+  const text = protocolText();
+  const para = readFirstParagraph(text);
+  assert.ok(!para.includes('internal'), 'internal (also as part of a word) belongs to the transient paragraph only');
+  assert.ok(!para.includes('not_claim_holder'), 'not_claim_holder belongs to the permanent paragraph only');
+  const transient = paragraphWith(text, 'internal');
+  assert.ok(transient && transient.includes('resource_unavailable') && transient.includes('unavailable'), `first paragraph with "internal" must be the transient one: ${transient}`);
+  const permanent = paragraphWith(text, 'not_claim_holder');
+  assert.ok(permanent && permanent.includes('seat_forbidden'), `first paragraph with "not_claim_holder" must be the permanent one: ${permanent}`);
+});
+
+test('66a5bc0c P3: the hook source decodes as strict UTF-8 (no stray cp1252 bytes)', () => {
+  const bytes = readFileSync(HOOK);
+  assert.doesNotThrow(() => new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+});
+
+test('66a5bc0c P5: no casing variant of gate_blocked is smuggled in', () => {
+  const text = protocolText();
+  const exact = text.split('gate_blocked').length - 1;
+  const anyCase = text.toLowerCase().split('gate_blocked').length - 1;
+  assert.ok(exact >= 1, 'gate_blocked is named');
+  assert.equal(anyCase, exact, 'every mention of gate_blocked is the lowercase code');
+});
+
+test('66a5bc0c P6 replay: two spawns produce byte-identical protocol text', () => {
+  assert.equal(protocolText(), protocolText());
 });
