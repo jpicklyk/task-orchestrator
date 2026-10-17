@@ -851,6 +851,58 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
 }
 
 /**
+ * stripTokens(value, knownTokens = []) -> structurally equal copy of value with (a) every
+ * property named exactly seatToken or coordinatorToken removed at any depth, and (b) every
+ * occurrence of each known token (longest first) replaced by '[redacted-token]' in string
+ * values and object keys; every key, including __proto__, is copied as an own data property.
+ * Non-string/empty tokens are ignored; input is never mutated.
+ * Method A can only strip by key (no token value is knowable inside the Workflow sandbox).
+ */
+function stripTokens(value, knownTokens = []) {
+  const REDACTED = '[redacted-token]'
+  const tokens = (Array.isArray(knownTokens) ? knownTokens : [])
+    .filter((t) => typeof t === 'string' && t.length > 0)
+    .sort((a, b) => b.length - a.length)
+  // Single left-to-right scan, longest token first at each position, so a shorter token never
+  // matches inside the redaction literal left by a longer one.
+  const redact = (str) => {
+    if (tokens.length === 0) return str
+    let out = ''
+    let i = 0
+    while (i < str.length) {
+      const hit = tokens.find((t) => str.startsWith(t, i))
+      if (hit) {
+        out += REDACTED
+        i += hit.length
+      } else {
+        out += str[i]
+        i += 1
+      }
+    }
+    return out
+  }
+  const walk = (v) => {
+    if (typeof v === 'string') return redact(v)
+    if (Array.isArray(v)) return v.map(walk)
+    if (v && typeof v === 'object') {
+      const out = {}
+      for (const k of Object.keys(v)) {
+        if (k === 'seatToken' || k === 'coordinatorToken') continue
+        Object.defineProperty(out, redact(k), {
+          value: walk(v[k]),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        })
+      }
+      return out
+    }
+    return v
+  }
+  return walk(value)
+}
+
+/**
  * scanDeclarations(text) -> {text, stripped:string[]}
  * Splits text into lines and removes every line containing a behaviour word as a
  * whole word (case-insensitive): returns, throws, falls back, catches, calls, if,
@@ -1467,6 +1519,7 @@ async function callSeat(plan, item, stage, outs, deps) {
       }
     }
   }
+  env = stripTokens(env)
   return { env, modelReported: env ? env.modelReported : '', agentTypeUsed, agentTypeFallback }
 }
 
