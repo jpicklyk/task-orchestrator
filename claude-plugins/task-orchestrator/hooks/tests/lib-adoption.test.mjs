@@ -1,7 +1,7 @@
 // Structural contract for the hooks/lib adoption (fc131c71, scenario S21). Oracle: task-scope
 // AC1 (pure at import), AC2 (stdin and emit plumbing lives in lib), AC3 (marker implementations delegate
 // to lib/markers.mjs), AC7 (the api-client.mjs shim, deleted by eb262d39 AC8), AC8 (hand-written tool-names list with a P9 TODO), AC9 (README row per lib module, a
-// CHANGELOG [Unreleased] ### Plugin bullet) and decision D3 (session-start imports server-compat; per AC2 of 0bbdc4cc also the envelope readers dispatch-hint and phase-guard-record).
+// CHANGELOG [4.0.0] ### Plugin bullet) and decision D3 (session-start imports server-compat; per AC2 of 0bbdc4cc also the envelope readers dispatch-hint and phase-guard-record).
 // Source scans read hook files as text; they do not execute them.
 
 import { test, after } from 'node:test';
@@ -156,15 +156,15 @@ test('S21: hooks/README.md exists and has a row for each lib module', () => {
   }
 });
 
-test('S21: CHANGELOG [Unreleased] has a ### Plugin section with at least one bullet', () => {
+test('S21: CHANGELOG [4.0.0] has a ### Plugin section with at least one bullet', () => {
   const changelog = read(join(REPO_ROOT, 'CHANGELOG.md'));
-  const start = changelog.indexOf('## [Unreleased]');
-  assert.ok(start >= 0, '[Unreleased] heading');
+  const start = changelog.indexOf('## [4.0.0]');
+  assert.ok(start >= 0, '[4.0.0] heading');
   const rest = changelog.slice(start + 1);
   const next = rest.search(/\n## \[/);
   const section = next === -1 ? rest : rest.slice(0, next);
   const idx = section.indexOf('### Plugin');
-  assert.ok(idx >= 0, '### Plugin heading inside [Unreleased]');
+  assert.ok(idx >= 0, '### Plugin heading inside [4.0.0]');
   const afterHeading = section.slice(idx + '### Plugin'.length);
   const nextHeading = afterHeading.search(/\n### /);
   const body = nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading);

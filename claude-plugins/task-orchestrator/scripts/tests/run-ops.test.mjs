@@ -652,11 +652,11 @@ test('AC9: the repo run profile lists CHANGELOG.md among appendOnlyFiles and the
   assert.ok(readFileSync(join(PLUGIN_ROOT, 'scripts', 'resolve-changelog-lib.mjs'), 'utf8').length > 0)
 })
 
-test('CHANGELOG: the Unreleased Plugin section announces the coordinator move (server runs, token files) and the marketplace remove and re-add', () => {
+test('CHANGELOG: the 4.0.0 Plugin section announces the coordinator move (server runs, token files) and the marketplace remove and re-add', () => {
   const log = readFileSync(join(REPO_ROOT_DIR, 'CHANGELOG.md'), 'utf8')
-  const unreleased = log.slice(log.indexOf('## [Unreleased]'), log.indexOf('\n## [', log.indexOf('## [Unreleased]') + 5))
+  const unreleased = log.slice(log.indexOf('## [4.0.0]'), log.indexOf('\n## [', log.indexOf('## [4.0.0]') + 5))
   const plugin = unreleased.slice(unreleased.indexOf('### Plugin'))
-  assert.ok(plugin.length > 0, 'an Unreleased ### Plugin section exists')
+  assert.ok(plugin.length > 0, 'a 4.0.0 ### Plugin section exists')
   assert.ok(/server run/i.test(plugin), 'names server runs')
   assert.ok(/token file/i.test(plugin), 'names token files')
   assert.ok(/re-add/.test(plugin), 'names the marketplace remove and re-add')

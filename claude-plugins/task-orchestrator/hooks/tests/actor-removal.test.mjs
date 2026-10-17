@@ -114,9 +114,9 @@ test('AC9: fleet-deployment.md no longer says the attribution hook is removed in
   assert.ok(!/removed in a later pass/i.test(doc));
 });
 
-test('AC9: CHANGELOG [Unreleased] records the attribution hook removal and no longer points operators at actor_attribution.required', () => {
+test('AC9: CHANGELOG [4.0.0] records the attribution hook removal and no longer points operators at actor_attribution.required', () => {
   const changelog = read(join(REPO, 'CHANGELOG.md'));
-  const start = changelog.indexOf('## [Unreleased]');
+  const start = changelog.indexOf('## [4.0.0]');
   assert.ok(start >= 0);
   const next = changelog.indexOf('\n## [', start + 1);
   const unreleased = changelog.slice(start, next < 0 ? undefined : next);
