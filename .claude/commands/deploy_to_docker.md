@@ -117,7 +117,7 @@ AskUserQuestion(questions: [{
 AskUserQuestion(questions: [{
   question: "Mount the process-schema floor config as the server's global/fallback config?", header: "Config mount", multiSelect: false,
   options: [
-    { label: "Floor config (recommended)", description: "Mount ./deploy/global-config/.taskorchestrator read-only as AGENT_CONFIG_DIR — the process-schema floor (agent-observation, session-retrospective, improvement-proposal, container). Project-specific schemas still flow in per-root via config-sync." },
+    { label: "Floor config (recommended)", description: "Mount ./deploy/global-config/.taskorchestrator read-only as AGENT_CONFIG_DIR — the process-schema floor (agent-observation, session-retrospective, improvement-proposal, container, project, retrospective-trend). Project-specific schemas still flow in per-root via config-sync." },
     { label: "None (multi-project)", description: "No global mount. All schemas — including the process ones — flow in via the config-sync hook into the DB per root." }
   ]
 }])
