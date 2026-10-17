@@ -8,9 +8,9 @@
 //    marker is written here.
 // 2. Altitude rule. While the marker exists, the director session may not open files or run
 //    foreground work: Read/Edit/Write/Grep/Glob/NotebookEdit are denied, Bash is denied unless
-//    every segment of the command starts with a DIRECTOR_BASH_ALLOW entry (a `git log` segment
-//    may not print patches or write a file; a `git branch` segment may only list), and Agent is denied unless
-//    `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
+//    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
+//    `git branch`, every later token is on that command's flag allow-list or is a plain operand
+//    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
 //    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
 //
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
@@ -50,36 +50,71 @@ export function isDirectorSkillCall(input) {
 }
 
 /**
- * True when a director session may run `command`: a string with no backtick, `$(`, `<`, `>` or
- * carriage return, whose every segment (split on `;`, `&&`, `||`, `|`, `&` and newline), trimmed,
- * starts with a DIRECTOR_BASH_ALLOW entry followed by end-of-segment or whitespace. Case-sensitive.
+ * True when a director session may run `command`: a string with no backtick, `<`, `>`, carriage
+ * return, `$`, brace, glob character (`*`, `?`, `[`, `]`) or backslash (R1), whose every segment
+ * (split on `;`, `&&`, `||`, `|`, `&` and newline), trimmed, starts with a DIRECTOR_BASH_ALLOW entry
+ * followed by end-of-segment or whitespace. Case-sensitive. For `git log`, `git status` and
+ * `git branch` each later token has every `'` and `"` deleted (R2) and must then pass that
+ * command's flag allow-list (R3, R4, R5).
  */
 export function bashAllowed(command) {
   if (typeof command !== 'string') return false;
-  if (/[`<>\r]/.test(command) || command.includes('$(')) return false;
+  if (/[`<>\r${}*?[\]\\]/.test(command)) return false;
   const segments = command.split(/&&|\|\||;|\||&|\n/);
   return segments.every((raw) => {
     const seg = raw.trim();
     const entry = DIRECTOR_BASH_ALLOW.find((e) => seg === e || (seg.startsWith(e) && /^\s/.test(seg.slice(e.length))));
     if (entry === undefined) return false;
     const rest = seg.slice(entry.length).trim();
-    const tokens = rest === '' ? [] : rest.split(/\s+/);
-    if (entry === 'git log') return !tokens.some(gitLogTokenDenied);
+    const tokens = rest === '' ? [] : rest.split(/\s+/).map(stripQuotes);
+    if (entry === 'git log') return tokens.every(gitLogTokenAllowed);
+    if (entry === 'git status') return tokens.every(gitStatusTokenAllowed);
     if (entry === 'git branch') return gitBranchListingOnly(tokens);
     return true;
   });
 }
 
+/** R2: a token with every `'` and `"` deleted, the form the shell hands to git. */
+const stripQuotes = (token) => token.replace(/['"]/g, '');
+
+/** An operand: a normalized token that does not start with `-`. */
+const isOperand = (token) => !token.startsWith('-');
+
+/** R3: exact `git log` listing flags. */
+const GIT_LOG_FLAGS = new Set([
+  '--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--merges',
+  '--no-merges', '--abbrev-commit', '--stat', '--shortstat', '--name-only', '--name-status', '--pretty',
+  '-n', '-i', '-E', '-F', '-P', '--',
+]);
+
+/** R3: `git log` flag prefixes that carry a value. */
+const GIT_LOG_VALUE_PREFIXES = Object.freeze([
+  '--format=', '--pretty=', '--decorate=', '--max-count=', '--since=', '--until=', '--after=', '--before=',
+  '--author=', '--committer=', '--grep=', '--date=',
+]);
+
 /**
- * A `git log` token that prints file contents or writes a file: -p, -u, --patch*, -L*, --output*,
- * --word-diff*, or a single-dash flag cluster containing p, u or L.
+ * R3, the `git log` flag allow-list: a token is allowed only when it is an operand, an exact
+ * GIT_LOG_FLAGS entry, starts with a GIT_LOG_VALUE_PREFIXES entry, or matches `-<n>` / `-n<n>`.
+ * Any other token (a patch, diff, merge-diff or output flag in any spelling) denies the segment.
+ * Tokens after `--` are classified the same way, so a path starting with `-` is denied (fail closed).
  */
-function gitLogTokenDenied(token) {
-  if (token.startsWith('--')) {
-    return token.startsWith('--patch') || token.startsWith('--output') || token.startsWith('--word-diff');
-  }
-  if (token.startsWith('-L')) return true;
-  return token.startsWith('-') && token.length > 1 && /[puL]/.test(token.slice(1));
+function gitLogTokenAllowed(token) {
+  if (isOperand(token) || GIT_LOG_FLAGS.has(token)) return true;
+  if (GIT_LOG_VALUE_PREFIXES.some((prefix) => token.startsWith(prefix))) return true;
+  return /^-n?\d+$/.test(token);
+}
+
+/** R4, the `git status` flag allow-list. -v, -vv, --verbose and every abbreviation are absent. */
+const GIT_STATUS_FLAGS = new Set([
+  '-s', '--short', '-b', '--branch', '-sb', '--long', '--porcelain', '--porcelain=v1', '--porcelain=v2',
+  '--show-stash', '--ahead-behind', '--no-ahead-behind', '-u', '-uno', '-unormal', '-uall', '--untracked-files',
+  '--untracked-files=no', '--untracked-files=normal', '--untracked-files=all', '--ignored', '--',
+]);
+
+/** R4: a `git status` token is an operand or an exact GIT_STATUS_FLAGS entry. */
+function gitStatusTokenAllowed(token) {
+  return isOperand(token) || GIT_STATUS_FLAGS.has(token);
 }
 
 /** Flags that keep `git branch` a listing. */
@@ -123,7 +158,7 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
-    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution`);
+    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;

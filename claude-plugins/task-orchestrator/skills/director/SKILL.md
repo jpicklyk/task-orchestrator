@@ -30,10 +30,12 @@ Calling the skill again while in director mode refreshes the marker and the dash
   run rollup (`report` `rollup`).
 - `Bash` runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
-  `$(`) and nothing chained after a command outside that list. `git log` may not print patches or
-  write a file (`-p`, `-u`, `--patch`, `-L`, `--output`, `--word-diff` are denied), and `git branch`
-  may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`, `--merged <ref>`, `--contains <ref>`
-  and the like).
+  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
+  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log`
+  takes `--oneline`, `--format=`, `-n <k>`, `--graph`, `--since=`, `--author=`, `--grep=` and
+  `--stat`, never `-p` or another patch flag; `git status` takes `-s`, `-b`, `--porcelain` and
+  `-uno`, never `-v`; `git branch` may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`,
+  `--merged <ref>`, `--contains <ref>` and the like). Revisions and paths are allowed as operands.
 - `Agent` runs only in the background: pass `run_in_background: true`. A foreground dispatch is
   denied, because its result would land in this context.
 - `SendMessage` and `ListAgents` are never denied. Use them to talk to coordinators.

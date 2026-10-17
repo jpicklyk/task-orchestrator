@@ -25,7 +25,11 @@ An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
 lists under `items[].outputs.<seat>`, plus a `rollup` of counts, and cuts every reason to 120
 characters. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
-the seats' notes when a later step needs it.
+the seats' notes when a later step needs it. `redProofShape` survives, cut to 200 characters; Step
+7c reads the full shape from the test-plan note's `red-proof-shape:` line. A `reseat` from a safe
+result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` and
+`diagnosisCorrections: none`: tell the reseated seat to read the item's queue notes, and give a
+test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
 budget, attempts or manual) is surfaced to the user now, with its pause decision; post-run work

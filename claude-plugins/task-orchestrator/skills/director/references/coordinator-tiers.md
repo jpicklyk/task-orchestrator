@@ -44,7 +44,7 @@ snapshot reads note bodies. So the work splits:
    keeps the coordinator token and returns only `{runId, serverRunId, args}`.
 2. The director calls `Workflow` with those `args`. `args.altitudeSafe: true` makes implement-wave
    return the altitude-safe result: `rollup` counts, item and stage statuses, commit SHAs, file
-   lists and note keys, with every reason cut to 120 characters and no seat prose.
+   lists and note keys, with every reason cut to 120 characters `redProofShape` cut to 200, and no other seat prose.
 3. On the task notification, the director sends that coordinator a `SendMessage` to run post-run
    (Step 0 saves and verifies the safe result the same way as a full one; the prose is in the seats'
    notes).
@@ -55,7 +55,14 @@ seats consume planner output in-process. Decisions land between runs.
 ## Tier 3: headless claude -p
 
 The argv is `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X>`, plus `--model <M>`
-when given. `launchProfile(3)` throws unless `budgetUsd` is a finite number greater than 0.
+when given. `launchProfile(3)` throws unless `budgetUsd` is a finite number greater than 0, then
+throws unless `prompt` is a non-empty string (the CLI exits non-zero without `--prompt-file`).
+
+- The background agent that starts the process plans first (run-wave Steps 0-5a with
+  `--altitude-safe`), passes the plan's `args` in the prompt, and runs post-run after the process
+  exits; the process makes only the `Workflow` call.
+- `--max-budget-usd` is the only configured hard stop: plans open runs with no budget, and the
+  server's run limits return early without one. The account usage limit is not a configured stop.
 
 - Never `--bare`: a bare session cannot receive messages, so the director could not reach it.
 - A headless process fails rather than pauses on a usage limit. `--max-budget-usd` bounds the

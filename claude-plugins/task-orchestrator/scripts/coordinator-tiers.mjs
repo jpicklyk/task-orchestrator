@@ -51,7 +51,7 @@ export function selectTier({ tools = [], claudeCli = false } = {}) {
  * the output style is set after start (set_session_output_style); no start_session parameter
  * carries crossSessionInbound, so the director sets it in desktop settings and checks it with
  * get_settings before launch. Tier 3 requires `opts.budgetUsd` (a finite number > 0) and
- * `opts.prompt`; any tier outside 1-4 throws.
+ * `opts.prompt` (a non-empty string), checked in that order; any tier outside 1-4 throws.
  */
 export function launchProfile(tier, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -76,6 +76,9 @@ export function launchProfile(tier, opts = {}) {
       const budget = o.budgetUsd;
       if (typeof budget !== 'number' || !Number.isFinite(budget) || budget <= 0) {
         throw new Error('tier 3 needs budgetUsd: a finite number greater than 0');
+      }
+      if (typeof o.prompt !== 'string' || o.prompt === '') {
+        throw new Error('tier 3 needs prompt: a non-empty string (pass --prompt-file)');
       }
       const argv = ['claude', '-p', o.prompt, '--allowedTools', 'Workflow', '--max-budget-usd', String(budget)];
       if (o.model !== undefined && o.model !== null && o.model !== '') argv.push('--model', o.model);
