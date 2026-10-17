@@ -606,17 +606,40 @@ git push origin release/3.x
 The 3.x line keeps its `3.16.0` version, the `3.16` image tag and its own `[Unreleased]` changelog
 section. Every later 3.x fix lands there as a twin of its 4.0 PR.
 
-**b. Landing PR.** Open `release/4.0` -> `main` and merge it with ONE merge commit
-(`gh pr merge <n> --merge`), never squash: a squash discards the branch history and the later
-`release/3.x` twins can no longer be matched against it. The PR retires the `guard` job of
-`.github/workflows/pr-base-guard.yml`. Because `guard` is a required status check in both the "Main
-branch protection" and "Release 4.0 protection" rulesets, the user removes it from the rulesets before the
-merge; repository settings are outside the orchestrator's autonomy, so ask and wait.
+**b. Twin audit.** `main` keeps taking 3.x fixes while the long-lived branch is open, and each one is
+meant to have a twin on `release/4.0` (or a stated "4.0 already covers it"). List them with
+`git log --format='%h %s' $(git merge-base origin/main origin/release/4.0)..origin/main` and, for each,
+find the twin (same bracketed item id in `git log <merge-base>..origin/release/4.0`), the matching
+content on `release/4.0`, or the 4.0 code that replaced it. Every commit with none gets a 4.0 twin PR
+merged into `release/4.0` before the landing PR leaves draft. The landing keeps `release/4.0`'s tree
+(step c), so anything on `main` without a twin is dropped from `main` (it survives on `release/3.x`).
+For 4.0.0 the audit found 21 of 22 covered; `d8f23c81` (#574, carry-in plumbing) needed a twin.
 
-**c. CHANGELOG at the merge.** Everything on `main` at tag time ships as 4.0.0. Check
-`git log release/4.0..main --oneline` for a `main` commit with no 4.0 twin before merging, and fold
-`main`'s `[Unreleased]` bullets into `## [4.0.0]` by hand: `scripts/resolve-changelog.mjs` resolves only
-`[Unreleased]` against `[Unreleased]`, not a cut section.
+**c. Landing PR.** The two lines conflict widely (for 4.0.0, more than 60 files), so GitHub cannot
+merge `release/4.0` into `main` directly. Cut a landing branch from `release/4.0`, retire the `guard`
+job by deleting `.github/workflows/pr-base-guard.yml`, and record `main` as a parent while keeping the
+`release/4.0` tree, which is correct only after step b passes:
+
+```bash
+git switch -c land/4.0.0 origin/release/4.0
+git rm .github/workflows/pr-base-guard.yml
+git commit -m "ci: retire the pr-base-guard guard job for the 4.0 landing"
+git merge -s ours origin/main -m "Merge main into land/4.0.0: release/4.0 supersedes 3.x (twin audit passed)"
+git push -u origin land/4.0.0
+```
+
+Open `land/4.0.0` -> `main` as a draft titled `release: Task Orchestrator 4.0.0` with the CHANGELOG
+`## [4.0.0]` section as its body. Merge it with ONE merge commit (`gh pr merge <n> --merge`), never
+squash: a squash discards the branch history and the later `release/3.x` twins can no longer be matched
+against it. `guard` is a required status check in both the "Main branch protection" and "Release 4.0
+protection" rulesets, and the landing branch no longer runs it, so the user removes `guard` from both
+rulesets before the merge; repository settings are outside the orchestrator's autonomy, so ask and
+wait. Re-merge `origin/release/4.0` into the landing branch (an ordinary merge) whenever
+`release/4.0` moves before the landing.
+
+The 4.0.0 CHANGELOG section is the release record. `main`'s `[Unreleased]` 3.x bullets are not folded
+into it; they ship from `release/3.x` in its next point release. `scripts/resolve-changelog.mjs` resolves
+only `[Unreleased]` against `[Unreleased]`, so it is not used here.
 
 **d. Tag from `main`.** Once CI is green on the merge commit, `git tag v4.0.0 && git push origin v4.0.0`.
 `docker-publish.yml` then runs `needs: test`, the release-gate build, the fresh smoke, the upgrade smoke
