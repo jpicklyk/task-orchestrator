@@ -11,4 +11,5 @@ infrastructure/shutdown/ShutdownCoordinator.kt 1
 infrastructure/sqlite/StartupCompaction.kt 1
 infrastructure/sqlite/StartupIntegrity.kt 1
 infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
-infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
+infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 3
+infrastructure/sqlite/schema/management/MigrationLock.kt 1
