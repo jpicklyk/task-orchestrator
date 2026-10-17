@@ -774,3 +774,55 @@ describe('A2 B2 transient driver errors', () => {
     assert.equal(s.starts.length, 2)
   })
 })
+
+// ---- A3 B3: a persistent transient/shedding fault is bounded by --idle-budget -------------------------
+// Oracle: task-scope Amendment A3 (frozen bound). A backed-off driver call is one idle; the N-th consecutive
+// idle (N = --idle-budget) exits with no wait: N faulted picks, N-1 waits, reason 'idle budget exhausted',
+// exit 0, close completed last, 0 iterations, 0 spawns.
+
+describe('A3 B3 persistent transient fault is bounded by --idle-budget', () => {
+  const hitsFor = (s, word) => s.api.hits.filter((h) => h.raw.includes(`"${word}"`))
+
+  test('update addItems unavailable on every call: exactly --idle-budget picks, then idle budget exhausted', async () => {
+    const s = await scenario({
+      items: [A],
+      apiOpts: { update: () => ({ code: 'unavailable', retryAfterMs: 1000 }) },
+      args: ['--idle-budget', '3'],
+      timeoutMs: 30000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
+    const updates = hitsFor(s, 'update')
+    assert.equal(updates.length, 3, 'exactly --idle-budget faulted picks' + tail(s))
+    assert.ok(updates[1].ts - updates[0].ts >= 1000, `first wait >= retryAfterMs (got ${updates[1].ts - updates[0].ts})`)
+    assert.ok(updates[2].ts - updates[1].ts >= 1000, `second wait >= retryAfterMs (got ${updates[2].ts - updates[1].ts})`)
+    assert.equal(opsNamed(s, 'assign').length, 0)
+    assert.equal(s.api.seats.length, 0)
+    assert.equal(s.starts.length, 0)
+    assert.ok(s.res.out.includes('idle budget exhausted'), tail(s))
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+  })
+
+  test('seat claim unavailable on every call: exactly --idle-budget assigns, claims and abandoned seats, then idle budget exhausted', async () => {
+    const s = await scenario({
+      items: [A],
+      apiOpts: { claim: () => ({ code: 'unavailable', retryAfterMs: 1000 }) },
+      args: ['--idle-budget', '3'],
+      timeoutMs: 30000,
+    })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
+    assert.deepEqual(s.api.seats.map((x) => x.outcome), ['abandoned', 'abandoned', 'abandoned'])
+    assert.equal(opsNamed(s, 'claim').filter((c) => c.opsInCall === 1).length, 3)
+    const assigns = opsNamed(s, 'assign')
+    assert.equal(assigns.length, 3)
+    const ends = opsNamed(s, 'end_seat')
+    assert.ok(ends[0].seq < assigns[1].seq, 'seat 1 ends before assign 2')
+    assert.ok(ends[1].seq < assigns[2].seq, 'seat 2 ends before assign 3')
+    assert.equal(s.starts.length, 0)
+    assert.ok(s.res.out.includes('idle budget exhausted'), tail(s))
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+  })
+})
