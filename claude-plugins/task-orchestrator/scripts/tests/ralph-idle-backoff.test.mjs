@@ -25,6 +25,12 @@ import {
   DEFAULT_IDLE_BACKOFF_MS,
   MIN_IDLE_BACKOFF_MS,
   MAX_IDLE_BACKOFF_MS,
+  NEXT_EMPTY_WAIT_MS,
+  TRANSIENT_SKIP_CODES,
+  addSkip,
+  isSkipped,
+  decideSelection,
+  isBackoffError,
 } from '../ralph-lib.mjs';
 
 // ── Sanity: the three constants match the oracle's literal values ────────────────────────────
@@ -128,4 +134,258 @@ test('S16: retryAfterMs 0 is treated as a valid value (clamped up to MIN_IDLE_BA
 test('S16: when the budget is exhausted, waitMs is 0 regardless of how large retryAfterMs is', () => {
   const decision = decideIdleBackoff({ retryAfterMs: 1e9, consecutiveIdle: 5, idleBudget: 3 });
   assert.deepEqual(decision, { exit: true, waitMs: 0 });
+});
+
+// === cae5d141: per-loop skip list and item selection (S4, S5) ========================================
+// Test author actor id: test-author:cae5d141:r-202610170015-cae5d141. Oracle: task-scope D7 (AR-76 skip list,
+// AR-66 "an empty page with a reason is waiting, never drained") and api-reference items_read select next
+// ("Empty with reason claim_held or dependency_unmet when matches exist but none is ready"; nothing matched
+// at all has no reason and a drain worker should stop). NEW-SURFACE: addSkip / isSkipped / decideSelection.
+// Pure functions, called directly.
+
+const NOW = 1_700_000_000_000;
+const cand = (id) => ({ id, type: 'feature-task', title: id, role: 'queue', depth: 2, version: 1 });
+const kindOfSelection = (r) => ['pick', 'idle', 'drained'].filter((k) => r[k] !== undefined && r[k] !== false && r[k] !== null);
+// the declaration names `pick` without saying whether it is the candidate or its id: accept either shape
+const pickedId = (r) => (typeof r.pick === 'string' ? r.pick : r.pick.id);
+
+// -- S5: addSkip --
+
+test('S5: the transient skip codes are claim_held and resource_unavailable', () => {
+  assert.deepEqual([...TRANSIENT_SKIP_CODES].sort(), ['claim_held', 'resource_unavailable']);
+});
+
+test('S5: claim_held with retryAfterMs 60000 skips until now + 60000, as a {itemId, code, until} row', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  assert.deepEqual(list, [{ itemId: 'aaaa1111', code: 'claim_held', until: NOW + 60000 }]);
+});
+
+test('S5: resource_unavailable honours retryAfterMs too', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'resource_unavailable', retryAfterMs: 45000, now: NOW });
+  assert.equal(list[0].until, NOW + 45000);
+});
+
+test('S5: an absent, NaN, negative or non-numeric retryAfterMs falls back to 30000 for a transient code', () => {
+  for (const retryAfterMs of [undefined, NaN, -5, 'soon', null]) {
+    const list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs, now: NOW });
+    assert.equal(list[0].until, NOW + 30000, String(retryAfterMs));
+  }
+});
+
+test('S5 probe: an Infinity retryAfterMs is not a usable number and falls back to 30000', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'resource_unavailable', retryAfterMs: Infinity, now: NOW });
+  assert.equal(list[0].until, NOW + 30000);
+});
+
+test('S5 probe: a huge retryAfterMs (1e12) is kept as given - only decideSelection clamps', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1e12, now: NOW });
+  assert.equal(list[0].until, NOW + 1e12);
+});
+
+// NOT asserted (ambiguity escalated in test-manifest): retryAfterMs 0. TS D7 says "absent/invalid -> 30000" without
+// saying whether 0 is valid; the test-plan lists the probe without an oracle.
+
+test('S5: invalid_transition, not_found and duplicate skip forever (until = Infinity), whatever retryAfterMs says', () => {
+  for (const code of ['invalid_transition', 'not_found', 'duplicate']) {
+    for (const retryAfterMs of [undefined, 5000]) {
+      const list = addSkip([], { itemId: 'aaaa1111', code, retryAfterMs, now: NOW });
+      assert.equal(list[0].until, Infinity, `${code} ${retryAfterMs}`);
+      assert.equal(list[0].code, code);
+    }
+  }
+});
+
+test('S5: the skipped item id is lowercased', () => {
+  const list = addSkip([], { itemId: 'AAAA1111', code: 'claim_held', retryAfterMs: 1000, now: NOW });
+  assert.equal(list[0].itemId, 'aaaa1111');
+});
+
+test('S5: addSkip does not mutate its input list and appends the new row', () => {
+  const first = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1000, now: NOW });
+  const snapshot = JSON.parse(JSON.stringify(first));
+  const second = addSkip(first, { itemId: 'bbbb2222', code: 'duplicate', now: NOW });
+  assert.deepEqual(first, snapshot, 'the input list is untouched');
+  assert.equal(second.length, 2);
+  assert.equal(second[0].itemId, 'aaaa1111');
+  assert.equal(second[1].itemId, 'bbbb2222');
+});
+
+test('S5 probe: a permanent skip added after a transient one for the same item keeps it skipped far into the future', () => {
+  let list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1000, now: NOW });
+  list = addSkip(list, { itemId: 'aaaa1111', code: 'invalid_transition', now: NOW });
+  assert.equal(isSkipped(list, 'aaaa1111', NOW + 1e9), true);
+});
+
+// -- S5: isSkipped --
+
+test('S5: isSkipped is true while until > now, false at until == now and after it', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  assert.equal(isSkipped(list, 'aaaa1111', NOW), true);
+  assert.equal(isSkipped(list, 'aaaa1111', NOW + 59999), true);
+  assert.equal(isSkipped(list, 'aaaa1111', NOW + 60000), false, 'until == now is free');
+  assert.equal(isSkipped(list, 'aaaa1111', NOW + 60001), false);
+});
+
+test('S5: isSkipped is false for an item that was never skipped and for an empty list', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  assert.equal(isSkipped(list, 'bbbb2222', NOW), false);
+  assert.equal(isSkipped([], 'aaaa1111', NOW), false);
+});
+
+test('S5: an Infinity skip holds at any finite time', () => {
+  const list = addSkip([], { itemId: 'aaaa1111', code: 'duplicate', now: NOW });
+  assert.equal(isSkipped(list, 'aaaa1111', NOW + 1e15), true);
+});
+
+test('S5 probe (case): ids match regardless of case', () => {
+  const list = addSkip([], { itemId: 'ABCDEF12', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  assert.equal(isSkipped(list, 'abcdef12', NOW), true);
+  assert.equal(isSkipped(list, 'ABCDEF12', NOW), true);
+});
+
+// -- S4: decideSelection --
+
+test('S4: the first candidate that is not skipped is picked', () => {
+  const skipList = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222'), cand('cccc3333')], reason: undefined, skipList, now: NOW });
+  assert.deepEqual(kindOfSelection(r), ['pick']);
+  assert.equal(pickedId(r), 'bbbb2222');
+});
+
+test('S4: with nothing skipped the first (oldest) candidate is picked', () => {
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList: [], now: NOW });
+  assert.equal(pickedId(r), 'aaaa1111');
+});
+
+test('S4: a skip that has expired no longer hides its item', () => {
+  const skipList = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1000, now: NOW });
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList, now: NOW + 5000 });
+  assert.equal(pickedId(r), 'aaaa1111');
+});
+
+test('S4: an empty page with no reason is drained (nothing matched at all)', () => {
+  for (const reason of [undefined, null]) {
+    const r = decideSelection({ candidates: [], reason, skipList: [], now: NOW });
+    assert.deepEqual(kindOfSelection(r), ['drained'], String(reason));
+  }
+});
+
+test('S4 AR-66: an empty page with reason claim_held or dependency_unmet is idle for 30000 ms, never drained', () => {
+  assert.equal(NEXT_EMPTY_WAIT_MS, 30000);
+  for (const reason of ['claim_held', 'dependency_unmet']) {
+    const r = decideSelection({ candidates: [], reason, skipList: [], now: NOW });
+    assert.deepEqual(kindOfSelection(r), ['idle'], reason);
+    assert.equal(r.waitMs, 30000, reason);
+    assert.equal(r.reason, reason, 'the idle answer names why');
+  }
+});
+
+test('S4: when every candidate is skipped the loop idles until the EARLIEST skip expires', () => {
+  let skipList = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 90000, now: NOW });
+  skipList = addSkip(skipList, { itemId: 'bbbb2222', code: 'resource_unavailable', retryAfterMs: 60000, now: NOW });
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList, now: NOW });
+  assert.deepEqual(kindOfSelection(r), ['idle']);
+  assert.equal(r.waitMs, 60000);
+});
+
+test('S4 boundary: the all-skipped wait is clamped to [MIN_IDLE_BACKOFF_MS, MAX_IDLE_BACKOFF_MS]', () => {
+  const soon = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 200, now: NOW });
+  assert.equal(decideSelection({ candidates: [cand('aaaa1111')], skipList: soon, now: NOW }).waitMs, MIN_IDLE_BACKOFF_MS);
+  const far = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1e7, now: NOW });
+  assert.equal(decideSelection({ candidates: [cand('aaaa1111')], skipList: far, now: NOW }).waitMs, MAX_IDLE_BACKOFF_MS);
+  const exact = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 1000, now: NOW });
+  assert.equal(decideSelection({ candidates: [cand('aaaa1111')], skipList: exact, now: NOW }).waitMs, 1000);
+});
+
+test('S4: a finite skip beside an Infinity one sets the wait (the earliest until wins)', () => {
+  const forever = addSkip([], { itemId: 'aaaa1111', code: 'duplicate', now: NOW });
+  const mixed = addSkip(forever, { itemId: 'bbbb2222', code: 'claim_held', retryAfterMs: 20000, now: NOW });
+  assert.equal(decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList: mixed, now: NOW }).waitMs, 20000);
+});
+
+// Amendment A1 to D7: permanent skips cannot change for the rest of the loop, so an all-permanent page is drained.
+test('S4 D7 (A1): an all-skipped page whose skips never expire is drained', () => {
+  const forever = addSkip([], { itemId: 'aaaa1111', code: 'duplicate', now: NOW });
+  const r = decideSelection({ candidates: [cand('aaaa1111')], skipList: forever, now: NOW });
+  assert.deepEqual(kindOfSelection(r), ['drained']);
+});
+
+test('S4: members restrict the pick to the --items set', () => {
+  // a Set that also answers .includes, so the test holds whichever collection interface the helper uses
+  class Members extends Set {
+    includes(x) {
+      return this.has(x);
+    }
+  }
+  const members = new Members(['bbbb2222']);
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList: [], members, now: NOW });
+  assert.deepEqual(kindOfSelection(r), ['pick']);
+  assert.equal(pickedId(r), 'bbbb2222');
+});
+
+test('S4: the skip list is respected inside the members set too', () => {
+  class Members extends Set {
+    includes(x) {
+      return this.has(x);
+    }
+  }
+  const members = new Members(['bbbb2222', 'cccc3333']);
+  const skipList = addSkip([], { itemId: 'bbbb2222', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  const r = decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222'), cand('cccc3333')], skipList, members, now: NOW });
+  assert.equal(pickedId(r), 'cccc3333');
+});
+
+test('S4 probe: decideSelection does not mutate the candidate page or the skip list', () => {
+  const candidates = [cand('aaaa1111'), cand('bbbb2222')];
+  const skipList = addSkip([], { itemId: 'aaaa1111', code: 'claim_held', retryAfterMs: 60000, now: NOW });
+  const snap = JSON.stringify({ candidates, skipList });
+  decideSelection({ candidates, skipList, now: NOW });
+  assert.equal(JSON.stringify({ candidates, skipList }), snap);
+});
+
+// === cae5d141 A2 B2: transient / shedding classification ================================================
+// Oracle: task-scope Amendment A2 (B2), error catalog kinds (hooks/lib/tool-catalog.json: unavailable =
+// shedding, internal and run_at_capacity = transient, invalid_transition = permanent). A skip of the item
+// (claim_held, resource_unavailable) is NOT a loop backoff; any other transient/shedding error is.
+
+test('A2 B2: addSkip times unavailable by its retryAfterMs and internal (no retryAfterMs) by the 30000 default', () => {
+  const u = addSkip([], { itemId: 'aaaa1111', code: 'unavailable', retryAfterMs: 1000, now: NOW });
+  assert.equal(u[0].until, NOW + 1000);
+  const i = addSkip([], { itemId: 'aaaa1111', code: 'internal', now: NOW });
+  assert.equal(i[0].until, NOW + 30000);
+});
+
+test('A2 B2: addSkip times run_at_capacity (transient kind), while the opaque codes error and skip stay permanent', () => {
+  const r = addSkip([], { itemId: 'aaaa1111', code: 'run_at_capacity', retryAfterMs: 2000, now: NOW });
+  assert.equal(Number.isFinite(r[0].until), true);
+  assert.ok(r[0].until > NOW);
+  for (const code of ['error', 'skip']) {
+    assert.equal(addSkip([], { itemId: 'aaaa1111', code, retryAfterMs: 1000, now: NOW })[0].until, Infinity, code);
+  }
+});
+
+test('A2 B2: isBackoffError is false for the item-skip codes claim_held and resource_unavailable', () => {
+  assert.equal(isBackoffError({ code: 'claim_held', kind: 'transient' }), false);
+  assert.equal(isBackoffError({ code: 'resource_unavailable', kind: 'transient' }), false);
+});
+
+test('A2 B2: isBackoffError is true for unavailable (shedding), internal and run_at_capacity (transient)', () => {
+  assert.equal(isBackoffError({ code: 'unavailable', kind: 'shedding' }), true);
+  assert.equal(isBackoffError({ code: 'internal', kind: 'transient' }), true);
+  assert.equal(isBackoffError({ code: 'run_at_capacity', kind: 'transient' }), true);
+});
+
+test('A2 B2: isBackoffError is false for a permanent code and true for the api-client client_error transient answer', () => {
+  assert.equal(isBackoffError({ code: 'invalid_transition', kind: 'permanent' }), false);
+  assert.equal(isBackoffError({ code: 'client_error', kind: 'transient' }), true);
+});
+
+test('A2 B2 probe: isBackoffError is false for an empty error object and for null / undefined', () => {
+  assert.equal(isBackoffError({}), false);
+  assert.equal(isBackoffError(null), false);
+  assert.equal(isBackoffError(undefined), false);
+});
+
+test('A2 B2 probe: a transient kind alone does not override the item-skip code (code is keyed first)', () => {
+  assert.equal(isBackoffError({ code: 'claim_held', kind: 'shedding' }), false);
 });

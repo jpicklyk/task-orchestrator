@@ -1,25 +1,4 @@
 {
-  "pendingPort": [
-    {
-      "file": "scripts/ralph-lib.mjs",
-      "owner": "cae5d141"
-    },
-    {
-      "file": "scripts/ralph-loop.mjs",
-      "owner": "cae5d141"
-    },
-    {
-      "file": "skills/ralph/SKILL.md",
-      "owner": "cae5d141"
-    },
-    {
-      "file": "skills/ralph/iteration-prompt.md",
-      "owner": "cae5d141"
-    },
-    {
-      "file": "skills/ralph/iteration-system-prompt.md",
-      "owner": "cae5d141"
-    }
-  ],
+  "pendingPort": [],
   "proseExceptions": []
 }
