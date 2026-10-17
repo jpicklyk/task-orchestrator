@@ -10,9 +10,11 @@
 // pure helpers (validateAgainst, scanReport's word list, verify, notesAudit, provenance,
 // closeReason, advanceFollowUps) take no core because they don't call into the @core-begin region.
 //
-// No function here ever reads, receives or renders a seat token or a coordinator token: the
-// orchestrator holds them, writes seat tokens to the token files runOps names, and adds the right
-// token as the top-level seatToken of each call it sends.
+// No function here renders a seat token or a coordinator token: the orchestrator holds them,
+// writes seat tokens to the token files runOps names, and adds the right token as the top-level
+// seatToken of each call it sends. The stage-result handler reads the run's token files solely
+// to redact them (with any seatToken/coordinatorToken key) from the state it prints; nothing
+// renders them.
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
@@ -676,7 +678,8 @@ export function validateAgainst(schema, value, path = '$') {
  * Parse via extractLastBalancedJson -> JSON.parse -> validateAgainst(envelopeSchema). Empty/
  * whitespace text and unparseable text are both treated as an invalid envelope. First
  * failure -> retry (envelopeRetries:1 recorded); second failure -> stopped 'invalid envelope'.
- * A valid envelope maps via core.mapStageResult and records outs[key] = env.output unredacted.
+ * A valid envelope maps via core.mapStageResult and records outs[key] = env.output after core.stripTokens(env, opts.knownTokens) removes
+ * seatToken/coordinatorToken keys and redacts every known token value.
  */
 export function stageResult(core, doc, state, idOrShort, seat, finalText, opts = {}) {
   const { plan } = resolvePlan(core, doc)
@@ -711,6 +714,7 @@ export function stageResult(core, doc, state, idOrShort, seat, finalText, opts =
 
   let validationErrors = []
   if (!parseError) {
+    env = core.stripTokens(env, opts.knownTokens || [])
     const schema = core.envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
     validationErrors = validateAgainst(schema, env)
   }
@@ -1719,6 +1723,23 @@ function execPrompt(argv, io) {
   io.exit(0)
 }
 
+/** Token-file values under <scratchDir>/tokens (trimmed, non-empty); used only to redact. */
+function readKnownTokens(doc, io) {
+  const scratch = doc && doc.args && doc.args.project && doc.args.project.scratchDir
+  if (typeof scratch !== 'string' || !scratch) return []
+  const dir = `${scratch.replace(/[\\/]+$/, '')}/tokens`
+  const names = io.listDir(dir) || []
+  const out = []
+  for (const name of names) {
+    if (!String(name).endsWith('.token')) continue
+    const text = io.readText(`${dir}/${name}`)
+    if (typeof text !== 'string') continue
+    const t = text.trim()
+    if (t) out.push(t)
+  }
+  return out
+}
+
 function execStageResult(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
   const state = readStateOrFail(doc, argv, io)
@@ -1726,6 +1747,7 @@ function execStageResult(argv, io) {
   const core = io.loadCore()
   const envelopeText = io.readText(flagValue(argv, '--envelope'))
   const opts = {
+    knownTokens: readKnownTokens(doc, io),
     agentTypeUsed: flagValue(argv, '--agent-type', null),
     agentTypeFallback: argv.includes('--agent-type-fallback'),
   }

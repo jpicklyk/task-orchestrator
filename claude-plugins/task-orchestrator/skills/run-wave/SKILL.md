@@ -50,6 +50,8 @@ seat reads it. Never put a token in a prompt, a note, a log line, a commit, the 
 input, and never echo one back to the user. A lost coordinator token cannot be recovered: close the
 run (a human credential may close it) and open another.
 
+A seat envelope is stripped before it is persisted: any `seatToken` or `coordinatorToken` key is removed at any depth in both methods, and Method B's `stage-result` also redacts every value read from the run's token files. Method A strips by key only (the Workflow sandbox cannot read token files), so a token echoed under another key is not caught there.
+
 **Which token goes on a call.** Every coordinator call (`update`, `assign`, `close`, the coordinator
 `advance` calls, `withdraw` of a decision this run raised) carries the coordinator token as the
 top-level `seatToken`; `end_seat` carries the seat's own token; `open` carries none.
