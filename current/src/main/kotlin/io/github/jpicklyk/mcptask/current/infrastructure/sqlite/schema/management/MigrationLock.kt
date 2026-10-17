@@ -82,7 +82,11 @@ internal object MigrationLock {
                 return block()
             } finally {
                 heldByThisThread.remove(key)
-                runCatching { lock?.release() }
+                try {
+                    lock?.release()
+                } catch (e: IOException) {
+                    logger.warn("Could not release the migration lock ${lockFile.path}: ${e.message}")
+                }
             }
         }
     }
