@@ -210,7 +210,7 @@ The `lifecycle:` field on a schema controls how parent items cascade when all ch
 
 | Mode           | Behavior                                                                                      |
 |----------------|-----------------------------------------------------------------------------------------------|
-| `AUTO`         | *(default)* Parent automatically advances to terminal when all children reach terminal.       |
+| `AUTO`         | *(default)* Parent automatically advances to terminal when all children reach terminal, unless it is in `review` (that cascade is suppressed with `reason: review-pending`; advance it explicitly). |
 | `MANUAL`       | Suppress auto-cascade - parent must be completed explicitly with an `advance` `transition` (`complete`). |
 | `PERMANENT`    | Parent never auto-terminates, regardless of child state.                                      |
 

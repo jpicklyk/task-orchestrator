@@ -471,7 +471,7 @@ holding a version skip the body: when it equals the stored version the answer is
 `{unchanged: true, version}`.
 
 **`schema`.** The `type` path resolves the base schema of that type, layered over `rootId`'s per-root config
-when given (the `schema_resolution` mode decides the order; global-only when the root has no pushed
+when given (one fixed order: per-root type, global type, per-root `default`, global `default`, see `LayeredConfig.kt:205-210`; global-only when the root has no pushed
 config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
 its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,

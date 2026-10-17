@@ -44,14 +44,13 @@ extensions:
       mode: workflow
     retrospective:
       mode: dispatch
-    actor_attribution:
-      required: true
 ```
 
-In 3.x these three sections sat at the top level (`orchestration`, `retrospective`, `actor_attribution`). The strict
+In 3.x three sections sat at the top level (`orchestration`, `retrospective`, `actor_attribution`). The strict
 parser no longer knows them there: pushing them at the top level is rejected (`/orchestration` and so on) and the
-fix is to move them under `extensions.claude-code`. Documents already stored from 3.x keep loading (see
-[Parse modes](#parse-modes)).
+fix is to move `orchestration` and `retrospective` under `extensions.claude-code`. `actor_attribution` has no new home:
+the 4.0 plugin removed the attribution hook that read it (the plugin reads no `actor_attribution` key), so delete the key.
+Documents already stored from 3.x keep loading (see [Parse modes](#parse-modes)).
 
 ### `actor_authentication`
 
@@ -220,7 +219,7 @@ How a rejection reaches you:
 
 | Surface | Rejection |
 |---------|-----------|
-| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid` (`422` on a single-element or atomic call, `207 partial_failure` otherwise); `detail.errors` holds the `{path, reason}` list. Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
+| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid` (`422` only on an atomic call, `207 partial_failure` otherwise: `EnvelopeEncoder.kt` `batch` answers the failing element's own error for `atomic` and a `partial_failure` envelope for a non-atomic batch, see `BatchResult.kt:37` and `ErrorCode.kt:45`); `detail.errors` holds the `{path, reason}` list. Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
 
 `force` bypasses the rootId-mismatch and older-content guards (the latter is `version_conflict` otherwise). It does not bypass validation or `expectedVersion`.
 

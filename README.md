@@ -228,7 +228,7 @@ Everything is a **WorkItem** in a hierarchical graph. Items nest to any depth an
 
 (`items_write`, orchestration profile.)
 
-When `schema` reaches terminal, `api` is automatically unblocked. When all children complete, the parent cascades to terminal. Dependency ordering is enforced by the server, structurally, not by convention.
+When `schema` reaches terminal, `api` is automatically unblocked. When all children complete, an `auto`-lifecycle parent cascades to terminal (a parent in `review` needs an explicit advance). Dependency ordering is enforced by the server, structurally, not by convention.
 
 Illustrated: [Work Graph](https://jpicklyk.github.io/task-orchestrator/field-guide/work-graph.html) has a clickable version of this tree that shows blocking, unblocking and parent cascades.
 
@@ -306,8 +306,10 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 | Layer | What it does |
 |-------|-------------|
 | **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:init`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
-| **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff, per-project config sync, and actor-attribution enforcement |
+| **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff and phase-gate enforcement, per-project config sync, and run-close retrospective prompts |
 | **Orchestration context** | A SessionStart hook delivers the orchestration core (with the `orchestrate` skill for tier and delegation detail): Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
+| **Director mode** | `/task-orchestrator:director` runs the session as a board of open runs, decisions and rollups; a guard hook holds it above the code and delegates every read to coordinators |
+| **Runs** | `/task-orchestrator:run-wave` and `/task-orchestrator:ralph` open server runs with per-seat tokens, and closing a run triggers its retrospective |
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 

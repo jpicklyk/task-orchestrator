@@ -38,8 +38,7 @@ internal fun checkRemovedServerConfig(
         throw IllegalArgumentException(
             "actor_authentication in '${globalConfig.configPath}' is no longer supported: since 4.0 every caller is " +
                 "identified by its transport credential (API_AUTH_MODE / API_JWKS_*, the /mcp auth mode), so the " +
-                "block authenticated nothing. Remove the block (for the plugin hook's attribution requirement use " +
-                "actor_attribution.required).",
+                "block authenticated nothing. Remove the block.",
         )
     }
 }
