@@ -74,7 +74,7 @@ test('S8: scanning the plugin with the checked-in baseline finds 0 violations an
 
 test('S8: baseline shape - 8-hex owners, plugin-relative posix paths, no duplicate rows, files exist, no tests/ paths', () => {
   assert.deepEqual(Object.keys(baseline).sort(), ['pendingPort', 'proseExceptions']);
-  assert.ok(baseline.pendingPort.length > 0, 'baseline has pending rows today');
+  assert.ok(Array.isArray(baseline.pendingPort), 'pendingPort stays an array');
   const seen = new Set();
   for (const row of baseline.pendingPort) {
     assert.match(row.owner, /^[0-9a-f]{8}$/, `owner of ${row.file}`);

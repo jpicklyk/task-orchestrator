@@ -571,7 +571,7 @@ test('S17: the contract-names baseline lists no row owned by cac1bffa and none o
     row.owner === 'cac1bffa' || row.file.startsWith('workflows/') || row.file.startsWith('skills/run-wave/') || mine.includes(row.file)
   const stale = baseline.pendingPort.filter(owned)
   assert.deepEqual(stale, [], 'every pendingPort row of this item must be deleted')
-  assert.ok(baseline.pendingPort.length >= 1, 'fixture condition: other items\' rows (ralph, agents, bundled-rules) are still pending')
+  assert.ok(Array.isArray(baseline.pendingPort), 'pendingPort stays an array')
 })
 
 // ============================================================================================

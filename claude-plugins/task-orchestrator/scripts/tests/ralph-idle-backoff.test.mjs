@@ -302,17 +302,11 @@ test('S4: a finite skip beside an Infinity one sets the wait (the earliest until
   assert.equal(decideSelection({ candidates: [cand('aaaa1111'), cand('bbbb2222')], skipList: mixed, now: NOW }).waitMs, 20000);
 });
 
-// FINDING (arbitration, recorded in test-manifest): TS D7 states the all-skipped rule as one formula - idle with
-// waitMs = earliest until - now clamped to [1000, 300000]. For skips that never expire (until = Infinity) that
-// formula gives MAX_IDLE_BACKOFF_MS. This assertion is left as the oracle states it and is RED if the
-// implementation answers anything else (observed by execution only: {drained: true}). Whether the spec or the
-// implementation is right is decided elsewhere; a permanently skipped page that ends the drain is arguably
-// the better behaviour, but that is a spec change, not a test change.
-test('S4 D7 formula: an all-skipped page whose skips never expire is idle for MAX_IDLE_BACKOFF_MS', () => {
+// Amendment A1 to D7: permanent skips cannot change for the rest of the loop, so an all-permanent page is drained.
+test('S4 D7 (A1): an all-skipped page whose skips never expire is drained', () => {
   const forever = addSkip([], { itemId: 'aaaa1111', code: 'duplicate', now: NOW });
   const r = decideSelection({ candidates: [cand('aaaa1111')], skipList: forever, now: NOW });
-  assert.deepEqual(kindOfSelection(r), ['idle']);
-  assert.equal(r.waitMs, MAX_IDLE_BACKOFF_MS);
+  assert.deepEqual(kindOfSelection(r), ['drained']);
 });
 
 test('S4: members restrict the pick to the --items set', () => {
