@@ -688,9 +688,9 @@ export function buildUsageOps({ itemId, ttlSeconds, envelope }) {
 /** Replace every occurrence of every non-empty known token value in `text` with `[redacted-token]`. */
 export function redactTokens(text, tokens) {
     let out = String(text ?? "");
-    for (const t of tokens || []) {
-        if (typeof t === "string" && t.length > 0) out = out.split(t).join(REDACTED_TOKEN);
-    }
+    // Longest first, so a token that is a prefix of another leaves no tail.
+    const list = (tokens || []).filter((t) => typeof t === "string" && t.length > 0).sort((x, y) => y.length - x.length);
+    for (const t of list) out = out.split(t).join(REDACTED_TOKEN);
     return out;
 }
 
