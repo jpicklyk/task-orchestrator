@@ -27,8 +27,8 @@ internal object MigrationLock {
 
     /**
      * Runs [block] under the lock (no lock for in-memory or non-file URLs). Polls [lockAttempt], treating [OverlappingFileLockException]
-     * as held; any [IOException] (for example ENOLCK on an NFS mount without lockd) fails closed with a message naming the lock file. Logs INFO every 10 s while waiting and
-     * gives up after [lockTimeoutMs]. The lock file is never deleted.
+     * as held; any [IOException] (for example ENOLCK on an NFS mount without lockd) fails closed with a message naming the lock
+     * file. Logs INFO every 10 s while waiting and gives up after [lockTimeoutMs]. The lock file is never deleted.
      */
     fun <T> withLock(
         jdbcUrl: String,
