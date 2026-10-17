@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTxBlocking
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.MigrationLock
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaMode
 import org.jetbrains.exposed.v1.core.DatabaseConfig
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -17,6 +18,20 @@ import org.sqlite.SQLiteConfig
 import org.sqlite.SQLiteDataSource
 import java.io.File
 import java.sql.Connection
+
+/** Result of [DatabaseManager.backupAndUpdateSchema]. */
+sealed interface SchemaStartupOutcome {
+    /** Backup (if any) and schema update both succeeded. */
+    data object Ready : SchemaStartupOutcome
+
+    /** The pre-upgrade backup failed; the schema update was not attempted. */
+    data class BackupFailed(
+        val detail: String
+    ) : SchemaStartupOutcome
+
+    /** The schema update failed, or the migration lock could not be taken (no backup is attempted then). */
+    data object SchemaUpdateFailed : SchemaStartupOutcome
+}
 
 /**
  * Manages database connections and schema management for the Current (4.0) MCP Task Orchestrator.
@@ -37,7 +52,8 @@ import java.sql.Connection
 class DatabaseManager(
     private val customDatabase: Database? = null,
     private val appConfig: AppConfig,
-    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.FAIL
+    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.FAIL,
+    private val migrationLockTimeoutMs: Long = FlywayDatabaseSchemaManager.LOCK_TIMEOUT_MS
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)
     private var writerDb: Database? = customDatabase
@@ -194,6 +210,7 @@ class DatabaseManager(
                         appConfig.flywayRepair,
                         appConfig.databaseBusyTimeoutMs,
                         schemaMode,
+                        lockTimeoutMs = migrationLockTimeoutMs,
                         ftsIntegrity = appConfig.ftsIntegrity
                     )
             }
@@ -213,6 +230,32 @@ class DatabaseManager(
             e.rethrowIfCancellation()
             logger.error("Error updating database schema: ${e.message}", e)
             return false
+        }
+    }
+
+    /**
+     * Startup sequence: the verified pre-upgrade backup ([runPreUpgradeBackup]) then [updateSchema], under ONE acquisition of the
+     * `<dbfile>.migrate.lock`, so a second process can neither copy nor migrate between this process's copy and its migrate chain.
+     * The parent-cycle check and startup compaction (part of [updateSchema]) run under the lock too, so a waiting boot waits for them.
+     * A backup failure skips [updateSchema]; a lock failure (timeout, unsupported filesystem) fails closed with no backup attempted.
+     * No lock is taken when there is no file-backed JDBC URL. Never throws.
+     */
+    fun backupAndUpdateSchema(): SchemaStartupOutcome {
+        val sequence = {
+            val backup = runPreUpgradeBackup()
+            when {
+                backup is BackupOutcome.Failed -> SchemaStartupOutcome.BackupFailed(backup.detail)
+                !updateSchema() -> SchemaStartupOutcome.SchemaUpdateFailed
+                else -> SchemaStartupOutcome.Ready
+            }
+        }
+        val url = jdbcUrl ?: return sequence()
+        return try {
+            MigrationLock.withLock(url, migrationLockTimeoutMs, block = sequence)
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            logger.error("Could not take the migration lock for the backup and schema update: ${e.message}", e)
+            SchemaStartupOutcome.SchemaUpdateFailed
         }
     }
 

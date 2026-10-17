@@ -104,7 +104,7 @@ field merge, so `[delegated, complex-implementation]` and `[complex-implementati
 implementer to opus. A model-only override on a seat that `delegated` gives `agent: null` (for example
 `test-author`) drops that `agent: null`. The validator warns at
 `/work_item_schemas/<type>/default_traits/<index>` when a `default_traits` list names a model-selecting trait after
-a trait that already overrides the same seat without selecting a model; the warning is kept for one release as a
+an earlier trait whose override for that seat is not itself model-selecting (the earliest overrider decides); the warning is kept for one release as a
 migration aid. It checks `default_traits` lists only, because the validator does not see item traits.
 
 ## Runs (`runs:`)
@@ -213,7 +213,7 @@ The root is the empty string. A key containing `/` or `~` is escaped as `~1` and
 
 Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
 likely), a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
-trait after an earlier trait that overrides the same seat without selecting a model (see "Seat dispatch precedence").
+trait after an earlier trait whose override for the same seat is not model-selecting (see "Seat dispatch precedence").
 
 How a rejection reaches you:
 

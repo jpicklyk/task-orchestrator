@@ -960,8 +960,8 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 
 - **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
 - **Migration lock.** The whole schema phase runs under an OS file lock `<dbfile>.migrate.lock` next to
-  the database file, so the schema phase of concurrent boots serializes. The lock does not cover the `UPGRADE_BACKUP` copy, which runs before it: a second first boot of a 3.x volume must not race that copy, so start ONE 4.0 container for the first boot (see "Upgrading from 3.x"). A second boot waits (INFO log every 10 s) and gives
-  up after 300 s, naming the lock file. The lock file is never deleted; leaving it in place is normal.
+  the database file, so the schema phase of concurrent boots serializes. One acquisition of the lock covers the `UPGRADE_BACKUP` copy, the schema phase, the parent-cycle check and the startup compaction, so a second first boot of a 3.x volume waits for the first one's copy and migration and then sees version 18 or later (one `.bak` in total; see "Upgrading from 3.x"). A second boot waits (INFO log every 10 s) for all of that and gives
+  up after 300 s, naming the lock file; a first boot of a very large database can outlast that wait, and the waiter then fails startup closed. The lock file is never deleted; leaving it in place is normal.
   A bounded retry on `SQLITE_BUSY` covers filesystems where the lock is advisory only.
 - **Startup integrity.** After migrate, startup verifies that the six FTS5 tables (work items, notes and
   documents, two each) and the FTS and parent-cycle triggers exist (a missing one fails startup and nothing
@@ -974,7 +974,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
   external-content FTS indexes. Use the sqlite3 `.backup` command, or copy the
   file with the server stopped (include the `-wal`/`-shm` files or checkpoint first).
 - **Topology.** One HTTP server hub is the recommended shape; one stdio process per session against the
-  same database file is supported (the migration lock serializes only the schema phase of their boots, not the `UPGRADE_BACKUP` copy, so start ONE 4.0 process for the first boot of a 3.x volume, see "Upgrading from 3.x"). Stop every 3.x process
+  same database file is supported (the migration lock serializes the `UPGRADE_BACKUP` copy and the schema phase of their boots, so concurrent first boots of a 3.x volume take one copy, see "Upgrading from 3.x"). Stop every 3.x process
   before upgrading: a 3.x binary does not fail closed on a newer database.
 
 ---
@@ -1026,7 +1026,7 @@ done
 
 The first start is slower than a normal boot: it runs the migrations, the startup compaction and the data steps before the marker is written. On a large database raise the container's `--start-period`, or the health will read `unhealthy` while the start is still progressing.
 
-**What the server does before the first migration.** After the database opens and before Flyway runs, the server takes a safety copy when all of these hold:
+**What the server does before the first migration.** After the database opens and before Flyway runs, the server takes a safety copy, under the same migration lock as the migration that follows, when all of these hold:
 
 - the highest successful version in `flyway_schema_history` is 17 or lower, or the file has user tables and no `flyway_schema_history` at all (a 3.x Direct-mode file; it counts as unversioned and is copied); and
 - the binary's newest classpath migration is 18 or higher.
@@ -1116,7 +1116,7 @@ To confirm the restored file is a 3.x database, run the step 4 query again: the 
  8 CREATE_NEW, an existing path fails and is never overwritten or deleted: the NOFOLLOW_LINKS exists check, CREATE_NEW and FileAlreadyExistsException branch in PreUpgradeBackup.runBackup.
  9 verification (integrity_check = ok, same max version), failed copy deleted: PreUpgradeBackup.verify and the delete in runBackup.
 10 INFO log line: "Pre-upgrade backup written" in PreUpgradeBackup.runBackup.
-11 Failed maps to Reason.UPGRADE_BACKUP before updateSchema(): CurrentMcpServer (the runPreUpgradeBackup call and Failed(Reason.UPGRADE_BACKUP)), Reason in StartupOutcome.
+11 Failed maps to Reason.UPGRADE_BACKUP before updateSchema(), both under the migration lock: DatabaseManager.backupAndUpdateSchema, CurrentMcpServer (Failed(Reason.UPGRADE_BACKUP)), Reason in StartupOutcome.
 12 non-zero exit, readiness marker not written: CurrentMain.main (non-zero exit on Failed); marker written only later by runStdioTransport and the HTTP transport runner in CurrentMcpServer; cleared first by ReadinessMarker.clear at the top of CurrentMcpServer startup.
 13 failure detail carries the cause and the UPGRADE_BACKUP=false hint: PreUpgradeBackup.fail, DISABLE_HINT and RETRY_AFTER_FIX.
 14 UPGRADE_BACKUP=false skips with one WARN, only when a copy was otherwise due: PreUpgradeBackup.runBackup (the `!enabled` branch); default true in AppConfig.upgradeBackup via EnvBoolean.parse in EnvBoolean.kt (unset = default, unrecognized = default with WARN).
