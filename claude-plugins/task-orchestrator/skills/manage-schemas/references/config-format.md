@@ -574,7 +574,8 @@ order (item `traits` first, then `default_traits`; see "Trait Merge Semantics"):
    `[delegated, complex-implementation]` resolves the implementer to the same model as
    `[complex-implementation, delegated]`. Known limitation: a seat-only model override for a seat that
    `delegated` gives `agent: null` (such as `test-author`) drops that `agent: null`. The validator warns
-   on a `default_traits` list whose earliest override for that seat is not model-selecting; the warning
+   when a `default_traits` list names a model-selecting trait after an earlier trait whose override for
+   that seat is not itself model-selecting (the earliest overrider decides); the warning
    is a migration aid and never rejects a push. See [Seat dispatch precedence](../../../../../current/docs/config-reference.md#seat-dispatch-precedence).
 
 ### Per-root layering
