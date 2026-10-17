@@ -23,7 +23,7 @@ The write-path hooks read the 4.0 contract, not the 3.x one. `phase-guard-record
 item's role is the one the seat owns and nothing is recorded yet; a non-empty top-level `seatToken` marks a run seat,
 which is never recorded. A 3.x-shaped result records and hints
 nothing and shows the legacy-shape warning once per session. `phase-guard` (SubagentStop) reads each recorded item's
-gate with `items_read` `select: "context"` (`POST /api/v1/ops/items_read`) and skips `workflow-subagent`.
+gate with `items_read` `select: "context"` (`POST /api/v1/ops/items_read`) and skips `workflow-subagent`. It blocks a stopping seat only on that seat's own missing notes: when the gate carries `missingBySeat` and the view's `seats` names the stopping seat, only `missingBySeat[seat]` counts (the `unowned` bucket and other seats' keys never block); otherwise it falls back to the flat `missing` list minus the test-author-owned keys (kept when the stopping seat is the test author).
 `skill-enforcement` (PreToolUse `notes_write`) acts on `ops[]` elements with `op: "upsert"` and takes skill and
 `maxLength` facts from the server: one `config` `effective` read per session, cached in a session marker, and the
 item's `items_read` `schema` view per op. The attribution hook is removed. With a located config and no REST API
