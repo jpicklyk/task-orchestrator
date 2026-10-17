@@ -1195,21 +1195,23 @@ export function expectedActors(doc) {
 }
 
 /**
- * reseatAccepts(resItem, expectedActorId, observedActorId) -> boolean. True only when the result
- * item carries a `reseats` ledger (an array, even empty) with an entry whose `seat` is the
- * observed `<baseSeat>-a<n>` seat and whose `baseSeat` is the expected seat, and the observed
- * actor id is exactly `<seat>-a<n>:<short>:<runId>` for that expected `<seat>:<short>:<runId>`.
- * Absent ledger or no exact match -> false (strict mismatch).
+ * reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) -> boolean. True when the
+ * observed actor id is exactly `<seat>-a<n>:<short>:<runId>` for the expected
+ * `<seat>:<short>:<runId>` (RESEAT_SEAT_RE, capture 1 === the expected seat, identical tail) AND:
+ *  - no result document (hasResult false), or the result row has no `reseats` array (absent/null/
+ *    non-array): the grammar alone decides;
+ *  - the result row carries a `reseats` array (even empty): the ledger is authoritative and needs
+ *    an entry with `seat` === the observed seat part and `baseSeat` === the expected seat.
  */
-function reseatAccepts(resItem, expectedActorId, observedActorId) {
-  const ledger = resItem && resItem.reseats
-  if (!Array.isArray(ledger) || ledger.length === 0) return false
+function reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) {
   const exp = String(expectedActorId).split(':')
   const obs = String(observedActorId || '').split(':')
   if (exp.length < 3 || obs.length !== exp.length) return false
   if (obs.slice(1).join(':') !== exp.slice(1).join(':')) return false
   const m = RESEAT_SEAT_RE.exec(obs[0])
   if (!m || m[1] !== exp[0]) return false
+  const ledger = hasResult && resItem ? resItem.reseats : undefined
+  if (!Array.isArray(ledger)) return true
   return ledger.some((entry) => entry && entry.seat === obs[0] && entry.baseSeat === exp[0])
 }
 
@@ -1221,9 +1223,10 @@ function reseatAccepts(resItem, expectedActorId, observedActorId) {
  * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
  * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
  * `{ok:true, missing:[], mismatched:[], skipped:true}` instead of flagging notes from stages that
- * never ran. In the result branch an observed `<seat>-a<n>:<short>:<runId>` actor is accepted for
- * the expected `<seat>` lane only when the item's `reseats` ledger records that seat with that
- * baseSeat; the no-result branch stays strict.
+ * never ran. An observed `<seat>-a<n>:<short>:<runId>` actor is accepted for the expected `<seat>` lane when
+ * it is grammar-valid and either there is no result, or the item's result row has no `reseats`
+ * array (grammar fallback); when the row carries a `reseats` array it is authoritative and must
+ * list that seat with that baseSeat (an empty array accepts nothing).
  */
 export function auditActors(doc, observed, itemIds, opts) {
   const filter = itemIds ? new Set(itemIds) : null
@@ -1241,7 +1244,7 @@ export function auditActors(doc, observed, itemIds, opts) {
           const found = observedForItem.find((o) => o.key === e.key)
           if (!found) {
             if (!e.optional) missing.push(e.key)
-          } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+          } else if (found.actorId !== e.actorId && !reseatAccepts(null, e.actorId, found.actorId, false)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
         }
         return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
       })
@@ -1274,7 +1277,7 @@ export function auditActors(doc, observed, itemIds, opts) {
         const found = observedForItem.find((o) => o.key === e.key)
         if (!found) {
           if (!e.optional) missing.push(e.key)
-        } else if (found.actorId !== e.actorId && !reseatAccepts(resItem, e.actorId, found.actorId)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+        } else if (found.actorId !== e.actorId && !reseatAccepts(resItem, e.actorId, found.actorId, true)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
       }
       return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
     })

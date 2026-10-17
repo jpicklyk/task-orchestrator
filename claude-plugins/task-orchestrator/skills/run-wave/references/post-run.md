@@ -152,9 +152,9 @@ note may (re-)write it; a mismatch is evidence something wrote outside its lane,
 discrepancy to wave through.
 
 A reseated seat is the one exception: with `--result`, a note written by `<seat>-a<n>` (actor
-`<seat>-a<n>:<short>:<runId>`) is accepted in the `<seat>` lane when that item's `reseats` ledger
-records the seat with `baseSeat` equal to `<seat>`; an absent ledger, or any actor not in it, stays
-`mismatched`.
+`<seat>-a<n>:<short>:<runId>`) is accepted in the `<seat>` lane when the actor is grammar-valid for
+that seat and short/runId, unless `--result` carries a `reseats` array for the item: that ledger is then
+authoritative and must record the seat with `baseSeat` equal to `<seat>` (an empty array accepts none).
 
 An **optional** note (a stage's `optionalNotes`; the expected-actors table marks it `optional:
 true`) that was never written is **not** `missing` and does not fail the item — but if it was
