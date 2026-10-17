@@ -1026,7 +1026,7 @@ done
 
 The first start is slower than a normal boot: it runs the migrations, the startup compaction and the data steps before the marker is written. On a large database raise the container's `--start-period`, or the health will read `unhealthy` while the start is still progressing.
 
-**What the server does before the first migration.** After the database opens and before Flyway runs, the server takes a safety copy when all of these hold:
+**What the server does before the first migration.** After the database opens and before Flyway runs, the server takes a safety copy, under the same migration lock as the migration that follows, when all of these hold:
 
 - the highest successful version in `flyway_schema_history` is 17 or lower, or the file has user tables and no `flyway_schema_history` at all (a 3.x Direct-mode file; it counts as unversioned and is copied); and
 - the binary's newest classpath migration is 18 or higher.
