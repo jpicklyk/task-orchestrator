@@ -16,6 +16,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
           notes:[{key, role, required, seat?, skill?}], seats?, dispatch?, dispatchBySeat?, resources?}},
  scopes?:{<itemId>: {files:[string], dependsOn?:[string]}},        // only candidates joined to a same-parent candidate by an unsatisfied dependency edge
+ carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
  noteOwners:{<itemId>: [{key, seat}]},                 // only for role=work candidates (S4 resume)
  parents:{<id>: {role, canAdvance, missing[]}},         // S11
  profile:{…parsed run-profile.json, or {} when absent},
@@ -45,6 +46,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   attribution). A resumed work seat whose every owned note is owned by that seat is skipped; a note
   with no owner row never skips a seat.
 - `scopes` - optional. One entry per candidate that an unsatisfied dependency edge joins to another candidate with the same `parentId`. `files` is every repo path the item's planner queue note or summary names as a file to edit (including `Shared file, lock-serialized:` lines); `dependsOn` is the ids (short or full UUID) on its `Depends on <id>:` lines. Only the extracted paths and ids enter the snapshot, not the note body. In `shared` mode `plan` compares canonical `files` for exact equality (backslashes become `/`, empty and `.` segments dropped, drive letter lowercased, a `git.repoRoot` prefix stripped; entries with `*` or `?` are skipped) and puts one advisory `shared-file edge` string in `meta.warnings` per edge whose two scopes share a file and whose dependent has no matching `dependsOn`. A directory-vs-file overlap and a blocker that is not a candidate get no warning. `explain` prints the warnings on a `Warnings:` line.
+- `carryIns` - optional. One entry per candidate that has at least one note key starting `carry-in-` (from `notes_read(select:"list", itemId)` with no `keys` filter); `keys` is those keys, `dispositions` is the body of the item's `carry-in-dispositions` note (`notes_read(select:"get", itemId, key:"carry-in-dispositions")`), or of the `## Carry-in dispositions` section of its planner queue note, else `null`. This is the one place a note body enters the snapshot. `plan` drops `carry-in-dispositions` and duplicates from `keys`, copies the result to each item's `carryIns`, and lists in `lateCarryIns` the keys of an item with no planner stage that no disposition line covers (a line covers a key only when it starts with the exact `<key>:`).
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.
